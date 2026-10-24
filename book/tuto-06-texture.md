@@ -3,17 +3,16 @@
 
 A texture is an image or a collection of images loaded into video memory.
 
-In order to load a texture, we must first decode the image format that stores our image (for example, PNG). To do so, we are going to use the `image` library. Let's add it to the Cargo.toml file:
+In order to load a texture, we must first decode the image format that stores our image (for example, PNG). To do so, we are going to use the `image` library. Add it under the existing `[dependencies]` section in `Cargo.toml`:
 
 ```toml
-[dependencies]
-image = "0.24"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 ```
 
-In order to load the image, we just need to call `image::load`:
+Download [this image](resources/opengl.png) into `assets/opengl.png` in your project. In `State::new`, call `image::load` to decode it:
 
 ```rust
-let image = image::load(std::io::Cursor::new(&include_bytes!("/path/to/image.png")),
+let image = image::load(std::io::Cursor::new(&include_bytes!("../assets/opengl.png")),
                         image::ImageFormat::Png).unwrap().to_rgba8();
 let image_dimensions = image.dimensions();
 let image = safegl::texture::RawImage2d::from_raw_rgba_reversed(&image.into_raw(), image_dimensions);
@@ -24,6 +23,10 @@ And in order to upload the image as a texture, it's as simple as:
 ```rust
 let texture = safegl::texture::Texture2d::new(&display, image).unwrap();
 ```
+
+Add a `texture: safegl::texture::Texture2d` field to `State` and include `texture` in the `Self` returned by `State::new`. The image is uploaded once and borrowed during each draw.
+
+`include_bytes!` resolves its path relative to the Rust file. The complete example below uses the image stored at `tests/fixture/opengl.png` in the SafeGL source tree; in your own project, use `../assets/opengl.png` from `src/main.rs`.
 
 # Using the texture
 
@@ -56,7 +59,7 @@ Texture coordinates range from `0.0` to `1.0`. The coordinates `(0.0, 0.0)` corr
 This new `tex_coords` attribute will be passed to the vertex shader, just like `position`. We don't need to do anything to it, and we are just going to pass it through to the fragment shader:
 
 ```glsl
-#version 140
+#version 410 core
 
 in vec2 position;
 in vec2 tex_coords;
@@ -75,7 +78,7 @@ Similarly to the `vertex_color` variable, the value of `v_tex_coords` will be in
 All that's left to do in our fragment shader is to get the value of the color at these coordinates in the texture with the `texture()` function that is available in GLSL.
 
 ```glsl
-#version 140
+#version 410 core
 
 in vec2 v_tex_coords;
 out vec4 color;
@@ -99,7 +102,7 @@ let uniforms = uniform! {
         [0.0, 0.0, 1.0, 0.0],
         [ x , 0.0, 0.0, 1.0f32],
     ],
-    tex: &texture,
+    tex: &self.texture,
 };
 ```
 
@@ -107,4 +110,11 @@ And here is the result:
 
 ![The result](resources/tuto-06-texture.png)
 
-**[You can find the entire source code here](https://github.com/viniciusmorgado/safegl/blob/develop/examples/standalone/tutorial-06.rs).**
+<details>
+<summary>Complete source code</summary>
+
+```rust,ignore
+{{#include ../examples/standalone/tutorial-06.rs}}
+```
+
+</details>

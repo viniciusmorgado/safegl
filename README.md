@@ -162,6 +162,11 @@ new team members contribute useful tools as they learn, build confidence through
 and prepare to take on more demanding rendering tasks. Investing in SafeGL supports both our
 production workflow and the growth of our team.
 
+## [SafeGL tutorials](book/README.md)
+
+Learn to draw with SafeGL, from your first window and triangle to textures,
+3D models, cameras and lighting.
+
 ## [SafeGL Book - Building a renderer from scratch]()
 
 SafeGL book are design to teach you to implement a Forward+ renderer with MSAA anti-aliasing using Rust, OpenGL 4.6 and 

@@ -2,111 +2,50 @@
 
 Now that we have a triangle, we are going to animate it. Remember that OpenGL is like a drawing software. If we want to make a change on the screen, we have to draw over the existing content to replace what is already there.
 
-So far we have only ever rendered a single frame and then waited for the program to exit. For an animation to show we need to change the way we draw our triangle. Instead of drawing a frame and then waiting in our event_loop for the window to close, we first draw our triangle when requested by the operating system:
+So far we have drawn when the operating system requests a frame, then waited for another event. For an animation, we need to request redraws continuously. Add this method to `impl ApplicationHandler for App`:
 
 ```rust
-let _ = event_loop.run(move |event, window_target| {
-    match event {
-        safegl::winit::event::Event::WindowEvent { event, .. } => match event {
-            safegl::winit::event::WindowEvent::CloseRequested => window_target.exit(),
-            safegl::winit::event::WindowEvent::RedrawRequested => {
-                // Move the draw code here!
-            },
-            _ => (),
-        },
-        _ => (),
-    };
-});
+fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    if let Some(state) = &self.state {
+        state.window.request_redraw();
+    }
+}
 ```
 
-What exactly triggers this event is platform specific, but in order to draw our triangle over and over again we can request a redraw ourselves once we've finished rendering, to do that we'll respond to yet another event:
-
-```rust
-let _ = event_loop.run(move |event, window_target| {
-    match event {
-        safegl::winit::event::Event::WindowEvent { event, .. } => match event {
-            safegl::winit::event::WindowEvent::CloseRequested => window_target.exit(),
-            safegl::winit::event::WindowEvent::RedrawRequested => {
-                // Move the draw code here!
-            },
-            _ => (),
-        },
-        safegl::winit::event::Event::AboutToWait => {
-            window.request_redraw();
-        },
-        _ => (),
-    };
-});
-```
-
-There are other ways to render a scene but this is the preferred way for glutin/winit making it a good default choice.
-
-While we are working on our event_loop there is one more event that we should handle, and that is a resize. Since SafeGL only really has an OpenGL context we need to tell SafeGL when the size of the underlying window has changed, otherwise you might see a streched image or borders. This is quite easy to accomplish:
-
-```rust
-let mut t: f32 = 0.0;
-let _ = event_loop.run(move |event, window_target| {
-    match event {
-        safegl::winit::event::Event::WindowEvent { event, .. } => match event {
-            safegl::winit::event::WindowEvent::CloseRequested => window_target.exit(),
-            safegl::winit::event::WindowEvent::Resized(window_size) => {
-                display.resize(window_size.into());
-            },
-            safegl::winit::event::WindowEvent::RedrawRequested => {
-                // Move the draw code here!
-            },
-            _ => (),
-        },
-        safegl::winit::event::Event::AboutToWait => {
-            window.request_redraw();
-        },
-        _ => (),
-    };
-});
-```
+Winit calls `about_to_wait` before waiting for more events. Requesting a redraw schedules another `RedrawRequested` event, which calls `State::draw` as before. Keep the resize and close handlers from the first chapter.
 
 Now we can start animating our triangle!
 
 # The naive approach
 
-Our first approach will be to create a variable named `t` which represents the step in the animation. We update the value of `t` at each loop, and add it to the coordinates of our triangle at each frame:
+Our first approach will be to calculate the triangle's new vertex positions on the CPU each frame. Store the time the animation started by adding a field to `State`:
 
 ```rust
-let mut t: f32 = 0.0;
-let _ = event_loop.run(move |event, window_target| {
-    match event {
-        safegl::winit::event::Event::WindowEvent { event, .. } => match event {
-            safegl::winit::event::WindowEvent::CloseRequested => window_target.exit(),
-            safegl::winit::event::WindowEvent::Resized(window_size) => {
-                display.resize(window_size.into());
-            },
-            safegl::winit::event::WindowEvent::RedrawRequested => {
-                // We update `t`
-                t += 0.02;
-                // We use the sine of t as an offset, this way we get a nice smooth animation
-                let x_off = t.sin() * 0.5;
+start: std::time::Instant,
+```
 
-                let shape = vec![
-                    Vertex { position: [-0.5 + x_off, -0.5] },
-                    Vertex { position: [ 0.0 + x_off,  0.5] },
-                    Vertex { position: [ 0.5 + x_off, -0.25] }
-                ];
-                let vertex_buffer = safegl::VertexBuffer::new(&display, &shape).unwrap();
+In `State::new`, initialize it with `let start = std::time::Instant::now();` and include `start` in the returned `Self`. Elapsed time gives the same animation speed at different frame rates.
 
-                let mut target = display.draw();
-                target.clear_color(0.0, 0.0, 1.0, 1.0);
-                target.draw(&vertex_buffer, &indices, &program, &safegl::uniforms::EmptyUniforms,
-                        &Default::default()).unwrap();
-                target.finish().unwrap();
-            },
-            _ => (),
-        },
-        safegl::winit::event::Event::AboutToWait => {
-            window.request_redraw();
-        },
-        _ => (),
-    };
-});
+Replace `State::draw` with:
+
+```rust
+fn draw(&self) {
+    let t = self.start.elapsed().as_secs_f32();
+    let x_off = t.sin() * 0.5;
+
+    let shape = vec![
+        Vertex { position: [-0.5 + x_off, -0.5] },
+        Vertex { position: [0.0 + x_off, 0.5] },
+        Vertex { position: [0.5 + x_off, -0.25] },
+    ];
+    let vertex_buffer = safegl::VertexBuffer::new(&self.display, &shape).unwrap();
+
+    let mut target = self.display.draw();
+    target.clear_color(0.0, 0.0, 1.0, 1.0);
+    target.draw(&vertex_buffer, &self.indices, &self.program,
+                &safegl::uniforms::EmptyUniforms, &Default::default()).unwrap();
+    target.finish().unwrap();
+}
 ```
 
 If you run this code, you should see your triangle going from the left to the right and back again smoothly!
@@ -121,62 +60,53 @@ This method is approximately what game programmers were doing in the 1990s. This
 
 Do you remember vertex shaders? Our vertex shader takes as input the attributes of each vertex, and outputs its position on the window. Instead of doing the addition in our program and upload the result, we are going to ask the GPU to do this operation.
 
-Let's remove the two `let`'s that redefine our shape and vertex_buffer from our draw handler:
+Let's remove the local `shape` and `vertex_buffer` from our draw method. We can use the vertex buffer stored in `State`, which was uploaded once during initialization:
 
 ```rust
-let mut t: f32 = 0.0;
-let _ = event_loop.run(move |event, window_target| {
-    match event {
-        safegl::winit::event::Event::WindowEvent { event, .. } => match event {
-            safegl::winit::event::WindowEvent::CloseRequested => window_target.exit(),
-            safegl::winit::event::WindowEvent::Resized(window_size) => {
-                display.resize(window_size.into());
-            },
-	    safegl::winit::event::WindowEvent::RedrawRequested => {
-	        // We update `t`
-	        t += 0.02;
-                // We use the sine of t as an offset, this way we get a nice smooth animation
-	        let x_off = t.sin() * 0.5;
+fn draw(&self) {
+    let t = self.start.elapsed().as_secs_f32();
+    let x_off = t.sin() * 0.5;
 
-	        let mut target = display.draw();
-	        target.clear_color(0.0, 0.0, 1.0, 1.0);
-	        target.draw(&vertex_buffer, &indices, &program, &safegl::uniforms::EmptyUniforms,
-			    &Default::default()).unwrap();
-	        target.finish().unwrap();
-	    },
-            _ => (),
-        },
-        safegl::winit::event::Event::AboutToWait => {
-            window.request_redraw();
-        },
-        _ => (),
-    };
-});
+    let mut target = self.display.draw();
+    target.clear_color(0.0, 0.0, 1.0, 1.0);
+    target.draw(&self.vertex_buffer, &self.indices, &self.program,
+                &safegl::uniforms::EmptyUniforms, &Default::default()).unwrap();
+    target.finish().unwrap();
+}
 ```
 
 And now we are going to change our vertex shader a little bit:
 
 ```rust
 let vertex_shader_src = r#"
-    #version 140
+    #version 410 core
 
     in vec2 position;
 
-    uniform float x;
+    uniform float x_off;
 
     void main() {
         vec2 pos = position;
-        pos.x += x;
+        pos.x += x_off;
         gl_Position = vec4(pos, 0.0, 1.0);
     }
 "#;
 ```
 
-You may notice that this is exactly the operation that we've been doing above, except that this time it is done on the GPU side. We have added a variable `t` in our shader, which is declared as a **uniform**. A uniform is a global variable whose value is set when we draw by passing its value to the `draw` function. The easiest way to do so is to use the `uniform!` macro:
+You may notice that this is exactly the operation that we've been doing above, except that this time it is done on the GPU side. We have added a variable `x_off` in our shader, which is declared as a **uniform**. A uniform is a global variable whose value is set when we draw by passing its value to the `draw` function. The easiest way to do so is to use the `uniform!` macro:
 
 ```rust
-target.draw(&vertex_buffer, &indices, &program, &uniform! { x: x_off },
+target.draw(&self.vertex_buffer, &self.indices, &self.program, &uniform! { x_off: x_off },
             &Default::default()).unwrap();
 ```
 
-Using uniform variables solves our two problems above. The CPU doesn't have to do any calculation, and all that it uploaded is the value of `x_off` (a single float) instead of the whole shape.
+Using uniform variables solves our two problems above. The CPU calculates just one offset and uploads the value of `x_off` (a single float) instead of the whole shape.
+
+<details>
+<summary>Complete source code</summary>
+
+```rust,ignore
+{{#include ../examples/standalone/tutorial-03.rs}}
+```
+
+</details>

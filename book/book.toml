@@ -1,6 +1,11 @@
 [book]
 authors = ["The SafeGL and glium contributors"]
 language = "en"
-multilingual = false
 src = "."
 title = "SafeGL Tutorials"
+
+[build]
+build-dir = "_book"
+
+[output.html.playground]
+runnable = false

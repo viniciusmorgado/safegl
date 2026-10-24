@@ -7,16 +7,30 @@ cargo new --bin my_project
 cd my_project
 ```
 
-The directory you have just created should contain a `Cargo.toml` file which contains our project's metadata, plus a `src/main.rs` file which contains the Rust source code. If you have `src/lib.rs` file instead, that means that you forgot the `--bin` flag ; just rename `lib.rs` to `main.rs` then.
+The directory you have just created should contain a `Cargo.toml` file which contains our project's metadata, plus a `src/main.rs` file which contains the Rust source code. This is the file we will edit throughout the tutorial.
 
 In order to use SafeGL, you need to add it as a dependency to your `Cargo.toml` file.
 
 ```toml
 [dependencies]
-safegl = "0.33"
+safegl = "0.1.0"
 ```
 
-By default SafeGL pulls in everything necessary to get you started. You should now have a `src/main.rs` file that looks similar to this:
+By default SafeGL includes the windowing dependencies and requests an OpenGL 4.6 core context. You will need a graphics driver that supports this version.
+
+On macOS, or hardware limited to OpenGL 4.1, use this dependency configuration instead:
+
+```toml
+[dependencies]
+safegl = { version = "0.1.0", default-features = false, features = ["gl41", "glutin_backend", "simple_window_builder"] }
+glutin = "0.32.3"
+glutin-winit = "0.5.0"
+winit = "0.30.13"
+```
+
+The additional windowing dependencies enable their platform backends when SafeGL's default features are disabled.
+
+The shaders in this tutorial use GLSL 4.10 core, which works with both configurations. You should now have a `src/main.rs` file that looks similar to this:
 
 ```rust
 fn main() {
@@ -30,48 +44,94 @@ It is now time to start work on the main function!
 
 The first step when creating a graphical application is to create a window. If you have ever worked with OpenGL before, you know how hard it is to do this correctly. Both window creation and context creation are platform-specific, and they are sometimes complex and tedious.
 
-Initializing a simple OpenGL window with the default winit/glutin backend can be done via the following 3 steps:
-
-1. Creating an `EventLoop` for handling window and device events.
-2. Making a new `SimpleWindowBuilder` and setting the desired parameters.
-3. Calling the `build` method of the `SimpleWindowBuilder` with a reference to the event_loop to get the `Window` and `Display`.
-
-This will open a new window, register it with the given event_loop and create a (glutin) OpenGL context and SafeGL Display while finally returning both the window and display to you.
-
-The following examples require the `simple_window_builder` feature, and provide a re-export of winit to prevent version mismatches.
+We will create the window with `SimpleWindowBuilder` and handle its events with winit's `ApplicationHandler`. Import these types at the top of `src/main.rs`:
 
 ```rust
-fn main() {
-    let event_loop = safegl::winit::event_loop::EventLoopBuilder::new().build().expect("event loop building");
-    let (_window, display) = safegl::backend::glutin::SimpleWindowBuilder::new().build(&event_loop);
+use safegl::{glutin, winit, Surface};
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::window::{Window, WindowId};
+
+type Display = safegl::Display<glutin::surface::WindowSurface>;
+```
+
+SafeGL re-exports `winit` and `glutin`, so these imports use compatible versions of the windowing libraries. `Display` is a short name for a SafeGL display backed by a window surface.
+
+Our program needs to keep its window and display alive between events. We store them in a `State` struct:
+
+```rust
+struct State {
+    display: Display,
+    window: Window,
+}
+
+impl State {
+    fn new(event_loop: &ActiveEventLoop) -> Self {
+        let (window, display) = safegl::backend::glutin::SimpleWindowBuilder::new()
+            .with_title("SafeGL tutorial #1")
+            .build(event_loop);
+        Self { display, window }
+    }
 }
 ```
 
-If you try to run this example with `cargo run` you'll encounter a problem: as soon as the window has been created, our main function exits and the window is closed. To prevent this, we need to wait until we receive a `CloseRequested` event. We do this by calling `event_loop.run`:
+The builder creates the window, an OpenGL context and the SafeGL display. It needs an `ActiveEventLoop`, which winit supplies when it calls our application's `resumed` method:
 
 ```rust
-let _ = event_loop.run(move |event, window_target| {
-    match event {
-        safegl::winit::event::Event::WindowEvent { event, .. } => match event {
-	    safegl::winit::event::WindowEvent::CloseRequested => window_target.exit(),
-	    _ => (),
-        },
-        _ => (),
-    };
-});
+#[derive(Default)]
+struct App {
+    state: Option<State>,
+}
+
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.is_none() {
+            let state = State::new(event_loop);
+            state.window.request_redraw();
+            self.state = Some(state);
+        }
+    }
+
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.state = None;
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
+        let Some(state) = &self.state else { return };
+        if state.window.id() != window_id {
+            return;
+        }
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            _ => (),
+        }
+    }
+}
 ```
 
-If you run the program now you should see an nice little window. The contents of the window, however, are not not very appealing. Depending on your system, it can appear black, show a random image, or just noise. We are expected to draw on the window, so the system doesn't initialize its color to a specific value.
+`App` starts without a window, so its state is `None`. When the application resumes, we create the state and request its first redraw. The guard prevents repeated resume notifications from creating extra windows. If the application is suspended, we drop its state; another resume will create it again.
+
+The `window_event` method receives events for our window. When the user closes it, `event_loop.exit()` asks winit to stop. Start the event loop on the main thread:
+
+```rust
+fn main() {
+    let event_loop = EventLoop::new().expect("create event loop");
+    event_loop.run_app(&mut App::default()).expect("run application");
+}
+```
+
+If you run the program now with `cargo run`, you should see a window that remains open until you close it. We still need to draw its contents.
 
 # Drawing on the window
 
 SafeGL and the OpenGL API work similarly to drawing software like Paint or GIMP. We begin with an empty image, then draw an object on it, then another object, then another object, etc. until we are satisfied with the result. But contrary to these programs, you don't want your users to see the intermediate steps. Only the final result should be displayed.
 
-To accomplish this, OpenGL uses what is called *double buffering*. Instead of drawing directly on the window, we are drawing to an image stored in memory. Once we are finished drawing, this image is copied into the window.
+To accomplish this, OpenGL uses what is called *double buffering*. Instead of drawing directly on the window, we are drawing to an image stored in memory. Once we are finished drawing, the buffers are swapped to present the completed image.
 This is represented in SafeGL by the `Frame` object. When you want to start drawing something on a window, you must first call `display.draw()` to produce a new `Frame`:
 
 ```rust
-let mut target = display.draw();
+let mut target = self.display.draw();
 ```
 
 We can then use this `target` as a drawing surface. One of the operations that OpenGL and SafeGL provide is filling the surface with a given color. This is what we are going to do.
@@ -86,7 +146,7 @@ Note that to use this function, we will need to import the `Surface` trait first
 use safegl::Surface;
 ```
 
-The four values that we pass to `clear_color` represent the four components of our color: red, green, blue and alpha. Only values between `0.0` and `1.0` are valid. Here we are drawing an opaque blue color.
+The four values that we pass to `clear_color` represent the four components of our color: red, green, blue and alpha. For this window, values from `0.0` to `1.0` represent the color intensity. Here we are drawing an opaque blue color.
 
 As explained above, the user doesn't immediately see the blue color on the screen. At this point if we were in a game, we would most likely draw our characters, their weapons, the ground, the sky, etc. But in this tutorial we will just stop here:
 
@@ -94,30 +154,31 @@ As explained above, the user doesn't immediately see the blue color on the scree
 target.finish().unwrap();
 ```
 
-This call to `finish()` means that we have finished drawing. It destroys the `Frame` object and copies our background image to the window. Our window is now filled with blue.
+This call to `finish()` means that we have finished drawing. It consumes the `Frame` and presents the back buffer in the window. Our window is now filled with blue.
+
+Put the drawing operations in a `draw(&self)` method inside `impl State`. Call it from `window_event` whenever winit sends `RedrawRequested`. We also need to resize the OpenGL surface when the window changes size:
+
+```rust
+match event {
+    WindowEvent::CloseRequested => event_loop.exit(),
+    WindowEvent::Resized(size) if size.width > 0 && size.height > 0 => {
+        state.display.resize(size.into());
+        state.window.request_redraw();
+    }
+    WindowEvent::RedrawRequested => {
+        let size = state.window.inner_size();
+        if size.width > 0 && size.height > 0 {
+            state.draw();
+        }
+    }
+    _ => (),
+}
+```
+
+A minimized window can have zero width or height. Skip drawing and resizing the GL surface in that case. We request a redraw after a valid resize so the blue background fills the new window dimensions.
 
 Here is our full program:
 
-```rust
-use safegl::Surface;
-
-fn main() {
-    let event_loop = safegl::winit::event_loop::EventLoopBuilder::new().build().expect("event loop building");
-    let (_window, display) = safegl::backend::glutin::SimpleWindowBuilder::new().build(&event_loop);
-
-    let mut frame = display.draw();
-    frame.clear_color(0.0, 0.0, 1.0, 1.0);
-    frame.finish().unwrap();
-
-    let _ = event_loop.run(move |event, window_target| {
-        match event {
-            safegl::winit::event::Event::WindowEvent { event, .. } => match event {
-	        safegl::winit::event::WindowEvent::CloseRequested => window_target.exit(),
-	        _ => (),
-            },
-            _ => (),
-        };
-    });
-}
+```rust,ignore
+{{#include ../examples/standalone/tutorial-01.rs}}
 ```
-**[You can find the entire source code for this example here](https://github.com/viniciusmorgado/safegl/blob/develop/examples/standalone/tutorial-01.rs)**
