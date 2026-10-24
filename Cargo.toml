@@ -10,7 +10,7 @@ repository = "https://github.com/viniciusmorgado/safegl"
 readme = "README.md"
 license = "Apache-2.0"
 build = "build/main.rs"
-exclude = ["doc", ".idea"]
+exclude = ["doc", ".idea", "examples/renderers"]
 edition = "2021"
 
 [features]

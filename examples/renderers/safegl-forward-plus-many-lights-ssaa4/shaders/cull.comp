@@ -1,0 +1,67 @@
+#version 460 core
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(std430) readonly buffer LightData { vec4 light_data[]; };
+layout(std430) buffer TileLists { uint entries[]; };
+uniform sampler2D scene_depth;
+uniform mat4 inverse_projection;
+uniform mat4 view;
+uniform uvec2 viewport;
+uniform uint tiles_x;
+shared uint min_depth_bits;
+shared uint max_depth_bits;
+shared uint visible_count;
+shared vec3 planes[4];
+
+vec3 ray(vec2 pixel) {
+    vec4 p = inverse_projection * vec4(pixel * 2.0 / vec2(viewport) - 1.0, 1.0, 1.0);
+    return normalize(p.xyz / p.w);
+}
+
+void main() {
+    uint lane = gl_LocalInvocationIndex;
+    uint tile = gl_WorkGroupID.y * tiles_x + gl_WorkGroupID.x;
+    uint base = tile * 257u;
+    if (lane == 0u) {
+        min_depth_bits = floatBitsToUint(1e30);
+        max_depth_bits = 0u;
+        visible_count = 0u;
+        entries[base] = 0u;
+        vec2 lo = vec2(gl_WorkGroupID.xy * 32u);
+        vec2 hi = min(lo + 32.0, vec2(viewport));
+        vec3 corners[4] = vec3[4](ray(lo), ray(vec2(hi.x, lo.y)), ray(hi), ray(vec2(lo.x, hi.y)));
+        vec3 center = ray((lo + hi) * 0.5);
+        for (int i = 0; i < 4; ++i) {
+            vec3 n = normalize(cross(corners[i], corners[(i + 1) % 4]));
+            planes[i] = dot(n, center) >= 0.0 ? n : -n;
+        }
+    }
+    barrier();
+    // Each lane reduces all four SSAA depths of one output pixel.
+    for (uint y=0u; y<2u; ++y) for (uint x=0u; x<2u; ++x) {
+        uvec2 pixel = gl_WorkGroupID.xy * 32u + gl_LocalInvocationID.xy * 2u + uvec2(x,y);
+        if (all(lessThan(pixel, viewport))) {
+            float depth = texelFetch(scene_depth, ivec2(pixel), 0).r;
+            if (depth < 1.0) {
+                vec4 p = inverse_projection * vec4(0,0,depth*2.0-1.0,1);
+                uint bits=floatBitsToUint(-p.z/p.w);
+                atomicMin(min_depth_bits,bits); atomicMax(max_depth_bits,bits);
+            }
+        }
+    }
+    barrier();
+    if (max_depth_bits == 0u) return; // Uniform branch after all barriers.
+    // Exactly 256 lanes/lights and 256 index slots: lists cannot overflow.
+    vec4 light = light_data[lane * 2u];
+    vec3 center = (view * vec4(light.xyz, 1)).xyz;
+    float radius = light.w + 0.002; // Conservative numerical tolerance.
+    float depth = -center.z;
+    bool visible = depth + radius >= uintBitsToFloat(min_depth_bits) &&
+                   depth - radius <= uintBitsToFloat(max_depth_bits);
+    for (int i = 0; i < 4; ++i) visible = visible && dot(planes[i], center) >= -radius;
+    if (visible) {
+        uint slot = atomicAdd(visible_count, 1u);
+        entries[base + 1u + slot] = lane;
+    }
+    barrier();
+    if (lane == 0u) entries[base] = visible_count;
+}
