@@ -7,13 +7,12 @@ Here is the estimated cost of various operations:
 
  - **Creating an empty buffer**: medium for vertex and index buffers, low for other buffers.
 
- - **Uploading data to a buffer**: low to medium. The transfer rate between RAM and video memory is
-   around 15 GB per second today. This means that uploading 1 MB of data takes around 65µs. The
+ - **Uploading data to a buffer**: low to medium. The transfer rate depends on the hardware, driver and allocation strategy. The
    OpenGL implementation can also sometimes give you a buffer whose data is located in RAM, in
    which case you pay the price when drawing rather than uploading.
 
  - **Copying between two buffers**: very low (similar to a memcpy on the CPU). This operation is done
-   asynchronously by the GPU or the DMA. The transfer rate is around 50 GB per second.
+   asynchronously by the GPU or the DMA. Measure the transfer rate on the target hardware.
 
  - **Creating a texture**: low. Reusing an existing texture is faster than creating a new one, but not
    by much.

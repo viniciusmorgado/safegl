@@ -2,7 +2,7 @@
 
 In our programming pipeline, the color of each pixel inside the triangle corresponds to the output of our fragment shader. Since our fragment shader returns `(1.0, 0.0, 0.0, 1.0)`, each pixel is an opaque red (the four values correspond to: red, green, blue, alpha/opacity).
 
-In this example we'll be adding another attribute allowing us to specify a color for each corner of the triangle. To accomplish this we'll first have to extend our `Vertex` struct and shape as follows:
+In this example we'll be adding another attribute allowing us to specify a color for each corner of the triangle. Extend the `Vertex` struct at module scope and the shape created in `State::new` as follows:
 
 ```rust
 #[derive(Copy, Clone)]
@@ -19,10 +19,10 @@ let shape = vec![
 ];
 ```
 
-Here we've added a color attribute of type `[f32; 3]` which corresponds to a `vec3` in GLSL, storing the red, green and blue components. In our shape we've specified a solid red, green and blue for each corner. Now we need to update the shaders so that they make us of this new attribute, first the vertex shader:
+Here we've added a color attribute of type `[f32; 3]` which corresponds to a `vec3` in GLSL, storing the red, green and blue components. In our shape we've specified a solid red, green and blue for each corner. Now we need to update the shaders so that they make use of this new attribute, first the vertex shader:
 
 ```glsl
-#version 140
+#version 410 core
 
 in vec2 position;
 in vec3 color;      // our new attribute
@@ -40,7 +40,7 @@ The `in vec3 color;` line should look familiar to you, what is new however is th
 This line defines a variable that is going to be passed along to the fragment shader, let's update our fragment shader to make use of it and then explore what's going on:
 
 ```glsl
-#version 140
+#version 410 core
 
 in vec3 vertex_color;
 out vec4 color;
@@ -60,4 +60,11 @@ The result should look like this:
 
 ![The result](resources/tuto-05-linear.png)
 
-**[You can find the entire source code here](https://github.com/viniciusmorgado/safegl/blob/develop/examples/standalone/tutorial-05.rs).**
+<details>
+<summary>Complete source code</summary>
+
+```rust,ignore
+{{#include ../examples/standalone/tutorial-05.rs}}
+```
+
+</details>

@@ -77,10 +77,10 @@ The function takes three arguments:
  - The `direction` the camera is facing in scene coordinates.
  - The `up` vector, representing the direction in scene coordinates of the top of the screen.
 
-We need to reorganize our vertex shader one more time:
+Rename the previous `matrix` variable and uniform to `model`, keeping the same scale and translation values. Put `view_matrix` at module scope, then reorganize our vertex shader one more time:
 
 ```glsl
-#version 140
+#version 410 core
 
 in vec3 position;
 in vec3 normal;
@@ -106,16 +106,23 @@ As usual, we need to pass a new uniform:
 ```rust
 let view = view_matrix(&[2.0, -1.0, 1.0], &[-2.0, 1.0, 1.0], &[0.0, 1.0, 0.0]);
 
-target.draw((&positions, &normals), &indices, &program,
+target.draw((&self.positions, &self.normals), &self.indices, &self.program,
             &uniform! { model: model, view: view, perspective: perspective, u_light: light },
             &params).unwrap();
 ```
 
-We are using fixed coordinates for the example. A first person camera is not that easy to create
+The light direction is expressed in view space, like the transformed normals. We are using fixed coordinates for the example. A first person camera is not that easy to create
 and requires a lot of code that would be out of scope for this tutorial.
 
 And here is the result:
 
 ![Result](resources/tuto-12-result.png)
 
-**[You can find the entire source code here](https://github.com/viniciusmorgado/safegl/blob/develop/examples/standalone/tutorial-12.rs).**
+<details>
+<summary>Complete source code</summary>
+
+```rust,ignore
+{{#include ../examples/standalone/tutorial-12.rs}}
+```
+
+</details>

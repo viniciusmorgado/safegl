@@ -36,7 +36,18 @@ for example) without having to care about the order in which you draw them.
 
 ## The code
 
-We need to change two things:
+First, request a depth buffer when creating the window in `State::new`:
+
+```rust
+let (window, display) = safegl::backend::glutin::SimpleWindowBuilder::new()
+    .with_title("SafeGL tutorial #9")
+    .with_config_template_builder(
+        glutin::config::ConfigTemplateBuilder::new().with_depth_size(24),
+    )
+    .build(event_loop);
+```
+
+Keep this depth-buffer configuration in the following chapters. In `State::draw`, we need to change two things:
 
  - Before each frame, we have to reset the content of the depth buffer to `1.0` (which is
    the maximal value). This is similar to when we reset the color to blue.
@@ -72,7 +83,7 @@ let params = safegl::DrawParameters {
     .. Default::default()
 };
 
-target.draw((&positions, &normals), &indices, &program,
+target.draw((&self.positions, &self.normals), &self.indices, &self.program,
             &uniform! { matrix: matrix, u_light: light }, &params).unwrap();
 ```
 
@@ -94,4 +105,11 @@ represented as shades of gray. Here is our depth buffer after drawing the teapot
 
 ![Depth buffer](resources/tuto-09-depth.png)
 
-**[You can find the entire source code here](https://github.com/viniciusmorgado/safegl/blob/develop/examples/standalone/tutorial-09.rs).**
+<details>
+<summary>Complete source code</summary>
+
+```rust,ignore
+{{#include ../examples/standalone/tutorial-09.rs}}
+```
+
+</details>

@@ -1,225 +1,336 @@
+#![deny(deprecated)]
+
 #[macro_use]
 extern crate safegl;
-use safegl::Surface;
+use safegl::{glutin, winit, Surface};
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::window::{Window, WindowId};
 
-mod support;
-use support::view_matrix;
+type Display = safegl::Display<glutin::surface::WindowSurface>;
 
-fn main() {
-    let event_loop = safegl::winit::event_loop::EventLoop::builder()
-        .build()
-        .expect("event loop building");
-    let (window, display) = safegl::backend::glutin::SimpleWindowBuilder::new()
-        .with_title("SafeGL tutorial #14")
-        .build(&event_loop);
+#[derive(Copy, Clone)]
+struct Vertex {
+    position: [f32; 3],
+    normal: [f32; 3],
+    tex_coords: [f32; 2],
+}
+implement_vertex!(Vertex, position, normal, tex_coords);
 
-    #[derive(Copy, Clone)]
-    struct Vertex {
-        position: [f32; 3],
-        normal: [f32; 3],
-        tex_coords: [f32; 2],
+struct State {
+    shape: safegl::VertexBuffer<Vertex>,
+    diffuse_texture: safegl::texture::Texture2d,
+    normal_map: safegl::texture::Texture2d,
+    program: safegl::Program,
+    start: std::time::Instant,
+    display: Display,
+    window: Window,
+}
+
+impl State {
+    fn new(event_loop: &ActiveEventLoop) -> Self {
+        let (window, display) = safegl::backend::glutin::SimpleWindowBuilder::new()
+            .with_title("SafeGL tutorial #14")
+            .with_config_template_builder(
+                glutin::config::ConfigTemplateBuilder::new().with_depth_size(24),
+            )
+            .build(event_loop);
+        let shape = safegl::vertex::VertexBuffer::new(
+            &display,
+            &[
+                Vertex {
+                    position: [-1.0, 1.0, 0.0],
+                    normal: [0.0, 0.0, -1.0],
+                    tex_coords: [0.0, 1.0],
+                },
+                Vertex {
+                    position: [1.0, 1.0, 0.0],
+                    normal: [0.0, 0.0, -1.0],
+                    tex_coords: [1.0, 1.0],
+                },
+                Vertex {
+                    position: [-1.0, -1.0, 0.0],
+                    normal: [0.0, 0.0, -1.0],
+                    tex_coords: [0.0, 0.0],
+                },
+                Vertex {
+                    position: [1.0, -1.0, 0.0],
+                    normal: [0.0, 0.0, -1.0],
+                    tex_coords: [1.0, 0.0],
+                },
+            ],
+        )
+        .unwrap();
+
+        let image = image::load(
+            std::io::Cursor::new(&include_bytes!("../../book/resources/tuto-14-diffuse.jpg")),
+            image::ImageFormat::Jpeg,
+        )
+        .unwrap()
+        .to_rgba8();
+        let image_dimensions = image.dimensions();
+        let image = safegl::texture::RawImage2d::from_raw_rgba_reversed(
+            &image.into_raw(),
+            image_dimensions,
+        );
+        let diffuse_texture = safegl::texture::Texture2d::new(&display, image).unwrap();
+
+        let image = image::load(
+            std::io::Cursor::new(&include_bytes!("../../book/resources/tuto-14-normal.png")),
+            image::ImageFormat::Png,
+        )
+        .unwrap()
+        .to_rgba8();
+        let image_dimensions = image.dimensions();
+        let image = safegl::texture::RawImage2d::from_raw_rgba_reversed(
+            &image.into_raw(),
+            image_dimensions,
+        );
+        let normal_map = safegl::texture::Texture2d::new(&display, image).unwrap();
+
+        let vertex_shader_src = r#"
+                #version 410 core
+
+                in vec3 position;
+                in vec3 normal;
+                in vec2 tex_coords;
+
+                out vec3 v_normal;
+                out vec3 v_position;
+                out vec2 v_tex_coords;
+
+                uniform mat4 perspective;
+                uniform mat4 view;
+                uniform mat4 model;
+
+                void main() {
+                    v_tex_coords = tex_coords;
+                    mat4 modelview = view * model;
+                    v_normal = transpose(inverse(mat3(modelview))) * normal;
+                    gl_Position = perspective * modelview * vec4(position, 1.0);
+                    v_position = (modelview * vec4(position, 1.0)).xyz;
+                }
+            "#;
+
+        let fragment_shader_src = r#"
+                #version 410 core
+
+                in vec3 v_normal;
+                in vec3 v_position;
+                in vec2 v_tex_coords;
+
+                out vec4 color;
+
+                uniform vec3 u_light;
+                uniform sampler2D diffuse_tex;
+                uniform sampler2D normal_tex;
+
+                const vec3 specular_color = vec3(0.15);
+
+                mat3 cotangent_frame(vec3 normal, vec3 pos, vec2 uv) {
+                    vec3 dp1 = dFdx(pos);
+                    vec3 dp2 = dFdy(pos);
+                    vec2 duv1 = dFdx(uv);
+                    vec2 duv2 = dFdy(uv);
+
+                    vec3 dp2perp = cross(dp2, normal);
+                    vec3 dp1perp = cross(normal, dp1);
+                    vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+                    vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+
+                    float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
+                    return mat3(T * invmax, B * invmax, normal);
+                }
+
+                void main() {
+                    vec3 diffuse_color = texture(diffuse_tex, v_tex_coords).rgb;
+                    vec3 ambient_color = diffuse_color * 0.1;
+
+                    vec3 v_normal_unit = normalize(v_normal);
+                    vec3 normal_map = texture(normal_tex, v_tex_coords).rgb;
+                    mat3 tbn = cotangent_frame(v_normal_unit, v_position, v_tex_coords);
+                    vec3 real_normal = normalize(tbn * (normal_map * 2.0 - 1.0));
+
+                    float diffuse = max(dot(real_normal, normalize(u_light)), 0.0);
+
+                    vec3 camera_dir = normalize(-v_position);
+                    vec3 half_direction = normalize(normalize(u_light) + camera_dir);
+                    float specular = pow(max(dot(half_direction, real_normal), 0.0), 16.0);
+
+                    color = vec4(ambient_color + diffuse * diffuse_color + specular * specular_color, 1.0);
+                }
+            "#;
+
+        let program =
+            safegl::Program::from_source(&display, vertex_shader_src, fragment_shader_src, None)
+                .unwrap();
+
+        let start = std::time::Instant::now();
+        Self {
+            shape,
+            diffuse_texture,
+            normal_map,
+            program,
+            start,
+            display,
+            window,
+        }
     }
-    implement_vertex!(Vertex, position, normal, tex_coords);
-    let shape = safegl::vertex::VertexBuffer::new(
-        &display,
-        &[
-            Vertex {
-                position: [-1.0, 1.0, 0.0],
-                normal: [0.0, 0.0, -1.0],
-                tex_coords: [0.0, 1.0],
+
+    fn draw(&self) {
+        let mut target = self.display.draw();
+        target.clear_color_and_depth((0.0, 0.0, 1.0, 1.0), 1.0);
+
+        let t = self.start.elapsed().as_secs_f32() * 2.0;
+        let ang = t.sin();
+        let (c, s) = (ang.cos(), ang.sin());
+        let model = [
+            [c, 0.0, s, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [-s, 0.0, c, 0.0],
+            [0.0, 0.0, 0.0, 1.0f32],
+        ];
+
+        let view = view_matrix(&[0.5, 0.2, -3.0], &[-0.5, -0.2, 3.0], &[0.0, 1.0, 0.0]);
+
+        let perspective = {
+            let (width, height) = target.get_dimensions();
+            let aspect_ratio = height as f32 / width as f32;
+
+            let fov: f32 = std::f32::consts::PI / 3.0;
+            let zfar = 1024.0;
+            let znear = 0.1;
+
+            let f = 1.0 / (fov / 2.0).tan();
+
+            [
+                [f * aspect_ratio, 0.0, 0.0, 0.0],
+                [0.0, f, 0.0, 0.0],
+                [0.0, 0.0, (zfar + znear) / (zfar - znear), 1.0],
+                [0.0, 0.0, -(2.0 * zfar * znear) / (zfar - znear), 0.0],
+            ]
+        };
+
+        let light = [1.4, 0.4, -0.7f32];
+
+        let params = safegl::DrawParameters {
+            depth: safegl::Depth {
+                test: safegl::draw_parameters::DepthTest::IfLess,
+                write: true,
+                ..Default::default()
             },
-            Vertex {
-                position: [1.0, 1.0, 0.0],
-                normal: [0.0, 0.0, -1.0],
-                tex_coords: [1.0, 1.0],
-            },
-            Vertex {
-                position: [-1.0, -1.0, 0.0],
-                normal: [0.0, 0.0, -1.0],
-                tex_coords: [0.0, 0.0],
-            },
-            Vertex {
-                position: [1.0, -1.0, 0.0],
-                normal: [0.0, 0.0, -1.0],
-                tex_coords: [1.0, 0.0],
-            },
-        ],
-    )
-    .unwrap();
+            ..Default::default()
+        };
 
-    let image = image::load(
-        std::io::Cursor::new(&include_bytes!("../../book/resources/tuto-14-diffuse.jpg")),
-        image::ImageFormat::Jpeg,
-    )
-    .unwrap()
-    .to_rgba8();
-    let image_dimensions = image.dimensions();
-    let image =
-        safegl::texture::RawImage2d::from_raw_rgba_reversed(&image.into_raw(), image_dimensions);
-    let diffuse_texture = safegl::texture::Texture2d::new(&display, image).unwrap();
-
-    let image = image::load(
-        std::io::Cursor::new(&include_bytes!("../../book/resources/tuto-14-normal.png")),
-        image::ImageFormat::Png,
-    )
-    .unwrap()
-    .to_rgba8();
-    let image_dimensions = image.dimensions();
-    let image =
-        safegl::texture::RawImage2d::from_raw_rgba_reversed(&image.into_raw(), image_dimensions);
-    let normal_map = safegl::texture::Texture2d::new(&display, image).unwrap();
-
-    let vertex_shader_src = r#"
-        #version 150
-
-        in vec3 position;
-        in vec3 normal;
-        in vec2 tex_coords;
-
-        out vec3 v_normal;
-        out vec3 v_position;
-        out vec2 v_tex_coords;
-
-        uniform mat4 perspective;
-        uniform mat4 view;
-        uniform mat4 model;
-
-        void main() {
-            v_tex_coords = tex_coords;
-            mat4 modelview = view * model;
-            v_normal = transpose(inverse(mat3(modelview))) * normal;
-            gl_Position = perspective * modelview * vec4(position, 1.0);
-            v_position = gl_Position.xyz / gl_Position.w;
-        }
-    "#;
-
-    let fragment_shader_src = r#"
-        #version 140
-
-        in vec3 v_normal;
-        in vec3 v_position;
-        in vec2 v_tex_coords;
-
-        out vec4 color;
-
-        uniform vec3 u_light;
-        uniform sampler2D diffuse_tex;
-        uniform sampler2D normal_tex;
-
-        const vec3 specular_color = vec3(1.0, 1.0, 1.0);
-
-        mat3 cotangent_frame(vec3 normal, vec3 pos, vec2 uv) {
-            vec3 dp1 = dFdx(pos);
-            vec3 dp2 = dFdy(pos);
-            vec2 duv1 = dFdx(uv);
-            vec2 duv2 = dFdy(uv);
-
-            vec3 dp2perp = cross(dp2, normal);
-            vec3 dp1perp = cross(normal, dp1);
-            vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
-            vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
-
-            float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
-            return mat3(T * invmax, B * invmax, normal);
-        }
-
-        void main() {
-            vec3 diffuse_color = texture(diffuse_tex, v_tex_coords).rgb;
-            vec3 ambient_color = diffuse_color * 0.1;
-
-            vec3 v_normal_unit = normalize(v_normal);
-            vec3 normal_map = texture(normal_tex, v_tex_coords).rgb;
-            mat3 tbn = cotangent_frame(v_normal_unit, -v_position, v_tex_coords);
-            vec3 real_normal = normalize(tbn * -(normal_map * 2.0 - 1.0));
-
-            float diffuse = max(dot(real_normal, normalize(u_light)), 0.0);
-
-            vec3 camera_dir = normalize(-v_position);
-            vec3 half_direction = normalize(normalize(u_light) + camera_dir);
-            float specular = pow(max(dot(half_direction, real_normal), 0.0), 16.0);
-
-            color = vec4(ambient_color + diffuse * diffuse_color + specular * specular_color, 1.0);
-        }
-    "#;
-
-    let program =
-        safegl::Program::from_source(&display, vertex_shader_src, fragment_shader_src, None)
+        target
+            .draw(
+                &self.shape,
+                safegl::index::NoIndices(safegl::index::PrimitiveType::TriangleStrip),
+                &self.program,
+                &uniform! { model: model, view: view, perspective: perspective,
+                u_light: light, diffuse_tex: &self.diffuse_texture, normal_tex: &self.normal_map },
+                &params,
+            )
             .unwrap();
-    let start = std::time::Instant::now();
+        target.finish().unwrap();
+    }
+}
 
-    #[allow(deprecated)]
-    event_loop.run(move |ev, window_target| {
-        match ev {
-            safegl::winit::event::Event::WindowEvent { event, .. } => match event {
-                safegl::winit::event::WindowEvent::CloseRequested => {
-                    window_target.exit();
-                },
-                // We now need to render everyting in response to a RedrawRequested event due to the animation
-                safegl::winit::event::WindowEvent::RedrawRequested => {
-                    let mut target = display.draw();
-                    target.clear_color_and_depth((0.0, 0.0, 1.0, 1.0), 1.0);
+#[derive(Default)]
+struct App {
+    state: Option<State>,
+}
 
-                    let t = (std::time::Instant::now() - start).as_secs_f32() * 2.0;
-                    let ang = t.sin();
-                    let (c, s) = (ang.cos(), ang.sin());
-                    let model = [
-                        [  c, 0.0,   s, 0.0],
-                        [0.0, 1.0, 0.0, 0.0],
-                        [ -s, 0.0,   c, 0.0],
-                        [0.0, 0.0, 0.0, 1.0f32]
-                    ];
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.is_none() {
+            let state = State::new(event_loop);
+            state.window.request_redraw();
+            self.state = Some(state);
+        }
+    }
 
-                    let view = view_matrix(&[0.5, 0.2, -3.0], &[-0.5, -0.2, 3.0], &[0.0, 1.0, 0.0]);
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.state = None;
+    }
 
-                    let perspective = {
-                        let (width, height) = target.get_dimensions();
-                        let aspect_ratio = height as f32 / width as f32;
-
-                        let fov: f32 = 3.141592 / 3.0;
-                        let zfar = 1024.0;
-                        let znear = 0.1;
-
-                        let f = 1.0 / (fov / 2.0).tan();
-
-                        [
-                            [f *   aspect_ratio   ,    0.0,              0.0              ,   0.0],
-                            [         0.0         ,     f ,              0.0              ,   0.0],
-                            [         0.0         ,    0.0,  (zfar+znear)/(zfar-znear)    ,   1.0],
-                            [         0.0         ,    0.0, -(2.0*zfar*znear)/(zfar-znear),   0.0],
-                        ]
-                    };
-
-                    let light = [1.4, 0.4, 0.7f32];
-
-                    let params = safegl::DrawParameters {
-                        depth: safegl::Depth {
-                            test: safegl::draw_parameters::DepthTest::IfLess,
-                            write: true,
-                            .. Default::default()
-                        },
-                        .. Default::default()
-                    };
-
-                    target.draw(&shape, safegl::index::NoIndices(safegl::index::PrimitiveType::TriangleStrip), &program,
-                                &uniform! { model: model, view: view, perspective: perspective,
-                                            u_light: light, diffuse_tex: &diffuse_texture, normal_tex: &normal_map },
-                                &params).unwrap();
-                    target.finish().unwrap();
-                },
-                // Because SafeGL doesn't know about windows we need to resize the display
-                // when the window's size has changed.
-                safegl::winit::event::WindowEvent::Resized(window_size) => {
-                    display.resize(window_size.into());
-                },
-                _ => (),
-            },
-            // By requesting a redraw in response to a AboutToWait event we get continuous rendering.
-            // For applications that only change due to user input you could remove this handler.
-            safegl::winit::event::Event::AboutToWait => {
-                window.request_redraw();
-            },
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        let Some(state) = &self.state else { return };
+        if state.window.id() != window_id {
+            return;
+        }
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(size) if size.width > 0 && size.height > 0 => {
+                state.display.resize(size.into());
+                state.window.request_redraw();
+            }
+            WindowEvent::RedrawRequested => {
+                let size = state.window.inner_size();
+                if size.width > 0 && size.height > 0 {
+                    state.draw();
+                }
+            }
             _ => (),
         }
-    })
-    .unwrap();
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(state) = &self.state {
+            state.window.request_redraw();
+        }
+    }
+}
+
+fn main() {
+    let event_loop = EventLoop::new().expect("create event loop");
+    event_loop
+        .run_app(&mut App::default())
+        .expect("run application");
+}
+
+fn view_matrix(position: &[f32; 3], direction: &[f32; 3], up: &[f32; 3]) -> [[f32; 4]; 4] {
+    let f = {
+        let f = direction;
+        let len = f[0] * f[0] + f[1] * f[1] + f[2] * f[2];
+        let len = len.sqrt();
+        [f[0] / len, f[1] / len, f[2] / len]
+    };
+
+    let s = [
+        up[1] * f[2] - up[2] * f[1],
+        up[2] * f[0] - up[0] * f[2],
+        up[0] * f[1] - up[1] * f[0],
+    ];
+
+    let s_norm = {
+        let len = s[0] * s[0] + s[1] * s[1] + s[2] * s[2];
+        let len = len.sqrt();
+        [s[0] / len, s[1] / len, s[2] / len]
+    };
+
+    let u = [
+        f[1] * s_norm[2] - f[2] * s_norm[1],
+        f[2] * s_norm[0] - f[0] * s_norm[2],
+        f[0] * s_norm[1] - f[1] * s_norm[0],
+    ];
+
+    let p = [
+        -position[0] * s_norm[0] - position[1] * s_norm[1] - position[2] * s_norm[2],
+        -position[0] * u[0] - position[1] * u[1] - position[2] * u[2],
+        -position[0] * f[0] - position[1] * f[1] - position[2] * f[2],
+    ];
+
+    [
+        [s_norm[0], u[0], f[0], 0.0],
+        [s_norm[1], u[1], f[1], 0.0],
+        [s_norm[2], u[2], f[2], 0.0],
+        [p[0], p[1], p[2], 1.0],
+    ]
 }
