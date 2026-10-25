@@ -5,13 +5,14 @@ name: release
 # version is 0.x, breaking changes bump the minor instead) and from an API comparison
 # with the version on crates.io.
 #
-# - On develop, a release PR keeps the version bump and the CHANGELOG entry up to date.
-# - On main, any version in Cargo.toml that isn't on crates.io yet is published and tagged.
+# - On main, a release PR prepares the version bump and CHANGELOG entry.
+# - Merging that PR into main publishes and tags the new version.
+# - develop runs CI only; it does not prepare or publish releases.
 
 # Like CI, only changes to code or to the pipeline trigger it.
 on:
   push:
-    branches: [ develop, main ]
+    branches: [ main ]
     paths:
       - "src/**"
       - "build/**"
@@ -24,13 +25,13 @@ on:
 
 jobs:
   release-pr:
-    if: github.ref_name == 'develop'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
     concurrency:
-      group: release-pr
+      group: release-pr-${{ github.ref }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
@@ -55,14 +56,15 @@ jobs:
         with:
           command: release-pr
         env:
-          # No crates.io token here: develop never publishes.
+          # Preparing a release PR does not need a crates.io token.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish:
-    if: github.ref_name == 'main'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: read
     concurrency:
       group: publish
       cancel-in-progress: false
