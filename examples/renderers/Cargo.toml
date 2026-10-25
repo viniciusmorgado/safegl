@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = [
+    "safegl-clustered-deferred-many-lights",
+    "safegl-clustered-deferred-many-lights-msaa4",
+    "safegl-clustered-deferred-many-lights-ssaa4",
+    "safegl-clustered-deferred-many-lights-taa",
+    "safegl-clustered-forward-many-lights",
+    "safegl-clustered-forward-many-lights-msaa4",
+    "safegl-clustered-forward-many-lights-taa",
+    "safegl-clustered-visibility-many-lights",
+    "safegl-clustered-visibility-many-lights-msaa4",
+    "safegl-clustered-visibility-many-lights-ssaa4",
+    "safegl-clustered-visibility-many-lights-taa",
+    "safegl-deferred-renderer",
+    "safegl-deferred-renderer-taa",
+    "safegl-forward-plus-many-lights",
+    "safegl-forward-plus-many-lights-msaa4",
+    "safegl-forward-plus-many-lights-ssaa4",
+    "safegl-forward-renderer",
+    "safegl-forward-renderer-msaa8",
+    "safegl-visibility-renderer",
+]

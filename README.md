@@ -167,6 +167,14 @@ production workflow and the growth of our team.
 Learn to draw with SafeGL, from your first window and triangle to textures,
 3D models, cameras and lighting.
 
+## Renderer examples
+
+The [renderer collection](examples/renderers/README.md) contains 19 standalone
+experiments covering forward, Forward+, deferred, and visibility rendering with
+single or many lights and several anti-aliasing methods. All use OpenGL 4.6 and
+share a Ferris model. The collection can be copied and run independently
+with the published SafeGL crate.
+
 ## [SafeGL Book - Building a renderer from scratch]()
 
 SafeGL book are design to teach you to implement a Forward+ renderer with MSAA anti-aliasing using Rust, OpenGL 4.6 and 

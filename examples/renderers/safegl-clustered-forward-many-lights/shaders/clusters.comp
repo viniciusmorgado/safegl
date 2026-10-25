@@ -1,0 +1,50 @@
+#version 460 core
+layout(local_size_x = 64) in;
+layout(std430) readonly buffer LightData { vec4 light_data[]; };
+layout(std430) buffer ClusterLists { uint entries[]; };
+uniform mat4 inverse_projection;
+uniform mat4 view;
+uniform uvec2 viewport;
+uniform uvec3 grid;
+uniform vec2 near_far;
+shared vec3 planes[4];
+shared float z_near;
+shared float z_far;
+shared uint count;
+vec3 ray(vec2 pixel) {
+    vec4 p = inverse_projection * vec4(pixel * 2.0 / vec2(viewport) - 1.0, 1, 1);
+    return normalize(p.xyz / p.w);
+}
+void main() {
+    uvec3 cell = gl_WorkGroupID;
+    uint base = ((cell.z * grid.y + cell.y) * grid.x + cell.x) * 257u;
+    uint lane = gl_LocalInvocationIndex;
+    if (lane == 0u) {
+        count = 0u;
+        vec2 lo = vec2(cell.xy * 16u), hi = min(lo + 16.0, vec2(viewport));
+        vec3 corners[4] = vec3[4](ray(lo), ray(vec2(hi.x,lo.y)), ray(hi), ray(vec2(lo.x,hi.y)));
+        vec3 center = ray((lo + hi) * 0.5);
+        for (int i=0; i<4; ++i) {
+            vec3 n = normalize(cross(corners[i], corners[(i+1)%4]));
+            planes[i] = dot(n, center) >= 0.0 ? n : -n;
+        }
+        z_near = near_far.x * pow(near_far.y / near_far.x, float(cell.z) / float(grid.z));
+        z_far = near_far.x * pow(near_far.y / near_far.x, float(cell.z + 1u) / float(grid.z));
+    }
+    barrier();
+    for (uint light_index = lane; light_index < 256u; light_index += 64u) {
+        vec4 light = light_data[light_index * 2u];
+        vec3 center = (view * vec4(light.xyz,1)).xyz;
+        float radius = light.w + 0.002;
+        float depth = -center.z;
+        bool visible = depth + radius >= z_near && depth - radius <= z_far;
+        for (int i=0; i<4; ++i) visible = visible && dot(planes[i],center) >= -radius;
+        if (visible) {
+            uint slot = atomicAdd(count,1u);
+            entries[base + 1u + slot] = light_index;
+        }
+    }
+    barrier();
+    // All 256 lights fit; nothing is silently truncated.
+    if (lane == 0u) entries[base] = count;
+}
