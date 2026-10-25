@@ -63,7 +63,7 @@ let perspective = {
     let (width, height) = target.get_dimensions();
     let aspect_ratio = height as f32 / width as f32;
 
-    let fov: f32 = 3.141592 / 3.0;
+    let fov: f32 = std::f32::consts::PI / 3.0;
     let zfar = 1024.0;
     let znear = 0.1;
 
@@ -89,8 +89,8 @@ There are four parameters used when building the matrix:
    depends on the user's preferences and setup. If you play on a computer you usually
    need a higher fov than if you play on a television.
  - `znear` and `zfar` are the minimal and maximal depth values that are within the
-   player's field of view. These values do not impact the visual aspect of the scene
-   but they can be important for the precision of the depth buffer.
+   player's field of view. Geometry outside this range is clipped. The distances
+   also affect the precision of the depth buffer.
 
 Don't worry if you don't understand precisely what is going on. This matrix is required to
 make the scene look realistic.
@@ -100,7 +100,7 @@ use two different matrices: the regular matrix containing the regular transforma
 of our object, and the perspective matrix.
 
 ```glsl
-#version 140
+#version 410 core
 
 in vec3 position;
 in vec3 normal;
@@ -119,7 +119,7 @@ void main() {
 Don't forget to pass the additional uniform:
 
 ```rust
-target.draw((&positions, &normals), &indices, &program,
+target.draw((&self.positions, &self.normals), &self.indices, &self.program,
             &uniform! { matrix: matrix, perspective: perspective, u_light: light },
             &params).unwrap();
 ```
@@ -146,4 +146,11 @@ longer stretched.
 If you compare this to the previous screenshot, you can also see how the teapot now looks
 much better.
 
-**[You can find the entire source code here](https://github.com/viniciusmorgado/safegl/blob/develop/examples/standalone/tutorial-10.rs).**
+<details>
+<summary>Complete source code</summary>
+
+```rust,ignore
+{{#include ../examples/standalone/tutorial-10.rs}}
+```
+
+</details>

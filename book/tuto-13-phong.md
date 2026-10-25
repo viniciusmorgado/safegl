@@ -3,8 +3,7 @@
 Our current lighting model is a bit primitive.
 We are going to modify it to use what is called *Blinn-Phong shading*.
 
-This model is still very often used in commercial games, and has only recently been
-superseded by physically-based rendering.
+This model combines an ambient term with diffuse and specular reflection.
 
 ## Specular reflection
 
@@ -23,7 +22,7 @@ specular.
 So how does the calculation look like?
 
 ```glsl
-#version 140
+#version 410 core
 
 in vec3 v_normal;
 in vec3 v_position;
@@ -47,10 +46,8 @@ void main() {
 }
 ```
 
-The first line of the main function is more or less the same as what our previous shader was,
-except that this time we fix the value so that it cannot be negative. This was not necessary
-before because we used the `mix` function (which automatically handles this), but now we must
-do it.
+The first line calculates diffuse brightness from the normal and light direction,
+clamping negative values to zero as before.
 
 Then we calculate `camera_dir`, which is the direction of the camera relative to the object.
 Since the camera is always at `(0, 0, 0)`, this is calculated simply by taking the opposite
@@ -63,7 +60,7 @@ the light if the camera and the light were both one unit away from the object. W
 calculate the cosine of the angle between `half_direction` and `v_normal` with
 `dot(half_direction, normalize(v_normal))`.
 
-If the `half_direction` is perpendicular to the normal, that means that the light rays coming
+If the `half_direction` is aligned with the normal, that means that the light rays coming
 from the light bounce directly into the camera. The result of the calculation will be `1.0`.
 Then we ensure that this value is positive and elevate it to the power 16. This means that
 values like `0.98` will stay high, but values like `0.8` will almost drop to 0. The role of this
@@ -74,17 +71,26 @@ is present even if there is no light source) + diffuse lighting + specular light
 in some circumstances the value can go above `1.0`, but OpenGL will automatically clamp it
 to `1.0`.
 
-Don't forget to modify our vertex shader to pass the additional `v_position` attribute by
-adding this line at the end:
+Declare `out vec3 v_position;` alongside `v_normal` in the vertex shader. Then assign
+it at the end of the shader's `main` function:
 
 ```glsl
-v_position = gl_Position.xyz / gl_Position.w;
+v_position = (modelview * vec4(position, 1.0)).xyz;
 ```
+
+This is the view-space position, before projection. It uses the same coordinate space as the normal and light direction; the camera is at the origin in this space.
 
 And here is the result:
 
-![Result](resources/tuto-13-result.png) ![Result](resources/tuto-13-result.png)
+![Result](resources/tuto-13-result.png) ![Result](resources/tuto-13-result2.png)
 
 The big white spots are the specular reflection.
 
-**[You can find the entire source code here](https://github.com/viniciusmorgado/safegl/blob/develop/examples/standalone/tutorial-13.rs).**
+<details>
+<summary>Complete source code</summary>
+
+```rust,ignore
+{{#include ../examples/standalone/tutorial-13.rs}}
+```
+
+</details>

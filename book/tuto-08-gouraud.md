@@ -1,4 +1,4 @@
-# Gouraud shading
+# Diffuse lighting
 
 Let's continue with the teapot of the previous section:
 
@@ -9,17 +9,17 @@ except at its borders.
 This is not because the teapot is red, but because there is no lighting.
 
 Lighting is a very complex topic and there are a lot of different techniques, but to get started
-we will use *Gouraud shading* which is very simple.
+we will use a simple *diffuse lighting* calculation.
 
 ## The theory
 
-The idea behind gouraud shading is that if the direction of the light is perpendicular to an
+The idea behind diffuse lighting is that if the direction of the light is perpendicular to an
 object's surface, then this surface should be bright. If the direction of the light is parallel
 to the surface, then the surface should be dark.
 
 ![The theory](resources/tuto-08-theory.png)
 
-We are going to do this calculation one per fragment, in our fragment shader. The brightness of
+We are going to do this calculation once per fragment, in our fragment shader. The brightness of
 each pixel will need to be equal to `sin(angle(surface, light))`. If the light is perpendicular,
 the angle is `pi/2` radians and the brightness is `1`. If the light is parallel, the angle is `0`
 and the brightness is `0`.
@@ -42,12 +42,10 @@ If the light is *parallel* to the normal, then the surface should be bright. And
 ## In practice
 
 The main part of the calculation will be done in the fragment shader. However we need to modify
-the vertex shader first, in order to pass the normal's data to the fragment shader. In addition to
-this, we need to specify a newer version of GLSL, since v140 doesn't support the functions we're
-going to use. To make the vertex shader work, we need at least GLSL v150.
+the vertex shader first, in order to pass the normal's data to the fragment shader.
 
 ```glsl
-#version 150      // updated
+#version 410 core
 
 in vec3 position;
 in vec3 normal;
@@ -73,14 +71,14 @@ a different normal from the neighbouring fragments, and thus a different color.
 Now let's take a look at our fragment shader:
 
 ```glsl
-#version 140
+#version 410 core
 
 in vec3 v_normal;
 out vec4 color;
 uniform vec3 u_light;
 
 void main() {
-    float brightness = dot(normalize(v_normal), normalize(u_light));
+    float brightness = max(dot(normalize(v_normal), normalize(u_light)), 0.0);
     vec3 dark_color = vec3(0.6, 0.0, 0.0);
     vec3 regular_color = vec3(1.0, 0.0, 0.0);
     color = vec4(mix(dark_color, regular_color, brightness), 1.0);
@@ -99,7 +97,7 @@ from indirect sources. Therefore the dark color is not black but an intermediate
 level of red.
 
 The `mix` function then interpolates between the dark and bright colors depending on the
-brightness.
+brightness. We clamp the dot product to zero so a light behind the surface does not produce negative brightness.
 
 Don't forget to pass the new `u_light` uniform parameter when drawing:
 
@@ -107,7 +105,7 @@ Don't forget to pass the new `u_light` uniform parameter when drawing:
 // the direction of the light
 let light = [-1.0, 0.4, 0.9f32];
 
-target.draw((&positions, &normals), &indices, &program,
+target.draw((&self.positions, &self.normals), &self.indices, &self.program,
             &uniform! { matrix: matrix, u_light: light },
             &Default::default()).unwrap();
 ```
@@ -119,4 +117,11 @@ And here is the result:
 Now that we have brightness we can see that there are more things that are wrong with
 our rendering, this will be covered in the next sections!
 
-**[You can find the entire source code here](https://github.com/viniciusmorgado/safegl/blob/develop/examples/standalone/tutorial-08.rs).**
+<details>
+<summary>Complete source code</summary>
+
+```rust,ignore
+{{#include ../examples/standalone/tutorial-08.rs}}
+```
+
+</details>

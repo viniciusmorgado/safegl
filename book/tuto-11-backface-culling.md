@@ -24,9 +24,8 @@ video card to automatically discard all triangles that are in clockwise order. T
 called *backface culling*. Your 3D modelling software usually ensures that this convention is
 applied.
 
-Most of the time this is purely an optimization. By discarding half of the triangles after the
-vertex shader step, you reduce by half the number of fragment shader invocations. This can lead
-to a pretty good speedup.
+Most of the time this is purely an optimization. Discarding back-facing triangles after the vertex shader step reduces rasterization
+and fragment shading work. The speedup depends on how much of the model is hidden.
 
 ## Backface culling in SafeGL
 
@@ -38,7 +37,7 @@ Just replace:
 ```rust
 let params = safegl::DrawParameters {
     depth: safegl::Depth {
-        test: safegl::DepthTest::IfLess,
+        test: safegl::draw_parameters::DepthTest::IfLess,
         write: true,
         .. Default::default()
     },
@@ -51,7 +50,7 @@ With:
 ```rust
 let params = safegl::DrawParameters {
     depth: safegl::Depth {
-        test: safegl::DepthTest::IfLess,
+        test: safegl::draw_parameters::DepthTest::IfLess,
         write: true,
         .. Default::default()
     },

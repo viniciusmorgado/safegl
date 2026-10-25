@@ -4,7 +4,7 @@ With some exceptions (like the clear operation that was used before), OpenGL doe
 
 This is the point where the learning curve becomes very steep, as you need to learn how the graphics pipeline works even if you just want to draw a single triangle. However once you have passed that step, it will become easier to understand the rest.
 
-Before we can draw a triangle, we need to prepare two things during the initialization:
+Before we can draw a triangle, we need to prepare two things in `State::new`:
 
  - A shape that describes our triangle.
  - A program that will be executed by the GPU.
@@ -27,7 +27,7 @@ struct Vertex {
 implement_vertex!(Vertex, position);
 ```
 
-To make the `implement_vertex!` macro available you need to add the following lines above the main function:
+Put the `Vertex` definition at module scope, outside `impl State`. To make the `implement_vertex!` macro available, add the following lines at the top of `src/main.rs`:
 ```rust
 #[macro_use]
 extern crate safegl;
@@ -78,7 +78,7 @@ The tricky part is that *we* need to write the vertex and fragment shaders. To d
 
 ```rust
 let vertex_shader_src = r#"
-    #version 140
+    #version 410 core
 
     in vec2 position;
 
@@ -88,7 +88,7 @@ let vertex_shader_src = r#"
 "#;
 ```
 
-First of all, the `#version 140` line is here to tell OpenGL what version of GLSL this shader is written in. Some hardware doesn't support the latest versions of GLSL, so we are trying to stick to earlier versions if possible.
+First of all, the `#version 410 core` line tells OpenGL that this shader uses GLSL 4.10 core. It is supported by both the OpenGL 4.6 and OpenGL 4.1 configurations described in the first chapter.
 
 When we defined the `Vertex` struct in our shape, we created a field named `position` which contains the position of our vertex. But contrary to what I let you think, this struct doesn't contain the actual position of the vertex but only an attribute whose value is passed along to the vertex shader. OpenGL doesn't care about the name of the attribute, all it does is give the value to the vertex shader. The `in vec2 position;` line of our shader is here to declare that we are expected to be given an attribute named `position` of type `vec2` (which corresponds to `[f32; 2]` in Rust).
 
@@ -98,7 +98,7 @@ The second shader is called the fragment shader (sometimes also named *pixel sha
 
 ```rust
 let fragment_shader_src = r#"
-    #version 140
+    #version 410 core
 
     out vec4 color;
 
@@ -116,14 +116,28 @@ Now that we have written our shaders' source codes, let's send them to SafeGL:
 let program = safegl::Program::from_source(&display, vertex_shader_src, fragment_shader_src, None).unwrap();
 ```
 
+Store `vertex_buffer`, `indices` and `program` in `State` so we can use them whenever the window needs redrawing:
+
+```rust
+struct State {
+    vertex_buffer: safegl::VertexBuffer<Vertex>,
+    indices: safegl::index::NoIndices,
+    program: safegl::Program,
+    display: Display,
+    window: Window,
+}
+```
+
+At the end of `State::new`, return `Self { vertex_buffer, indices, program, display, window }`.
+
 ## Drawing
 
-Now that we have prepared our shape and program, we can finally draw a triangle!
+Now that we have prepared our shape and program, we can finally draw a triangle! Add the draw call to `State::draw`, between clearing the frame and presenting it.
 
 Remember the `target` object? We will need to use it to start a draw operation.
 
 ```rust
-let mut target = display.draw();
+let mut target = self.display.draw();
 target.clear_color(0.0, 0.0, 1.0, 1.0);
 // draw the triangle here
 target.finish().unwrap();
@@ -132,7 +146,7 @@ target.finish().unwrap();
 Starting a draw operation needs several things: a source of vertices (here we use our `vertex_buffer`), a source of indices (we use our `indices` variable), a program, the program's uniforms, and some draw parameters. We will explain what uniforms and draw parameters are in the next tutorials, but for the moment we will just ignore them by passing an `EmptyUniforms` marker and by using the default draw parameters.
 
 ```rust
-target.draw(&vertex_buffer, &indices, &program, &safegl::uniforms::EmptyUniforms,
+target.draw(&self.vertex_buffer, &self.indices, &self.program, &safegl::uniforms::EmptyUniforms,
             &Default::default()).unwrap();
 ```
 
@@ -140,4 +154,11 @@ The "draw command" designation could make you think that drawing is a heavy oper
 
 ![Our final result](resources/tuto-02-triangle.png)
 
-**[You can find the entire source code for this example here](https://github.com/viniciusmorgado/safegl/blob/develop/examples/standalone/tutorial-02.rs).**
+<details>
+<summary>Complete source code</summary>
+
+```rust,ignore
+{{#include ../examples/standalone/tutorial-02.rs}}
+```
+
+</details>
