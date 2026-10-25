@@ -1,0 +1,191 @@
+name: Prepare release
+
+# A pull request to main prepares the next version on its own branch.
+# main receives that version when the PR is merged; it then publishes and tags it.
+# Ordinary pushes and pull requests to develop do not prepare releases.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: prepare-release-${{ github.head_ref }}
+  cancel-in-progress: true
+
+# The job commits the version to the pull request branch; the default token is
+# read-only in a new repository.
+permissions:
+  contents: write
+  statuses: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # Use the published SafeGL version as the release baseline.
+  ANCHOR_CRATE: safegl
+  PR_BRANCH: ${{ github.head_ref }}
+
+jobs:
+  bump:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      # A merge that changes only workflows, documentation or examples has
+      # nothing to release: the library would be identical to the version already
+      # on crates.io. Library sources, build scripts and the package manifest
+      # decide whether a new version is needed.
+      - name: Is there anything to release?
+        id: guard
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+          if [ -z "$LAST_TAG" ]; then
+            echo "No release tag yet: releasing."
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only "$LAST_TAG..HEAD" -- \
+            src build Cargo.toml)
+          if [ -z "$CHANGED" ]; then
+            echo "Nothing that goes into a package changed since $LAST_TAG; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Changed since $LAST_TAG:"
+            echo "$CHANGED"
+          fi
+
+      # The published crate version is the baseline; commits since its tag decide
+      # the bump — "BREAKING CHANGE:" -> major, "feat:" -> minor, anything else -> patch.
+      # Before the first release the anchor is not on crates.io yet: the version in
+      # Cargo.toml is then taken as is.
+      - name: Get next version
+        id: semver
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          git fetch origin main
+          CURRENT=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          UA="safegl-release-workflow (+https://github.com/viniciusmorgado/safegl)"
+          STATUS=$(curl --fail-with-body --silent --show-error -A "$UA" \
+            -o "$RUNNER_TEMP/safegl-crate.json" -w "%{http_code}" \
+            "https://crates.io/api/v1/crates/$ANCHOR_CRATE") || {
+            [ "$STATUS" = "404" ] || exit 1
+          }
+          if [ "$STATUS" = "404" ]; then
+            echo "$ANCHOR_CRATE is not on crates.io yet: keeping $CURRENT for the first release."
+            echo "version=$CURRENT" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          RELEASED=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["crate"]["max_version"])' "$RUNNER_TEMP/safegl-crate.json")
+          # The commits since the release on crates.io, by its tag, which the
+          # release workflow creates only once it has published: a merge to
+          # main whose release failed is still counted.
+          BASE="v$RELEASED"
+          if ! git rev-parse -q --verify "refs/tags/$BASE" > /dev/null; then
+            BASE=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo origin/main)
+          fi
+          SUBJECTS=$(git log --format=%s "$BASE..HEAD" | grep -v '^chore: bump version' || true)
+          if echo "$SUBJECTS" | grep -q '^BREAKING CHANGE:'; then
+            BUMP=major
+          elif echo "$SUBJECTS" | grep -q '^feat'; then
+            BUMP=minor
+          else
+            BUMP=patch
+          fi
+          IFS=. read -r MAJOR MINOR PATCH <<< "$RELEASED"
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+          VERSION="$MAJOR.$MINOR.$PATCH"
+          echo "Released (crates.io): $RELEASED, commits since $BASE, bump: $BUMP, next: $VERSION"
+          # Never lower the version: one already above it in Cargo.toml is not
+          # on crates.io yet, and stays.
+          if [ "$(printf '%s\n%s\n' "$VERSION" "$CURRENT" | sort -V | tail -n 1)" != "$VERSION" ]; then
+            echo "Cargo.toml is at $CURRENT, above $VERSION: keeping $CURRENT."
+            VERSION="$CURRENT"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # SafeGL has one published package; examples keep their own versions.
+      - name: Commit the version to the PR branch
+        id: commit
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          RELEASE_VERSION: ${{ steps.semver.outputs.version }}
+        run: |
+          TARGET_VERSION="$RELEASE_VERSION"
+          CURRENT_VERSION=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          if [ "$CURRENT_VERSION" = "$TARGET_VERSION" ]; then
+            echo "Cargo.toml is already at version $TARGET_VERSION; nothing to commit."
+          else
+            sed -i '0,/^version = ".*"/s//version = "'"$TARGET_VERSION"'"/' Cargo.toml
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add Cargo.toml
+            # Validate this version below and report the bump check on its SHA.
+            # Token-authored pushes do not trigger another workflow run.
+            git commit -m "chore: bump version to $TARGET_VERSION [skip ci]"
+            git push origin "HEAD:$PR_BRANCH"
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Rust
+        if: steps.guard.outputs.skip != 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.guard.outputs.skip != 'true'
+
+      # Compile graphical tests as in CI; hosted runners have no OpenGL display.
+      - name: Check all targets
+        if: steps.guard.outputs.skip != 'true'
+        run: cargo check --all --all-targets
+
+      - name: Test library and compile graphical tests
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          cargo test --lib
+          cargo test --all --all-targets --no-run
+
+      - name: Build documentation and WebGL
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          cargo doc --all --all-features --no-deps
+          cargo check --target wasm32-unknown-unknown --no-default-features --features webgl
+          cargo build --manifest-path examples/web/Cargo.toml --target wasm32-unknown-unknown
+
+      - name: Install cargo-audit
+        if: steps.guard.outputs.skip != 'true'
+        uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: cargo-audit@0.22.2
+
+      - name: Audit dependencies
+        if: steps.guard.outputs.skip != 'true'
+        run: cargo audit
+
+      - name: Package SafeGL as it will be published
+        if: steps.guard.outputs.skip != 'true'
+        run: cargo package -p safegl
+
+      # Report only the checks actually performed here on the version commit.
+      # Windows and macOS CI results are not synthesized by this Linux job.
+      - name: Report the preparation check on the version commit
+        if: always() && steps.commit.outputs.sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.commit.outputs.sha }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          STATE=failure
+          if [ "$JOB_STATUS" = "success" ]; then STATE=success; fi
+          gh api "repos/${{ github.repository }}/statuses/$SHA" \
+            -f state="$STATE" -f context=bump \
+            -f description="Release preparation checks" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
