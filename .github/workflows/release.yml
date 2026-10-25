@@ -1,83 +1,158 @@
-name: release
+name: Release to crates.io
 
-# The next version is computed from the conventional commits since the last release
-# (`fix:` -> patch, `feat:` -> minor, `!` or `BREAKING CHANGE:` -> major; while the
-# version is 0.x, breaking changes bump the minor instead) and from an API comparison
-# with the version on crates.io.
-#
-# - On develop, a release PR keeps the version bump and the CHANGELOG entry up to date.
-# - On main, any version in Cargo.toml that isn't on crates.io yet is published and tagged.
+# Publish SafeGL at the version prepared by the pull request to main, then tag it.
+# A direct push to main can prepare its version here using the same commit rules.
 
-# Like CI, only changes to code or to the pipeline trigger it.
 on:
   push:
-    branches: [ develop, main ]
-    paths:
-      - "src/**"
-      - "build/**"
-      - "tests/**"
-      - "examples/**"
-      - "benches/**"
-      - "Cargo.toml"
-      - "release-plz.toml"
-      - ".github/workflows/**"
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+# The job commits the version bump and pushes the tag; the default token is
+# read-only in a new repository.
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  ANCHOR_CRATE: safegl
 
 jobs:
-  release-pr:
-    if: github.ref_name == 'develop'
+  release:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    concurrency:
-      group: release-pr
-      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # The first version is set by hand in Cargo.toml. Version bumps start once it is published.
-      - name: Check whether safegl is on crates.io
-        id: crate
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test library and compile graphical tests
         run: |
-          if curl -sf -A "safegl-release-workflow" https://crates.io/api/v1/crates/safegl > /dev/null; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
+          cargo test --lib
+          cargo test --all --all-targets --no-run
+
+      # The version to release is the one in Cargo.toml. If it is already published (a push
+      # to main that skipped the PR flow), bump it here from the commits since the last "v*"
+      # tag — "BREAKING CHANGE:" -> major, "feat:" -> minor, anything else -> patch — and
+      # commit it, so Cargo.toml stays the source of truth.
+      # A merge that changes only workflows, documentation or examples has
+      # nothing to release: the library would be identical to the version already
+      # on crates.io. Library sources, build scripts and the package manifest
+      # decide whether a new version is needed.
+      - name: Is there anything to release?
+        id: guard
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+          if [ -z "$LAST_TAG" ]; then
+            echo "No release tag yet: releasing."
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only "$LAST_TAG..HEAD" -- \
+            src build Cargo.toml)
+          if [ -z "$CHANGED" ]; then
+            echo "Nothing that goes into a package changed since $LAST_TAG; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Changed since $LAST_TAG:"
+            echo "$CHANGED"
           fi
 
-      - name: Install Rust
-        if: steps.crate.outputs.published == 'true'
-        uses: dtolnay/rust-toolchain@stable
+      - name: Get version to release
+        id: semver
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          CURRENT=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          UA="safegl-release-workflow (+https://github.com/viniciusmorgado/safegl)"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -A "$UA" \
+            "https://crates.io/api/v1/crates/$ANCHOR_CRATE/$CURRENT")
+          if [ "$STATUS" != "200" ] && [ "$STATUS" != "404" ]; then
+            echo "Unexpected crates.io response: HTTP $STATUS" >&2
+            exit 1
+          fi
+          if [ "$STATUS" = "404" ]; then
+            VERSION="$CURRENT"
+            echo "Cargo.toml is at $CURRENT, not yet on crates.io: releasing it."
+          else
+            LAST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+            RANGE="${LAST_TAG:+$LAST_TAG..}HEAD"
+            SUBJECTS=$(git log --format=%s "$RANGE" | grep -v '^chore: bump version' || true)
+            if echo "$SUBJECTS" | grep -q '^BREAKING CHANGE:'; then
+              BUMP=major
+            elif echo "$SUBJECTS" | grep -q '^feat'; then
+              BUMP=minor
+            else
+              BUMP=patch
+            fi
+            IFS=. read -r MAJOR MINOR PATCH <<< "$CURRENT"
+            case "$BUMP" in
+              major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+              minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+              patch) PATCH=$((PATCH + 1)) ;;
+            esac
+            VERSION="$MAJOR.$MINOR.$PATCH"
+            echo "Cargo.toml is at $CURRENT, already on crates.io: bumping ($BUMP) to $VERSION."
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Open or update the release PR
-        if: steps.crate.outputs.published == 'true'
-        uses: release-plz/action@v0.5
-        with:
-          command: release-pr
+      - name: Update the package version
+        if: steps.guard.outputs.skip != 'true'
         env:
-          # No crates.io token here: develop never publishes.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.semver.outputs.version }}
+        run: |
+          TARGET_VERSION="$RELEASE_VERSION"
+          CURRENT_VERSION=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          if [ "$CURRENT_VERSION" = "$TARGET_VERSION" ]; then
+            echo "Cargo.toml is already at version $TARGET_VERSION; skipping bump commit."
+          else
+            sed -i '0,/^version = ".*"/s//version = "'"$TARGET_VERSION"'"/' Cargo.toml
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add Cargo.toml
+            # [skip ci], as in prepare-release.yml: no run for the bot's commit.
+            git commit -m "chore: bump version to $TARGET_VERSION [skip ci]"
+            git push
+          fi
 
-  publish:
-    if: github.ref_name == 'main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    concurrency:
-      group: publish
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Publish to crates.io and tag
-        uses: release-plz/action@v0.5
-        with:
-          command: release
+      - name: Publish to crates.io
+        if: steps.guard.outputs.skip != 'true'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          RELEASE_VERSION: ${{ steps.semver.outputs.version }}
+        run: |
+          UA="safegl-release-workflow (+https://github.com/viniciusmorgado/safegl)"
+          URL="https://crates.io/api/v1/crates/$ANCHOR_CRATE/$RELEASE_VERSION"
+          STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -A "$UA" "$URL")
+          case "$STATUS" in
+            200) echo "$ANCHOR_CRATE $RELEASE_VERSION is already published; skipping." ;;
+            404) cargo publish -p safegl ;;
+            *) echo "Unexpected crates.io response: HTTP $STATUS" >&2; exit 1 ;;
+          esac
+          for _ in $(seq 1 30); do
+            STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -A "$UA" "$URL")
+            [ "$STATUS" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "Published version did not become visible on crates.io; no tag created." >&2
+          exit 1
+
+      - name: Create the tag
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          RELEASE_VERSION: ${{ steps.semver.outputs.version }}
+        run: |
+          TAG="v$RELEASE_VERSION"
+          if [ -n "$(git ls-remote --tags origin "refs/tags/$TAG")" ]; then
+            echo "Tag $TAG already exists on origin; skipping."
+          else
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
