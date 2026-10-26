@@ -1521,6 +1521,17 @@ unsafe fn attach(
                                 );
                             }
 
+                            // OpenGL ES attaches the slices of 3D textures like layers
+                            gl::TEXTURE_3D => {
+                                ctxt.glow.framebuffer_texture_layer(
+                                    glow::DRAW_FRAMEBUFFER,
+                                    slot,
+                                    Some(tex_id),
+                                    level as gl::types::GLint,
+                                    layer as gl::types::GLint,
+                                );
+                            }
+
                             _ => panic!("Attaching a texture array is not supported"),
                         }
                     }
