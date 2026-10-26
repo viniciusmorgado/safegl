@@ -85,6 +85,9 @@ pub enum ReadError {
 
     /// Rect dimensions are too large for the buffer.
     DimensionsTooLarge, // TODO: context lost
+
+    /// The buffer to read from doesn't exist, like the front buffer of most EGL window surfaces.
+    AttachmentMissing,
 }
 
 impl fmt::Display for ReadError {
@@ -99,6 +102,8 @@ impl fmt::Display for ReadError {
                 "Clamping the values is not supported by the implementation",
             DimensionsTooLarge =>
                 "Rect dimensions are too large for the buffer",
+            AttachmentMissing =>
+                "The buffer to read from doesn't exist",
         };
         fmt.write_str(desc)
     }
@@ -202,6 +207,22 @@ where
             unsafe { FramebuffersContainer::bind_framebuffer_for_reading(&mut ctxt, attachment) };
         }
         Source::DefaultFramebuffer(read_buffer) => {
+            // selecting a buffer that the default framebuffer doesn't have, such as the front
+            // buffer of most EGL window surfaces, would raise an error
+            if ctxt.version.0 == Api::Gl {
+                unsafe { fbo::bind_framebuffer(ctxt, None, false, true) };
+                let ty = unsafe {
+                    ctxt.glow.get_framebuffer_attachment_parameter_i32(
+                        gl::READ_FRAMEBUFFER,
+                        read_buffer,
+                        gl::FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE,
+                    )
+                };
+                if ty == gl::NONE as gl::types::GLint {
+                    return Err(ReadError::AttachmentMissing);
+                }
+            }
+
             FramebuffersContainer::bind_default_framebuffer_for_reading(&mut ctxt, read_buffer);
         }
     };
