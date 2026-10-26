@@ -725,8 +725,9 @@ impl ContextExt for Context {
         if self.check_current_context {
             let backend = self.backend.borrow();
             if !backend.is_current() {
+                // `is_current` isn't checked again here: some drivers (macOS since 10.14) don't
+                // report the context as current right after it was made current
                 unsafe { backend.make_current() };
-                debug_assert!(backend.is_current());
             }
         }
 
