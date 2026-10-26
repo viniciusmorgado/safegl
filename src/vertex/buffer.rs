@@ -1,6 +1,7 @@
 use crate::utils::range::RangeArgument;
 use std::error::Error;
 use std::fmt;
+use std::mem;
 use std::ops::{Deref, DerefMut};
 
 use crate::buffer::{
@@ -71,6 +72,9 @@ where
 {
     buffer: Buffer<[T]>,
     bindings: VertexFormat,
+    // the number of bytes between two vertices, which is the size of `T` unless the buffer was
+    // created with `new_raw`
+    elements_size: usize,
 }
 
 /// Represents a slice of a `VertexBuffer`.
@@ -80,6 +84,7 @@ where
 {
     buffer: BufferSlice<'b, [T]>,
     bindings: VertexFormat,
+    elements_size: usize,
 }
 
 impl<'b, T: 'b> VertexBufferSlice<'b, T>
@@ -96,7 +101,11 @@ where
     #[inline]
     pub fn per_instance(&'b self) -> Result<PerInstance<'b>, InstancingNotSupported> {
         // instancing is core in OpenGL 3.3 and OpenGL ES 3.0
-        Ok(PerInstance(self.buffer.as_slice_any(), self.bindings))
+        let slice = self
+            .buffer
+            .as_slice_any()
+            .with_elements_size(self.elements_size);
+        Ok(PerInstance(slice, self.bindings))
     }
 }
 
@@ -292,6 +301,14 @@ where
     /// # }
     /// ```
     ///
+    /// # Safety
+    ///
+    /// `elements_size` is the number of bytes between two vertices, and `bindings` must
+    /// describe attributes that fit in them.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the size of `data` isn't a whole number of vertices of `elements_size` bytes.
     #[inline]
     pub unsafe fn new_raw<F: ?Sized>(
         facade: &F,
@@ -303,10 +320,12 @@ where
         F: Facade,
     {
         // FIXME: check that the format is supported
+        check_raw_size(data, elements_size);
 
         Ok(VertexBuffer {
             buffer: Buffer::new(facade, data, BufferType::ArrayBuffer, BufferMode::Default)?,
             bindings,
+            elements_size,
         })
     }
 
@@ -322,10 +341,12 @@ where
         F: Facade,
     {
         // FIXME: check that the format is supported
+        check_raw_size(data, elements_size);
 
         Ok(VertexBuffer {
             buffer: Buffer::new(facade, data, BufferType::ArrayBuffer, BufferMode::Dynamic)?,
             bindings,
+            elements_size,
         })
     }
 
@@ -342,6 +363,7 @@ where
         Some(VertexBufferSlice {
             buffer: slice,
             bindings: self.bindings,
+            elements_size: self.elements_size,
         })
     }
 
@@ -360,8 +382,21 @@ where
     #[inline]
     pub fn per_instance(&self) -> Result<PerInstance<'_>, InstancingNotSupported> {
         // instancing is core in OpenGL 3.3 and OpenGL ES 3.0
-        Ok(PerInstance(self.buffer.as_slice_any(), self.bindings))
+        let slice = self
+            .buffer
+            .as_slice_any()
+            .with_elements_size(self.elements_size);
+        Ok(PerInstance(slice, self.bindings))
     }
+}
+
+/// Panics if `data` isn't a whole number of vertices of `elements_size` bytes.
+fn check_raw_size<T>(data: &[T], elements_size: usize) {
+    assert!(
+        elements_size != 0 && mem::size_of_val(data).is_multiple_of(elements_size),
+        "the data isn't a whole number of vertices of {} bytes",
+        elements_size
+    );
 }
 
 impl<T> VertexBuffer<T>
@@ -376,8 +411,10 @@ where
     }
     #[inline]
     fn into_vertex_buffer_any_inner(self) -> VertexBufferAny {
+        let mut buffer: BufferAny = self.buffer.into();
+        buffer.set_elements_size(self.elements_size);
         VertexBufferAny {
-            buffer: self.buffer.into(),
+            buffer,
             bindings: self.bindings,
         }
     }
@@ -393,7 +430,11 @@ where
 
         let bindings = <T as Vertex>::build_bindings();
 
-        VertexBuffer { buffer, bindings }
+        VertexBuffer {
+            buffer,
+            bindings,
+            elements_size: mem::size_of::<T>(),
+        }
     }
 }
 
@@ -447,7 +488,11 @@ where
 {
     #[inline]
     fn from(this: &VertexBuffer<T>) -> VerticesSource<'_> {
-        VerticesSource::VertexBuffer(this.buffer.as_slice_any(), this.bindings, false)
+        let slice = this
+            .buffer
+            .as_slice_any()
+            .with_elements_size(this.elements_size);
+        VerticesSource::VertexBuffer(slice, this.bindings, false)
     }
 }
 
@@ -489,7 +534,11 @@ where
 {
     #[inline]
     fn from(this: VertexBufferSlice<'a, T>) -> VerticesSource<'a> {
-        VerticesSource::VertexBuffer(this.buffer.as_slice_any(), this.bindings, false)
+        let slice = this
+            .buffer
+            .as_slice_any()
+            .with_elements_size(this.elements_size);
+        VerticesSource::VertexBuffer(slice, this.bindings, false)
     }
 }
 
@@ -526,9 +575,18 @@ impl VertexBufferAny {
     }
 
     /// Turns the vertex buffer into a `VertexBuffer` without checking the type.
+    ///
+    /// # Safety
+    ///
+    /// The buffer must contain values of `T`.
     #[inline]
-    pub unsafe fn into_vertex_buffer<T: Copy>(self) -> VertexBuffer<T> {
-        unimplemented!();
+    pub unsafe fn into_vertex_buffer<T: Copy + Send + 'static>(self) -> VertexBuffer<T> {
+        let elements_size = self.buffer.get_elements_size();
+        VertexBuffer {
+            buffer: self.buffer.into_typed(),
+            bindings: self.bindings,
+            elements_size,
+        }
     }
 
     /// Creates a marker that instructs SafeGL to use multiple instances.

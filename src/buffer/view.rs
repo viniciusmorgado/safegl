@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use std::fmt;
 use std::marker::PhantomData;
 use std::mem;
+use std::ptr;
 
 use crate::gl;
 use crate::texture::{PixelValue, Texture1dDataSink};
@@ -1242,6 +1243,30 @@ pub struct BufferAny {
 }
 
 impl BufferAny {
+    /// Sets the number of bytes of each element of the buffer.
+    #[inline]
+    pub(crate) fn set_elements_size(&mut self, elements_size: usize) {
+        self.elements_size = elements_size;
+    }
+
+    /// Turns the buffer back into a typed buffer.
+    ///
+    /// # Safety
+    ///
+    /// The buffer must contain a `T`.
+    pub(crate) unsafe fn into_typed<T>(self) -> Buffer<T>
+    where
+        T: ?Sized + Content,
+    {
+        // `BufferAny` has a destructor, so its fields are moved out without running it
+        let this = mem::ManuallyDrop::new(self);
+        Buffer {
+            alloc: Some(ptr::read(&this.alloc)),
+            fence: Some(ptr::read(&this.fence)),
+            marker: PhantomData,
+        }
+    }
+
     /// Builds a slice-any containing the whole subbuffer.
     #[inline]
     pub fn as_slice_any(&self) -> BufferAnySlice<'_> {
@@ -1481,6 +1506,15 @@ pub struct BufferAnySlice<'a> {
     bytes_end: usize,
     elements_size: usize,
     fence: &'a Fences,
+}
+
+impl<'a> BufferAnySlice<'a> {
+    /// Changes the number of bytes of each element of the slice.
+    #[inline]
+    pub(crate) fn with_elements_size(mut self, elements_size: usize) -> BufferAnySlice<'a> {
+        self.elements_size = elements_size;
+        self
+    }
 }
 
 impl<'a> GlObject for BufferAnySlice<'a> {
