@@ -14,9 +14,9 @@ use crate::UniformsExt;
 
 use std::cell::RefCell;
 use std::collections::hash_map::{self, HashMap};
+use std::fmt;
 use std::hash::BuildHasherDefault;
 use std::rc::Rc;
-use std::fmt;
 
 use fnv::FnvHasher;
 use glow::HasContext;
@@ -46,8 +46,9 @@ use crate::program::binary_header::{attach_safegl_header, process_safegl_header}
 #[cfg(feature = "gl46")]
 use crate::program::compute::ComputeCommand;
 use crate::program::reflection::reflect_subroutine_data;
+use crate::program::reflection::reflect_transform_feedback;
 use crate::program::reflection::{reflect_attributes, reflect_uniform_blocks, reflect_uniforms};
-use crate::program::reflection::{reflect_geometry_output_type, reflect_transform_feedback};
+use crate::program::reflection::{reflect_geometry_input_type, reflect_geometry_output_type};
 use crate::program::reflection::{reflect_shader_storage_blocks, reflect_tess_eval_output_type};
 use crate::program::reflection::{Attribute, TransformFeedbackBuffer, TransformFeedbackMode};
 use crate::program::reflection::{OutputPrimitives, Uniform, UniformBlock};
@@ -74,6 +75,7 @@ pub struct RawProgram {
     ssbos: HashMap<String, UniformBlock, BuildHasherDefault<FnvHasher>>,
     atomic_counters: HashMap<String, UniformBlock, BuildHasherDefault<FnvHasher>>,
     output_primitives: Option<OutputPrimitives>,
+    geometry_input_type: Option<gl::types::GLenum>,
     has_geometry_shader: bool,
     has_tessellation_control_shader: bool,
     has_tessellation_evaluation_shader: bool,
@@ -154,6 +156,11 @@ impl RawProgram {
         } else {
             None
         };
+        let geometry_input_type = if has_geometry_shader {
+            Some(unsafe { reflect_geometry_input_type(&mut ctxt, id) })
+        } else {
+            None
+        };
 
         Ok(RawProgram {
             context: facade.get_context().clone(),
@@ -168,6 +175,7 @@ impl RawProgram {
             ssbos,
             atomic_counters,
             output_primitives,
+            geometry_input_type,
             has_geometry_shader,
             has_tessellation_control_shader,
             has_tessellation_evaluation_shader,
@@ -216,7 +224,14 @@ impl RawProgram {
             id
         };
 
-        let ((uniforms, atomic_counters, uniform_locations), attributes, blocks, tf_buffers, ssbos, subroutine_data) = unsafe {
+        let (
+            (uniforms, atomic_counters, uniform_locations),
+            attributes,
+            blocks,
+            tf_buffers,
+            ssbos,
+            subroutine_data,
+        ) = unsafe {
             (
                 reflect_uniforms(&mut ctxt, id),
                 reflect_attributes(&mut ctxt, id),
@@ -240,6 +255,11 @@ impl RawProgram {
         } else {
             None
         };
+        let geometry_input_type = if has_geometry_shader {
+            Some(unsafe { reflect_geometry_input_type(&mut ctxt, id) })
+        } else {
+            None
+        };
 
         Ok(RawProgram {
             context: facade.get_context().clone(),
@@ -254,6 +274,7 @@ impl RawProgram {
             ssbos,
             atomic_counters,
             output_primitives,
+            geometry_input_type,
             has_geometry_shader,
             has_tessellation_control_shader,
             has_tessellation_evaluation_shader,
@@ -424,6 +445,13 @@ impl RawProgram {
     #[inline]
     pub fn get_output_primitives(&self) -> Option<OutputPrimitives> {
         self.output_primitives
+    }
+
+    /// Returns the type of primitives that the geometry shader takes as input, such as
+    /// `GL_TRIANGLES`, or `None` if the program has no geometry shader.
+    #[inline]
+    pub fn get_geometry_input_type(&self) -> Option<gl::types::GLenum> {
+        self.geometry_input_type
     }
 
     /// Returns true if the program contains a tessellation stage.

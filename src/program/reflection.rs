@@ -586,6 +586,21 @@ pub unsafe fn reflect_geometry_output_type(
     }
 }
 
+/// Obtains the type of primitives that the geometry shader stage takes as input, such as
+/// `GL_TRIANGLES` or `GL_LINES_ADJACENCY`.
+///
+/// # Unsafety
+///
+/// - `program` must be a valid handle to a program.
+/// - The program **must** contain a geometry shader.
+pub unsafe fn reflect_geometry_input_type(
+    ctxt: &mut CommandContext<'_>,
+    program: glow::Program,
+) -> gl::types::GLenum {
+    ctxt.glow
+        .get_program_parameter_i32(program, glow::GEOMETRY_INPUT_TYPE) as gl::types::GLenum
+}
+
 /// Obtains the type of data that the tessellation evaluation shader stage outputs.
 ///
 /// # Unsafety

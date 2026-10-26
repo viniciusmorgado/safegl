@@ -75,6 +75,25 @@ where
         }
     };
 
+    // a geometry shader takes a single kind of primitives, unless it gets them from the
+    // tessellation stages
+    if !program.has_tessellation_evaluation_shader() {
+        if let Some(input) = program.get_geometry_input_type() {
+            use crate::index::PrimitiveType::*;
+            let compatible = match indices.get_primitives_type() {
+                Points => input == gl::POINTS,
+                LinesList | LineStrip | LineLoop => input == gl::LINES,
+                LinesListAdjacency | LineStripAdjacency => input == gl::LINES_ADJACENCY,
+                TrianglesList | TriangleStrip | TriangleFan => input == gl::TRIANGLES,
+                TrianglesListAdjacency | TriangleStripAdjacency => input == gl::TRIANGLES_ADJACENCY,
+                Patches { .. } => true,
+            };
+            if !compatible {
+                return Err(DrawError::GeometryShaderInputMismatch);
+            }
+        }
+    }
+
     // starting the state changes
     let mut ctxt = context.make_current();
 

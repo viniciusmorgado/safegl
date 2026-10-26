@@ -321,6 +321,13 @@ impl Program {
         self.raw.get_output_primitives()
     }
 
+    /// Returns the type of primitives that the geometry shader takes as input, such as
+    /// `GL_TRIANGLES`, or `None` if the program has no geometry shader.
+    #[inline]
+    pub(crate) fn get_geometry_input_type(&self) -> Option<gl::types::GLenum> {
+        self.raw.get_geometry_input_type()
+    }
+
     /// Returns true if the program contains a tessellation stage.
     #[inline]
     pub fn has_tessellation_shaders(&self) -> bool {

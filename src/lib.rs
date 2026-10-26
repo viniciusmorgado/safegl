@@ -1260,6 +1260,9 @@ pub enum DrawError {
     /// Using a program which contains tessellation shaders, but without submitting patches.
     TessellationWithoutPatches,
 
+    /// The geometry shader of the program takes another kind of primitives than the ones drawn.
+    GeometryShaderInputMismatch,
+
     /// Trying to use a sampler, but they are not supported by the backend.
     SamplersNotSupported,
 
@@ -1391,6 +1394,8 @@ impl fmt::Display for DrawError {
                 "Trying to use tessellation, but this is not supported by the underlying hardware",
             TessellationWithoutPatches =>
                 "Using a program which contains tessellation shaders, but without submitting patches",
+            GeometryShaderInputMismatch =>
+                "The geometry shader of the program takes another kind of primitives than the ones drawn",
             SamplersNotSupported => "
                 Trying to use a sampler, but they are not supported by the backend",
             InstancesCountMismatch =>
