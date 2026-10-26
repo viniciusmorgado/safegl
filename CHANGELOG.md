@@ -131,6 +131,9 @@ Additions:
   (glium#1523).
 - `uniform!` accepts strings as names, for the members of structs and the elements of arrays:
   `uniform! { "lights[0].color": color }` (glium#941).
+- `PrimitivesGeneratedQuery` works on OpenGL ES 3.2 and with `GL_EXT_geometry_shader` or
+  `GL_OES_geometry_shader`, and `TimeElapsedQuery` with `GL_EXT_disjoint_timer_query`, instead of
+  returning `QueryCreationError::NotSupported` on every version of OpenGL ES.
 
 Fixes:
 
