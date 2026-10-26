@@ -4,9 +4,9 @@
 extern crate safegl;
 
 use safegl::draw_parameters::PolygonOffset;
-use safegl::framebuffer::{DepthStencilRenderBuffer, SimpleFrameBuffer};
+use safegl::framebuffer::{DepthRenderBuffer, SimpleFrameBuffer};
 use safegl::index::PrimitiveType;
-use safegl::texture::DepthStencilFormat;
+use safegl::texture::DepthFormat;
 use safegl::{DrawError, Surface, Texture2d};
 
 mod support;
@@ -100,12 +100,9 @@ fn draw_offset_quad(clamp: f32) -> Result<(u8, u8, u8, u8), DrawError> {
 
     let color = Texture2d::empty(&display, SIZE, SIZE).unwrap();
     // A fixed-point depth buffer, whose smallest step is 2^-24: an offset of `units` moves the
-    // depth by `units / 2^24`. (A depth-stencil buffer, because SafeGL can't create depth-only
-    // render buffers on OpenGL ES.)
-    let depth =
-        DepthStencilRenderBuffer::new(&display, DepthStencilFormat::I24I8, SIZE, SIZE).unwrap();
-    let mut target =
-        SimpleFrameBuffer::with_depth_stencil_buffer(&display, &color, &depth).unwrap();
+    // depth by `units / 2^24`.
+    let depth = DepthRenderBuffer::new(&display, DepthFormat::I24, SIZE, SIZE).unwrap();
+    let mut target = SimpleFrameBuffer::with_depth_buffer(&display, &color, &depth).unwrap();
     target.clear_color_and_depth((0.0, 0.0, 0.0, 0.0), 1.0);
 
     target.draw(

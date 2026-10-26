@@ -23,8 +23,9 @@ use crate::uniforms::ImageUnitBehavior;
 use crate::uniforms::SamplerBehavior;
 use crate::uniforms::UniformValue;
 use crate::uniforms::Uniforms;
+use crate::uniforms::{MagnifySamplerFilter, MinifySamplerFilter};
 
-use crate::buffer::Inserter;
+use crate::buffer::{FenceInserters, Inserter};
 use crate::context::CommandContext;
 use glow::HasContext;
 
@@ -41,7 +42,7 @@ where
         &'a self,
         mut ctxt: &mut CommandContext<'_>,
         program: &P,
-        fences: &mut Vec<Inserter<'a>>,
+        fences: &mut FenceInserters<'a>,
     ) -> Result<(), DrawError>
     where
         P: ProgramExt,
@@ -243,7 +244,10 @@ where
 
             let bind_point = buffer_bind_points
                 .get_unused()
-                .expect("Not enough buffer units");
+                .filter(|&point| (point as i32) < ctxt.capabilities.max_indexed_uniform_buffer)
+                .ok_or_else(|| DrawError::BufferBindingOutOfRange {
+                    name: name.to_owned(),
+                })?;
             buffer_bind_points.set_used(bind_point);
 
             assert!(buffer.get_offset_bytes() == 0); // TODO: not implemented
@@ -318,7 +322,12 @@ where
 
             let bind_point = buffer_bind_points
                 .get_unused()
-                .expect("Not enough buffer units");
+                .filter(|&point| {
+                    (point as i32) < ctxt.capabilities.max_indexed_shader_storage_buffer
+                })
+                .ok_or_else(|| DrawError::BufferBindingOutOfRange {
+                    name: name.to_owned(),
+                })?;
             buffer_bind_points.set_used(bind_point);
 
             assert!(buffer.get_offset_bytes() == 0); // TODO: not implemented
@@ -361,6 +370,15 @@ where
                         err: e,
                     });
                 }
+            }
+
+            // the binding point comes from the shader's `layout(binding = N)`
+            if block.initial_binding < 0
+                || block.initial_binding >= ctxt.capabilities.max_indexed_atomic_counter_buffer
+            {
+                return Err(DrawError::BufferBindingOutOfRange {
+                    name: name.to_owned(),
+                });
             }
 
             assert!(buffer.get_offset_bytes() == 0); // TODO: not implemented
@@ -434,6 +452,30 @@ where
         }
         UniformValue::Mat4(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::Mat4(val));
+            Ok(())
+        }
+        UniformValue::Mat2x3(val) => {
+            program.set_uniform(ctxt, location, &RawUniformValue::Mat2x3(val));
+            Ok(())
+        }
+        UniformValue::Mat2x4(val) => {
+            program.set_uniform(ctxt, location, &RawUniformValue::Mat2x4(val));
+            Ok(())
+        }
+        UniformValue::Mat3x2(val) => {
+            program.set_uniform(ctxt, location, &RawUniformValue::Mat3x2(val));
+            Ok(())
+        }
+        UniformValue::Mat3x4(val) => {
+            program.set_uniform(ctxt, location, &RawUniformValue::Mat3x4(val));
+            Ok(())
+        }
+        UniformValue::Mat4x2(val) => {
+            program.set_uniform(ctxt, location, &RawUniformValue::Mat4x2(val));
+            Ok(())
+        }
+        UniformValue::Mat4x3(val) => {
+            program.set_uniform(ctxt, location, &RawUniformValue::Mat4x3(val));
             Ok(())
         }
         UniformValue::Vec2(val) => {
@@ -1227,6 +1269,22 @@ where
     T: TextureExt,
 {
     texture.prepare_for_access(ctxt, crate::TextureAccess::TextureFetch);
+
+    // integer textures can only be sampled without filtering: with linear filters they are
+    // incomplete and read as zero
+    let sampler = sampler.map(|mut sampler| {
+        if texture.is_integer() {
+            sampler.magnify_filter = MagnifySamplerFilter::Nearest;
+            sampler.minify_filter = match sampler.minify_filter {
+                MinifySamplerFilter::Nearest | MinifySamplerFilter::Linear => {
+                    MinifySamplerFilter::Nearest
+                }
+                _ => MinifySamplerFilter::NearestMipmapNearest,
+            };
+            sampler.max_anisotropy = 1;
+        }
+        sampler
+    });
 
     let sampler = if let Some(sampler) = sampler {
         Some(crate::sampler_object::get_sampler(ctxt, &sampler)?)

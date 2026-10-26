@@ -161,6 +161,11 @@ And you should now get the correct result:
 
 This looks very primitive, but it is a good first step towards 3D rendering.
 
+If you resize the window, you will notice that the teapot stretches with it: the logical
+coordinates always go from `-1.0` to `1.0` horizontally and vertically, whatever the shape of the
+window. This is fixed in [the perspective tutorial](tuto-10-perspective.md), which takes the aspect
+ratio of the window into account.
+
 <details>
 <summary>Complete source code</summary>
 

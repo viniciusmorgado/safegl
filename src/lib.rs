@@ -423,6 +423,11 @@ trait TextureExt {
     /// Prepares the texture to be accessed, after possibly being modified in a shader
     /// with image load/store
     fn prepare_for_access(&self, _: &mut CommandContext<'_>, access_type: TextureAccess);
+
+    /// Returns true if the texture has a signed or unsigned integer format.
+    fn is_integer(&self) -> bool {
+        false
+    }
 }
 
 /// Ways a texture could possibly be accessed after being written to in a shader via an image unit
@@ -482,7 +487,7 @@ trait UniformsExt {
         &'a self,
         _: &mut CommandContext<'_>,
         _: &P,
-        _: &mut Vec<buffer::Inserter<'a>>,
+        _: &mut buffer::FenceInserters<'a>,
     ) -> Result<(), DrawError>
     where
         P: ProgramExt;
@@ -504,6 +509,18 @@ pub enum RawUniformValue {
     Mat3([[gl::types::GLfloat; 3]; 3]),
     /// 4x4 column-major matrix.
     Mat4([[gl::types::GLfloat; 4]; 4]),
+    /// Column-major matrix with 2 columns and 3 rows.
+    Mat2x3([[gl::types::GLfloat; 3]; 2]),
+    /// Column-major matrix with 2 columns and 4 rows.
+    Mat2x4([[gl::types::GLfloat; 4]; 2]),
+    /// Column-major matrix with 3 columns and 2 rows.
+    Mat3x2([[gl::types::GLfloat; 2]; 3]),
+    /// Column-major matrix with 3 columns and 4 rows.
+    Mat3x4([[gl::types::GLfloat; 4]; 3]),
+    /// Column-major matrix with 4 columns and 2 rows.
+    Mat4x2([[gl::types::GLfloat; 2]; 4]),
+    /// Column-major matrix with 4 columns and 3 rows.
+    Mat4x3([[gl::types::GLfloat; 3]; 4]),
     Vec2([gl::types::GLfloat; 2]),
     Vec3([gl::types::GLfloat; 3]),
     Vec4([gl::types::GLfloat; 4]),
@@ -882,6 +899,9 @@ pub trait Surface {
     );
 
     /// Clears the color attachment of the target. The color is converted to sRGB when the target has sRGB format.
+    ///
+    /// The color attachments of integer formats are cleared with the components converted to
+    /// integers.
     fn clear_color(&mut self, red: f32, green: f32, blue: f32, alpha: f32) {
         self.clear(None, Some((red, green, blue, alpha)), false, None, None);
     }
@@ -1025,6 +1045,24 @@ pub trait Surface {
         )
     }
 
+    /// Copies a rectangle of pixels from a framebuffer created outside SafeGL to this surface.
+    #[inline]
+    fn blit_from_external_framebuffer(
+        &self,
+        source: &framebuffer::ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+    ) {
+        self.blit_buffers_from_external_framebuffer(
+            source,
+            source_rect,
+            target_rect,
+            filter,
+            BlitMask::color(),
+        )
+    }
+
     /// Blits from the default framebuffer.
     fn blit_buffers_from_frame(
         &self,
@@ -1053,6 +1091,22 @@ pub trait Surface {
         filter: uniforms::MagnifySamplerFilter,
         mask: BlitMask,
     );
+
+    /// Blits from a framebuffer created outside SafeGL.
+    ///
+    /// Every surface of SafeGL implements it; the default implementation, for other surfaces,
+    /// panics.
+    fn blit_buffers_from_external_framebuffer(
+        &self,
+        source: &framebuffer::ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+        mask: BlitMask,
+    ) {
+        let _ = (source, source_rect, target_rect, filter, mask);
+        unimplemented!("this surface can't be the target of a blit from an external framebuffer")
+    }
 
     /// Copies a rectangle of pixels from this surface to another surface.
     ///
@@ -1121,8 +1175,8 @@ pub trait Surface {
 
 /// Private trait for framebuffer-like objects that provide attachments.
 trait FboAttachments {
-    /// Returns the list of attachments of this FBO, or `None` if it is the default framebuffer.
-    fn get_attachments(&self) -> Option<&fbo::ValidatedAttachments<'_>>;
+    /// Returns the attachments of this framebuffer, or the raw framebuffer it is.
+    fn get_attachments(&self) -> fbo::FramebufferTarget<'_>;
 }
 
 /// Error that can happen while drawing.
@@ -1130,6 +1184,9 @@ trait FboAttachments {
 pub enum DrawError {
     /// A depth function has been requested but no depth buffer is available.
     NoDepthBuffer,
+
+    /// A stencil test or operation has been requested but no stencil buffer is available.
+    NoStencilBuffer,
 
     /// The type of a vertex attribute in the vertices source doesn't match what the
     /// program requires.
@@ -1208,6 +1265,9 @@ pub enum DrawError {
     /// Using a program which contains tessellation shaders, but without submitting patches.
     TessellationWithoutPatches,
 
+    /// The geometry shader of the program takes another kind of primitives than the ones drawn.
+    GeometryShaderInputMismatch,
+
     /// Trying to use a sampler, but they are not supported by the backend.
     SamplersNotSupported,
 
@@ -1284,6 +1344,13 @@ pub enum DrawError {
     #[cfg(feature = "gl46")]
     #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
     PolygonOffsetClampNotSupported,
+
+    /// A uniform block, shader storage block or atomic counter buffer needs a binding point
+    /// beyond the ones the backend has.
+    BufferBindingOutOfRange {
+        /// Name of the block.
+        name: String,
+    },
 }
 
 impl Error for DrawError {
@@ -1302,6 +1369,8 @@ impl fmt::Display for DrawError {
         let desc = match self {
             NoDepthBuffer =>
                 "A depth function has been requested but no depth buffer is available",
+            NoStencilBuffer =>
+                "A stencil test or operation has been requested but no stencil buffer is available",
             AttributeTypeMismatch =>
                 "The type of a vertex attribute in the vertices source doesn't match what the program requires",
             AttributeMissing =>
@@ -1330,6 +1399,8 @@ impl fmt::Display for DrawError {
                 "Trying to use tessellation, but this is not supported by the underlying hardware",
             TessellationWithoutPatches =>
                 "Using a program which contains tessellation shaders, but without submitting patches",
+            GeometryShaderInputMismatch =>
+                "The geometry shader of the program takes another kind of primitives than the ones drawn",
             SamplersNotSupported => "
                 Trying to use a sampler, but they are not supported by the backend",
             InstancesCountMismatch =>
@@ -1379,14 +1450,17 @@ impl fmt::Display for DrawError {
             #[cfg(feature = "gl46")]
             PolygonOffsetClampNotSupported =>
                 "Clamping the depth offset is not supported by the backend",
+            BufferBindingOutOfRange { .. } =>
+                "A block needs more buffer binding points than the backend has",
         };
         match self {
             UniformTypeMismatch {
                 ref name,
                 ref expected,
-            } => write!(fmt, "{}, got: {:?}, expected: {:?}", desc, name, expected,),
+            } => write!(fmt, "{}: `{}` is a {:?}", desc, name, expected),
             UniformBufferToValue { name } => write!(fmt, "{}: {}", desc, name,),
             UniformValueToBlock { name } => write!(fmt, "{}: {}", desc, name,),
+            BufferBindingOutOfRange { name } => write!(fmt, "{}: {}", desc, name,),
             UniformBlockLayoutMismatch { name, err } => {
                 write!(fmt, "{}: {}, caused by {}", desc, name, err,)
             }
@@ -1454,13 +1528,22 @@ impl Frame {
     /// `GL_ARB_invalidate_subdata`.
     pub fn invalidate(&self, which: framebuffer::InvalidateAttachments) {
         let mut ctxt = self.context.make_current();
-        unsafe { fbo::FramebuffersContainer::invalidate(&mut ctxt, None, which, None) }
+        unsafe {
+            fbo::FramebuffersContainer::invalidate(&mut ctxt, self.get_attachments(), which, None)
+        }
     }
 
     /// Like `invalidate`, but only inside `rect` (`glInvalidateSubFramebuffer`).
     pub fn invalidate_rect(&self, which: framebuffer::InvalidateAttachments, rect: &Rect) {
         let mut ctxt = self.context.make_current();
-        unsafe { fbo::FramebuffersContainer::invalidate(&mut ctxt, None, which, Some(rect)) }
+        unsafe {
+            fbo::FramebuffersContainer::invalidate(
+                &mut ctxt,
+                self.get_attachments(),
+                which,
+                Some(rect),
+            )
+        }
     }
 
     /// Builds a new `Frame`. Use the `draw` function on `Display` instead of this function.
@@ -1506,7 +1589,7 @@ impl Surface for Frame {
         depth: Option<f32>,
         stencil: Option<i32>,
     ) {
-        ops::clear(&self.context, None, rect, color, color_srgb, depth, stencil);
+        ops::clear(&self.context, self.get_attachments(), rect, color, color_srgb, depth, stencil);
     }
 
     fn get_dimensions(&self) -> (u32, u32) {
@@ -1540,6 +1623,10 @@ impl Surface for Frame {
             return Err(DrawError::NoDepthBuffer);
         }
 
+        if !self.has_stencil_buffer() && draw_parameters.stencil.requires_stencil_buffer() {
+            return Err(DrawError::NoStencilBuffer);
+        }
+
         if let Some(viewport) = draw_parameters.viewport {
             if viewport.width > self.context.capabilities().max_viewport_dims.0 as u32 {
                 return Err(DrawError::ViewportTooLarge);
@@ -1551,7 +1638,7 @@ impl Surface for Frame {
 
         ops::draw(
             &self.context,
-            None,
+            fbo::FramebufferTarget::Raw(None),
             vertex_buffer,
             index_buffer.into(),
             program,
@@ -1583,7 +1670,7 @@ impl Surface for Frame {
     ) {
         ops::blit(
             &self.context,
-            None,
+            fbo::FramebufferTarget::Raw(None),
             self.get_attachments(),
             mask.to_glenum(),
             source_rect,
@@ -1629,12 +1716,31 @@ impl Surface for Frame {
             filter.to_glenum(),
         )
     }
+
+    fn blit_buffers_from_external_framebuffer(
+        &self,
+        source: &framebuffer::ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+        mask: BlitMask,
+    ) {
+        ops::blit(
+            &self.context,
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
 }
 
 impl FboAttachments for Frame {
     #[inline]
-    fn get_attachments(&self) -> Option<&fbo::ValidatedAttachments<'_>> {
-        None
+    fn get_attachments(&self) -> fbo::FramebufferTarget<'_> {
+        fbo::FramebufferTarget::Raw(None)
     }
 }
 

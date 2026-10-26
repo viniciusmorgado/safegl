@@ -188,6 +188,34 @@ impl<'t, T: 't> Sampler<'t, T> {
         self.1.max_anisotropy = level;
         self
     }
+
+    /// Sets the color returned outside the texture with `SamplerWrapFunction::BorderClamp`,
+    /// which is often white for shadow maps.
+    pub fn border_color(mut self, color: [f32; 4]) -> Sampler<'t, T> {
+        self.1.border_color = Some(color.into());
+        self
+    }
+}
+
+/// The color that a sampler returns outside the texture with `SamplerWrapFunction::BorderClamp`.
+///
+/// The components are stored as bits, so that `SamplerBehavior` can be hashed and compared.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct BorderColor([u32; 4]);
+
+impl BorderColor {
+    /// Returns the red, green, blue and alpha components.
+    #[inline]
+    pub fn to_f32(self) -> [f32; 4] {
+        self.0.map(f32::from_bits)
+    }
+}
+
+impl From<[f32; 4]> for BorderColor {
+    #[inline]
+    fn from(color: [f32; 4]) -> BorderColor {
+        BorderColor(color.map(f32::to_bits))
+    }
 }
 
 impl<'t, T: 't> Copy for Sampler<'t, T> {}
@@ -199,7 +227,15 @@ impl<'t, T: 't> Clone for Sampler<'t, T> {
 }
 
 /// Behavior of a sampler.
-// TODO: GL_TEXTURE_BORDER_COLOR, GL_TEXTURE_MIN_LOD, GL_TEXTURE_MAX_LOD, GL_TEXTURE_LOD_BIAS
+///
+/// The default behavior, used by `texture.sampled()`, wraps with `Mirror`, minifies with
+/// `LinearMipmapLinear`, magnifies with `Linear`, has no depth comparison, no anisotropic
+/// filtering and no border color. Integer textures are always sampled with the nearest filters.
+///
+/// A texture used as a uniform without a sampler (`uniform! { tex: &texture }`) keeps its own
+/// parameters instead, which repeat the texture and filter it linearly, or with the nearest
+/// filters for integer, depth and stencil textures.
+// TODO: GL_TEXTURE_MIN_LOD, GL_TEXTURE_MAX_LOD, GL_TEXTURE_LOD_BIAS
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct SamplerBehavior {
     /// Functions to use for the X, Y, and Z coordinates.
@@ -228,6 +264,10 @@ pub struct SamplerBehavior {
     /// If you set the value to a value higher than what the hardware supports, it will
     /// be clamped.
     pub max_anisotropy: u16,
+
+    /// The color returned outside the texture with `SamplerWrapFunction::BorderClamp`. `None`
+    /// keeps OpenGL's default, transparent black. Ignored where `BorderClamp` isn't supported.
+    pub border_color: Option<BorderColor>,
 }
 
 impl Default for SamplerBehavior {
@@ -243,6 +283,7 @@ impl Default for SamplerBehavior {
             magnify_filter: MagnifySamplerFilter::Linear,
             depth_texture_comparison: None,
             max_anisotropy: 1,
+            border_color: None,
         }
     }
 }

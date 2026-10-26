@@ -8,6 +8,7 @@ use crate::image_format::{TextureFormat, TextureFormatRequest};
 use crate::pixel_buffer::PixelBuffer;
 use crate::texture::ClientFormat;
 use crate::texture::PixelValue;
+use crate::texture::TextureKind;
 
 use crate::fbo;
 use crate::fbo::FramebuffersContainer;
@@ -85,6 +86,12 @@ pub enum ReadError {
 
     /// Rect dimensions are too large for the buffer.
     DimensionsTooLarge, // TODO: context lost
+
+    /// The buffer to read from doesn't exist, like the front buffer of most EGL window surfaces.
+    AttachmentMissing,
+
+    /// The OpenGL context has been lost, and the data is gone with it.
+    ContextLost,
 }
 
 impl fmt::Display for ReadError {
@@ -99,12 +106,51 @@ impl fmt::Display for ReadError {
                 "Clamping the values is not supported by the implementation",
             DimensionsTooLarge =>
                 "Rect dimensions are too large for the buffer",
+            AttachmentMissing =>
+                "The buffer to read from doesn't exist",
+            ContextLost =>
+                "The OpenGL context has been lost",
         };
         fmt.write_str(desc)
     }
 }
 
 impl Error for ReadError {}
+
+/// Returns the only client format that OpenGL ES guarantees for reading from `source`.
+fn es_read_format(source: &Source<'_>) -> ClientFormat {
+    use crate::image_format::UncompressedFloatFormat as F;
+
+    let requested = match source {
+        Source::Attachment(fbo::RegularAttachment::Texture(tex)) => {
+            Some(tex.get_texture().get_requested_format())
+        }
+        _ => None,
+    };
+
+    match requested {
+        Some(TextureFormatRequest::AnyIntegral)
+        | Some(TextureFormatRequest::Specific(TextureFormat::UncompressedIntegral(_))) => {
+            ClientFormat::I32I32I32I32
+        }
+        Some(TextureFormatRequest::AnyUnsigned)
+        | Some(TextureFormatRequest::Specific(TextureFormat::UncompressedUnsigned(_))) => {
+            ClientFormat::U32U32U32U32
+        }
+        Some(TextureFormatRequest::Specific(TextureFormat::UncompressedFloat(
+            F::F16
+            | F::F16F16
+            | F::F16F16F16
+            | F::F16F16F16F16
+            | F::F32
+            | F::F32F32
+            | F::F32F32F32
+            | F::F32F32F32F32
+            | F::F11F11F10,
+        ))) => ClientFormat::F32F32F32F32,
+        _ => ClientFormat::U8U8U8U8,
+    }
+}
 
 /// Reads pixels from the source into the destination.
 ///
@@ -129,19 +175,14 @@ where
     let dest = dest.into();
     let output_pixel_format = <T as PixelValue>::get_format();
 
+    if ctxt.state.lost_context {
+        return Err(ReadError::ContextLost);
+    }
+
     let pixels_to_read = rect
         .width
         .checked_mul(rect.height)
         .ok_or(ReadError::DimensionsTooLarge)?;
-
-    // checking that the output format is supported
-    // OpenGL supported everything, while OpenGL ES only supports U8U8U8U8 plus an additional
-    // implementation-defined format
-    if ctxt.version.0 == Api::GlEs && output_pixel_format != ClientFormat::U8U8U8U8 {
-        // TODO: GLES is guaranteed to support GL_RGBA and an implementation-defined format
-        //       queried with GL_IMPLEMENTATION_COLOR_READ_FORMAT. We only handle GL_RGBA.
-        return Err(ReadError::OutputFormatNotSupported);
-    }
 
     // handling clamping
     if ctxt.version.0 == Api::Gl {
@@ -168,6 +209,22 @@ where
             unsafe { FramebuffersContainer::bind_framebuffer_for_reading(&mut ctxt, attachment) };
         }
         Source::DefaultFramebuffer(read_buffer) => {
+            // selecting a buffer that the default framebuffer doesn't have, such as the front
+            // buffer of most EGL window surfaces, would raise an error
+            if ctxt.version.0 == Api::Gl {
+                unsafe { fbo::bind_framebuffer(ctxt, None, false, true) };
+                let ty = unsafe {
+                    ctxt.glow.get_framebuffer_attachment_parameter_i32(
+                        gl::READ_FRAMEBUFFER,
+                        read_buffer,
+                        gl::FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE,
+                    )
+                };
+                if ty == gl::NONE as gl::types::GLint {
+                    return Err(ReadError::AttachmentMissing);
+                }
+            }
+
             FramebuffersContainer::bind_default_framebuffer_for_reading(&mut ctxt, read_buffer);
         }
     };
@@ -179,38 +236,30 @@ where
         Stencil,
         DepthStencil,
     }
-    let (integer, read_src_type) = match source {
-        Source::Attachment(attachment) => {
-            match attachment {
-                fbo::RegularAttachment::Texture(ref tex) => {
-                    let integer = match tex.get_texture().get_requested_format() {
-                        TextureFormatRequest::Specific(TextureFormat::UncompressedIntegral(_)) => {
-                            true
-                        }
-                        TextureFormatRequest::Specific(TextureFormat::UncompressedUnsigned(_)) => {
-                            true
-                        }
-                        TextureFormatRequest::AnyIntegral => true,
-                        TextureFormatRequest::AnyUnsigned => true,
-                        _ => false,
-                    };
-
-                    (integer, ReadSourceType::Color) // FIXME: wrong
-                }
-                fbo::RegularAttachment::RenderBuffer(ref rb) => {
-                    (false, ReadSourceType::Color) // FIXME: wrong
-                }
-            }
-        }
-        Source::DefaultFramebuffer(read_buffer) => {
-            (false, ReadSourceType::Color) // FIXME: wrong
-        }
+    let kind = match source {
+        Source::Attachment(fbo::RegularAttachment::Texture(ref tex)) => tex.get_texture().kind(),
+        Source::Attachment(fbo::RegularAttachment::RenderBuffer(ref rb)) => rb.kind(),
+        Source::DefaultFramebuffer(_) => TextureKind::Float,
+    };
+    let integer = matches!(kind, TextureKind::Integral | TextureKind::Unsigned);
+    let read_src_type = match kind {
+        TextureKind::Depth => ReadSourceType::Depth,
+        TextureKind::Stencil => ReadSourceType::Stencil,
+        TextureKind::DepthStencil => ReadSourceType::DepthStencil,
+        TextureKind::Float | TextureKind::Integral | TextureKind::Unsigned => ReadSourceType::Color,
     };
 
     // OpenGL ES doesn't support reading from depth, stencil or depth-stencil attachments by default
     if ctxt.version.0 == Api::GlEs {
         match read_src_type {
-            ReadSourceType::Color => (),
+            // OpenGL supports every output format, while OpenGL ES only supports one per kind of
+            // attachment, plus an implementation-defined format queried with
+            // GL_IMPLEMENTATION_COLOR_READ_FORMAT that we don't handle
+            ReadSourceType::Color => {
+                if output_pixel_format != es_read_format(&source) {
+                    return Err(ReadError::OutputFormatNotSupported);
+                }
+            }
             ReadSourceType::Depth => {
                 if !ctxt.extensions.gl_nv_read_depth {
                     return Err(ReadError::AttachmentTypeNotSupported);
@@ -231,16 +280,21 @@ where
     // obtaining the client format and client type to be passed to `glReadPixels`
     let (format, gltype) = match read_src_type {
         ReadSourceType::Color => client_format_to_gl_enum(&output_pixel_format, integer),
-        ReadSourceType::Depth => {
-            unimplemented!() // TODO:
-                             // TODO: NV_depth_buffer_float2
-                             //(gl::DEPTH_COMPONENT, )
-        }
-        ReadSourceType::DepthStencil => unimplemented!(), // FIXME: only 24_8 is possible and there's no client format in the enum that corresponds to 24_8
-        ReadSourceType::Stencil => {
-            unimplemented!() // TODO:
-                             //(gl::STENCIL_INDEX, )
-        }
+        ReadSourceType::Depth => match output_pixel_format {
+            ClientFormat::F32 => (gl::DEPTH_COMPONENT, gl::FLOAT),
+            ClientFormat::U16 => (gl::DEPTH_COMPONENT, gl::UNSIGNED_SHORT),
+            ClientFormat::U32 => (gl::DEPTH_COMPONENT, gl::UNSIGNED_INT),
+            _ => return Err(ReadError::OutputFormatNotSupported),
+        },
+        ReadSourceType::Stencil => match output_pixel_format {
+            ClientFormat::U8 => (gl::STENCIL_INDEX, gl::UNSIGNED_BYTE),
+            _ => return Err(ReadError::OutputFormatNotSupported),
+        },
+        // the 24 bits of depth and the 8 bits of stencil packed in a `u32`
+        ReadSourceType::DepthStencil => match output_pixel_format {
+            ClientFormat::U32 => (gl::DEPTH_STENCIL, gl::UNSIGNED_INT_24_8),
+            _ => return Err(ReadError::OutputFormatNotSupported),
+        },
     };
 
     // reading
@@ -251,20 +305,7 @@ where
 
                 BufferAny::unbind_pixel_pack(ctxt);
 
-                // adjusting data alignement
-                let ptr = buf.as_mut_ptr() as *mut D;
-                let ptr = ptr as usize;
-                if (ptr % 8) == 0 {
-                } else if (ptr % 4) == 0 && ctxt.state.pixel_store_pack_alignment != 4 {
-                    ctxt.state.pixel_store_pack_alignment = 4;
-                    ctxt.glow.pixel_store_i32(glow::PACK_ALIGNMENT, 4);
-                } else if (ptr % 2) == 0 && ctxt.state.pixel_store_pack_alignment > 2 {
-                    ctxt.state.pixel_store_pack_alignment = 2;
-                    ctxt.glow.pixel_store_i32(glow::PACK_ALIGNMENT, 2);
-                } else if ctxt.state.pixel_store_pack_alignment != 1 {
-                    ctxt.state.pixel_store_pack_alignment = 1;
-                    ctxt.glow.pixel_store_i32(glow::PACK_ALIGNMENT, 1);
-                }
+                set_pack_alignment(ctxt, rect.width as usize * mem::size_of::<T>());
 
                 // glow takes the destination as a byte slice, so the buffer is zeroed first to
                 // avoid viewing uninitialized memory as `&mut [u8]`
@@ -291,6 +332,7 @@ where
                 assert!(pixel_buffer.len() >= pixels_to_read as usize);
 
                 pixel_buffer.prepare_and_bind_for_pixel_pack(&mut ctxt);
+                set_pack_alignment(ctxt, rect.width as usize * mem::size_of::<T>());
                 ctxt.glow.read_pixels(
                     rect.left as gl::types::GLint,
                     rect.bottom as gl::types::GLint,
@@ -307,6 +349,22 @@ where
     };
 
     Ok(())
+}
+
+/// Sets `GL_PACK_ALIGNMENT` so that OpenGL writes rows of `row_bytes` bytes without padding them,
+/// since the destination holds the rows next to each other. A padded row would write past the
+/// end of the destination.
+unsafe fn set_pack_alignment(ctxt: &mut CommandContext<'_>, row_bytes: usize) {
+    let alignment = [8, 4, 2]
+        .into_iter()
+        .find(|&alignment| row_bytes.is_multiple_of(alignment))
+        .unwrap_or(1);
+
+    if ctxt.state.pixel_store_pack_alignment != alignment as gl::types::GLint {
+        ctxt.state.pixel_store_pack_alignment = alignment as gl::types::GLint;
+        ctxt.glow
+            .pixel_store_i32(glow::PACK_ALIGNMENT, alignment as gl::types::GLint);
+    }
 }
 
 fn client_format_to_gl_enum(

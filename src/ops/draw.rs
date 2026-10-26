@@ -12,7 +12,7 @@ use crate::context::Context;
 use crate::ContextExt;
 use crate::TransformFeedbackSessionExt;
 
-use crate::fbo::{self, ValidatedAttachments};
+use crate::fbo::{self, FramebufferTarget};
 
 use crate::index::{self, IndicesSource};
 use crate::uniforms::Uniforms;
@@ -29,7 +29,7 @@ use crate::{context, draw_parameters, gl};
 /// Draws everything.
 pub fn draw<'a, U, V>(
     context: &Context,
-    framebuffer: Option<&ValidatedAttachments<'_>>,
+    framebuffer: FramebufferTarget<'_>,
     vertex_buffers: V,
     indices: IndicesSource<'_>,
     program: &Program,
@@ -43,7 +43,7 @@ where
 {
     // this contains the list of fences that will need to be fulfilled after the draw command
     // has started
-    let mut fences = Vec::with_capacity(0);
+    let mut fences = crate::buffer::FenceInserters::new();
 
     // handling tessellation
     let vertices_per_patch = match indices.get_primitives_type() {
@@ -74,6 +74,25 @@ where
             None
         }
     };
+
+    // a geometry shader takes a single kind of primitives, unless it gets them from the
+    // tessellation stages
+    if !program.has_tessellation_evaluation_shader() {
+        if let Some(input) = program.get_geometry_input_type() {
+            use crate::index::PrimitiveType::*;
+            let compatible = match indices.get_primitives_type() {
+                Points => input == gl::POINTS,
+                LinesList | LineStrip | LineLoop => input == gl::LINES,
+                LinesListAdjacency | LineStripAdjacency => input == gl::LINES_ADJACENCY,
+                TrianglesList | TriangleStrip | TriangleFan => input == gl::TRIANGLES,
+                TrianglesListAdjacency | TriangleStripAdjacency => input == gl::TRIANGLES_ADJACENCY,
+                Patches { .. } => true,
+            };
+            if !compatible {
+                return Err(DrawError::GeometryShaderInputMismatch);
+            }
+        }
+    }
 
     // starting the state changes
     let mut ctxt = context.make_current();
@@ -171,7 +190,7 @@ where
             }
         }
 
-        (vertices_count, instances_count, binder.bind().unwrap_or(0))
+        (vertices_count, instances_count, binder.bind()?.unwrap_or(0))
     };
 
     // binding the FBO to draw upon

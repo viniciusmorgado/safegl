@@ -139,7 +139,7 @@ pub use self::image_unit::{ImageUnitAccess, ImageUnitError, ImageUnitFormat};
 pub use self::sampler::{
     DepthTextureComparison, MagnifySamplerFilter, MinifySamplerFilter, SamplerWrapFunction,
 };
-pub use self::sampler::{Sampler, SamplerBehavior};
+pub use self::sampler::{BorderColor, Sampler, SamplerBehavior};
 pub use self::uniforms::{DynamicUniforms, EmptyUniforms, UniformsStorage};
 pub use self::value::{UniformType, UniformValue};
 

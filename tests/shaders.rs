@@ -387,14 +387,26 @@ fn program_binary_working() {
 fn get_transform_feedback_varyings() {
     let display = support::build_display();
 
-    let source = safegl::program::ProgramCreationInput::SourceCode {
-        tessellation_control_shader: None,
-        tessellation_evaluation_shader: None,
-        geometry_shader: None,
-        outputs_srgb: false,
-        uses_point_size: false,
-
-        vertex_shader: "
+    let (vertex_shader, fragment_shader) = if support::is_gles(&display) {
+        (
+            "#version 300 es
+            out vec2 normal;
+            out float color;
+            void main() {
+                normal = vec2(0.0, 0.0);
+                color = 5.0;
+                gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+            }",
+            "#version 300 es
+            precision mediump float;
+            out vec4 color;
+            void main() {
+                color = vec4(1.0, 1.0, 1.0, 1.0);
+            }",
+        )
+    } else {
+        (
+            "
             #version 110
 
             varying vec2 normal;
@@ -407,7 +419,7 @@ fn get_transform_feedback_varyings() {
                 gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
             }
         ",
-        fragment_shader: "
+            "
             #version 130
 
             out vec4 color;
@@ -416,6 +428,18 @@ fn get_transform_feedback_varyings() {
                 color = vec4(1.0, 1.0, 1.0, 1.0);
             }
         ",
+        )
+    };
+
+    let source = safegl::program::ProgramCreationInput::SourceCode {
+        tessellation_control_shader: None,
+        tessellation_evaluation_shader: None,
+        geometry_shader: None,
+        outputs_srgb: false,
+        uses_point_size: false,
+
+        vertex_shader,
+        fragment_shader,
 
         transform_feedback_varyings: Some((
             vec!["normal".to_string(), "color".to_string()],

@@ -882,7 +882,8 @@ pub enum TextureCreationError {
     /// The requested texture dimensions are not supported.
     DimensionsNotSupported,
 
-    /// The texture format is not supported by the backend.
+    /// The type of texture (1D, multisample array, cubemap array, ...) is not supported by the
+    /// backend.
     TypeNotSupported,
 
     /// The size of the data doesn't match the texture dimensions.
@@ -895,7 +896,7 @@ impl fmt::Display for TextureCreationError {
         let desc = match *self {
             FormatNotSupported => "The requested format is not supported by the backend",
             DimensionsNotSupported => "The requested texture dimensions are not supported",
-            TypeNotSupported => "The texture format is not supported by the backend",
+            TypeNotSupported => "The texture type is not supported by the backend",
             DataSizeMismatch => "The size of the data doesn't match the texture dimensions",
         };
         fmt.write_str(desc)

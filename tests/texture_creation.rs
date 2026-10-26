@@ -691,6 +691,10 @@ fn upload_from_pixel_buffer() {
 #[test]
 fn upload_from_pixel_buffer_inverted() {
     let display = support::build_display();
+    // OpenGL ES can't flip the components while uploading
+    if support::is_gles(&display) {
+        return;
+    }
 
     let texture = safegl::texture::Texture2d::empty(&display, 2, 2).unwrap();
 

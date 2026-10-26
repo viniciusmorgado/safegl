@@ -645,6 +645,15 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                                 }}
                             }}
 
+                            /// Turns the sampler into a uniform value that borrows the texture
+                            /// rather than the sampler, so that it can outlive the sampler.
+                            impl<'a> From<Sampler<'a, {myname}>> for UniformValue<'a> {{
+                                #[inline]
+                                fn from(sampler: Sampler<'a, {myname}>) -> UniformValue<'a> {{
+                                    UniformValue::{myname}(sampler.0, Some(sampler.1))
+                                }}
+                            }}
+
                             impl {myname} {{
                                 /// Builds a `Sampler` marker object that allows you to indicate
                                 /// how the texture should be sampled from inside a shader.
@@ -1170,6 +1179,30 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
     ))
     .unwrap();
 
+    // writing the `read` function of depth textures
+    if dimensions == TextureDimensions::Texture2d && ty == TextureType::Depth {
+        (write!(
+            dest,
+            r#"
+                /// Reads the depth values of the texture to RAM.
+                ///
+                /// You should avoid doing this at all cost during performance-critical
+                /// operations (for example, while you're drawing).
+                ///
+                /// ## Panic
+                ///
+                /// Panics on OpenGL ES without `GL_NV_read_depth`, which can't read depth values.
+                #[inline]
+                pub fn read<T>(&self) -> T where T: Texture2dDataSink<f32> {{
+                    let rect = Rect {{ left: 0, bottom: 0, width: self.get_width(),
+                                       height: self.get_height().unwrap_or(1) }};
+                    self.0.main_level().first_layer().into_image(None).unwrap().raw_read(&rect)
+                }}
+            "#
+        ))
+        .unwrap();
+    }
+
     // writing the `read` functions
     // TODO: implement for other types too
     if dimensions == TextureDimensions::Texture2d
@@ -1273,11 +1306,64 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         .unwrap();
     }
 
+    // the types whose uncompressed data can be uploaded with `write`; stencil and depth-stencil
+    // data have no client format
+    let is_writable = matches!(
+        ty,
+        TextureType::Regular
+            | TextureType::Srgb
+            | TextureType::Integral
+            | TextureType::Unsigned
+            | TextureType::Depth
+    );
+
+    // writing the `write` function of one-dimensional and three-dimensional textures
+    if is_writable && dimensions == TextureDimensions::Texture1d {
+        (write!(
+            dest,
+            r#"
+                /// Uploads some data in the texture, starting at the texel `offset`.
+                ///
+                /// Note that this may cause a synchronization if you use the texture right before
+                /// or right after this call.
+                ///
+                /// ## Panic
+                ///
+                /// Panics if the data doesn't fit in the texture.
+                #[inline]
+                pub fn write<'a, T>(&self, offset: u32, data: T) where T: Texture1dDataSource<'a> {{
+                    self.main_level().write(offset, data)
+                }}
+            "#
+        ))
+        .unwrap();
+    }
+
+    if is_writable && dimensions == TextureDimensions::Texture3d {
+        (write!(
+            dest,
+            r#"
+                /// Uploads some data in the texture, starting at the texel `offset` (x, y, z).
+                ///
+                /// Note that this may cause a synchronization if you use the texture right before
+                /// or right after this call.
+                ///
+                /// ## Panic
+                ///
+                /// Panics if the data doesn't fit in the texture.
+                #[inline]
+                pub fn write<'a, T>(&self, offset: (u32, u32, u32), data: T)
+                    where T: Texture3dDataSource<'a>
+                {{
+                    self.main_level().write(offset, data)
+                }}
+            "#
+        ))
+        .unwrap();
+    }
+
     // writing the `write` function
-    // TODO: implement for other types too
-    if dimensions == TextureDimensions::Texture2d
-        && (ty == TextureType::Regular || ty == TextureType::Srgb || is_compressed)
-    {
+    if dimensions == TextureDimensions::Texture2d && (is_writable || is_compressed) {
         let compressed_restrictions = if is_compressed {
             r#" ///
                 /// Calling this for compressed textures will result in a panic of type INVALID_OPERATION
@@ -1522,11 +1608,54 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         // dimensions getters
         write_dimensions_getters(dest, dimensions, "self.0", true);
 
+        // writing the `write` function for mipmaps of one-dimensional and three-dimensional
+        // textures
+        if is_writable && dimensions == TextureDimensions::Texture1d {
+            (write!(dest, r#"
+                    /// Uploads some data in the texture level, starting at the texel `offset`.
+                    ///
+                    /// Note that this may cause a synchronization if you use the texture right before
+                    /// or right after this call.
+                    ///
+                    /// ## Panic
+                    ///
+                    /// Panics if the data doesn't fit in the texture level.
+                    pub fn write<'a, T>(&self, offset: u32, data: T) where T: Texture1dDataSource<'a> {{
+                        let RawImage1d {{ data, width, format: client_format }} = data.into_raw();
+                        let client_format = ClientFormatAny::ClientFormat(client_format);
+
+                        self.0.upload_texture(offset, 0, 0, (client_format, data), width, None, None,
+                                              true).unwrap()
+                    }}
+                "#)).unwrap();
+        }
+
+        if is_writable && dimensions == TextureDimensions::Texture3d {
+            (write!(dest, r#"
+                    /// Uploads some data in the texture level, starting at the texel `offset`
+                    /// (x, y, z).
+                    ///
+                    /// Note that this may cause a synchronization if you use the texture right before
+                    /// or right after this call.
+                    ///
+                    /// ## Panic
+                    ///
+                    /// Panics if the data doesn't fit in the texture level.
+                    pub fn write<'a, T>(&self, offset: (u32, u32, u32), data: T)
+                        where T: Texture3dDataSource<'a>
+                    {{
+                        let RawImage3d {{ data, width, height, depth, format: client_format }} =
+                                                data.into_raw();
+                        let client_format = ClientFormatAny::ClientFormat(client_format);
+
+                        self.0.upload_texture(offset.0, offset.1, offset.2, (client_format, data),
+                                              width, Some(height), Some(depth), true).unwrap()
+                    }}
+                "#)).unwrap();
+        }
+
         // writing the `write` function for mipmaps.
-        // TODO: implement for other types too
-        if dimensions == TextureDimensions::Texture2d
-            && (ty == TextureType::Regular || ty == TextureType::Srgb || is_compressed)
-        {
+        if dimensions == TextureDimensions::Texture2d && (is_writable || is_compressed) {
             let compressed_restrictions = if is_compressed {
                 r#" ///
                     /// Calling this for compressed textures will result in a panic of type INVALID_OPERATION
@@ -1740,6 +1869,39 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
             .unwrap();
         }
 
+        // writing the `write` function of layers
+        if is_writable && dimensions == TextureDimensions::Texture1dArray {
+            (write!(dest, r#"
+                    /// Uploads some data in this layer, starting at the texel `offset`.
+                    ///
+                    /// ## Panic
+                    ///
+                    /// Panics if the data doesn't fit in the layer.
+                    pub fn write<'a, T>(&self, offset: u32, data: T)
+                        where T: Texture1dDataSource<'a>, T::Data: PixelValue
+                    {{
+                        let RawImage1d {{ data, width, format }} = data.into_raw();
+                        let rect = Rect {{ left: offset, bottom: 0, width, height: 1 }};
+                        self.0.into_image(None).unwrap()
+                            .raw_write(&rect, RawImage2d {{ data, width, height: 1, format }})
+                    }}
+                "#)).unwrap();
+        }
+
+        if is_writable && dimensions == TextureDimensions::Texture2dArray {
+            (write!(dest, r#"
+                    /// Uploads some data in a rectangle of this layer.
+                    ///
+                    /// ## Panic
+                    ///
+                    /// Panics if the dimensions of `data` don't match the `Rect`, or if the
+                    /// `Rect` is out of the layer.
+                    pub fn write<'a, T>(&self, rect: Rect, data: T) where T: Texture2dDataSource<'a> {{
+                        self.0.into_image(None).unwrap().raw_write(&rect, data)
+                    }}
+                "#)).unwrap();
+        }
+
         // closing `impl LayerMipmap` block
         (writeln!(dest, "}}")).unwrap();
 
@@ -1778,6 +1940,21 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
 
         // dimensions getters
         write_dimensions_getters(dest, dimensions, "self.0", false);
+
+        // writing the `write` function of cubemap faces
+        if is_writable {
+            (write!(dest, r#"
+                    /// Uploads some data in a rectangle of this face.
+                    ///
+                    /// ## Panic
+                    ///
+                    /// Panics if the dimensions of `data` don't match the `Rect`, or if the
+                    /// `Rect` is out of the face.
+                    pub fn write<'a, T>(&self, rect: Rect, data: T) where T: Texture2dDataSource<'a> {{
+                        self.0.raw_write(&rect, data)
+                    }}
+                "#)).unwrap();
+        }
 
         // closing `impl Image` block
         (writeln!(dest, "}}")).unwrap();

@@ -112,3 +112,33 @@ fn blit_color_and_depth_buffer() {
     // todo: how to check dst_tex_depth? There is no .read() on a DepthTexture2d...
     display.assert_no_error(None);
 }
+
+#[test]
+fn blit_from_multi_output_framebuffer() {
+    let display = support::build_display();
+
+    let first = support::build_unicolor_texture2d(&display, 0.0, 0.0, 1.0);
+    let second = support::build_unicolor_texture2d(&display, 1.0, 0.0, 0.0);
+    let source = safegl::framebuffer::MultiOutputFrameBuffer::new(
+        &display,
+        [("first", &first), ("second", &second)],
+    )
+    .unwrap();
+
+    // blits read from the first output
+    let target = safegl::Texture2d::empty(&display, 2, 2).unwrap();
+    source.blit_whole_color_to(
+        &target.as_surface(),
+        &BlitTarget {
+            left: 0,
+            bottom: 0,
+            width: 2,
+            height: 2,
+        },
+        MagnifySamplerFilter::Nearest,
+    );
+
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = target.read();
+    assert_eq!(data[0][0], (0, 0, 255, 255));
+    display.assert_no_error(None);
+}

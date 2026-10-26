@@ -18,7 +18,9 @@ use crate::DrawError;
 use crate::{Program, Surface};
 
 use crate::fbo;
-use crate::framebuffer::{InvalidateAttachments, MultiOutputFrameBuffer, SimpleFrameBuffer};
+use crate::framebuffer::{
+    ExternalFramebuffer, InvalidateAttachments, MultiOutputFrameBuffer, SimpleFrameBuffer,
+};
 use crate::index;
 use crate::uniforms::MagnifySamplerFilter;
 use crate::vertex;
@@ -57,13 +59,27 @@ impl DefaultFramebuffer {
     /// `GL_ARB_invalidate_subdata`.
     pub fn invalidate(&self, which: InvalidateAttachments) {
         let mut ctxt = self.context.make_current();
-        unsafe { fbo::FramebuffersContainer::invalidate(&mut ctxt, None, which, None) }
+        unsafe {
+            fbo::FramebuffersContainer::invalidate(
+                &mut ctxt,
+                fbo::FramebufferTarget::Raw(None),
+                which,
+                None,
+            )
+        }
     }
 
     /// Like `invalidate`, but only inside `rect` (`glInvalidateSubFramebuffer`).
     pub fn invalidate_rect(&self, which: InvalidateAttachments, rect: &Rect) {
         let mut ctxt = self.context.make_current();
-        unsafe { fbo::FramebuffersContainer::invalidate(&mut ctxt, None, which, Some(rect)) }
+        unsafe {
+            fbo::FramebuffersContainer::invalidate(
+                &mut ctxt,
+                fbo::FramebufferTarget::Raw(None),
+                which,
+                Some(rect),
+            )
+        }
     }
 
     /// Creates a `DefaultFramebuffer` with the back left buffer.
@@ -90,7 +106,15 @@ impl Surface for DefaultFramebuffer {
         stencil: Option<i32>,
     ) {
         // TODO: wrong attachment
-        ops::clear(&self.context, None, None, color, color_srgb, depth, stencil);
+        ops::clear(
+            &self.context,
+            fbo::FramebufferTarget::Raw(None),
+            None,
+            color,
+            color_srgb,
+            depth,
+            stencil,
+        );
     }
 
     fn get_dimensions(&self) -> (u32, u32) {
@@ -124,6 +148,10 @@ impl Surface for DefaultFramebuffer {
             return Err(DrawError::NoDepthBuffer);
         }
 
+        if !self.has_stencil_buffer() && draw_parameters.stencil.requires_stencil_buffer() {
+            return Err(DrawError::NoStencilBuffer);
+        }
+
         if let Some(viewport) = draw_parameters.viewport {
             if viewport.width > self.context.capabilities().max_viewport_dims.0 as u32 {
                 return Err(DrawError::ViewportTooLarge);
@@ -136,7 +164,7 @@ impl Surface for DefaultFramebuffer {
         // TODO: wrong attachment
         ops::draw(
             &self.context,
-            None,
+            fbo::FramebufferTarget::Raw(None),
             vertex_buffer,
             index_buffer.into(),
             program,
@@ -169,7 +197,7 @@ impl Surface for DefaultFramebuffer {
     ) {
         ops::blit(
             &self.context,
-            None,
+            fbo::FramebufferTarget::Raw(None),
             self.get_attachments(),
             mask.to_glenum(),
             source_rect,
@@ -217,11 +245,31 @@ impl Surface for DefaultFramebuffer {
             filter.to_glenum(),
         )
     }
+
+    #[inline]
+    fn blit_buffers_from_external_framebuffer(
+        &self,
+        source: &ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: MagnifySamplerFilter,
+        mask: BlitMask,
+    ) {
+        ops::blit(
+            &self.context,
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
 }
 
 impl FboAttachments for DefaultFramebuffer {
     #[inline]
-    fn get_attachments(&self) -> Option<&fbo::ValidatedAttachments<'_>> {
-        None
+    fn get_attachments(&self) -> fbo::FramebufferTarget<'_> {
+        fbo::FramebufferTarget::Raw(None)
     }
 }

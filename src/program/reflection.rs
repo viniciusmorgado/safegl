@@ -263,26 +263,30 @@ pub unsafe fn reflect_uniforms(
 
     // Flatten arrays
     let mut uniforms_flattened = HashMap::with_hasher(Default::default());
-    for uniform in uniforms {
+    for (name, uniform) in uniforms {
         // If this is a normal non-array element, just move it over
-        if !uniform.0.ends_with("[0]") {
-            assert!(uniform.1.size.is_none());
-            uniforms_flattened.insert(uniform.0, uniform.1);
+        let Some(name_base) = name.strip_suffix("[0]") else {
+            assert!(uniform.size.is_none());
+            uniforms_flattened.insert(name, uniform);
             continue;
-        }
+        };
 
-        // We've got an array, first get the base of the name
-        let name_base = uniform.0.split('[').next().unwrap();
-        let uniform_base = uniform.1;
+        // As in OpenGL, the name of the array refers to its first element
+        let first = Uniform {
+            size: None,
+            ..uniform
+        };
+        uniforms_flattened.insert(name_base.to_owned(), first);
+        uniforms_flattened.insert(name.clone(), first);
 
-        // Go over all the elements in the array
-        for i in 0..uniform_base.size.unwrap() {
-            let uniform = Uniform {
-                size: None,
-                location: uniform_base.location + (i as i32),
-                ..uniform_base
-            };
-            uniforms_flattened.insert(format!("{}[{}]", name_base, i), uniform);
+        // The locations of the other elements aren't necessarily consecutive, and on WebGL they
+        // are objects that must be queried one by one
+        for i in 1..uniform.size.unwrap_or(1) {
+            let element = format!("{}[{}]", name_base, i);
+            let location = locations.register(ctxt.glow.get_uniform_location(program, &element));
+            if location != -1 {
+                uniforms_flattened.insert(element, Uniform { location, ..first });
+            }
         }
     }
 
@@ -458,9 +462,10 @@ pub unsafe fn reflect_uniform_blocks(
                 });
 
         // now computing the list of members
-        let members = member_names.enumerate().map(|(index, name)| {
+        let block_name = name.clone();
+        let members = member_names.enumerate().map(|(index, member_name)| {
             (
-                name,
+                strip_block_prefix(&block_name, member_name),
                 member_offsets[index] as usize,
                 glenum_to_uniform_type(member_types[index] as gl::types::GLenum),
                 member_size[index] as usize,
@@ -581,6 +586,21 @@ pub unsafe fn reflect_geometry_output_type(
     }
 }
 
+/// Obtains the type of primitives that the geometry shader stage takes as input, such as
+/// `GL_TRIANGLES` or `GL_LINES_ADJACENCY`.
+///
+/// # Unsafety
+///
+/// - `program` must be a valid handle to a program.
+/// - The program **must** contain a geometry shader.
+pub unsafe fn reflect_geometry_input_type(
+    ctxt: &mut CommandContext<'_>,
+    program: glow::Program,
+) -> gl::types::GLenum {
+    ctxt.glow
+        .get_program_parameter_i32(program, glow::GEOMETRY_INPUT_TYPE) as gl::types::GLenum
+}
+
 /// Obtains the type of data that the tessellation evaluation shader stage outputs.
 ///
 /// # Unsafety
@@ -696,6 +716,7 @@ pub unsafe fn reflect_shader_storage_blocks(
         };
 
         // iterator over variables
+        let block_name = name.clone();
         let members = active_variables.into_iter().map(|variable| {
             let (ty, array_size, offset, _array_stride, name_len, top_level_array_size) = {
                 let mut output: [gl::types::GLint; 6] = [0; 6];
@@ -743,7 +764,13 @@ pub unsafe fn reflect_shader_storage_blocks(
                 String::from_utf8(name_tmp).unwrap()
             };
 
-            (name, offset, ty, array_size, Some(top_level_array_size))
+            (
+                strip_block_prefix(&block_name, name),
+                offset,
+                ty,
+                array_size,
+                Some(top_level_array_size),
+            )
         });
 
         // finally inserting into the blocks list
@@ -759,6 +786,20 @@ pub unsafe fn reflect_shader_storage_blocks(
     }
 
     blocks
+}
+
+/// Removes the `Block.` prefix that OpenGL puts before the names of the members of a block with an
+/// instance name, like `uniform Light { vec3 position; } light;`, so that they match the fields of
+/// the Rust struct.
+fn strip_block_prefix(block_name: &str, member: String) -> String {
+    let block_name = block_name.split('[').next().unwrap_or(block_name);
+    match member
+        .strip_prefix(block_name)
+        .and_then(|rest| rest.strip_prefix('.'))
+    {
+        Some(rest) => rest.to_owned(),
+        None => member,
+    }
 }
 
 /// Takes a list of elements produced by OpenGL's introspection API and turns them into

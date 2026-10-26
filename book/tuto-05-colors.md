@@ -54,7 +54,15 @@ Let's see what happens. Our vertex shader is invoked three times, once per verte
 
 For example, pixels that are right next to a vertex will get a value of `vertex_color` that is equal or very near the value of `vertex_color` that the vertex shader returned for this vertex. The pixel that is on the middle of the edge between two vertices will get the average of the two values of `vertex_color` returned by the vertex shader for these two vertices. Pixels that are the middle of the triangle will get the average of the values of all three vertices.
 
-*Note: this is because variables by default have the `smooth` attribute, which is what you want most of the time. It is also possible to specify the `flat` attribute.*
+*Note: this is because variables by default have the `smooth` attribute, which is what you want most of the time. It is also possible to specify the `flat` attribute, on the output of the vertex shader and on the matching input of the fragment shader, in which case every pixel of the triangle gets the value of a single vertex (the last one, by default) instead of an interpolation:*
+
+```glsl
+// in the vertex shader
+flat out vec3 vertex_color;
+
+// in the fragment shader
+flat in vec3 vertex_color;
+```
 
 The result should look like this:
 

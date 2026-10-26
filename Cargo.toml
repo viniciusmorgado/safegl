@@ -14,13 +14,14 @@ exclude = ["doc", ".idea", "examples/renderers", "examples/standalone/support/fe
 edition = "2021"
 
 [features]
-default = ["gl46", "glutin_backend", "simple_window_builder", "glutin/default", "winit/rwh_06", "winit/x11", "winit/wayland", "winit/wayland-dlopen", "winit/wayland-csd-adwaita-notitle", "glutin-winit/default"]
+default = ["gl46", "backtrace", "glutin_backend", "simple_window_builder", "glutin/default", "winit/rwh_06", "winit/x11", "winit/wayland", "winit/wayland-dlopen", "winit/wayland-csd-adwaita-notitle", "glutin-winit/default"]
 # OpenGL feature tiers. Each tier includes the ones below it.
 gles30 = [] # common subset of OpenGL ES 3.0 and desktop OpenGL 4.1
 gl41 = ["gles30"] # desktop OpenGL 4.1 core, the macOS ceiling
 gl46 = ["gl41"] # desktop OpenGL 4.6 core, not available on macOS
 webgl = ["gles30", "dep:web-sys", "dep:wasm-bindgen"] # WebGL 2 in browsers (wasm32), the gles30 tier
 glutin_backend = ["glutin"]
+backtrace = ["dep:backtrace"] # prints a backtrace with the OpenGL debug messages reported as errors
 unstable = [] # used for benchmarks
 simple_window_builder = ["glutin", "glutin-winit", "winit", "raw-window-handle"] # used in the tutorial
 
@@ -50,7 +51,7 @@ default-features = false
 
 [dependencies]
 memoffset = "0.9.1"
-backtrace = "0.3.76"
+backtrace = { version = "0.3.76", optional = true }
 smallvec = "1.16.4"
 fnv = "1.0.7"
 glow = "0.18"
@@ -107,6 +108,10 @@ path = "examples/standalone/gpgpu.rs"
 required-features = ["gl46"]
 
 [[example]]
+name = "headless"
+path = "examples/standalone/headless.rs"
+
+[[example]]
 name = "image"
 path = "examples/standalone/image.rs"
 
@@ -125,6 +130,10 @@ path = "examples/standalone/manual-creation.rs"
 [[example]]
 name = "multiple_windows"
 path = "examples/standalone/multiple_windows.rs"
+
+[[example]]
+name = "outputs_srgb"
+path = "examples/standalone/outputs_srgb.rs"
 
 [[example]]
 name = "picking"

@@ -25,13 +25,6 @@ fn supported(display: &Display) -> bool {
         && safegl::texture::is_copy_image_supported(display)
 }
 
-/// Creating textures of float, integer and depth formats with `empty` and `empty_with_format`
-/// fails on OpenGL ES, because SafeGL doesn't use `glTexStorage*` there; the tests that need
-/// such textures only run on desktop OpenGL.
-fn is_gles(display: &Display) -> bool {
-    display.get_opengl_version().0 == safegl::Api::GlEs
-}
-
 fn read(texture: &Texture2d) -> Vec<Vec<(u8, u8, u8, u8)>> {
     texture.read()
 }
@@ -198,7 +191,7 @@ fn clear_region() {
 #[test]
 fn clear_unsigned_texture() {
     let display = support::build_display();
-    if !supported(&display) || is_gles(&display) {
+    if !supported(&display) {
         return;
     }
     let texture = UnsignedTexture2d::empty_with_format(
@@ -231,7 +224,7 @@ fn clear_unsigned_texture() {
 #[test]
 fn clear_depth_texture() {
     let display = support::build_display();
-    if !supported(&display) || is_gles(&display) {
+    if !supported(&display) {
         return;
     }
     let color = rgba8(&display);
@@ -435,7 +428,7 @@ fn copy_checks_regions() {
 #[test]
 fn copy_checks_formats_and_samples() {
     let display = support::build_display();
-    if !supported(&display) || is_gles(&display) {
+    if !supported(&display) {
         return;
     }
     let source = numbered_texture(&display);
@@ -479,7 +472,7 @@ fn copy_checks_formats_and_samples() {
 #[test]
 fn copy_between_compressed_and_uncompressed() {
     let display = support::build_display();
-    if !supported(&display) || is_gles(&display) {
+    if !supported(&display) {
         return;
     }
 

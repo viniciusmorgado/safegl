@@ -2,7 +2,7 @@
 macro_rules! extensions {
     ($($string:expr => $field:ident,)+) => {
         /// Contains data about the list of extensions.
-        #[derive(Debug, Clone, Copy)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub struct ExtensionsList {
             $(
                 #[allow(missing_docs)]
@@ -114,6 +114,7 @@ extensions! {
     "GL_ARB_texture_rgb10_a2ui" => gl_arb_texture_rgb10_a2ui,
     "GL_ARB_texture_stencil8" => gl_arb_texture_stencil8,
     "GL_ARB_texture_storage" => gl_arb_texture_storage,
+    "GL_ARB_texture_storage_multisample" => gl_arb_texture_storage_multisample,
     "GL_ARB_timer_query" => gl_arb_timer_query,
     "GL_ARB_transform_feedback3" => gl_arb_transform_feedback3,
     "GL_ARB_uniform_buffer_object" => gl_arb_uniform_buffer_object,
@@ -130,6 +131,8 @@ extensions! {
     "GL_EXT_blend_minmax" => gl_ext_blend_minmax,
     "GL_EXT_buffer_storage" => gl_ext_buffer_storage,
     "GL_EXT_clear_texture" => gl_ext_clear_texture,
+    "GL_EXT_color_buffer_float" => gl_ext_color_buffer_float,
+    "GL_EXT_color_buffer_half_float" => gl_ext_color_buffer_half_float,
     "GL_EXT_debug_marker" => gl_ext_debug_marker,
     "GL_EXT_direct_state_access" => gl_ext_direct_state_access,
     "GL_EXT_memory_object" => gl_ext_memory_object,
@@ -165,6 +168,7 @@ extensions! {
     "GL_EXT_texture_filter_anisotropic" => gl_ext_texture_filter_anisotropic,
     "GL_EXT_texture_integer" => gl_ext_texture_integer,
     "GL_EXT_texture_mirror_clamp_to_edge" => gl_ext_texture_mirror_clamp_to_edge,
+    "GL_EXT_texture_norm16" => gl_ext_texture_norm16,
     "GL_EXT_texture_shared_exponent" => gl_ext_texture_shared_exponent,
     "GL_EXT_texture_snorm" => gl_ext_texture_snorm,
     "GL_EXT_texture_sRGB" => gl_ext_texture_srgb,
@@ -208,6 +212,7 @@ extensions! {
     "GL_OES_texture_border_clamp" => gl_oes_texture_border_clamp,
     "GL_OES_texture_buffer" => gl_oes_texture_buffer,
     "GL_OES_texture_cube_map_array" => gl_oes_texture_cube_map_array,
+    "GL_OES_texture_float_linear" => gl_oes_texture_float_linear,
     "GL_OES_texture_stencil8" => gl_oes_texture_stencil8,
     "GL_OES_texture_storage_multisample_2d_array" => gl_oes_texture_storage_multisample_2d_array,
     "GL_OES_vertex_array_object" => gl_oes_vertex_array_object,
