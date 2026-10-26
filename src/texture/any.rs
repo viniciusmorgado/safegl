@@ -1821,8 +1821,7 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
                     internal_format as gl::types::GLenum,
                 ) {
                     Some(known_format) => {
-                        let mut buf = Vec::with_capacity(buffer_size as usize);
-                        buf.set_len(buffer_size as usize);
+                        let mut buf = vec![0u8; buffer_size as usize];
 
                         BufferAny::unbind_pixel_pack(&mut ctxt);
 
