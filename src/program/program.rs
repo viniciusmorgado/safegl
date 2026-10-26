@@ -4,7 +4,6 @@ use crate::context::CommandContext;
 use crate::version::Api;
 
 use crate::backend::Facade;
-use crate::CapabilitiesSource;
 
 use std::collections::hash_map::{self, HashMap};
 use std::fmt;
@@ -86,13 +85,6 @@ impl Program {
                     has_tessellation_evaluation_shader = true;
                 }
 
-                // TODO: move somewhere else
-                if transform_feedback_varyings.is_some()
-                    && facade.get_context().get_version().0 != Api::Gl
-                {
-                    return Err(ProgramCreationError::TransformFeedbackNotSupported);
-                }
-
                 let _lock = COMPILER_GLOBAL_LOCK.lock();
 
                 let shaders_store = {
@@ -160,13 +152,6 @@ impl Program {
                 if let Some(ts) = tessellation_evaluation_shader {
                     shaders.push((ts, ShaderType::TesselationEvaluation));
                     has_tessellation_evaluation_shader = true;
-                }
-
-                // TODO: move somewhere else
-                if transform_feedback_varyings.is_some()
-                    && facade.get_context().get_version().0 != Api::Gl
-                {
-                    return Err(ProgramCreationError::TransformFeedbackNotSupported);
                 }
 
                 let _lock = COMPILER_GLOBAL_LOCK.lock();

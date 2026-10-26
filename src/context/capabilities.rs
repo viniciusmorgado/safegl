@@ -456,17 +456,20 @@ pub unsafe fn get_capabilities(
             None
         },
 
-        max_indexed_atomic_counter_buffer: if version >= &Version(Api::Gl, 4, 2) {
-            // TODO: ARB_shader_atomic_counters   // TODO: GLES
+        max_indexed_atomic_counter_buffer: if version >= &Version(Api::Gl, 4, 2)
+            || version >= &Version(Api::GlEs, 3, 1)
+            || extensions.gl_arb_shader_atomic_counters
+        {
             gl.get_parameter_i32(glow::MAX_ATOMIC_COUNTER_BUFFER_BINDINGS)
         } else {
             0
         },
 
         max_indexed_shader_storage_buffer: {
-            if version >= &Version(Api::Gl, 4, 3) || extensions.gl_arb_shader_storage_buffer_object
+            if version >= &Version(Api::Gl, 4, 3)
+                || version >= &Version(Api::GlEs, 3, 1)
+                || extensions.gl_arb_shader_storage_buffer_object
             {
-                // TODO: GLES
                 gl.get_parameter_i32(glow::MAX_SHADER_STORAGE_BUFFER_BINDINGS)
             } else {
                 0
@@ -475,9 +478,12 @@ pub unsafe fn get_capabilities(
 
         max_indexed_transform_feedback_buffer: {
             if version >= &Version(Api::Gl, 4, 0) || extensions.gl_arb_transform_feedback3 {
-                // TODO: GLES
                 gl.get_parameter_i32(glow::MAX_TRANSFORM_FEEDBACK_BUFFERS)
-            } else if version >= &Version(Api::Gl, 3, 0) || extensions.gl_ext_transform_feedback {
+            } else if version >= &Version(Api::Gl, 3, 0)
+                || version >= &Version(Api::GlEs, 3, 0)
+                || extensions.gl_ext_transform_feedback
+            {
+                // OpenGL ES binds one buffer per separate attribute
                 gl.get_parameter_i32(gl::MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS_EXT)
             } else {
                 0
@@ -485,8 +491,10 @@ pub unsafe fn get_capabilities(
         },
 
         max_indexed_uniform_buffer: {
-            if version >= &Version(Api::Gl, 3, 1) || extensions.gl_arb_uniform_buffer_object {
-                // TODO: GLES
+            if version >= &Version(Api::Gl, 3, 1)
+                || version >= &Version(Api::GlEs, 3, 0)
+                || extensions.gl_arb_uniform_buffer_object
+            {
                 gl.get_parameter_i32(glow::MAX_UNIFORM_BUFFER_BINDINGS)
             } else {
                 0

@@ -1284,6 +1284,13 @@ pub enum DrawError {
     #[cfg(feature = "gl46")]
     #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
     PolygonOffsetClampNotSupported,
+
+    /// A uniform block, shader storage block or atomic counter buffer needs a binding point
+    /// beyond the ones the backend has.
+    BufferBindingOutOfRange {
+        /// Name of the block.
+        name: String,
+    },
 }
 
 impl Error for DrawError {
@@ -1379,6 +1386,8 @@ impl fmt::Display for DrawError {
             #[cfg(feature = "gl46")]
             PolygonOffsetClampNotSupported =>
                 "Clamping the depth offset is not supported by the backend",
+            BufferBindingOutOfRange { .. } =>
+                "A block needs more buffer binding points than the backend has",
         };
         match self {
             UniformTypeMismatch {
@@ -1387,6 +1396,7 @@ impl fmt::Display for DrawError {
             } => write!(fmt, "{}, got: {:?}, expected: {:?}", desc, name, expected,),
             UniformBufferToValue { name } => write!(fmt, "{}: {}", desc, name,),
             UniformValueToBlock { name } => write!(fmt, "{}: {}", desc, name,),
+            BufferBindingOutOfRange { name } => write!(fmt, "{}: {}", desc, name,),
             UniformBlockLayoutMismatch { name, err } => {
                 write!(fmt, "{}: {}, caused by {}", desc, name, err,)
             }

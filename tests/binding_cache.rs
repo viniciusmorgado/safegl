@@ -8,9 +8,21 @@ use safegl::{CapabilitiesSource, Surface};
 
 mod support;
 
-const VERTEX: &str = "#version 140
-in vec2 position;
-void main() { gl_Position = vec4(position, 0.0, 1.0); }";
+type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
+
+/// The `#version` line for desktop OpenGL, or for OpenGL ES with default precisions.
+fn header(display: &Display, desktop: u32, es: u32) -> String {
+    if support::is_gles(display) {
+        format!("#version {es} es\nprecision highp float;\nprecision highp int;\n")
+    } else {
+        format!("#version {desktop}\n")
+    }
+}
+
+fn vertex(display: &Display) -> String {
+    header(display, 140, 300)
+        + "in vec2 position;\nvoid main() { gl_Position = vec4(position, 0.0, 1.0); }"
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(C)]
@@ -19,14 +31,14 @@ struct Data {
 }
 implement_uniform_block!(Data, value);
 
-fn indexed_binding_preserves_readback(ty: BufferType, qualifier: &str, version: u32) {
+fn indexed_binding_preserves_readback(ty: BufferType, qualifier: &str, version: u32, es: u32) {
     let display = support::build_display();
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
     let output = safegl::texture::Texture2d::empty(&display, 1, 1).unwrap();
     let program = safegl::Program::from_source(
         &display,
-        VERTEX,
-        &format!("#version {version}\nlayout(std140) {qualifier} Block {{ vec4 value; }};\nout vec4 color;\nvoid main() {{ color = value; }}"),
+        &vertex(&display),
+        &(header(&display, version, es) + &format!("layout(std140) {qualifier} Block {{ vec4 value; }};\nout vec4 color;\nvoid main() {{ color = value; }}")),
         None,
     ).unwrap();
     let a_data = Data {
@@ -76,13 +88,13 @@ fn indexed_binding_preserves_readback(ty: BufferType, qualifier: &str, version: 
 
 #[test]
 fn uniform_buffer_binding_cache() {
-    indexed_binding_preserves_readback(BufferType::UniformBuffer, "uniform", 140);
+    indexed_binding_preserves_readback(BufferType::UniformBuffer, "uniform", 140, 300);
 }
 
 #[test]
 #[cfg(feature = "gl46")]
 fn shader_storage_binding_cache() {
-    indexed_binding_preserves_readback(BufferType::ShaderStorageBuffer, "buffer", 430);
+    indexed_binding_preserves_readback(BufferType::ShaderStorageBuffer, "buffer", 430, 310);
 }
 
 #[test]
@@ -101,10 +113,16 @@ fn buffer_texture_binding_cache() {
     .unwrap();
     let source =
         safegl::texture::Texture2d::new(&display, vec![vec![(0u8, 255u8, 0u8, 255u8)]]).unwrap();
-    let buffer_program = safegl::Program::from_source(&display, VERTEX,
-        "#version 140\nuniform samplerBuffer data; out vec4 color;\nvoid main() { color = texelFetch(data, 0); }", None).unwrap();
-    let mixed_program = safegl::Program::from_source(&display, VERTEX,
-        "#version 140\nuniform samplerBuffer data; uniform sampler2D image; out vec4 color;\nvoid main() { color = vec4(texelFetch(data, 0).rgb + texelFetch(image, ivec2(0), 0).rgb, 1.0); }", None).unwrap();
+    let fragment = header(&display, 140, 320)
+        + if support::is_gles(&display) {
+            "precision highp samplerBuffer;\n"
+        } else {
+            ""
+        };
+    let buffer_program = safegl::Program::from_source(&display, &vertex(&display),
+        &(fragment.clone() + "uniform samplerBuffer data; out vec4 color;\nvoid main() { color = texelFetch(data, 0); }"), None).unwrap();
+    let mixed_program = safegl::Program::from_source(&display, &vertex(&display),
+        &(fragment + "uniform samplerBuffer data; uniform sampler2D image; out vec4 color;\nvoid main() { color = vec4(texelFetch(data, 0).rgb + texelFetch(image, ivec2(0), 0).rgb, 1.0); }"), None).unwrap();
 
     // Repeated buffer-texture draws must reuse a cached unit. Without caching,
     // they exhaust the unit list and overwrite a unit still cached as `source`.
@@ -137,7 +155,7 @@ fn buffer_texture_binding_cache() {
 fn atomic_counter_binding_cache() {
     let display = support::build_display();
     let shader = safegl::program::ComputeShader::from_source(&display,
-        "#version 430\nlayout(local_size_x = 1) in;\nlayout(binding = 0) uniform atomic_uint counter;\nvoid main() { atomicCounterIncrement(counter); }").unwrap();
+        &(header(&display, 430, 310) + "layout(local_size_x = 1) in;\nlayout(binding = 0) uniform atomic_uint counter;\nvoid main() { atomicCounterIncrement(counter); }")).unwrap();
     let a = Buffer::new(
         &display,
         &10u32,
@@ -163,6 +181,26 @@ fn atomic_counter_binding_cache() {
 }
 
 #[test]
+#[cfg(feature = "gl46")]
+fn atomic_counter_high_binding_point() {
+    // binding the first buffer of a new context at a point above 1 grows the cached bindings by
+    // several entries at once
+    let display = support::build_display();
+    let shader = safegl::program::ComputeShader::from_source(&display,
+        &(header(&display, 430, 310) + "layout(local_size_x = 1) in;\nlayout(binding = 3) uniform atomic_uint counter;\nvoid main() { atomicCounterIncrement(counter); }")).unwrap();
+    let counter = Buffer::new(
+        &display,
+        &5u32,
+        BufferType::AtomicCounterBuffer,
+        BufferMode::Dynamic,
+    )
+    .unwrap();
+    shader.execute(uniform! { counter: &counter }, 1, 1, 1);
+    assert_eq!(counter.read().unwrap(), 6);
+    display.assert_no_error(None);
+}
+
+#[test]
 fn transform_feedback_generic_binding_does_not_change_indexed_binding() {
     #[derive(Clone, Copy, Debug, PartialEq)]
     #[repr(C)]
@@ -174,13 +212,27 @@ fn transform_feedback_generic_binding_does_not_change_indexed_binding() {
     let display = support::build_display();
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
     let output = safegl::texture::Texture2d::empty(&display, 1, 1).unwrap();
-    let program = safegl::Program::new(&display, safegl::program::ProgramCreationInput::SourceCode {
-        vertex_shader: "#version 140\nin vec2 position; out vec2 output_val; void main() { output_val = position; gl_Position = vec4(position, 0.0, 1.0); }",
-        fragment_shader: "#version 140\nout vec4 color; void main() { color = vec4(1.0); }",
-        geometry_shader: None, tessellation_control_shader: None, tessellation_evaluation_shader: None,
-        transform_feedback_varyings: Some((vec!["output_val".into()], safegl::program::TransformFeedbackMode::Separate)),
-        outputs_srgb: false, uses_point_size: false,
-    }).unwrap();
+    let vertex_shader = header(&display, 140, 300)
+        + "in vec2 position; out vec2 output_val; void main() { output_val = position; gl_Position = vec4(position, 0.0, 1.0); }";
+    let fragment_shader =
+        header(&display, 140, 300) + "out vec4 color; void main() { color = vec4(1.0); }";
+    let program = safegl::Program::new(
+        &display,
+        safegl::program::ProgramCreationInput::SourceCode {
+            vertex_shader: &vertex_shader,
+            fragment_shader: &fragment_shader,
+            geometry_shader: None,
+            tessellation_control_shader: None,
+            tessellation_evaluation_shader: None,
+            transform_feedback_varyings: Some((
+                vec!["output_val".into()],
+                safegl::program::TransformFeedbackMode::Separate,
+            )),
+            outputs_srgb: false,
+            uses_point_size: false,
+        },
+    )
+    .unwrap();
     let initial = [Vertex {
         output_val: (0.0, 0.0),
     }; 6];

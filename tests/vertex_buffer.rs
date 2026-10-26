@@ -18,14 +18,25 @@ fn transform_feedback() {
 
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
-    let source = safegl::program::ProgramCreationInput::SourceCode {
-        tessellation_control_shader: None,
-        tessellation_evaluation_shader: None,
-        geometry_shader: None,
-        outputs_srgb: false,
-        uses_point_size: false,
-
-        vertex_shader: "
+    let (vertex_shader, fragment_shader) = if support::is_gles(&display) {
+        (
+            "#version 300 es
+            in vec2 position;
+            out vec2 output_val;
+            void main() {
+                output_val = position;
+                gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+            }",
+            "#version 300 es
+            precision mediump float;
+            out vec4 color;
+            void main() {
+                color = vec4(1.0, 1.0, 1.0, 1.0);
+            }",
+        )
+    } else {
+        (
+            "
             #version 110
 
             attribute vec2 position;
@@ -37,7 +48,7 @@ fn transform_feedback() {
                 gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
             }
         ",
-        fragment_shader: "
+            "
             #version 130
 
             out vec4 color;
@@ -46,6 +57,18 @@ fn transform_feedback() {
                 color = vec4(1.0, 1.0, 1.0, 1.0);
             }
         ",
+        )
+    };
+
+    let source = safegl::program::ProgramCreationInput::SourceCode {
+        tessellation_control_shader: None,
+        tessellation_evaluation_shader: None,
+        geometry_shader: None,
+        outputs_srgb: false,
+        uses_point_size: false,
+
+        vertex_shader,
+        fragment_shader,
 
         transform_feedback_varyings: Some((
             vec!["output_val".to_string()],

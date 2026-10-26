@@ -976,7 +976,8 @@ impl Alloc {
             self.barrier_for_buffer_update(&mut ctxt);
 
             <D as Content>::read(size_to_read, |output| {
-                // `glGetBufferSubData` exists on desktop GL and WebGL 2, but not on OpenGL ES
+                // `glGetBufferSubData` exists on desktop GL and WebGL 2, but not on OpenGL ES,
+                // where the range is mapped for reading instead
                 if ctxt.version.0 == Api::Gl || is_webgl() {
                     let bind = bind_buffer(&mut ctxt, Some(self.id), self.ty);
                     ctxt.glow.get_buffer_sub_data(
@@ -984,8 +985,17 @@ impl Alloc {
                         range.start as i32,
                         std::slice::from_raw_parts_mut(output as *mut D as *mut u8, size_to_read),
                     );
-                } else {
-                    return Err(ReadError::NotSupported);
+                } else if size_to_read != 0 {
+                    let mapping =
+                        map_buffer(&mut ctxt, self.id, self.ty, range.clone(), true, false)
+                            .filter(|mapping| !mapping.is_null())
+                            .ok_or(ReadError::NotSupported)?;
+                    ptr::copy_nonoverlapping(
+                        mapping as *const u8,
+                        output as *mut D as *mut u8,
+                        size_to_read,
+                    );
+                    unmap_buffer(&mut ctxt, self.id, self.ty);
                 }
 
                 Ok(())
@@ -1536,16 +1546,18 @@ fn is_buffer_type_supported(ctxt: &mut CommandContext<'_>, ty: BufferType) -> bo
         #[cfg(feature = "gl46")]
         BufferType::ShaderStorageBuffer => {
             ctxt.version >= &Version(Api::Gl, 4, 3)
+                || ctxt.version >= &Version(Api::GlEs, 3, 1)
                 || ctxt.extensions.gl_arb_shader_storage_buffer_object
                 || ctxt.extensions.gl_nv_shader_storage_buffer_object
         }
 
-        // FIXME: transform feedback buffers are also core in OpenGL ES 3.0
-        BufferType::TransformFeedbackBuffer => ctxt.version.0 == Api::Gl,
+        // core in OpenGL 3.0 and OpenGL ES 3.0
+        BufferType::TransformFeedbackBuffer => true,
 
         #[cfg(feature = "gl46")]
         BufferType::AtomicCounterBuffer => {
             ctxt.version >= &Version(Api::Gl, 4, 2)
+                || ctxt.version >= &Version(Api::GlEs, 3, 1)
                 || ctxt.extensions.gl_arb_shader_atomic_counters
                 || ctxt.extensions.gl_nv_shader_atomic_counters
         }
@@ -1676,9 +1688,9 @@ unsafe fn indexed_bind_buffer(
                 }
 
                 if ctxt.state.$state_var.len() <= $input_index as usize {
-                    for _ in 0..1 + ctxt.state.$state_var.len() - $input_index as usize {
-                        ctxt.state.$state_var.push(Default::default());
-                    }
+                    ctxt.state
+                        .$state_var
+                        .resize_with($input_index as usize + 1, Default::default);
                 }
 
                 let unit = &mut ctxt.state.$state_var[$input_index as usize];

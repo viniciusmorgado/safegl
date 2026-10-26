@@ -243,7 +243,10 @@ where
 
             let bind_point = buffer_bind_points
                 .get_unused()
-                .expect("Not enough buffer units");
+                .filter(|&point| (point as i32) < ctxt.capabilities.max_indexed_uniform_buffer)
+                .ok_or_else(|| DrawError::BufferBindingOutOfRange {
+                    name: name.to_owned(),
+                })?;
             buffer_bind_points.set_used(bind_point);
 
             assert!(buffer.get_offset_bytes() == 0); // TODO: not implemented
@@ -318,7 +321,12 @@ where
 
             let bind_point = buffer_bind_points
                 .get_unused()
-                .expect("Not enough buffer units");
+                .filter(|&point| {
+                    (point as i32) < ctxt.capabilities.max_indexed_shader_storage_buffer
+                })
+                .ok_or_else(|| DrawError::BufferBindingOutOfRange {
+                    name: name.to_owned(),
+                })?;
             buffer_bind_points.set_used(bind_point);
 
             assert!(buffer.get_offset_bytes() == 0); // TODO: not implemented
@@ -361,6 +369,15 @@ where
                         err: e,
                     });
                 }
+            }
+
+            // the binding point comes from the shader's `layout(binding = N)`
+            if block.initial_binding < 0
+                || block.initial_binding >= ctxt.capabilities.max_indexed_atomic_counter_buffer
+            {
+                return Err(DrawError::BufferBindingOutOfRange {
+                    name: name.to_owned(),
+                });
             }
 
             assert!(buffer.get_offset_bytes() == 0); // TODO: not implemented
