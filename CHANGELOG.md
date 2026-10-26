@@ -167,6 +167,12 @@ Fixes:
 - On desktop OpenGL, the fragment outputs that have no `layout(location = N)` get locations in
   their declaration order, so that the first one is written to targets with a single color buffer
   on every driver instead of one chosen by the linker (glium#285).
+- Blits check the rules that made OpenGL raise `GL_INVALID_OPERATION` and copy nothing
+  (glium#653, glium#1748): they return `BlitError::ScaledMultisample`, `SampleCountMismatch`,
+  `MultisampleTarget` (OpenGL ES), `FormatMismatch`, `LinearFilterOnIntegers` or
+  `SameSourceAndTarget` (OpenGL ES). A framebuffer object of SafeGL is read from its first color
+  attachment, instead of the read buffer left by a previous read. The documentation of `fill` says
+  which way it copies.
 - Tessellation works on OpenGL ES 3.2, where it is core, and on OpenGL ES with
   `GL_EXT_tessellation_shader` or `GL_OES_tessellation_shader`, whose `glPatchParameteri` has
   another name: SafeGL didn't detect it and returned `DrawError::TessellationNotSupported`.

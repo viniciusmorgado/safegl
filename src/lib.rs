@@ -1138,11 +1138,16 @@ pub trait Surface {
     /// target areas don't have the same dimensions, the image will be resized to match.
     /// The `filter` parameter is relevant only in this situation.
     ///
-    /// It is possible for the source and the target to be the same surface. However if the
-    /// rectangles overlap, then the behavior is undefined.
+    /// On desktop OpenGL, the source and the target can be the same surface, but the content of
+    /// overlapping rectangles is undefined. OpenGL ES can't blit a surface to itself.
     ///
     /// Note that there is no alpha blending, depth/stencil checking, etc. This function just
     /// copies pixels.
+    ///
+    /// Returns an error if OpenGL can't do the copy: a multisampled source or target with
+    /// rectangles of different sizes, different numbers of samples or different formats, a
+    /// multisampled target on OpenGL ES, integer formats with other formats or with a linear
+    /// filter, or a source from another context.
     fn blit_color<S>(
         &self,
         source_rect: &Rect,
@@ -1174,7 +1179,11 @@ pub trait Surface {
         self.blit_color(&src_rect, target, target_rect, filter)
     }
 
-    /// Copies the entire surface to the entire target. See `blit_color`.
+    /// Copies the entire surface to the entire target, scaling it if their sizes differ. See
+    /// `blit_color`.
+    ///
+    /// `source.fill(&target, filter)` copies `source` into `target`: to show a texture in the
+    /// window, call `texture.as_surface().fill(&frame, filter)`.
     #[inline]
     fn fill<S>(&self, target: &S, filter: uniforms::MagnifySamplerFilter) -> Result<(), BlitError>
     where
@@ -1220,6 +1229,27 @@ pub enum BlitError {
     /// The target surface can't be the target of a blit from this kind of source. This only
     /// happens with surfaces implemented outside SafeGL.
     UnsupportedSource,
+
+    /// The source or the target is multisampled, and the rectangles don't have the same size:
+    /// multisample blits can't scale.
+    ScaledMultisample,
+
+    /// The source and the target are multisampled with different numbers of samples.
+    SampleCountMismatch,
+
+    /// OpenGL ES can't blit to a multisampled target.
+    MultisampleTarget,
+
+    /// The formats of the source and the target can't be blitted: integers and other formats
+    /// can't be blitted to each other, multisample blits need the same color format, and depth
+    /// and stencil buffers need the same format.
+    FormatMismatch,
+
+    /// Integer color buffers can only be blitted with the `Nearest` filter.
+    LinearFilterOnIntegers,
+
+    /// OpenGL ES can't blit a buffer to itself.
+    SameSourceAndTarget,
 }
 
 impl fmt::Display for BlitError {
@@ -1234,6 +1264,18 @@ impl fmt::Display for BlitError {
             BlitError::UnsupportedSource => {
                 "The target surface can't be the target of a blit from this kind of source"
             }
+            BlitError::ScaledMultisample => "Multisample blits can't scale",
+            BlitError::SampleCountMismatch => {
+                "The source and the target have different numbers of samples"
+            }
+            BlitError::MultisampleTarget => "OpenGL ES can't blit to a multisampled target",
+            BlitError::FormatMismatch => {
+                "The formats of the source and the target can't be blitted to each other"
+            }
+            BlitError::LinearFilterOnIntegers => {
+                "Integer color buffers can only be blitted with the `Nearest` filter"
+            }
+            BlitError::SameSourceAndTarget => "OpenGL ES can't blit a buffer to itself",
         };
         fmt.write_str(desc)
     }
