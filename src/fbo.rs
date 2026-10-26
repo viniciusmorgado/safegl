@@ -196,7 +196,14 @@ impl<'a> FramebufferAttachments<'a> {
     /// After building a `FramebufferAttachments` struct, you must use this function
     /// to "compile" the attachments and make sure that they are valid together.
     #[inline]
-    pub fn validate(self, context: &Context) -> Result<ValidatedAttachments<'a>, ValidationError> {
+    ///
+    /// `ctxt` is the current context, through which the formats of the attachments are queried.
+    pub fn validate(
+        self,
+        ctxt: &mut CommandContext<'_>,
+    ) -> Result<ValidatedAttachments<'a>, ValidationError> {
+        let context: &Context = ctxt.context;
+
         // OpenGL objects can only be used with the context that created them
         let owned = match self {
             FramebufferAttachments::Regular(ref a) => a.all(|a| a.belongs_to(context)),
@@ -209,10 +216,10 @@ impl<'a> FramebufferAttachments<'a> {
 
         match self {
             FramebufferAttachments::Regular(a) => {
-                FramebufferAttachments::validate_regular(context, a)
+                FramebufferAttachments::validate_regular(ctxt, a)
             }
             FramebufferAttachments::Layered(a) => {
-                FramebufferAttachments::validate_layered(context, a)
+                FramebufferAttachments::validate_layered(ctxt, a)
             }
 
             FramebufferAttachments::Empty {
@@ -284,23 +291,22 @@ impl<'a> FramebufferAttachments<'a> {
         }
     }
 
-    fn validate_layered<C: ?Sized>(
-        context: &C,
+    fn validate_layered(
+        ctxt: &mut CommandContext<'_>,
         FramebufferSpecificAttachments {
             colors,
             depth_stencil,
         }: FramebufferSpecificAttachments<LayeredAttachment<'a>>,
-    ) -> Result<ValidatedAttachments<'a>, ValidationError>
-    where
-        C: CapabilitiesSource,
-    {
+    ) -> Result<ValidatedAttachments<'a>, ValidationError> {
+        let context: &Context = ctxt.context;
+
         // TODO: make sure that all attachments are layered
 
         macro_rules! handle_tex {
             ($tex:ident, $dim:ident, $samples:ident, $num_bits:ident) => {{
                 $num_bits = Some(
                     $tex.get_texture()
-                        .get_internal_format()
+                        .get_internal_format_with(ctxt)
                         .map(|f| f.get_total_bits())
                         .ok()
                         .unwrap_or(24) as u16,
@@ -401,7 +407,7 @@ impl<'a> FramebufferAttachments<'a> {
                 raw_attachments.stencil = Some(handle_tex!(s, dimensions, samples, stencil_bits));
             }
             DepthStencilAttachments::DepthStencilAttachment(LayeredAttachment(ref ds)) => {
-                let depth_stencil_bits = ds.get_texture().get_depth_stencil_bits();
+                let depth_stencil_bits = ds.get_texture().get_depth_stencil_bits_with(ctxt);
                 depth_bits = Some(depth_stencil_bits.0);
                 stencil_bits = Some(depth_stencil_bits.1);
                 raw_attachments.depth_stencil = Some(handle_tex!(ds, dimensions, samples));
@@ -429,21 +435,20 @@ impl<'a> FramebufferAttachments<'a> {
         })
     }
 
-    fn validate_regular<C: ?Sized>(
-        context: &C,
+    fn validate_regular(
+        ctxt: &mut CommandContext<'_>,
         FramebufferSpecificAttachments {
             colors,
             depth_stencil,
         }: FramebufferSpecificAttachments<RegularAttachment<'a>>,
-    ) -> Result<ValidatedAttachments<'a>, ValidationError>
-    where
-        C: CapabilitiesSource,
-    {
+    ) -> Result<ValidatedAttachments<'a>, ValidationError> {
+        let context: &Context = ctxt.context;
+
         macro_rules! handle_tex {
             ($tex:ident, $dim:ident, $samples:ident, $num_bits:ident) => {{
                 $num_bits = Some(
                     $tex.get_texture()
-                        .get_internal_format()
+                        .get_internal_format_with(ctxt)
                         .map(|f| f.get_total_bits())
                         .ok()
                         .unwrap_or(24) as u16,
@@ -595,9 +600,9 @@ impl<'a> FramebufferAttachments<'a> {
             DepthStencilAttachments::DepthStencilAttachment(ref ds) => {
                 let depth_stencil_bits = match ds {
                     RegularAttachment::Texture(ref tex) => {
-                        tex.get_texture().get_depth_stencil_bits()
+                        tex.get_texture().get_depth_stencil_bits_with(ctxt)
                     }
-                    RegularAttachment::RenderBuffer(ref rb) => rb.get_depth_stencil_bits(),
+                    RegularAttachment::RenderBuffer(ref rb) => rb.get_depth_stencil_bits_with(ctxt),
                 };
                 depth_bits = Some(depth_stencil_bits.0);
                 stencil_bits = Some(depth_stencil_bits.1);
@@ -1096,7 +1101,7 @@ impl FramebuffersContainer {
             },
             depth_stencil: DepthStencilAttachments::None,
         })
-        .validate(ctxt.context)
+        .validate(ctxt)
         .unwrap();
         let fb = FramebuffersContainer::get_framebuffer_for_drawing(
             ctxt,

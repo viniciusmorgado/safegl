@@ -122,6 +122,11 @@ impl Facade for WindowDisplay {
 
 /// Builds a display for tests.
 pub fn build_display() -> WindowDisplay {
+    build_display_with_debug(Default::default())
+}
+
+/// Builds a display for tests, with the given debug callback.
+pub fn build_display_with_debug(debug: safegl::debug::DebugCallbackBehavior) -> WindowDisplay {
     static EVENT_LOOP_PROXY: RwLock<Option<EventLoopProxy<DisplayRequest>>> = RwLock::new(None);
     static INIT_EVENT_LOOP: Once = Once::new();
 
@@ -167,7 +172,7 @@ pub fn build_display() -> WindowDisplay {
     let current_context = not_current_gl_context.make_current(&surface).unwrap();
 
     WindowDisplay {
-        display: Display::from_context_surface(current_context, surface).unwrap(),
+        display: Display::with_debug(current_context, surface, debug).unwrap(),
         window,
     }
 }

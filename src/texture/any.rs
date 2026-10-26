@@ -1015,8 +1015,19 @@ impl TextureAny {
         if let Some(format) = self.actual_format.get() {
             format
         } else {
-            let mut ctxt = self.context.make_current();
-            let format = get_format::get_format(&mut ctxt, self);
+            self.get_internal_format_with(&mut self.context.make_current())
+        }
+    }
+
+    /// Same as `get_internal_format`, with the context already current.
+    pub(crate) fn get_internal_format_with(
+        &self,
+        ctxt: &mut CommandContext<'_>,
+    ) -> Result<InternalFormat, GetFormatError> {
+        if let Some(format) = self.actual_format.get() {
+            format
+        } else {
+            let format = get_format::get_format(ctxt, self);
             self.actual_format.set(Some(format));
             format
         }
@@ -1024,8 +1035,11 @@ impl TextureAny {
 
     /// Determines the number of depth and stencil bits in the format of this texture.
     pub fn get_depth_stencil_bits(&self) -> (u16, u16) {
-        let mut ctxt = self.context.make_current();
+        self.get_depth_stencil_bits_with(&mut self.context.make_current())
+    }
 
+    /// Same as `get_depth_stencil_bits`, with the context already current.
+    pub(crate) fn get_depth_stencil_bits_with(&self, ctxt: &mut CommandContext<'_>) -> (u16, u16) {
         if ctxt.version >= &Version(Api::Gl, 4, 5) || ctxt.extensions.gl_arb_direct_state_access {
             unsafe {
                 let texture = self.id;
@@ -1043,7 +1057,7 @@ impl TextureAny {
             && (ctxt.version.0 == Api::Gl || ctxt.version >= &Version(Api::GlEs, 3, 1))
         {
             unsafe {
-                let bind_point = self.bind_to_current(&mut ctxt);
+                let bind_point = self.bind_to_current(ctxt);
                 let depth_bits: gl::types::GLint =
                     ctxt.glow
                         .get_tex_level_parameter_i32(bind_point, 0, glow::TEXTURE_DEPTH_SIZE);

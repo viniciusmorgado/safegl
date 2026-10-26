@@ -437,11 +437,10 @@ impl<'a> SimpleFrameBuffer<'a> {
                 },
             });
 
-        let attachments = attachments.validate(facade.get_context())?;
-        fbo::FramebuffersContainer::check_complete(
-            &mut facade.get_context().make_current(),
-            &attachments,
-        )?;
+        let mut ctxt = facade.get_context().make_current();
+        let attachments = attachments.validate(&mut ctxt)?;
+        fbo::FramebuffersContainer::check_complete(&mut ctxt, &attachments)?;
+        drop(ctxt);
 
         Ok(SimpleFrameBuffer {
             context: facade.get_context().clone(),
@@ -871,16 +870,15 @@ impl<'a> MultiOutputFrameBuffer<'a> {
             fbo::DepthStencilAttachments::None
         };
 
+        let mut ctxt = facade.get_context().make_current();
         let example_attachments =
             fbo::FramebufferAttachments::Regular(fbo::FramebufferSpecificAttachments {
                 colors: example_color,
                 depth_stencil: depth_stencil_attachments,
             })
-            .validate(facade.get_context())?;
-        fbo::FramebuffersContainer::check_complete(
-            &mut facade.get_context().make_current(),
-            &example_attachments,
-        )?;
+            .validate(&mut ctxt)?;
+        fbo::FramebuffersContainer::check_complete(&mut ctxt, &example_attachments)?;
+        drop(ctxt);
 
         Ok(MultiOutputFrameBuffer {
             context: facade.get_context().clone(),
@@ -909,7 +907,7 @@ impl<'a> MultiOutputFrameBuffer<'a> {
             colors,
             depth_stencil: self.depth_stencil_attachments,
         })
-        .validate(&self.context)
+        .validate(&mut self.context.make_current())
         .unwrap()
     }
 }
@@ -1214,8 +1212,10 @@ impl<'a> EmptyFrameBuffer {
             fixed_samples,
         };
 
-        let attachments = attachments.validate(context)?;
-        fbo::FramebuffersContainer::check_complete(&mut context.make_current(), &attachments)?;
+        let mut ctxt = context.make_current();
+        let attachments = attachments.validate(&mut ctxt)?;
+        fbo::FramebuffersContainer::check_complete(&mut ctxt, &attachments)?;
+        drop(ctxt);
 
         Ok(EmptyFrameBuffer {
             context: context.clone(),

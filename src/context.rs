@@ -2,6 +2,7 @@
 
 use crate::gl;
 
+use std::any::Any;
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell, RefMut};
 use std::collections::HashMap;
@@ -10,9 +11,11 @@ use std::hash::BuildHasherDefault;
 use std::marker::PhantomData;
 use std::mem;
 use std::os::raw;
+use std::panic;
 use std::ptr;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::thread;
 use std::str;
 
 use fnv::FnvHasher;
@@ -77,7 +80,11 @@ pub struct Context {
     check_current_context: bool,
 
     /// The callback that is used by the debug output feature.
-    debug_callback: Option<debug::DebugCallback>,
+    debug_callback: RefCell<Option<debug::DebugCallback>>,
+
+    /// The payload of a panic of the debug callback, which can't unwind through OpenGL: it is
+    /// resumed when the command that triggered the message returns.
+    debug_callback_panic: Cell<Option<Box<dyn Any + Send>>>,
 
     /// Whether or not errors triggered by ARB_debug_output (and similar extensions) should be
     /// reported to the user when `DebugCallbackBehavior::DebugMessageOnError` is used. This must
@@ -166,6 +173,17 @@ pub struct CommandContext<'a> {
     marker: PhantomData<*mut u8>,
 }
 
+impl<'a> Drop for CommandContext<'a> {
+    fn drop(&mut self) {
+        // the debug callback panicked during the commands
+        if let Some(payload) = self.context.debug_callback_panic.take() {
+            if !thread::panicking() {
+                panic::resume_unwind(payload);
+            }
+        }
+    }
+}
+
 impl<'a> CommandContext<'a> {
     /// Returns true if `context` is the current context: OpenGL objects can only be used with
     /// the context that created them.
@@ -245,7 +263,8 @@ impl Context {
             version,
             extensions,
             capabilities,
-            debug_callback,
+            debug_callback: RefCell::new(debug_callback),
+            debug_callback_panic: Cell::new(None),
             report_debug_output_errors,
             backend: RefCell::new(Box::new(backend)),
             check_current_context,
@@ -256,7 +275,7 @@ impl Context {
             resident_image_handles,
         });
 
-        if context.debug_callback.is_some() {
+        if context.debug_callback.borrow().is_some() {
             init_debug_callback(&context, synchronous);
         }
 
@@ -617,14 +636,29 @@ impl Context {
     ///
     /// **If `action` manipulates any OpenGL state, it must be restored before `action`
     /// completes, or [`Context::restore_state`] must be called afterwards.**
+    ///
+    /// The context is current when `action` starts, and `action` can use SafeGL. SafeGL's vertex
+    /// array object is unbound, so that the code can't change it by binding buffers.
     #[inline]
     pub unsafe fn exec_in_context<'a, T, F>(&self, action: F) -> T
     where
         T: Send + 'static,
         F: FnOnce() -> T + 'a,
     {
-        let _ctxt = self.make_current();
-        action()
+        {
+            let mut ctxt = self.make_current();
+            if ctxt.state.vertex_array.is_some() {
+                ctxt.glow.bind_vertex_array(None);
+                ctxt.state.vertex_array = None;
+            }
+        }
+        let result = action();
+
+        // the debug callback panicked on a message of the closure
+        if let Some(payload) = self.debug_callback_panic.take() {
+            panic::resume_unwind(payload);
+        }
+        result
     }
 
     /// Makes the OpenGL state match the state that SafeGL expects, after code outside of SafeGL
@@ -782,11 +816,18 @@ impl ContextExt for Context {
             }
         }
 
+        // SafeGL can't issue commands while it is already issuing some: from a debug callback
+        // or a destructor that runs in the middle of a command
+        let state = self.state.try_borrow_mut().expect(
+            "SafeGL was called while it was already issuing OpenGL commands, for example from a \
+             debug callback",
+        );
+
         CommandContext {
             context: self,
             glow: &self.glow,
             extra: &self.extra,
-            state: self.state.borrow_mut(),
+            state,
             version: &self.version,
             extensions: &self.extensions,
             capabilities: &self.capabilities,
@@ -1049,12 +1090,9 @@ fn init_debug_callback(context: &Rc<Context>, synchronous: bool) {
         message: *const gl::types::GLchar,
         user_param: *mut raw::c_void,
     ) {
-        // note that we transmute the user param into a proper context
-        // in order to enforce safety here, the context disables debug output and flushes in its
-        // destructor
-
-        let user_param = user_param as *const Context;
-        let user_param: &mut Context = unsafe { mem::transmute(user_param) };
+        // the user param is the context, which disables debug output and flushes in its
+        // destructor, so that it outlives the messages
+        let context: &Context = unsafe { &*(user_param as *const Context) };
 
         let message =
             unsafe { String::from_utf8(CStr::from_ptr(message).to_bytes().to_vec()).unwrap() };
@@ -1090,16 +1128,20 @@ fn init_debug_callback(context: &Rc<Context>, synchronous: bool) {
             _ => return, // TODO: what to do in this situation?
         };
 
-        if let Some(callback) = user_param.debug_callback.as_mut() {
-            // FIXME: catch_panic here once it's stable
-            callback(
-                source,
-                ty,
-                severity,
-                id,
-                user_param.report_debug_output_errors.get(),
-                &message,
-            );
+        // a callback that triggers messages itself isn't called again for them
+        let mut callback = match context.debug_callback.try_borrow_mut() {
+            Ok(callback) => callback,
+            Err(_) => return,
+        };
+        if let Some(callback) = callback.as_mut() {
+            // a panic can't unwind through OpenGL: it is resumed when the command returns
+            let report_errors = context.report_debug_output_errors.get();
+            let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+                callback(source, ty, severity, id, report_errors, &message)
+            }));
+            if let Err(payload) = result {
+                context.debug_callback_panic.set(Some(payload));
+            }
         }
     }
 
