@@ -45,6 +45,9 @@ Additions:
 - `framebuffer::ValidationError::Incomplete`, `DrawError::NoStencilBuffer`,
   `DrawError::GeometryShaderInputMismatch` and `Stencil::requires_stencil_buffer`.
 - `implement_vertex!` accepts instances of generic structs, like `Vertex<f32>` (glium#1509).
+- `UncompressedFloatFormat::U5U6U5`, the RGB565 format (based on glium PR #2152).
+- `SamplerBehavior::border_color`, `Sampler::border_color` and `uniforms::BorderColor`, for
+  `SamplerWrapFunction::BorderClamp` (based on glium PR #2120).
 - Texture writes beyond 2D textures (glium#2138, glium#2058, glium#1284, glium#644, based on glium
   PR #1198): `TextureAnyImage::raw_write` writes a rectangle of one image (a layer of an array
   texture, a face of a cubemap or a slice of a 3D texture); 1D and 3D textures and their mipmaps get
@@ -53,7 +56,8 @@ Additions:
 - Depth, stencil and depth-stencil images can be read (as `f32`, `u16` or `u32` depth values, `u8`
   stencil values, or `u32` packing 24 bits of depth and 8 of stencil), and `DepthTexture2d` gets a
   `read` method (glium#1856). OpenGL ES still needs the `GL_NV_read_*` extensions.
-- Examples: `alpha_to_coverage`, which uses the CC0 "Fern 02" model from Poly Haven, `shadow_bias`,
+- Examples: `outputs_srgb` (based on glium PR #2098), `headless` (glium#2091),
+  `alpha_to_coverage`, which uses the CC0 "Fern 02" model from Poly Haven, `shadow_bias`,
   `programmable_blending` and `weighted_oit`.
 
 Fixes:
@@ -158,6 +162,11 @@ Fixes:
 - `GL_MAX_CLIP_DISTANCES` is only queried when the clip planes change.
 - `SimpleWindowBuilder::build` no longer panics when the driver refuses the swap interval
   (glium#1929).
+- `implement_uniform_block!` and `program!` work when called by their path, like
+  `safegl::implement_uniform_block!`, without importing them.
+- The `manual-creation` example resizes its surface with the window (glium#2090).
+- Draw and compute commands keep their buffer fences inline instead of allocating a `Vec`
+  (based on glium PR #2057).
 
 ## [0.1.0]
 
