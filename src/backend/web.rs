@@ -22,7 +22,7 @@ use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
 use crate::backend::{Backend, Facade, SwapInterval};
 use crate::context::{self, Context};
 use crate::debug;
-use crate::{Frame, IncompatibleOpenGl, SwapBuffersError};
+use crate::{Frame, FrameError, IncompatibleOpenGl, SwapBuffersError};
 
 /// An implementation of the `Backend` trait for a canvas' WebGL 2 context.
 pub struct WebGlBackend {
@@ -179,7 +179,19 @@ impl WebDisplay {
     /// Start drawing on the canvas.
     ///
     /// The returned `Frame` must be finished before control returns to the browser.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the previous `Frame` hasn't been finished: there can only be one at a time.
+    /// `try_draw` returns an error instead.
     pub fn draw(&self) -> Frame {
+        self.try_draw()
+            .expect("the previous `Frame` must be finished before drawing a new one")
+    }
+
+    /// Same as `draw`, but returns `FrameError::AlreadyDrawing` if the previous `Frame` hasn't
+    /// been finished.
+    pub fn try_draw(&self) -> Result<Frame, FrameError> {
         Frame::new(
             self.context.clone(),
             self.backend.get_framebuffer_dimensions(),

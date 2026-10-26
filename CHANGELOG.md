@@ -85,6 +85,10 @@ Breaking changes:
   `uniforms::Keep` to keep the initializer of the shader instead. Every stage with subroutine
   uniforms needs all of them, even when none was given. Giving a value to a member of a block by
   name returns `DrawError::UniformBlockMember` instead of panicking.
+- There can only be one `Frame` of a context at a time (glium#1005): `Frame::new` returns
+  `Result<Frame, FrameError>`, `draw()` panics with a message while the previous frame isn't
+  finished, and the new `try_draw()` returns `FrameError::AlreadyDrawing` instead. A second frame
+  drew to the same back buffer, and swapped it a second time with undefined content.
 - `Uniforms::visit_values` gives names that live as long as the uniforms (`&'a str`), so that
   SafeGL can collect the values before it starts to issue commands: implementations of `Uniforms`
   and `AsUniformValue` can now use SafeGL.

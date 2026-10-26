@@ -171,3 +171,26 @@ fn is_context_lost() {
     display.is_context_lost();
     display.assert_no_error(None);
 }
+
+#[test]
+fn one_frame_at_a_time() {
+    let display = support::build_display();
+
+    // a second frame would draw to the same back buffer and swap it again
+    let frame = display.draw();
+    assert_eq!(
+        display.try_draw().err(),
+        Some(safegl::FrameError::AlreadyDrawing)
+    );
+    frame.finish().unwrap();
+
+    // once finished, a new frame can start, and a frame dropped during a panic ends too
+    display.try_draw().unwrap().finish().unwrap();
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _frame = display.draw();
+        panic!("dropping the frame");
+    }));
+    display.draw().finish().unwrap();
+
+    display.assert_no_error(None);
+}

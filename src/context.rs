@@ -82,6 +82,10 @@ pub struct Context {
     /// The callback that is used by the debug output feature.
     debug_callback: RefCell<Option<debug::DebugCallback>>,
 
+    /// Whether a `Frame` is being drawn: there can only be one at a time, since they all draw
+    /// to the back buffer of the same window.
+    frame_in_progress: Cell<bool>,
+
     /// The payload of a panic of the debug callback, which can't unwind through OpenGL: it is
     /// resumed when the command that triggered the message returns.
     debug_callback_panic: Cell<Option<Box<dyn Any + Send>>>,
@@ -171,6 +175,18 @@ pub struct CommandContext<'a> {
     // TODO: use this when possible
     //impl<'a, 'b> !Send for CommandContext<'a, 'b> {}
     marker: PhantomData<*mut u8>,
+}
+
+impl Context {
+    /// Marks the start of a `Frame`. Returns false if another one is in progress.
+    pub(crate) fn begin_frame(&self) -> bool {
+        !self.frame_in_progress.replace(true)
+    }
+
+    /// Marks the end of the current `Frame`.
+    pub(crate) fn end_frame(&self) {
+        self.frame_in_progress.set(false);
+    }
 }
 
 impl<'a> Drop for CommandContext<'a> {
@@ -264,6 +280,7 @@ impl Context {
             extensions,
             capabilities,
             debug_callback: RefCell::new(debug_callback),
+            frame_in_progress: Cell::new(false),
             debug_callback_panic: Cell::new(None),
             report_debug_output_errors,
             backend: RefCell::new(Box::new(backend)),

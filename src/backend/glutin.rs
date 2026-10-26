@@ -22,7 +22,7 @@ use crate::glutin::display::GetGlDisplay;
 use crate::glutin::prelude::*;
 use crate::glutin::surface::{ResizeableSurface, SurfaceTypeTrait};
 use crate::SwapBuffersError;
-use crate::{Frame, IncompatibleOpenGl};
+use crate::{Frame, FrameError, IncompatibleOpenGl};
 use std::cell::RefCell;
 use std::error::Error;
 use std::ffi::CString;
@@ -232,8 +232,21 @@ impl<T: SurfaceTypeTrait + ResizeableSurface> Display<T> {
     /// destroyed, the buffers are swapped.
     ///
     /// Note that destroying a `Frame` is immediate, even if vsync is enabled.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the previous `Frame` hasn't been finished: there can only be one at a time.
+    /// `try_draw` returns an error instead.
     #[inline]
     pub fn draw(&self) -> Frame {
+        self.try_draw()
+            .expect("the previous `Frame` must be finished before drawing a new one")
+    }
+
+    /// Same as `draw`, but returns `FrameError::AlreadyDrawing` if the previous `Frame` hasn't
+    /// been finished.
+    #[inline]
+    pub fn try_draw(&self) -> Result<Frame, FrameError> {
         let dimensions = self.get_framebuffer_dimensions();
         Frame::new(self.context.clone(), dimensions)
     }

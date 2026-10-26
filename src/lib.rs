@@ -1710,13 +1710,21 @@ impl Frame {
     }
 
     /// Builds a new `Frame`. Use the `draw` function on `Display` instead of this function.
+    ///
+    /// Returns `FrameError::AlreadyDrawing` if another `Frame` of the context hasn't been
+    /// finished: they would all draw to the same back buffer, and the second one would swap a
+    /// back buffer whose content is undefined.
     #[inline]
-    pub fn new(context: Rc<Context>, dimensions: (u32, u32)) -> Frame {
-        Frame {
+    pub fn new(context: Rc<Context>, dimensions: (u32, u32)) -> Result<Frame, FrameError> {
+        if !context.begin_frame() {
+            return Err(FrameError::AlreadyDrawing);
+        }
+
+        Ok(Frame {
             context,
             dimensions,
             destroyed: false,
-        }
+        })
     }
 
     /// Stop drawing, swap the buffers, and consume the Frame.
@@ -1738,9 +1746,29 @@ impl Frame {
         }
 
         self.destroyed = true;
+        self.context.end_frame();
         self.context.swap_buffers()
     }
 }
+
+/// Error that can happen when starting a `Frame`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameError {
+    /// Another `Frame` of the context hasn't been finished yet.
+    AlreadyDrawing,
+}
+
+impl fmt::Display for FrameError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            FrameError::AlreadyDrawing => {
+                fmt.write_str("Another `Frame` of the context hasn't been finished yet")
+            }
+        }
+    }
+}
+
+impl Error for FrameError {}
 
 impl Surface for Frame {
     #[inline]
@@ -1921,6 +1949,10 @@ impl FboAttachments for Frame {
 impl Drop for Frame {
     #[inline]
     fn drop(&mut self) {
+        if !self.destroyed {
+            self.context.end_frame();
+        }
+
         if !thread::panicking() {
             assert!(
                 self.destroyed,
