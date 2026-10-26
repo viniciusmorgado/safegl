@@ -16,8 +16,15 @@ Additions:
   `raw_clear_buffer`, now ignores any color mask left by a previous draw.
 - `DrawParameters::polygon_offset_clamp` (`gl46`, `glPolygonOffsetClamp`), with the
   `DrawError::PolygonOffsetClampNotSupported` error.
-- Examples: `alpha_to_coverage`, which uses the CC0 "Fern 02" model from Poly Haven, and
-  `shadow_bias`.
+- `texture::copy_image` and `copy_to()` on mipmaps (`gl46`, `glCopyImageSubData`): copies between
+  textures and render buffers, with format, sample count, bounds, block alignment and overlap
+  checks.
+- `clear()`, `clear_region()` and `clear_depth_stencil()` on mipmaps (`gl46`, `glClearTexImage`):
+  clears any kind of texture without a framebuffer.
+- `texture::texture_barrier` (`gl46`, `glTextureBarrier`), which makes reading a texture attached
+  to the framebuffer being drawn to well defined between barriers.
+- Examples: `alpha_to_coverage`, which uses the CC0 "Fern 02" model from Poly Haven, `shadow_bias`
+  and `programmable_blending`.
 
 Fixes:
 
