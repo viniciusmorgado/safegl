@@ -27,6 +27,13 @@ Additions:
 - `invalidate()` and `invalidate_rect()` on `SimpleFrameBuffer`, `MultiOutputFrameBuffer`,
   `DefaultFramebuffer` and `Frame`, with `framebuffer::InvalidateAttachments`
   (`glInvalidateFramebuffer`). They do nothing where invalidation isn't supported.
+- Non-square float matrix uniforms: `[[f32; R]; C]` values bind to `matCxR` uniforms, through the
+  new `UniformValue` and `RawUniformValue` variants `Mat2x3`, `Mat2x4`, `Mat3x2`, `Mat3x4`,
+  `Mat4x2` and `Mat4x3` (glium#1708, based on glium PR #2133).
+- `backtrace` feature, enabled by default, for the backtrace printed with OpenGL debug messages
+  reported as errors (glium#1707, based on glium PR #2155).
+- `DrawError::BufferBindingOutOfRange`, returned when a block needs a buffer binding point beyond
+  the backend's limit.
 - Examples: `alpha_to_coverage`, which uses the CC0 "Fern 02" model from Poly Haven, `shadow_bias`,
   `programmable_blending` and `weighted_oit`.
 
@@ -65,6 +72,23 @@ Fixes:
 - Color render buffers check that their format is color-renderable (glium#505).
 - `raw_upload_from_pixel_buffer_inverted` reports that OpenGL ES can't flip the components instead
   of raising an OpenGL error.
+- Uniform buffers and transform feedback work on OpenGL ES 3.0, and shader storage and atomic
+  counter buffers on OpenGL ES 3.1, where binding them panicked because their binding point limits
+  were 0. Buffers are read back through a mapping on OpenGL ES, which has no `glGetBufferSubData`
+  (glium#2112, based on glium PR #1700).
+- Binding an atomic counter buffer at a point several entries above the previous ones no longer
+  underflows, and running out of binding points returns `DrawError::BufferBindingOutOfRange`
+  instead of panicking.
+- `implement_buffer_content!` no longer has undefined behavior (null references, a `Box` with the
+  wrong length and alignment) and works with generic structs (glium#1949, glium#1918). The code it
+  generates uses `std::mem::size_of_val_raw`, so crates that call it need Rust 1.99.
+- The name of a uniform array refers to its first element, as in OpenGL, and every element gets its
+  own location instead of an assumed one, which was another uniform's location on WebGL
+  (glium#288, based on glium PR #666).
+- Debug builds no longer assert that the context is current right after making it current, which
+  fails on some drivers such as macOS 10.14+ (based on glium PR #1724).
+- The backtrace of OpenGL debug messages goes to the standard error, like the message
+  (glium#1397).
 
 ## [0.1.0]
 

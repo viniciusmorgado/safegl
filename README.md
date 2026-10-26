@@ -127,6 +127,9 @@ To select a lower tier, disable the default features:
 safegl = { version = "0.1", default-features = false, features = ["gl41", "glutin_backend", "glutin/default"] }
 ```
 
+The default `backtrace` feature prints a backtrace along with the OpenGL debug messages that
+SafeGL reports as errors; leave it out to avoid compiling the `backtrace` crate.
+
 For the browser, build for `wasm32-unknown-unknown` with the `webgl` feature and draw through
 `safegl::backend::web::WebDisplay`:
 
