@@ -1330,7 +1330,11 @@ unsafe fn attach(
                         );
                     } else {
                         bind_framebuffer(ctxt, Some(id), true, true);
-                        assert!(bind_point == gl::TEXTURE_2D);
+                        // OpenGL ES 3.1+ also accepts multisample textures here
+                        assert!(
+                            bind_point == gl::TEXTURE_2D
+                                || bind_point == gl::TEXTURE_2D_MULTISAMPLE
+                        );
                         ctxt.glow.framebuffer_texture_2d(
                             glow::FRAMEBUFFER,
                             slot,
