@@ -123,6 +123,15 @@ pub fn clear(
                 ctxt.glow.clear_stencil(stencil);
                 ctxt.state.clear_stencil = stencil;
             }
+
+            // the stencil write mask of the last draw call would mask the cleared value too
+            if ctxt.state.stencil_mask_front != 0xffffffff
+                || ctxt.state.stencil_mask_back != 0xffffffff
+            {
+                ctxt.glow.stencil_mask(0xffffffff);
+                ctxt.state.stencil_mask_front = 0xffffffff;
+                ctxt.state.stencil_mask_back = 0xffffffff;
+            }
         }
 
         // `glClearColor` is undefined for integer color buffers, which are cleared one by one
