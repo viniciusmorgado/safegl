@@ -835,11 +835,7 @@ pub unsafe fn from_id<F: Facade + ?Sized>(
     let (width, height, depth, array_size, samples) = extract_dimensions(ty);
     let mipmap_levels = mipmaps.num_levels(width, height, depth);
     let should_generate_mipmaps = mipmaps.should_generate();
-    if should_generate_mipmaps {
-        let ctxt = facade.get_context().make_current();
-        generate_mipmaps(&ctxt, get_bind_point(ty));
-    }
-    TextureAny {
+    let texture = TextureAny {
         context: facade.get_context().clone(),
         id,
         requested_format: format,
@@ -849,7 +845,16 @@ pub unsafe fn from_id<F: Facade + ?Sized>(
         generate_mipmaps: should_generate_mipmaps,
         owned,
         latest_shader_write: Cell::new(0),
+    };
+
+    if should_generate_mipmaps {
+        let mut ctxt = facade.get_context().make_current();
+        // the mipmaps are generated for the texture bound to the bind point
+        let bind_point = texture.bind_to_current(&mut ctxt);
+        generate_mipmaps(&ctxt, bind_point);
     }
+
+    texture
 }
 
 impl TextureAny {
