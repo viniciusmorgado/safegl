@@ -212,6 +212,8 @@ Fixes:
 - The binding points of atomic counters are reflected with `glGetProgramResourceiv` on OpenGL ES,
   which has no `glGetActiveAtomicCounterBufferiv`: the counters were bound at binding point 0,
   whatever their `layout(binding = N)`.
+- Faces that are counter-clockwise on the target used the stencil write mask of the clockwise
+  faces when the two masks differ.
 
 ## [0.2.0]
 
