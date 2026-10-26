@@ -89,6 +89,9 @@ pub enum ReadError {
 
     /// The buffer to read from doesn't exist, like the front buffer of most EGL window surfaces.
     AttachmentMissing,
+
+    /// The OpenGL context has been lost, and the data is gone with it.
+    ContextLost,
 }
 
 impl fmt::Display for ReadError {
@@ -105,6 +108,8 @@ impl fmt::Display for ReadError {
                 "Rect dimensions are too large for the buffer",
             AttachmentMissing =>
                 "The buffer to read from doesn't exist",
+            ContextLost =>
+                "The OpenGL context has been lost",
         };
         fmt.write_str(desc)
     }
@@ -169,6 +174,10 @@ where
     let source = source.into();
     let dest = dest.into();
     let output_pixel_format = <T as PixelValue>::get_format();
+
+    if ctxt.state.lost_context {
+        return Err(ReadError::ContextLost);
+    }
 
     let pixels_to_read = rect
         .width
