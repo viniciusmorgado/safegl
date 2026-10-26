@@ -42,6 +42,14 @@ Additions:
   (glium#2153, glium#2108). `SimpleFrameBuffer::get_framebuffer_object` returns the framebuffer
   object SafeGL draws through (glium#1613).
 - `ReadError::AttachmentMissing`.
+- Texture writes beyond 2D textures (glium#2138, glium#2058, glium#1284, glium#644, based on glium
+  PR #1198): `TextureAnyImage::raw_write` writes a rectangle of one image (a layer of an array
+  texture, a face of a cubemap or a slice of a 3D texture); 1D and 3D textures and their mipmaps get
+  `write` methods taking the offset of the data; layers of 1D and 2D array textures and cubemap
+  faces get `write` methods; and 2D integer, unsigned and depth textures get `write` too.
+- Depth, stencil and depth-stencil images can be read (as `f32`, `u16` or `u32` depth values, `u8`
+  stencil values, or `u32` packing 24 bits of depth and 8 of stencil), and `DepthTexture2d` gets a
+  `read` method (glium#1856). OpenGL ES still needs the `GL_NV_read_*` extensions.
 - Examples: `alpha_to_coverage`, which uses the CC0 "Fern 02" model from Poly Haven, `shadow_bias`,
   `programmable_blending` and `weighted_oit`.
 
@@ -103,6 +111,14 @@ Fixes:
   front buffer, like most EGL window surfaces, instead of raising an OpenGL error (glium#2151).
 - Blitting from a `MultiOutputFrameBuffer` reads from its first output instead of reaching
   `unimplemented!()`.
+- Reading textures back no longer pads the rows when their size isn't a multiple of
+  `GL_PACK_ALIGNMENT` (rows of single-byte or three-byte pixels, for example), which wrote past the
+  end of the destination and returned misplaced texels.
+- `from_id` with generated mipmaps binds the texture before generating them, instead of generating
+  the mipmaps of whatever texture was bound (glium#1463).
+- `get_internal_format` reports the format of stencil textures (glium#1240).
+- `clear_color` clears integer and unsigned color attachments with `glClearBuffer`, since
+  `glClearColor` doesn't apply to them (glium#498).
 
 ## [0.1.0]
 
