@@ -101,6 +101,15 @@ pub struct Capabilities {
     /// Maximum size of a texture (i.e. GL_MAX_TEXTURE_SIZE)
     pub max_texture_size: gl::types::GLint,
 
+    /// Maximum width, height and depth of a 3D texture (i.e. GL_MAX_3D_TEXTURE_SIZE)
+    pub max_3d_texture_size: gl::types::GLint,
+
+    /// Maximum number of layers of an array texture (i.e. GL_MAX_ARRAY_TEXTURE_LAYERS)
+    pub max_array_texture_layers: gl::types::GLint,
+
+    /// Maximum width and height of a cubemap face (i.e. GL_MAX_CUBE_MAP_TEXTURE_SIZE)
+    pub max_cube_map_texture_size: gl::types::GLint,
+
     /// Maximum size of a buffer texture. `None` if this is not supported.
     pub max_texture_buffer_size: Option<gl::types::GLint>,
 
@@ -402,6 +411,12 @@ pub unsafe fn get_capabilities(
 
         max_texture_size: gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE),
 
+        max_3d_texture_size: gl.get_parameter_i32(glow::MAX_3D_TEXTURE_SIZE),
+
+        max_array_texture_layers: gl.get_parameter_i32(glow::MAX_ARRAY_TEXTURE_LAYERS),
+
+        max_cube_map_texture_size: gl.get_parameter_i32(glow::MAX_CUBE_MAP_TEXTURE_SIZE),
+
         max_texture_buffer_size: {
             if version >= &Version(Api::Gl, 3, 0)
                 || extensions.gl_arb_texture_buffer_object
@@ -570,7 +585,7 @@ pub unsafe fn get_supported_glsl(
 ) -> Vec<Version> {
     // checking if the implementation has a shader compiler
     // a compiler is optional in OpenGL ES, but always present in WebGL, which can't be queried
-    if version.0 == Api::GlEs && !is_webgl() &&!gl.get_parameter_bool(glow::SHADER_COMPILER) {
+    if version.0 == Api::GlEs && !is_webgl() && !gl.get_parameter_bool(glow::SHADER_COMPILER) {
         return vec![];
     }
 

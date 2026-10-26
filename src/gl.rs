@@ -209,6 +209,7 @@ extra_functions! {
     fn TexBufferOES(target: GLenum, internalformat: GLenum, buffer: GLuint) -> ();
     fn TexImage3DMultisample(target: GLenum, samples: GLsizei, internalformat: GLenum, width: GLsizei, height: GLsizei, depth: GLsizei, fixedsamplelocations: GLboolean) -> ();
     fn TexStorage3DMultisample(target: GLenum, samples: GLsizei, internalformat: GLenum, width: GLsizei, height: GLsizei, depth: GLsizei, fixedsamplelocations: GLboolean) -> ();
+    fn TexStorage3DMultisampleOES(target: GLenum, samples: GLsizei, internalformat: GLenum, width: GLsizei, height: GLsizei, depth: GLsizei, fixedsamplelocations: GLboolean) -> ();
     fn TexSubImage1D(target: GLenum, level: GLint, xoffset: GLint, width: GLsizei, format: GLenum, type_: GLenum, pixels: *const c_void) -> ();
     fn TextureBarrier() -> ();
     fn TextureBarrierNV() -> ();
