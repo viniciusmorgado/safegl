@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file. Versions follow
 
 ## [Unreleased]
 
+Additions:
+
+- `DrawParameters::alpha_to_coverage`, `sample_shading` (`glMinSampleShading`) and `sample_mask`
+  (`glSampleMaski`), with the `DrawError::SampleShadingNotSupported` and `SampleMaskNotSupported`
+  errors.
+- `alpha_to_coverage` example, which uses the CC0 "Fern 02" model from Poly Haven.
+
+Fixes:
+
+- Multisample textures can be created and attached to framebuffers on OpenGL ES 3.1+, where they
+  reached `unreachable!()`. Creating one where it isn't supported returns
+  `TextureCreationError::DimensionsNotSupported`.
+
 ## [0.1.0]
 
 First release under the `safegl` name, forked from glium 0.36.0. SafeGL now issues OpenGL calls

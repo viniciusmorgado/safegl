@@ -95,7 +95,14 @@ at all, even where a 4.1 driver offers them as an extension:
 A `gl46` build still runs on an older driver, so these APIs keep their runtime checks: for example
 `ComputeShader::is_supported` returns `false` and `resident()` returns an error when the driver lacks
 the version or extension. Optional features that every tier exposes (tessellation or geometry
-shaders on OpenGL ES 3.0, for example) are checked at runtime in the same way.
+shaders on OpenGL ES 3.0, for example) are checked at runtime in the same way. Among them:
+
+| Functionality       | Needs                                         | Items                                                                                    |
+|---------------------|-----------------------------------------------|------------------------------------------------------------------------------------------|
+| Sample shading      | OpenGL 4.0, OpenGL ES 3.2; not WebGL          | `DrawParameters::sample_shading`, `DrawError::SampleShadingNotSupported`                 |
+| Sample mask         | OpenGL 3.2, OpenGL ES 3.1; not WebGL          | `DrawParameters::sample_mask`, `DrawError::SampleMaskNotSupported`                       |
+
+`DrawParameters::alpha_to_coverage` is core everywhere, WebGL 2 included.
 
 `BufferMode::Persistent` and `BufferMode::Immutable` are available in every tier. They use
 `glBufferStorage` (OpenGL 4.4) when the driver has it and fall back to `glBufferData` otherwise.
