@@ -227,12 +227,29 @@ pub unsafe fn reflect_uniforms(
                 &[uniform_id as gl::types::GLuint],
                 glow::UNIFORM_ATOMIC_COUNTER_BUFFER_INDEX,
             )[0];
-            ctxt.extra.GetActiveAtomicCounterBufferiv(
-                program.raw_name(),
-                atomic_counter_id as gl::types::GLuint,
-                gl::ATOMIC_COUNTER_BUFFER_BINDING,
-                &mut atomic_counter_buffer_bind_point,
-            );
+            // OpenGL ES has no `glGetActiveAtomicCounterBufferiv`
+            if ctxt.version.0 == Api::GlEs
+                || ctxt.version >= &Version(Api::Gl, 4, 3)
+                || ctxt.extensions.gl_arb_program_interface_query
+            {
+                ctxt.extra.GetProgramResourceiv(
+                    program.raw_name(),
+                    gl::ATOMIC_COUNTER_BUFFER,
+                    atomic_counter_id as gl::types::GLuint,
+                    1,
+                    &gl::BUFFER_BINDING,
+                    1,
+                    ptr::null_mut(),
+                    &mut atomic_counter_buffer_bind_point,
+                );
+            } else {
+                ctxt.extra.GetActiveAtomicCounterBufferiv(
+                    program.raw_name(),
+                    atomic_counter_id as gl::types::GLuint,
+                    gl::ATOMIC_COUNTER_BUFFER_BINDING,
+                    &mut atomic_counter_buffer_bind_point,
+                );
+            }
             atomic_counters.insert(
                 uniform_name,
                 UniformBlock {

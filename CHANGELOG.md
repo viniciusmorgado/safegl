@@ -204,6 +204,9 @@ Fixes:
   another name: SafeGL didn't detect it and returned `DrawError::TessellationNotSupported`.
 - The reflection of a uniform or shader storage block lists the members of its structs in the
   order of their declaration, instead of the order of the driver (alphabetical on NVIDIA).
+- The binding points of atomic counters are reflected with `glGetProgramResourceiv` on OpenGL ES,
+  which has no `glGetActiveAtomicCounterBufferiv`: the counters were bound at binding point 0,
+  whatever their `layout(binding = N)`.
 
 ## [0.2.0]
 
