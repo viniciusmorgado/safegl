@@ -504,6 +504,10 @@ impl<'a> Surface for SimpleFrameBuffer<'a> {
             return Err(DrawError::NoDepthBuffer);
         }
 
+        if !self.has_stencil_buffer() && draw_parameters.stencil.requires_stencil_buffer() {
+            return Err(DrawError::NoStencilBuffer);
+        }
+
         if let Some(viewport) = draw_parameters.viewport {
             if viewport.width > self.context.capabilities().max_viewport_dims.0 as u32 {
                 return Err(DrawError::ViewportTooLarge);
@@ -953,6 +957,10 @@ impl<'a> Surface for MultiOutputFrameBuffer<'a> {
             return Err(DrawError::NoDepthBuffer);
         }
 
+        if !self.has_stencil_buffer() && draw_parameters.stencil.requires_stencil_buffer() {
+            return Err(DrawError::NoStencilBuffer);
+        }
+
         if let Some(viewport) = draw_parameters.viewport {
             if viewport.width > self.context.capabilities().max_viewport_dims.0 as u32 {
                 return Err(DrawError::ViewportTooLarge);
@@ -1247,6 +1255,10 @@ impl Surface for EmptyFrameBuffer {
             && (draw_parameters.depth.test.requires_depth_buffer() || draw_parameters.depth.write)
         {
             return Err(DrawError::NoDepthBuffer);
+        }
+
+        if !self.has_stencil_buffer() && draw_parameters.stencil.requires_stencil_buffer() {
+            return Err(DrawError::NoStencilBuffer);
         }
 
         if let Some(viewport) = draw_parameters.viewport {

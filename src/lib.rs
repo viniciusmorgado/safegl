@@ -1180,6 +1180,9 @@ pub enum DrawError {
     /// A depth function has been requested but no depth buffer is available.
     NoDepthBuffer,
 
+    /// A stencil test or operation has been requested but no stencil buffer is available.
+    NoStencilBuffer,
+
     /// The type of a vertex attribute in the vertices source doesn't match what the
     /// program requires.
     AttributeTypeMismatch,
@@ -1358,6 +1361,8 @@ impl fmt::Display for DrawError {
         let desc = match self {
             NoDepthBuffer =>
                 "A depth function has been requested but no depth buffer is available",
+            NoStencilBuffer =>
+                "A stencil test or operation has been requested but no stencil buffer is available",
             AttributeTypeMismatch =>
                 "The type of a vertex attribute in the vertices source doesn't match what the program requires",
             AttributeMissing =>
@@ -1606,6 +1611,10 @@ impl Surface for Frame {
             && (draw_parameters.depth.test.requires_depth_buffer() || draw_parameters.depth.write)
         {
             return Err(DrawError::NoDepthBuffer);
+        }
+
+        if !self.has_stencil_buffer() && draw_parameters.stencil.requires_stencil_buffer() {
+            return Err(DrawError::NoStencilBuffer);
         }
 
         if let Some(viewport) = draw_parameters.viewport {

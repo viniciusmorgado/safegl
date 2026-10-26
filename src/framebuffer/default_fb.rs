@@ -148,6 +148,10 @@ impl Surface for DefaultFramebuffer {
             return Err(DrawError::NoDepthBuffer);
         }
 
+        if !self.has_stencil_buffer() && draw_parameters.stencil.requires_stencil_buffer() {
+            return Err(DrawError::NoStencilBuffer);
+        }
+
         if let Some(viewport) = draw_parameters.viewport {
             if viewport.width > self.context.capabilities().max_viewport_dims.0 as u32 {
                 return Err(DrawError::ViewportTooLarge);

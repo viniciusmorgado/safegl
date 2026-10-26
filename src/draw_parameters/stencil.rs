@@ -111,6 +111,21 @@ pub struct Stencil {
     pub depth_pass_operation_counter_clockwise: StencilOperation,
 }
 
+impl Stencil {
+    /// Returns true if these parameters read or write the stencil buffer. Otherwise the stencil
+    /// test is disabled.
+    pub fn requires_stencil_buffer(&self) -> bool {
+        self.test_clockwise != StencilTest::AlwaysPass
+            || self.test_counter_clockwise != StencilTest::AlwaysPass
+            || self.fail_operation_clockwise != StencilOperation::Keep
+            || self.pass_depth_fail_operation_clockwise != StencilOperation::Keep
+            || self.depth_pass_operation_clockwise != StencilOperation::Keep
+            || self.fail_operation_counter_clockwise != StencilOperation::Keep
+            || self.pass_depth_fail_operation_counter_clockwise != StencilOperation::Keep
+            || self.depth_pass_operation_counter_clockwise != StencilOperation::Keep
+    }
+}
+
 impl Default for Stencil {
     #[inline]
     fn default() -> Stencil {
@@ -223,15 +238,7 @@ impl ToGlEnum for StencilOperation {
 
 pub fn sync_stencil(ctxt: &mut context::CommandContext<'_>, params: &Stencil) {
     // checks if stencil operations can be disabled
-    if params.test_clockwise == StencilTest::AlwaysPass
-        && params.test_counter_clockwise == StencilTest::AlwaysPass
-        && params.fail_operation_clockwise == StencilOperation::Keep
-        && params.pass_depth_fail_operation_clockwise == StencilOperation::Keep
-        && params.depth_pass_operation_clockwise == StencilOperation::Keep
-        && params.fail_operation_counter_clockwise == StencilOperation::Keep
-        && params.pass_depth_fail_operation_counter_clockwise == StencilOperation::Keep
-        && params.depth_pass_operation_counter_clockwise == StencilOperation::Keep
-    {
+    if !params.requires_stencil_buffer() {
         if ctxt.state.enabled_stencil_test {
             unsafe { ctxt.glow.disable(glow::STENCIL_TEST) };
             ctxt.state.enabled_stencil_test = false;
