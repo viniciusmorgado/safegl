@@ -8,6 +8,7 @@ use crate::image_format::{TextureFormat, TextureFormatRequest};
 use crate::pixel_buffer::PixelBuffer;
 use crate::texture::ClientFormat;
 use crate::texture::PixelValue;
+use crate::texture::TextureKind;
 
 use crate::fbo;
 use crate::fbo::FramebuffersContainer;
@@ -174,14 +175,6 @@ where
         .checked_mul(rect.height)
         .ok_or(ReadError::DimensionsTooLarge)?;
 
-    // checking that the output format is supported
-    // OpenGL supports everything, while OpenGL ES only supports one format per kind of
-    // attachment, plus an implementation-defined format queried with
-    // GL_IMPLEMENTATION_COLOR_READ_FORMAT that we don't handle
-    if ctxt.version.0 == Api::GlEs && output_pixel_format != es_read_format(&source) {
-        return Err(ReadError::OutputFormatNotSupported);
-    }
-
     // handling clamping
     if ctxt.version.0 == Api::Gl {
         unsafe {
@@ -234,38 +227,30 @@ where
         Stencil,
         DepthStencil,
     }
-    let (integer, read_src_type) = match source {
-        Source::Attachment(attachment) => {
-            match attachment {
-                fbo::RegularAttachment::Texture(ref tex) => {
-                    let integer = match tex.get_texture().get_requested_format() {
-                        TextureFormatRequest::Specific(TextureFormat::UncompressedIntegral(_)) => {
-                            true
-                        }
-                        TextureFormatRequest::Specific(TextureFormat::UncompressedUnsigned(_)) => {
-                            true
-                        }
-                        TextureFormatRequest::AnyIntegral => true,
-                        TextureFormatRequest::AnyUnsigned => true,
-                        _ => false,
-                    };
-
-                    (integer, ReadSourceType::Color) // FIXME: wrong
-                }
-                fbo::RegularAttachment::RenderBuffer(ref rb) => {
-                    (false, ReadSourceType::Color) // FIXME: wrong
-                }
-            }
-        }
-        Source::DefaultFramebuffer(read_buffer) => {
-            (false, ReadSourceType::Color) // FIXME: wrong
-        }
+    let kind = match source {
+        Source::Attachment(fbo::RegularAttachment::Texture(ref tex)) => tex.get_texture().kind(),
+        Source::Attachment(fbo::RegularAttachment::RenderBuffer(ref rb)) => rb.kind(),
+        Source::DefaultFramebuffer(_) => TextureKind::Float,
+    };
+    let integer = matches!(kind, TextureKind::Integral | TextureKind::Unsigned);
+    let read_src_type = match kind {
+        TextureKind::Depth => ReadSourceType::Depth,
+        TextureKind::Stencil => ReadSourceType::Stencil,
+        TextureKind::DepthStencil => ReadSourceType::DepthStencil,
+        TextureKind::Float | TextureKind::Integral | TextureKind::Unsigned => ReadSourceType::Color,
     };
 
     // OpenGL ES doesn't support reading from depth, stencil or depth-stencil attachments by default
     if ctxt.version.0 == Api::GlEs {
         match read_src_type {
-            ReadSourceType::Color => (),
+            // OpenGL supports every output format, while OpenGL ES only supports one per kind of
+            // attachment, plus an implementation-defined format queried with
+            // GL_IMPLEMENTATION_COLOR_READ_FORMAT that we don't handle
+            ReadSourceType::Color => {
+                if output_pixel_format != es_read_format(&source) {
+                    return Err(ReadError::OutputFormatNotSupported);
+                }
+            }
             ReadSourceType::Depth => {
                 if !ctxt.extensions.gl_nv_read_depth {
                     return Err(ReadError::AttachmentTypeNotSupported);
@@ -286,16 +271,21 @@ where
     // obtaining the client format and client type to be passed to `glReadPixels`
     let (format, gltype) = match read_src_type {
         ReadSourceType::Color => client_format_to_gl_enum(&output_pixel_format, integer),
-        ReadSourceType::Depth => {
-            unimplemented!() // TODO:
-                             // TODO: NV_depth_buffer_float2
-                             //(gl::DEPTH_COMPONENT, )
-        }
-        ReadSourceType::DepthStencil => unimplemented!(), // FIXME: only 24_8 is possible and there's no client format in the enum that corresponds to 24_8
-        ReadSourceType::Stencil => {
-            unimplemented!() // TODO:
-                             //(gl::STENCIL_INDEX, )
-        }
+        ReadSourceType::Depth => match output_pixel_format {
+            ClientFormat::F32 => (gl::DEPTH_COMPONENT, gl::FLOAT),
+            ClientFormat::U16 => (gl::DEPTH_COMPONENT, gl::UNSIGNED_SHORT),
+            ClientFormat::U32 => (gl::DEPTH_COMPONENT, gl::UNSIGNED_INT),
+            _ => return Err(ReadError::OutputFormatNotSupported),
+        },
+        ReadSourceType::Stencil => match output_pixel_format {
+            ClientFormat::U8 => (gl::STENCIL_INDEX, gl::UNSIGNED_BYTE),
+            _ => return Err(ReadError::OutputFormatNotSupported),
+        },
+        // the 24 bits of depth and the 8 bits of stencil packed in a `u32`
+        ReadSourceType::DepthStencil => match output_pixel_format {
+            ClientFormat::U32 => (gl::DEPTH_STENCIL, gl::UNSIGNED_INT_24_8),
+            _ => return Err(ReadError::OutputFormatNotSupported),
+        },
     };
 
     // reading

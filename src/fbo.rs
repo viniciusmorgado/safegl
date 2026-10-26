@@ -948,23 +948,78 @@ impl FramebuffersContainer {
             }
         }*/
 
-        let attachments = FramebufferAttachments::Regular(FramebufferSpecificAttachments {
-            colors: {
-                let mut v = SmallVec::new();
-                v.push((0, *attachment));
-                v
-            },
-            depth_stencil: DepthStencilAttachments::None,
-        })
-        .validate(ctxt)
-        .unwrap();
+        // depth and stencil images are read through their own attachment points
+        let kind = match attachment {
+            RegularAttachment::Texture(image) => image.get_texture().kind(),
+            RegularAttachment::RenderBuffer(buffer) => buffer.kind(),
+        };
+        // the attachments are described directly instead of being validated, since validating
+        // a depth or stencil attachment queries its format, which needs the context that the
+        // caller already holds
+        let (raw, dimensions) = match attachment {
+            RegularAttachment::Texture(image) => (
+                RawAttachment::Texture {
+                    texture: image.get_texture().get_id(),
+                    bind_point: image.get_texture().get_bind_point(),
+                    layer: Some(image.get_layer()),
+                    level: image.get_level(),
+                    cubemap_layer: image.get_cubemap_layer(),
+                },
+                (image.get_width(), image.get_height().unwrap_or(1)),
+            ),
+            RegularAttachment::RenderBuffer(buffer) => (
+                RawAttachment::RenderBuffer(buffer.get_id()),
+                buffer.get_dimensions(),
+            ),
+        };
+        let mut raw_attachments = RawAttachments {
+            color: Vec::new(),
+            depth: None,
+            stencil: None,
+            depth_stencil: None,
+            default_width: None,
+            default_height: None,
+            default_layers: None,
+            default_samples: None,
+            default_samples_fixed: None,
+        };
+        let mut color_kinds = SmallVec::new();
+        let read_buffer = match kind {
+            TextureKind::Depth => {
+                raw_attachments.depth = Some(raw);
+                glow::NONE
+            }
+            TextureKind::Stencil => {
+                raw_attachments.stencil = Some(raw);
+                glow::NONE
+            }
+            TextureKind::DepthStencil => {
+                raw_attachments.depth_stencil = Some(raw);
+                glow::NONE
+            }
+            TextureKind::Float | TextureKind::Integral | TextureKind::Unsigned => {
+                raw_attachments.color.push((0, raw));
+                color_kinds.push((0, kind));
+                glow::COLOR_ATTACHMENT0
+            }
+        };
+
+        let attachments = ValidatedAttachments {
+            raw: raw_attachments,
+            color_kinds,
+            dimensions,
+            layers: None,
+            depth_buffer_bits: None,
+            stencil_buffer_bits: None,
+            marker: PhantomData,
+        };
 
         let framebuffer = FramebuffersContainer::get_framebuffer_for_drawing(
             ctxt,
             FramebufferTarget::Attachments(&attachments),
         );
         bind_framebuffer(ctxt, framebuffer, false, true);
-        ctxt.glow.read_buffer(glow::COLOR_ATTACHMENT0); // TODO: cache
+        ctxt.glow.read_buffer(read_buffer); // TODO: cache
     }
 
     /// Calls `glClearBuffer` on a framebuffer that contains the attachment.

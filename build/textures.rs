@@ -1170,6 +1170,30 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
     ))
     .unwrap();
 
+    // writing the `read` function of depth textures
+    if dimensions == TextureDimensions::Texture2d && ty == TextureType::Depth {
+        (write!(
+            dest,
+            r#"
+                /// Reads the depth values of the texture to RAM.
+                ///
+                /// You should avoid doing this at all cost during performance-critical
+                /// operations (for example, while you're drawing).
+                ///
+                /// ## Panic
+                ///
+                /// Panics on OpenGL ES without `GL_NV_read_depth`, which can't read depth values.
+                #[inline]
+                pub fn read<T>(&self) -> T where T: Texture2dDataSink<f32> {{
+                    let rect = Rect {{ left: 0, bottom: 0, width: self.get_width(),
+                                       height: self.get_height().unwrap_or(1) }};
+                    self.0.main_level().first_layer().into_image(None).unwrap().raw_read(&rect)
+                }}
+            "#
+        ))
+        .unwrap();
+    }
+
     // writing the `read` functions
     // TODO: implement for other types too
     if dimensions == TextureDimensions::Texture2d
