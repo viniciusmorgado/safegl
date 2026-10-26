@@ -306,20 +306,7 @@ where
 
                 BufferAny::unbind_pixel_pack(ctxt);
 
-                // adjusting data alignement
-                let ptr = buf.as_mut_ptr() as *mut D;
-                let ptr = ptr as usize;
-                if (ptr % 8) == 0 {
-                } else if (ptr % 4) == 0 && ctxt.state.pixel_store_pack_alignment != 4 {
-                    ctxt.state.pixel_store_pack_alignment = 4;
-                    ctxt.glow.pixel_store_i32(glow::PACK_ALIGNMENT, 4);
-                } else if (ptr % 2) == 0 && ctxt.state.pixel_store_pack_alignment > 2 {
-                    ctxt.state.pixel_store_pack_alignment = 2;
-                    ctxt.glow.pixel_store_i32(glow::PACK_ALIGNMENT, 2);
-                } else if ctxt.state.pixel_store_pack_alignment != 1 {
-                    ctxt.state.pixel_store_pack_alignment = 1;
-                    ctxt.glow.pixel_store_i32(glow::PACK_ALIGNMENT, 1);
-                }
+                set_pack_alignment(ctxt, rect.width as usize * mem::size_of::<T>());
 
                 // glow takes the destination as a byte slice, so the buffer is zeroed first to
                 // avoid viewing uninitialized memory as `&mut [u8]`
@@ -346,6 +333,7 @@ where
                 assert!(pixel_buffer.len() >= pixels_to_read as usize);
 
                 pixel_buffer.prepare_and_bind_for_pixel_pack(&mut ctxt);
+                set_pack_alignment(ctxt, rect.width as usize * mem::size_of::<T>());
                 ctxt.glow.read_pixels(
                     rect.left as gl::types::GLint,
                     rect.bottom as gl::types::GLint,
@@ -362,6 +350,22 @@ where
     };
 
     Ok(())
+}
+
+/// Sets `GL_PACK_ALIGNMENT` so that OpenGL writes rows of `row_bytes` bytes without padding them,
+/// since the destination holds the rows next to each other. A padded row would write past the
+/// end of the destination.
+unsafe fn set_pack_alignment(ctxt: &mut CommandContext<'_>, row_bytes: usize) {
+    let alignment = [8, 4, 2]
+        .into_iter()
+        .find(|&alignment| row_bytes.is_multiple_of(alignment))
+        .unwrap_or(1);
+
+    if ctxt.state.pixel_store_pack_alignment != alignment as gl::types::GLint {
+        ctxt.state.pixel_store_pack_alignment = alignment as gl::types::GLint;
+        ctxt.glow
+            .pixel_store_i32(glow::PACK_ALIGNMENT, alignment as gl::types::GLint);
+    }
 }
 
 fn client_format_to_gl_enum(
