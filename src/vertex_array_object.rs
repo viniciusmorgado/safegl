@@ -188,10 +188,13 @@ impl<'a, 'b, 'c> Binder<'a, 'b, 'c> {
             None
         };
 
-        // removing the offset corresponding to the base vertex
+        // removing the offset corresponding to the base vertex, which only applies to the
+        // per-vertex buffers
         if let Some(base_vertex) = base_vertex {
-            for &mut (_, _, ref mut off, stride, _) in self.vertex_buffers.iter_mut() {
-                *off -= base_vertex * stride;
+            for &mut (_, _, ref mut off, stride, div) in self.vertex_buffers.iter_mut() {
+                if div.is_none() {
+                    *off -= base_vertex * stride;
+                }
             }
         }
 
