@@ -503,6 +503,16 @@ fn bind_vao(ctxt: &mut CommandContext<'_>, vao_id: Option<glow::VertexArray>) {
     }
 }
 
+/// Returns the number of bytes of a component of type `data_type`.
+fn component_size(data_type: gl::types::GLenum) -> usize {
+    match data_type {
+        gl::BYTE | gl::UNSIGNED_BYTE => 1,
+        gl::SHORT | gl::UNSIGNED_SHORT | gl::HALF_FLOAT => 2,
+        gl::DOUBLE | gl::INT64_NV | gl::UNSIGNED_INT64_NV => 8,
+        _ => 4,
+    }
+}
+
 /// Binds an individual attribute to the current VAO.
 unsafe fn bind_attribute(
     ctxt: &mut CommandContext<'_>,
@@ -548,6 +558,8 @@ unsafe fn bind_attribute(
         if attribute.location != -1 {
             let (attribute_ty, _, _) = vertex_binding_type_to_gl(attribute.ty);
             if normalize {
+                // the columns of a matrix follow each other
+                let column_size = elements_count as usize * component_size(data_type);
                 for i in 0..instances_count {
                     ctxt.glow.vertex_attrib_pointer_f32(
                         (attribute.location + i) as u32,
@@ -555,7 +567,7 @@ unsafe fn bind_attribute(
                         data_type,
                         true,
                         stride as i32,
-                        (buffer_offset + offset + (i * elements_count * 4) as usize) as i32,
+                        (buffer_offset + offset + i as usize * column_size) as i32,
                     )
                 }
             } else {
