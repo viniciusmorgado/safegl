@@ -143,6 +143,11 @@ safegl = { version = "0.1", default-features = false, features = ["webgl"] }
   limited to `gl41` under macOS can use `gl46` under Linux.
 - **Raspberry Pi 4/5** and similar boards expose OpenGL ES 3.1 but only desktop OpenGL 3.1; use
   `gles30`.
+- **OpenGL ES** has no 1D textures (`TextureCreationError::TypeNotSupported`) and fewer formats
+  than desktop OpenGL; `is_supported` on a format tells whether the context has it. Data uploaded
+  to a texture must match its format, so a texture created from data gets a format chosen from
+  that data. Integer and float textures are read back as `(i32, i32, i32, i32)`,
+  `(u32, u32, u32, u32)` or `(f32, f32, f32, f32)`, and normalized ones as `(u8, u8, u8, u8)`.
 - **Virtual machines and software renderers** (VirtualBox, VMware, Mesa llvmpipe) usually expose
   OpenGL 4.1–4.5; use `gl41`.
 - **Windows without a vendor driver** (Microsoft's basic display driver, some Remote Desktop

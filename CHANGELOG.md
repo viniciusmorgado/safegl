@@ -33,8 +33,38 @@ Additions:
 Fixes:
 
 - Multisample textures can be created and attached to framebuffers on OpenGL ES 3.1+, where they
-  reached `unreachable!()`. Creating one where it isn't supported returns
-  `TextureCreationError::DimensionsNotSupported`.
+  reached `unreachable!()`.
+- Texture creation on OpenGL ES (glium#1730, glium#2017, glium#1906, glium#1482, glium#848,
+  glium#1151, based on glium PRs #1731 and #1488):
+  - textures use `glTexStorage*` on OpenGL ES 3.0+ and WebGL 2, so empty float, integer, depth and
+    depth-stencil textures no longer raise `GL_INVALID_OPERATION`;
+  - integer, depth and depth-stencil formats are reported as supported on OpenGL ES 3.0, so
+    `empty_with_format` and depth render buffers no longer fail with `FormatNotSupported`;
+  - formats that OpenGL ES doesn't have (16-bit normalized without `GL_EXT_texture_norm16`, 12-bit
+    and other legacy formats, 32-bit integer depth) are reported as unsupported instead of failing
+    in the driver;
+  - textures created with data get a storage format that matches the data's components (and, for
+    integer textures, its size), and depth textures created with floats get a float format;
+  - textures created without data pass a format and type that match the internal format;
+  - generic compressed textures, which OpenGL ES doesn't have, are created uncompressed;
+  - automatically generated mipmaps are only created for formats OpenGL ES can generate them for
+    (glium#1178); other textures get a single level;
+  - float, half-float and 16-bit normalized formats are color-renderable with
+    `GL_EXT_color_buffer_float`, `GL_EXT_color_buffer_half_float` and `GL_EXT_texture_norm16`;
+  - cube map arrays and multisample texture arrays are core in OpenGL ES 3.2, and multisample
+    texture arrays use `GL_OES_texture_storage_multisample_2d_array` before that;
+  - integer and float textures can be read back as `(i32, i32, i32, i32)`, `(u32, u32, u32, u32)`
+    and `(f32, f32, f32, f32)`, the formats OpenGL ES allows for them.
+- Multisample textures use `glTexStorage2DMultisample` only on OpenGL 4.3 and with
+  `GL_ARB_texture_storage_multisample`, instead of with `GL_ARB_texture_storage`, which panicked on
+  OpenGL 4.1 drivers such as macOS (glium#1840).
+- Creating a texture of a type the context doesn't have (1D textures on OpenGL ES, for example)
+  returns `TextureCreationError::TypeNotSupported`, and dimensions above the context's limits
+  return `DimensionsNotSupported`, instead of raising an OpenGL error (glium#1163, glium#1555,
+  glium#74).
+- Color render buffers check that their format is color-renderable (glium#505).
+- `raw_upload_from_pixel_buffer_inverted` reports that OpenGL ES can't flip the components instead
+  of raising an OpenGL error.
 
 ## [0.1.0]
 
