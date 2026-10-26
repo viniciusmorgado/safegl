@@ -1194,22 +1194,18 @@ fn sync_rasterizer_discard(
     ctxt: &mut context::CommandContext<'_>,
     draw_primitives: bool,
 ) -> Result<(), DrawError> {
+    // `GL_RASTERIZER_DISCARD` is core in OpenGL 3.0 and OpenGL ES 3.0
     if ctxt.state.enabled_rasterizer_discard == draw_primitives {
-        // FIXME: `GL_RASTERIZER_DISCARD` is also core in OpenGL ES 3.0
-        if ctxt.version.0 == Api::Gl {
-            if draw_primitives {
-                unsafe {
-                    ctxt.glow.disable(glow::RASTERIZER_DISCARD);
-                }
-                ctxt.state.enabled_rasterizer_discard = false;
-            } else {
-                unsafe {
-                    ctxt.glow.enable(glow::RASTERIZER_DISCARD);
-                }
-                ctxt.state.enabled_rasterizer_discard = true;
+        if draw_primitives {
+            unsafe {
+                ctxt.glow.disable(glow::RASTERIZER_DISCARD);
             }
+            ctxt.state.enabled_rasterizer_discard = false;
         } else {
-            return Err(DrawError::RasterizerDiscardNotSupported);
+            unsafe {
+                ctxt.glow.enable(glow::RASTERIZER_DISCARD);
+            }
+            ctxt.state.enabled_rasterizer_discard = true;
         }
     }
 

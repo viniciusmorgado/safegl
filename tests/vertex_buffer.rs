@@ -3,6 +3,7 @@ extern crate safegl;
 
 use safegl::Surface;
 
+
 mod support;
 
 #[test]
@@ -86,22 +87,37 @@ fn transform_feedback() {
     let mut out_buffer: safegl::VertexBuffer<Vertex> =
         safegl::VertexBuffer::empty(&display, 6).unwrap();
 
+    // counts the captured primitives
+    let query = safegl::draw_parameters::TransformFeedbackPrimitivesWrittenQuery::new(&display)
+        .unwrap();
+
+    let texture = support::build_renderable_texture(&display);
+    texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+
     {
         let session =
             safegl::vertex::TransformFeedbackSession::new(&display, &program, &mut out_buffer)
                 .unwrap();
 
+        // only capturing the vertices, on OpenGL and OpenGL ES alike
         let params = safegl::DrawParameters {
             transform_feedback: Some(&session),
+            transform_feedback_primitives_written_query: Some(&query),
+            draw_primitives: false,
             ..Default::default()
         };
 
-        let mut frame = display.draw();
-        frame
+        texture
+            .as_surface()
             .draw(&vb, &ib, &program, &uniform! {}, &params)
             .unwrap();
-        frame.finish().unwrap();
     }
+
+    assert_eq!(query.get().unwrap(), 2);
+
+    // nothing was rasterized
+    let pixels: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    assert!(pixels.iter().flatten().all(|&p| p == (0, 0, 0, 0)));
 
     let result = match out_buffer.read() {
         Ok(r) => r,

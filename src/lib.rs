@@ -1289,9 +1289,6 @@ pub enum DrawError {
     /// The requested provoking vertex is not supported by the backend.
     ProvokingVertexNotSupported,
 
-    /// Discarding rasterizer output isn't supported by the backend.
-    RasterizerDiscardNotSupported,
-
     /// Depth clamping isn't supported by the backend.
     DepthClampNotSupported,
 
@@ -1415,8 +1412,6 @@ impl fmt::Display for DrawError {
                 "Trying to use smoothing, but this is not supported by the backend",
             ProvokingVertexNotSupported =>
                 "Trying to set the provoking vertex, but this is not supported by the backend",
-            RasterizerDiscardNotSupported =>
-                "Discarding rasterizer output is not supported by the backend",
             DepthClampNotSupported =>
                 "The depth clamp mode is not supported by the backend",
             BlendingParameterNotSupported =>

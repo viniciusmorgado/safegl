@@ -243,14 +243,10 @@ fn dont_draw_primitives() {
 
     let texture = support::build_renderable_texture(&display);
     texture.as_surface().clear_color(0.0, 1.0, 0.0, 0.0);
-    match texture
+    texture
         .as_surface()
         .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
-    {
-        Ok(_) => (),
-        Err(safegl::DrawError::RasterizerDiscardNotSupported) => return,
-        e => e.unwrap(),
-    }
+        .unwrap();
 
     let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
     for row in data.iter() {
@@ -275,14 +271,10 @@ fn dont_draw_primitives_then_draw() {
 
     let texture = support::build_renderable_texture(&display);
     texture.as_surface().clear_color(0.0, 1.0, 0.0, 0.0);
-    match texture
+    texture
         .as_surface()
         .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
-    {
-        Ok(_) => (),
-        Err(safegl::DrawError::RasterizerDiscardNotSupported) => return,
-        e => e.unwrap(),
-    }
+        .unwrap();
     texture
         .as_surface()
         .draw(

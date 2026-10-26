@@ -31,8 +31,27 @@ Breaking changes:
   `unsafe impl UniformBlock for ...`. `UniformValue::Block` can no longer be built directly: use
   `UniformValue::block(buffer_slice)`, which checks the layout with the type of the buffer, or the
   unsafe `UniformValue::block_unchecked`.
+- `get()` on queries and on `debug::TimestampQuery` returns `Result<_, QueryResultError>`, with
+  `QueryResultError::ContextLost` when the OpenGL context has been lost, since the result is lost
+  with it (glium#1286); `is_ready()` returns `false` then. Add `.unwrap()` or `?` to the calls.
+- `SamplesPassedQuery`, `TimeElapsedQuery`, `PrimitivesGeneratedQuery` and
+  `TransformFeedbackPrimitivesWrittenQuery` return `u64` results instead of `u32`: 32 bits of
+  nanoseconds overflow after 4.3 seconds, and counters can exceed them too.
+- `DrawError::RasterizerDiscardNotSupported` is removed: `draw_primitives: false` works on OpenGL
+  ES 3.0 and above, where `GL_RASTERIZER_DISCARD` is core, instead of returning that error.
 
 Fixes:
+
+- Conditional rendering with a query that was never used draws nothing, since the query counted
+  no samples, instead of raising `GL_INVALID_OPERATION`.
+- Drawing with the same query as `samples_passed_query` and as the condition returns
+  `DrawError::WrongQueryOperation` instead of raising an OpenGL error.
+- `to_buffer_u32` on a query that was never used writes 0, the result `get()` returns, instead of
+  panicking.
+- A `TimestampQuery` that is dropped without being read deletes its query object instead of
+  leaking it.
+- The documentation of `PrimitivesGeneratedQuery` says that it counts the primitives of the last
+  vertex processing stage, without a geometry shader too.
 
 - `slice(start..end)` on buffers returns `None` when `start > end`, instead of a slice whose size
   overflows.
