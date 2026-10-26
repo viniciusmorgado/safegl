@@ -91,10 +91,25 @@ that screens darken some values that they receive.
 When you load image files, you are encouraged to create sRGB textures (with `SrgbTexture2d` instead
 of `Texture2d` for example).
 
-By default, SafeGL enables the `GL_FRAMEBUFFER_SRGB` trigger, which expects the output of your
-fragment shader to be in linear RGB and then turns it into sRGB before writing in the framebuffer.
-Sampling from an sRGB texture will convert the texture colors from sRGB to RGB. If you create a
-regular RGB texture and put sRGB data in it, then the result will be too bright.
+Sampling an sRGB texture converts its texels from sRGB to linear RGB. If you create a regular RGB
+texture and put sRGB data in it, the colors are too bright when the shader uses them as linear
+values.
+
+When drawing, the `outputs_srgb` flag of the program decides what happens to the colors written
+to an sRGB target:
+
+- With `outputs_srgb: true`, the default of `Program::from_source` and of `program!`, the fragment
+  shader outputs sRGB values: SafeGL disables `GL_FRAMEBUFFER_SRGB` and the colors are written as
+  they are.
+- With `outputs_srgb: false`, the fragment shader outputs linear RGB: SafeGL enables
+  `GL_FRAMEBUFFER_SRGB` and the colors are converted to sRGB when they are written.
+
+Targets that aren't sRGB are never converted. Likewise, `clear_color` takes linear values, which
+are converted for sRGB targets, and `clear_color_srgb` takes sRGB values, written as they are.
+
+OpenGL ES can only write to sRGB targets without the conversion with
+`GL_EXT_sRGB_write_control`. Without it, the colors are always converted, whatever `outputs_srgb`
+is, and `clear_color_srgb` behaves like `clear_color`.
 
 # Bindless textures
 

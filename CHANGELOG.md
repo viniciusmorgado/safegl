@@ -225,6 +225,10 @@ Fixes:
 - Writing a query result into a buffer that a shader wrote to issues
   `glMemoryBarrier(GL_QUERY_BUFFER_BARRIER_BIT)` according to the previous query-buffer barrier,
   instead of the previous pixel-buffer barrier, which skipped or repeated it.
+- The documentation of sRGB said that SafeGL enables `GL_FRAMEBUFFER_SRGB` by default, while the
+  programs of `Program::from_source` and `program!` output sRGB and draw with it disabled. It
+  now explains both values of `outputs_srgb`, `clear_color_srgb`, and the conversion that OpenGL
+  ES can't turn off without `GL_EXT_sRGB_write_control` (glium#1115).
 
 ## [0.2.0]
 

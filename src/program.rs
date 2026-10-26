@@ -270,8 +270,10 @@ pub enum ProgramCreationInput<'a> {
         /// Whether the fragment shader outputs colors in `sRGB` or `RGB`. This is true by default,
         /// meaning that the program is responsible for outputting correct `sRGB` values.
         ///
-        /// If this is false, then `GL_FRAMEBUFFER_SRGB` will be enabled when this program is used
-        /// (if it is supported).
+        /// If this is false, then `GL_FRAMEBUFFER_SRGB` will be enabled when this program is used,
+        /// and the colors that it writes to sRGB targets are converted from linear RGB. OpenGL ES
+        /// always converts them without `GL_EXT_sRGB_write_control`. See [the sRGB section of
+        /// the textures](crate::texture#about-srgb).
         outputs_srgb: bool,
 
         /// Whether the shader uses point size.

@@ -928,6 +928,9 @@ pub trait Surface {
     }
 
     /// Clears the color attachment of the target. The color is in sRGB format and is not converted in the target.
+    ///
+    /// OpenGL ES without `GL_EXT_sRGB_write_control` converts it anyway when the target has sRGB
+    /// format, like `clear_color`.
     fn clear_color_srgb(&mut self, red: f32, green: f32, blue: f32, alpha: f32) {
         self.clear(None, Some((red, green, blue, alpha)), true, None, None);
     }
