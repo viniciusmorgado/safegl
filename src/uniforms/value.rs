@@ -136,6 +136,9 @@ pub enum UniformType {
     IImage2dMultisampleArray,
     UImage2dMultisampleArray,
     AtomicCounterUint,
+    /// A type that SafeGL doesn't know, with the value OpenGL gives it. No value can be bound to
+    /// a uniform of this type.
+    Unknown(u32),
 }
 
 /// Represents a value to bind to a uniform.

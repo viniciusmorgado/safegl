@@ -335,11 +335,16 @@ pub unsafe fn reflect_attributes(
             .get_attrib_location(program, &attr_name)
             .map_or(-1, |location| location as gl::types::GLint);
 
+        // inputs of vendor types that no vertex format has are left out
+        let Some(ty) = glenum_to_attribute_type(data_type) else {
+            continue;
+        };
+
         attributes.insert(
             attr_name,
             Attribute {
                 location,
-                ty: glenum_to_attribute_type(data_type),
+                ty,
                 size: data_size as usize,
             },
         );
@@ -532,7 +537,8 @@ pub unsafe fn reflect_transform_feedback(
                 });
             }
 
-            let ty = glenum_to_attribute_type(ty as gl::types::GLenum);
+            let ty = glenum_to_attribute_type(ty as gl::types::GLenum)
+                .expect("transform feedback varyings have standard types");
 
             let prev_size = result[0].stride;
             result[0].stride += size as usize * ty.get_size_bytes();
@@ -545,7 +551,8 @@ pub unsafe fn reflect_transform_feedback(
             });
         } else if buffer_mode == TransformFeedbackMode::Separate {
             let id = result.len();
-            let ty = glenum_to_attribute_type(ty as gl::types::GLenum);
+            let ty = glenum_to_attribute_type(ty as gl::types::GLenum)
+                .expect("transform feedback varyings have standard types");
             result.push(TransformFeedbackBuffer {
                 id: id as i32,
                 elements: vec![TransformFeedbackVarying {
@@ -1025,7 +1032,7 @@ fn glenum_to_uniform_type(ty: gl::types::GLenum) -> UniformType {
         gl::UNSIGNED_INT_SAMPLER_2D => UniformType::USampler2d,
         gl::UNSIGNED_INT_SAMPLER_3D => UniformType::USampler3d,
         gl::UNSIGNED_INT_SAMPLER_CUBE => UniformType::USamplerCube,
-        gl::UNSIGNED_INT_SAMPLER_1D_ARRAY => UniformType::USampler2dArray,
+        gl::UNSIGNED_INT_SAMPLER_1D_ARRAY => UniformType::USampler1dArray,
         gl::UNSIGNED_INT_SAMPLER_2D_ARRAY => UniformType::USampler2dArray,
         gl::UNSIGNED_INT_SAMPLER_CUBE_MAP_ARRAY => UniformType::USamplerCubeArray,
         gl::UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE => UniformType::USampler2dMultisample,
@@ -1063,13 +1070,26 @@ fn glenum_to_uniform_type(ty: gl::types::GLenum) -> UniformType {
         gl::UNSIGNED_INT_IMAGE_2D_MULTISAMPLE => UniformType::UImage2dMultisample,
         gl::UNSIGNED_INT_IMAGE_2D_MULTISAMPLE_ARRAY => UniformType::UImage2dMultisampleArray,
         gl::UNSIGNED_INT_ATOMIC_COUNTER => UniformType::AtomicCounterUint,
-        v => panic!("Unknown value returned by OpenGL uniform type: {}", v),
+        gl::SAMPLER_CUBE_MAP_ARRAY_SHADOW => UniformType::SamplerCubeArrayShadow,
+        gl::IMAGE_CUBE_MAP_ARRAY => UniformType::ImageCubeArray,
+        gl::INT_IMAGE_CUBE_MAP_ARRAY => UniformType::IImageCubeArray,
+        gl::UNSIGNED_INT_IMAGE_CUBE_MAP_ARRAY => UniformType::UImageCubeArray,
+        gl::INT64_ARB => UniformType::Int64,
+        gl::INT64_VEC2_ARB => UniformType::Int64Vec2,
+        gl::INT64_VEC3_ARB => UniformType::Int64Vec3,
+        gl::INT64_VEC4_ARB => UniformType::Int64Vec4,
+        gl::UNSIGNED_INT64_ARB => UniformType::UnsignedInt64,
+        gl::UNSIGNED_INT64_VEC2_ARB => UniformType::UnsignedInt64Vec2,
+        gl::UNSIGNED_INT64_VEC3_ARB => UniformType::UnsignedInt64Vec3,
+        gl::UNSIGNED_INT64_VEC4_ARB => UniformType::UnsignedInt64Vec4,
+        // types of vendor extensions, which no value can be bound to
+        v => UniformType::Unknown(v),
     }
 }
 
 #[inline]
-fn glenum_to_attribute_type(value: gl::types::GLenum) -> AttributeType {
-    match value {
+fn glenum_to_attribute_type(value: gl::types::GLenum) -> Option<AttributeType> {
+    Some(match value {
         gl::FLOAT => AttributeType::F32,
         gl::FLOAT_VEC2 => AttributeType::F32F32,
         gl::FLOAT_VEC3 => AttributeType::F32F32F32,
@@ -1098,8 +1118,29 @@ fn glenum_to_attribute_type(value: gl::types::GLenum) -> AttributeType {
         gl::DOUBLE_VEC2 => AttributeType::F64F64,
         gl::DOUBLE_VEC3 => AttributeType::F64F64F64,
         gl::DOUBLE_VEC4 => AttributeType::F64F64F64F64,
-        v => panic!("Unknown value returned by OpenGL attribute type: {}", v),
-    }
+        gl::DOUBLE_MAT2 => AttributeType::F64x2x2,
+        gl::DOUBLE_MAT3 => AttributeType::F64x3x3,
+        gl::DOUBLE_MAT4 => AttributeType::F64x4x4,
+        gl::DOUBLE_MAT2x3 => AttributeType::F64x2x3,
+        gl::DOUBLE_MAT2x4 => AttributeType::F64x2x4,
+        gl::DOUBLE_MAT3x2 => AttributeType::F64x3x2,
+        gl::DOUBLE_MAT3x4 => AttributeType::F64x3x4,
+        gl::DOUBLE_MAT4x2 => AttributeType::F64x4x2,
+        gl::DOUBLE_MAT4x3 => AttributeType::F64x4x3,
+        gl::INT64_ARB => AttributeType::I64,
+        gl::INT64_VEC2_ARB => AttributeType::I64I64,
+        gl::INT64_VEC3_ARB => AttributeType::I64I64I64,
+        gl::INT64_VEC4_ARB => AttributeType::I64I64I64I64,
+        gl::UNSIGNED_INT64_ARB => AttributeType::U64,
+        gl::UNSIGNED_INT64_VEC2_ARB => AttributeType::U64U64,
+        gl::UNSIGNED_INT64_VEC3_ARB => AttributeType::U64U64U64,
+        gl::UNSIGNED_INT64_VEC4_ARB => AttributeType::U64U64U64U64,
+        gl::FLOAT16_NV => AttributeType::F16,
+        gl::FLOAT16_VEC2_NV => AttributeType::F16F16,
+        gl::FLOAT16_VEC3_NV => AttributeType::F16F16F16,
+        gl::FLOAT16_VEC4_NV => AttributeType::F16F16F16F16,
+        _ => return None,
+    })
 }
 
 #[inline]

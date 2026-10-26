@@ -81,6 +81,20 @@ pub const TEXTURE_FREE_MEMORY_ATI: GLenum = 0x87FC;
 pub const UNSIGNED_INT64_NV: GLenum = 0x140F;
 pub const UNSIGNED_INT_10_10_10_2_OES: GLenum = 0x8DF6;
 pub const UNSIGNED_INT_VEC2_EXT: GLenum = 0x8DC6;
+// GL_ARB_gpu_shader_int64
+pub const INT64_ARB: GLenum = 0x140E;
+pub const INT64_VEC2_ARB: GLenum = 0x8FE9;
+pub const INT64_VEC3_ARB: GLenum = 0x8FEA;
+pub const INT64_VEC4_ARB: GLenum = 0x8FEB;
+pub const UNSIGNED_INT64_ARB: GLenum = 0x140F;
+pub const UNSIGNED_INT64_VEC2_ARB: GLenum = 0x8FF5;
+pub const UNSIGNED_INT64_VEC3_ARB: GLenum = 0x8FF6;
+pub const UNSIGNED_INT64_VEC4_ARB: GLenum = 0x8FF7;
+// GL_NV_gpu_shader5
+pub const FLOAT16_NV: GLenum = 0x8FF8;
+pub const FLOAT16_VEC2_NV: GLenum = 0x8FF9;
+pub const FLOAT16_VEC3_NV: GLenum = 0x8FFA;
+pub const FLOAT16_VEC4_NV: GLenum = 0x8FFB;
 pub const UNSIGNED_INT_VEC3_EXT: GLenum = 0x8DC7;
 pub const UNSIGNED_INT_VEC4_EXT: GLenum = 0x8DC8;
 
