@@ -888,6 +888,11 @@ pub enum TextureCreationError {
 
     /// The size of the data doesn't match the texture dimensions.
     DataSizeMismatch,
+
+    /// Mipmaps can't be generated for the texture: it is multisampled, or the backend can't
+    /// generate mipmaps in its format, like the formats that aren't both color-renderable and
+    /// filterable on OpenGL ES.
+    MipmapsNotSupported,
 }
 
 impl fmt::Display for TextureCreationError {
@@ -898,6 +903,7 @@ impl fmt::Display for TextureCreationError {
             DimensionsNotSupported => "The requested texture dimensions are not supported",
             TypeNotSupported => "The texture type is not supported by the backend",
             DataSizeMismatch => "The size of the data doesn't match the texture dimensions",
+            MipmapsNotSupported => "Mipmaps can't be generated for the texture",
         };
         fmt.write_str(desc)
     }
