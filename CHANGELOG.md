@@ -107,6 +107,11 @@ Breaking changes:
 - `Uniforms::visit_values` gives names that live as long as the uniforms (`&'a str`), so that
   SafeGL can collect the values before it starts to issue commands: implementations of `Uniforms`
   and `AsUniformValue` can now use SafeGL.
+- On OpenGL ES, which has no `glShaderStorageBlockBinding`, a shader storage block is bound at the
+  binding point that the shader gives it instead of one chosen by SafeGL, which raised
+  `GL_INVALID_OPERATION` on drivers that follow the specification. Two storage blocks with the same
+  `layout(binding = N)` that get a buffer each return the new `DrawError::SharedBindingPoint`
+  there; give them different binding points.
 
 Additions:
 

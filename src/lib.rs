@@ -1467,6 +1467,13 @@ pub enum DrawError {
         name: String,
     },
 
+    /// Two shader storage blocks have the same `layout(binding = N)` in the shader, which can't
+    /// be changed on OpenGL ES, and were given a buffer each.
+    SharedBindingPoint {
+        /// Name of the second block.
+        name: String,
+    },
+
     /// Compute shaders need OpenGL 4.3, OpenGL ES 3.1 or `GL_ARB_compute_shader`.
     ComputeShadersNotSupported,
 
@@ -1635,6 +1642,8 @@ impl fmt::Display for DrawError {
                 "Clamping the depth offset is not supported by the backend",
             BufferBindingOutOfRange { .. } =>
                 "A block needs more buffer binding points than the backend has",
+            SharedBindingPoint { .. } =>
+                "Two shader storage blocks have the same binding point in the shader and were given a buffer each",
             ComputeShadersNotSupported =>
                 "Compute shaders are not supported by the backend",
             WorkGroupCountTooLarge { .. } =>
@@ -1662,6 +1671,7 @@ impl fmt::Display for DrawError {
             UniformBufferToValue { name } => write!(fmt, "{}: {}", desc, name,),
             UniformValueToBlock { name } => write!(fmt, "{}: {}", desc, name,),
             BufferBindingOutOfRange { name } => write!(fmt, "{}: {}", desc, name,),
+            SharedBindingPoint { name } => write!(fmt, "{}: `{}`", desc, name),
             ContextMismatch { object } => write!(fmt, "{}: {}", desc, object),
             DepthComparisonMismatch { name } => write!(fmt, "{}: {}", desc, name),
             UniformMissing { name } => write!(fmt, "{}: `{}`", desc, name),

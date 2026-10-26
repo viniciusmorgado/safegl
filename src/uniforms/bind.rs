@@ -438,14 +438,32 @@ where
                 }
             }
 
-            let bind_point = buffer_bind_points
-                .get_unused()
-                .filter(|&point| {
-                    (point as i32) < ctxt.capabilities.max_indexed_shader_storage_buffer
-                })
-                .ok_or_else(|| DrawError::BufferBindingOutOfRange {
-                    name: name.to_owned(),
-                })?;
+            // OpenGL ES has no `glShaderStorageBlockBinding`: the block uses the binding point
+            // that the shader gives it
+            let fixed_binding = ctxt.version.0 == crate::version::Api::GlEs;
+            let bind_point = if fixed_binding {
+                let point = block.initial_binding;
+                if point < 0 || point >= ctxt.capabilities.max_indexed_shader_storage_buffer {
+                    return Err(DrawError::BufferBindingOutOfRange {
+                        name: name.to_owned(),
+                    });
+                }
+                if buffer_bind_points.is_used(point as u16) {
+                    return Err(DrawError::SharedBindingPoint {
+                        name: name.to_owned(),
+                    });
+                }
+                point as u16
+            } else {
+                buffer_bind_points
+                    .get_unused()
+                    .filter(|&point| {
+                        (point as i32) < ctxt.capabilities.max_indexed_shader_storage_buffer
+                    })
+                    .ok_or_else(|| DrawError::BufferBindingOutOfRange {
+                        name: name.to_owned(),
+                    })?
+            };
             buffer_bind_points.set_used(bind_point);
 
             check_block_buffer(
@@ -458,11 +476,13 @@ where
             let block_id = block.id as gl::types::GLuint;
 
             buffer.prepare_and_bind_for_shared_storage(ctxt, bind_point as gl::types::GLuint);
-            program.set_shader_storage_block_binding(
-                ctxt,
-                block_id,
-                bind_point as gl::types::GLuint,
-            );
+            if !fixed_binding {
+                program.set_shader_storage_block_binding(
+                    ctxt,
+                    block_id,
+                    bind_point as gl::types::GLuint,
+                );
+            }
 
             Ok(fence)
         }
