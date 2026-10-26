@@ -2,7 +2,7 @@
 macro_rules! extensions {
     ($($string:expr => $field:ident,)+) => {
         /// Contains data about the list of extensions.
-        #[derive(Debug, Clone, Copy)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub struct ExtensionsList {
             $(
                 #[allow(missing_docs)]

@@ -276,7 +276,9 @@ impl Context {
 
     /// Changes the OpenGL context associated with this context.
     ///
-    /// The new context **must** have lists shared with the old one.
+    /// The new context **must** have lists shared with the old one. SafeGL keeps using the
+    /// version, extensions and capabilities of the first context, so this returns an error, and
+    /// keeps the old context, if the new one has another version or other extensions.
     pub unsafe fn rebuild<B>(&self, new_backend: B) -> Result<(), IncompatibleOpenGl>
     where
         B: Backend + 'static,
@@ -291,8 +293,18 @@ impl Context {
 
         new_backend.make_current();
 
+        let version = version::get_gl_version(&self.glow);
+        let extensions = extensions::get_extensions(&self.glow);
+        if version != self.version || extensions != self.extensions {
+            self.backend.borrow().make_current();
+            return Err(IncompatibleOpenGl(format!(
+                "the new context provides OpenGL {:?} {}.{} and its extensions, instead of \
+                 {:?} {}.{} and the extensions of the first context",
+                version.0, version.1, version.2, self.version.0, self.version.1, self.version.2
+            )));
+        }
+
         *self.state.borrow_mut() = Default::default();
-        // FIXME: verify version, capabilities and extensions
         *self.backend.borrow_mut() = Box::new(new_backend);
 
         // making textures resident
