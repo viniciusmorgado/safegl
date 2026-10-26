@@ -202,6 +202,8 @@ Fixes:
 - Tessellation works on OpenGL ES 3.2, where it is core, and on OpenGL ES with
   `GL_EXT_tessellation_shader` or `GL_OES_tessellation_shader`, whose `glPatchParameteri` has
   another name: SafeGL didn't detect it and returned `DrawError::TessellationNotSupported`.
+- The reflection of a uniform or shader storage block lists the members of its structs in the
+  order of their declaration, instead of the order of the driver (alphabetical on NVIDIA).
 
 ## [0.2.0]
 

@@ -943,6 +943,12 @@ where
     }
 
     // ↓ actual body of `introspection_output_to_layout` starts here ↓
+
+    // drivers list the variables in any order, alphabetical for some of them: sorting them by
+    // offset gives the members in the order of their declaration
+    let mut elements: Vec<_> = elements.collect();
+    elements.sort_by_key(|element| element.1);
+
     let mut layout = BlockLayout::Struct {
         members: Vec::new(),
     };
@@ -1374,5 +1380,40 @@ pub unsafe fn reflect_subroutine_data(
     SubroutineData {
         location_counts,
         subroutine_uniforms,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{introspection_output_to_layout, BlockLayout, UniformType};
+
+    #[test]
+    fn members_in_declaration_order() {
+        // the order of NVIDIA's driver
+        let elements = vec![
+            ("dir".to_owned(), 8, UniformType::FloatVec2, 1, None),
+            ("pos".to_owned(), 0, UniformType::FloatVec2, 1, None),
+            ("speed".to_owned(), 16, UniformType::Float, 1, None),
+        ];
+        let member = |name: &str, ty, offset_in_buffer| {
+            (
+                name.to_owned(),
+                BlockLayout::BasicType {
+                    ty,
+                    offset_in_buffer,
+                },
+            )
+        };
+
+        assert_eq!(
+            introspection_output_to_layout(elements.into_iter()),
+            BlockLayout::Struct {
+                members: vec![
+                    member("pos", UniformType::FloatVec2, 0),
+                    member("dir", UniformType::FloatVec2, 8),
+                    member("speed", UniformType::Float, 16),
+                ],
+            }
+        );
     }
 }
