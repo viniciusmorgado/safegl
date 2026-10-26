@@ -188,6 +188,20 @@ production workflow and the growth of our team.
 Learn to draw with SafeGL, from your first window and triangle to textures,
 3D models, cameras and lighting.
 
+## Examples
+
+The examples in [examples/standalone](examples/standalone) each show one feature, from the
+tutorial's triangle to shadow mapping, deferred shading and order-independent transparency. Run one
+by its name:
+
+```sh
+cargo run --example triangle
+cargo run --release --example weighted_oit
+```
+
+The examples that need OpenGL 4.2+ features require the `gl46` feature, which is enabled by
+default; the list is in `Cargo.toml`.
+
 ## Renderer examples
 
 The [renderer collection](examples/renderers/README.md) contains 20 standalone

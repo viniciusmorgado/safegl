@@ -127,7 +127,8 @@ where
     ///
     /// # Panic
     ///
-    /// Panics if the length of `data` is different from the length of this buffer.
+    /// Panics if the length of `data` is different from the length of this buffer. To write a
+    /// part of the buffer, write to a slice of it: `buffer.slice(0..n).unwrap().write(&data)`.
     pub fn write(&self, data: &T) {
         assert!(mem::size_of_val(data) == self.get_size());
 
@@ -143,7 +144,15 @@ where
     /// Invalidates the content of the buffer. The data becomes undefined.
     ///
     /// You should call this if you only use parts of a buffer. For example if you want to use
-    /// the first half of the buffer, you invalidate the whole buffer then write the first half.
+    /// the first half of the buffer, you invalidate the whole buffer then write the first half,
+    /// through a slice of it, since `write` writes the whole buffer:
+    ///
+    /// ```no_run
+    /// # fn example(buffer: safegl::VertexBuffer<u32>, first_half: &[u32]) {
+    /// buffer.invalidate();
+    /// buffer.slice(0..first_half.len()).unwrap().write(first_half);
+    /// # }
+    /// ```
     ///
     /// This operation is a no-op if the backend doesn't support it and for persistent-mapped
     /// buffers.

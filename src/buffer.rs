@@ -45,6 +45,33 @@
 //! # }
 //! ```
 //!
+//! # Sharing a buffer between shader stages
+//!
+//! The same buffer can be read as vertices by a draw call and written by a compute shader, for
+//! example to simulate particles on the GPU. `VertexBuffer<T>` dereferences to `Buffer<[T]>`, and a
+//! `&Buffer<[T]>` is a uniform value that binds to a uniform block or a shader storage block when
+//! `T` implements `UniformBlock`:
+//!
+//! ```no_run
+//! # use glutin::surface::{ResizeableSurface, SurfaceTypeTrait};
+//! # fn example<T>(display: safegl::Display<T>, compute: safegl::program::ComputeShader)
+//! # where T: SurfaceTypeTrait + ResizeableSurface {
+//! #[derive(Copy, Clone)]
+//! struct Particle {
+//!     position: [f32; 4],
+//! }
+//! safegl::implement_vertex!(Particle, position);
+//! safegl::implement_uniform_block!(Particle, position);
+//!
+//! let particles =
+//!     safegl::VertexBuffer::new(&display, &[Particle { position: [0.0; 4] }; 1024]).unwrap();
+//!
+//! // a compute shader with `buffer Particles { vec4 position[]; };` writes the particles...
+//! compute.execute(safegl::uniform! { Particles: &*particles }, 1024 / 64, 1, 1);
+//! // ...and the next draw calls read them as vertices, after the memory barrier SafeGL inserts
+//! # }
+//! ```
+//!
 pub use self::alloc::is_buffer_read_supported;
 pub(crate) use self::alloc::restore_bindings;
 pub use self::alloc::{CopyError, Mapping, ReadError, ReadMapping, WriteMapping};
