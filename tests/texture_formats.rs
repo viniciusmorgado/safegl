@@ -7,7 +7,7 @@ use safegl::texture::{
     MipmapsOption, Texture1d, Texture2d, TextureCreationError, UncompressedFloatFormat,
     UncompressedIntFormat, UncompressedUintFormat, UnsignedTexture2d,
 };
-use safegl::CapabilitiesSource;
+use safegl::{CapabilitiesSource, Surface};
 
 mod support;
 
@@ -152,5 +152,24 @@ fn render_buffers() {
     // a shared-exponent format can't be rendered to
     assert!(RenderBuffer::new(&display, UncompressedFloatFormat::F9F9F9, SIZE, SIZE).is_err());
 
+    display.assert_no_error(None);
+}
+
+#[test]
+fn rgb565() {
+    let display = support::build_display();
+    let texture = Texture2d::empty_with_format(
+        &display,
+        UncompressedFloatFormat::U5U6U5,
+        MipmapsOption::NoMipmap,
+        SIZE,
+        SIZE,
+    )
+    .unwrap();
+
+    // RGB565 is color-renderable, and its extreme values are exact
+    texture.as_surface().clear_color(1.0, 0.0, 1.0, 1.0);
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    assert_eq!(data[0][0], (255, 0, 255, 255));
     display.assert_no_error(None);
 }

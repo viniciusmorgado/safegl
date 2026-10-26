@@ -204,7 +204,6 @@ impl ClientFormat {
 /// Some formats are marked as "guaranteed to be supported". What this means is that you are
 /// certain that the backend will use exactly these formats. If you try to use a format that
 /// is not supported by the backend, it will automatically fall back to a larger format.
-// TODO: missing RGB565
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum UncompressedFloatFormat {
     ///
@@ -245,6 +244,8 @@ pub enum UncompressedFloatFormat {
     U4U4U4,
     ///
     U5U5U5,
+    /// Five bits of red, six of green and five of blue, common for embedded displays.
+    U5U6U5,
     ///
     ///
     /// Guaranteed to be supported for textures.
@@ -353,6 +354,7 @@ impl UncompressedFloatFormat {
             UncompressedFloatFormat::U3U3U2,
             UncompressedFloatFormat::U4U4U4,
             UncompressedFloatFormat::U5U5U5,
+            UncompressedFloatFormat::U5U6U5,
             UncompressedFloatFormat::U8U8U8,
             UncompressedFloatFormat::I8I8I8,
             UncompressedFloatFormat::U10U10U10,
@@ -421,7 +423,12 @@ impl UncompressedFloatFormat {
             | Self::U12U12U12
             | Self::U2U2U2U2
             | Self::U12U12U12U12 => version >= &Version(Api::Gl, 1, 1),
-            Self::U8U8U8 | Self::U4U4U4U4 | Self::U5U5U5U1 | Self::U8U8U8U8 | Self::U10U10U10U2 => {
+            Self::U8U8U8
+            | Self::U5U6U5
+            | Self::U4U4U4U4
+            | Self::U5U5U5U1
+            | Self::U8U8U8U8
+            | Self::U10U10U10U2 => {
                 version >= &Version(Api::Gl, 1, 1) || es3
             }
             Self::U16U16U16 => version >= &Version(Api::Gl, 3, 0) || es_norm16,
@@ -481,7 +488,7 @@ impl UncompressedFloatFormat {
             UncompressedFloatFormat::U8U8 => {
                 version >= &Version(Api::GlEs, 3, 0) || extensions.gl_arb_texture_rg
             }
-            //&UncompressedFloatFormat::U5U6U5 => true,
+            UncompressedFloatFormat::U5U6U5 => true,
             UncompressedFloatFormat::U8U8U8 => {
                 version >= &Version(Api::GlEs, 3, 0) || extensions.gl_oes_rgb8_rgba8
             }
@@ -526,6 +533,7 @@ impl UncompressedFloatFormat {
             UncompressedFloatFormat::U3U3U2 => gl::R3_G3_B2,
             UncompressedFloatFormat::U4U4U4 => gl::RGB4,
             UncompressedFloatFormat::U5U5U5 => gl::RGB5,
+            UncompressedFloatFormat::U5U6U5 => gl::RGB565,
             UncompressedFloatFormat::U8U8U8 => gl::RGB8,
             UncompressedFloatFormat::I8I8I8 => gl::RGB8_SNORM,
             UncompressedFloatFormat::U10U10U10 => gl::RGB10,
@@ -2221,6 +2229,7 @@ pub fn default_client_format_to_glenum(
                 F::U3U3U2
                 | F::U4U4U4
                 | F::U5U5U5
+                | F::U5U6U5
                 | F::U8U8U8
                 | F::U10U10U10
                 | F::U12U12U12
