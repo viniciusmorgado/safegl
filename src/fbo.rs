@@ -64,7 +64,7 @@ use crate::CapabilitiesSource;
 use crate::GlObject;
 use crate::TextureExt;
 
-use crate::framebuffer::RenderBufferAny;
+use crate::framebuffer::{InvalidateAttachments, RenderBufferAny};
 use crate::texture::CubeLayer;
 use crate::texture::TextureAnyImage;
 use crate::texture::TextureAnyMipmap;
@@ -240,6 +240,7 @@ impl<'a> FramebufferAttachments<'a> {
                             default_samples: Some(samples.unwrap_or(0)),
                             default_samples_fixed: Some(fixed_samples),
                         },
+                        color_kinds: SmallVec::new(),
                         dimensions: (width, height),
                         layers,
                         depth_buffer_bits: None,
@@ -340,6 +341,7 @@ impl<'a> FramebufferAttachments<'a> {
         let mut stencil_bits = None;
         let mut samples = None; // contains `0` if not multisampling and `None` if unknown
 
+        let mut color_kinds = SmallVec::new();
         for &(index, LayeredAttachment(ref attachment)) in colors.iter() {
             if index >= max_color_attachments as u32 {
                 return Err(ValidationError::TooManyColorAttachments {
@@ -347,6 +349,7 @@ impl<'a> FramebufferAttachments<'a> {
                     obtained: index as usize,
                 });
             }
+            color_kinds.push((index, attachment.get_texture().kind()));
             raw_attachments
                 .color
                 .push((index, handle_tex!(attachment, dimensions, samples)));
@@ -387,6 +390,7 @@ impl<'a> FramebufferAttachments<'a> {
 
         Ok(ValidatedAttachments {
             raw: raw_attachments,
+            color_kinds,
             dimensions,
             layers: None, // FIXME: count layers
             depth_buffer_bits: depth_bits,
@@ -528,6 +532,7 @@ impl<'a> FramebufferAttachments<'a> {
         let mut stencil_bits = None;
         let mut samples = None; // contains `0` if not multisampling and `None` if unknown
 
+        let mut color_kinds = SmallVec::new();
         for &(index, ref attachment) in colors.iter() {
             if index >= max_color_attachments as u32 {
                 return Err(ValidationError::TooManyColorAttachments {
@@ -535,6 +540,11 @@ impl<'a> FramebufferAttachments<'a> {
                     obtained: index as usize,
                 });
             }
+            let kind = match attachment {
+                RegularAttachment::Texture(tex) => tex.get_texture().kind(),
+                RegularAttachment::RenderBuffer(rb) => rb.kind(),
+            };
+            color_kinds.push((index, kind));
             raw_attachments
                 .color
                 .push((index, handle_atch!(attachment, dimensions, samples)));
@@ -577,6 +587,7 @@ impl<'a> FramebufferAttachments<'a> {
 
         Ok(ValidatedAttachments {
             raw: raw_attachments,
+            color_kinds,
             dimensions,
             layers: None,
             depth_buffer_bits: depth_bits,
@@ -586,10 +597,21 @@ impl<'a> FramebufferAttachments<'a> {
     }
 }
 
+/// The framebuffer that an operation draws to, reads from or invalidates.
+#[derive(Copy, Clone)]
+pub enum FramebufferTarget<'a> {
+    /// The default framebuffer (`None`), or a framebuffer object created outside SafeGL.
+    Raw(Option<glow::Framebuffer>),
+    /// A framebuffer object with these attachments, which SafeGL creates when needed.
+    Attachments(&'a ValidatedAttachments<'a>),
+}
+
 /// Represents attachments that have been validated and are usable.
 #[derive(Clone)]
 pub struct ValidatedAttachments<'a> {
     raw: RawAttachments,
+    // the location and kind of each color attachment
+    color_kinds: SmallVec<[(u32, TextureKind); 4]>,
     dimensions: (u32, u32),
     layers: Option<u32>,
     depth_buffer_bits: Option<u16>,
@@ -598,6 +620,12 @@ pub struct ValidatedAttachments<'a> {
 }
 
 impl<'a> ValidatedAttachments<'a> {
+    /// Returns the fragment output location and the kind of each color attachment.
+    #[inline]
+    pub fn get_color_kinds(&self) -> &[(u32, TextureKind)] {
+        &self.color_kinds
+    }
+
     /// Returns `true` if the framebuffer is layered.
     #[inline]
     pub fn is_layered(&self) -> bool {
@@ -650,6 +678,14 @@ pub enum ValidationError {
         /// Number of attachments that were given.
         obtained: usize,
     },
+
+    /// OpenGL doesn't support this combination of attachments: `glCheckFramebufferStatus`
+    /// didn't return `GL_FRAMEBUFFER_COMPLETE`.
+    Incomplete {
+        /// The value that `glCheckFramebufferStatus` returned, such as
+        /// `GL_FRAMEBUFFER_UNSUPPORTED`.
+        status: u32,
+    },
 }
 
 impl fmt::Display for ValidationError {
@@ -669,12 +705,14 @@ impl fmt::Display for ValidationError {
             TooManyColorAttachments { .. } => {
                 "Backends only support a certain number of color attachments"
             }
+            Incomplete { .. } => "OpenGL doesn't support this combination of attachments",
         };
         match self {
             TooManyColorAttachments {
                 ref maximum,
                 ref obtained,
             } => write!(fmt, "{}: found {}, maximum: {}", desc, obtained, maximum),
+            Incomplete { status } => write!(fmt, "{} (status {:#06x})", desc, status),
             _ => fmt.write_str(desc),
         }
     }
@@ -871,9 +909,14 @@ impl FramebuffersContainer {
     #[inline]
     pub fn get_framebuffer_for_drawing(
         ctxt: &mut CommandContext<'_>,
-        attachments: Option<&ValidatedAttachments<'_>>,
+        target: FramebufferTarget<'_>,
     ) -> Option<glow::Framebuffer> {
-        attachments.map(|attachments| FramebuffersContainer::get_framebuffer(ctxt, attachments))
+        match target {
+            FramebufferTarget::Raw(framebuffer) => framebuffer,
+            FramebufferTarget::Attachments(attachments) => {
+                Some(FramebuffersContainer::get_framebuffer(ctxt, attachments))
+            }
+        }
     }
 
     /// Binds the default framebuffer to `GL_READ_FRAMEBUFFER` or `GL_FRAMEBUFFER` so that it
@@ -915,21 +958,78 @@ impl FramebuffersContainer {
             }
         }*/
 
-        let attachments = FramebufferAttachments::Regular(FramebufferSpecificAttachments {
-            colors: {
-                let mut v = SmallVec::new();
-                v.push((0, *attachment));
-                v
-            },
-            depth_stencil: DepthStencilAttachments::None,
-        })
-        .validate(ctxt)
-        .unwrap();
+        // depth and stencil images are read through their own attachment points
+        let kind = match attachment {
+            RegularAttachment::Texture(image) => image.get_texture().kind(),
+            RegularAttachment::RenderBuffer(buffer) => buffer.kind(),
+        };
+        // the attachments are described directly instead of being validated, since validating
+        // a depth or stencil attachment queries its format, which needs the context that the
+        // caller already holds
+        let (raw, dimensions) = match attachment {
+            RegularAttachment::Texture(image) => (
+                RawAttachment::Texture {
+                    texture: image.get_texture().get_id(),
+                    bind_point: image.get_texture().get_bind_point(),
+                    layer: Some(image.get_layer()),
+                    level: image.get_level(),
+                    cubemap_layer: image.get_cubemap_layer(),
+                },
+                (image.get_width(), image.get_height().unwrap_or(1)),
+            ),
+            RegularAttachment::RenderBuffer(buffer) => (
+                RawAttachment::RenderBuffer(buffer.get_id()),
+                buffer.get_dimensions(),
+            ),
+        };
+        let mut raw_attachments = RawAttachments {
+            color: Vec::new(),
+            depth: None,
+            stencil: None,
+            depth_stencil: None,
+            default_width: None,
+            default_height: None,
+            default_layers: None,
+            default_samples: None,
+            default_samples_fixed: None,
+        };
+        let mut color_kinds = SmallVec::new();
+        let read_buffer = match kind {
+            TextureKind::Depth => {
+                raw_attachments.depth = Some(raw);
+                glow::NONE
+            }
+            TextureKind::Stencil => {
+                raw_attachments.stencil = Some(raw);
+                glow::NONE
+            }
+            TextureKind::DepthStencil => {
+                raw_attachments.depth_stencil = Some(raw);
+                glow::NONE
+            }
+            TextureKind::Float | TextureKind::Integral | TextureKind::Unsigned => {
+                raw_attachments.color.push((0, raw));
+                color_kinds.push((0, kind));
+                glow::COLOR_ATTACHMENT0
+            }
+        };
 
-        let framebuffer =
-            FramebuffersContainer::get_framebuffer_for_drawing(ctxt, Some(&attachments));
+        let attachments = ValidatedAttachments {
+            raw: raw_attachments,
+            color_kinds,
+            dimensions,
+            layers: None,
+            depth_buffer_bits: None,
+            stencil_buffer_bits: None,
+            marker: PhantomData,
+        };
+
+        let framebuffer = FramebuffersContainer::get_framebuffer_for_drawing(
+            ctxt,
+            FramebufferTarget::Attachments(&attachments),
+        );
         bind_framebuffer(ctxt, framebuffer, false, true);
-        ctxt.glow.read_buffer(glow::COLOR_ATTACHMENT0); // TODO: cache
+        ctxt.glow.read_buffer(read_buffer); // TODO: cache
     }
 
     /// Calls `glClearBuffer` on a framebuffer that contains the attachment.
@@ -963,12 +1063,23 @@ impl FramebuffersContainer {
         })
         .validate(ctxt)
         .unwrap();
-        let fb = FramebuffersContainer::get_framebuffer_for_drawing(ctxt, Some(&fb));
+        let fb = FramebuffersContainer::get_framebuffer_for_drawing(
+            ctxt,
+            FramebufferTarget::Attachments(&fb),
+        );
 
         // TODO: use DSA if supported
         // TODO: what if glClearBuffer is not supported?
 
         bind_framebuffer(ctxt, fb, true, false);
+
+        // `glClearBuffer` obeys the color mask, including the per-draw-buffer masks of
+        // `DrawParameters::outputs`
+        if ctxt.state.color_mask != (1, 1, 1, 1) || ctxt.state.indexed_color_mask {
+            ctxt.state.color_mask = (1, 1, 1, 1);
+            ctxt.state.indexed_color_mask = false;
+            ctxt.glow.color_mask(true, true, true, true);
+        }
 
         match (attachment.kind(), data) {
             (TextureKind::Float, ClearBufferData::Float(data)) => {
@@ -995,11 +1106,128 @@ impl FramebuffersContainer {
         }
     }
 
+    /// Discards the content of some attachments of a framebuffer (`glInvalidateFramebuffer`), in
+    /// the whole framebuffer or in `rect`. Does nothing if the backend doesn't support it, since
+    /// this is only a hint.
     ///
     /// # Unsafety
     ///
     /// After calling this function, you **must** make sure to call `purge_texture`
     /// and/or `purge_renderbuffer` when one of the attachment is destroyed.
+    pub unsafe fn invalidate(
+        ctxt: &mut CommandContext<'_>,
+        target: FramebufferTarget<'_>,
+        which: InvalidateAttachments,
+        rect: Option<&crate::Rect>,
+    ) {
+        // core in OpenGL 4.3, OpenGL ES 3.0 and WebGL 2
+        if !(ctxt.version >= &Version(Api::Gl, 4, 3)
+            || ctxt.version >= &Version(Api::GlEs, 3, 0)
+            || ctxt.extensions.gl_arb_invalidate_subdata)
+        {
+            return;
+        }
+
+        let mut list = SmallVec::<[gl::types::GLenum; 8]>::new();
+        match target {
+            FramebufferTarget::Attachments(attachments) => {
+                let raw = &attachments.raw;
+                if which.color {
+                    // `FrameBufferObject::new` attaches the n-th color at `COLOR_ATTACHMENTn`
+                    list.extend((0..raw.color.len() as u32).map(|i| gl::COLOR_ATTACHMENT0 + i));
+                }
+                if which.depth && raw.depth.is_some() {
+                    list.push(gl::DEPTH_ATTACHMENT);
+                }
+                if which.stencil && raw.stencil.is_some() {
+                    list.push(gl::STENCIL_ATTACHMENT);
+                }
+                if raw.depth_stencil.is_some() {
+                    // either part of a depth-stencil attachment can be invalidated alone
+                    match (which.depth, which.stencil) {
+                        (true, true) => list.push(gl::DEPTH_STENCIL_ATTACHMENT),
+                        (true, false) => list.push(gl::DEPTH_ATTACHMENT),
+                        (false, true) => list.push(gl::STENCIL_ATTACHMENT),
+                        (false, false) => (),
+                    }
+                }
+            }
+            // the attachments of a framebuffer object created outside SafeGL are unknown, but
+            // invalidating an attachment point that is empty does nothing
+            FramebufferTarget::Raw(Some(_)) => {
+                if which.color {
+                    list.push(gl::COLOR_ATTACHMENT0);
+                }
+                if which.depth {
+                    list.push(gl::DEPTH_ATTACHMENT);
+                }
+                if which.stencil {
+                    list.push(gl::STENCIL_ATTACHMENT);
+                }
+            }
+            FramebufferTarget::Raw(None) => {
+                if which.color {
+                    list.push(gl::COLOR);
+                }
+                if which.depth {
+                    list.push(gl::DEPTH);
+                }
+                if which.stencil {
+                    list.push(gl::STENCIL);
+                }
+            }
+        }
+        if list.is_empty() {
+            return;
+        }
+
+        let framebuffer = FramebuffersContainer::get_framebuffer_for_drawing(ctxt, target);
+        bind_framebuffer(ctxt, framebuffer, true, false);
+        // `bind_framebuffer` binds `GL_FRAMEBUFFER` on OpenGL ES and WebGL
+        let target = if ctxt.version.0 == Api::Gl {
+            gl::DRAW_FRAMEBUFFER
+        } else {
+            gl::FRAMEBUFFER
+        };
+
+        match rect {
+            Some(rect) => ctxt.glow.invalidate_sub_framebuffer(
+                target,
+                &list,
+                rect.left as gl::types::GLint,
+                rect.bottom as gl::types::GLint,
+                rect.width as gl::types::GLsizei,
+                rect.height as gl::types::GLsizei,
+            ),
+            None => ctxt.glow.invalidate_framebuffer(target, &list),
+        }
+    }
+
+    ///
+    /// # Unsafety
+    ///
+    /// After calling this function, you **must** make sure to call `purge_texture`
+    /// and/or `purge_renderbuffer` when one of the attachment is destroyed.
+    /// Creates the framebuffer object of `attachments` if needed, and returns an error if OpenGL
+    /// considers it incomplete.
+    ///
+    /// # Unsafety
+    ///
+    /// After calling this function, you **must** make sure to call `purge_texture`
+    /// and/or `purge_renderbuffer` when one of the attachment is destroyed.
+    pub fn check_complete(
+        ctxt: &mut CommandContext<'_>,
+        attachments: &ValidatedAttachments<'_>,
+    ) -> Result<(), ValidationError> {
+        FramebuffersContainer::get_framebuffer(ctxt, attachments);
+        let status = ctxt.framebuffer_objects.framebuffers.borrow()[&attachments.raw].status;
+        if status == gl::FRAMEBUFFER_COMPLETE {
+            Ok(())
+        } else {
+            Err(ValidationError::Incomplete { status })
+        }
+    }
+
     fn get_framebuffer(
         ctxt: &mut CommandContext<'_>,
         attachments: &ValidatedAttachments<'_>,
@@ -1030,6 +1258,8 @@ impl Drop for FramebuffersContainer {
 struct FrameBufferObject {
     id: glow::Framebuffer,
     current_read_buffer: gl::types::GLenum,
+    // what `glCheckFramebufferStatus` returned once the attachments were attached
+    status: gl::types::GLenum,
 }
 
 impl FrameBufferObject {
@@ -1202,9 +1432,27 @@ impl FrameBufferObject {
             }
         }
 
+        let status = unsafe {
+            if ctxt.version >= &Version(Api::Gl, 4, 5) || ctxt.extensions.gl_arb_direct_state_access
+            {
+                ctxt.glow
+                    .check_named_framebuffer_status(Some(id), gl::DRAW_FRAMEBUFFER)
+            } else {
+                bind_framebuffer(ctxt, Some(id), true, false);
+                // `bind_framebuffer` binds `GL_FRAMEBUFFER` on OpenGL ES and WebGL
+                ctxt.glow
+                    .check_framebuffer_status(if ctxt.version.0 == Api::Gl {
+                        gl::DRAW_FRAMEBUFFER
+                    } else {
+                        gl::FRAMEBUFFER
+                    })
+            }
+        };
+
         FrameBufferObject {
             id,
             current_read_buffer: gl::BACK,
+            status,
         }
     }
 
@@ -1330,7 +1578,11 @@ unsafe fn attach(
                         );
                     } else {
                         bind_framebuffer(ctxt, Some(id), true, true);
-                        assert!(bind_point == gl::TEXTURE_2D);
+                        // OpenGL ES 3.1+ also accepts multisample textures here
+                        assert!(
+                            bind_point == gl::TEXTURE_2D
+                                || bind_point == gl::TEXTURE_2D_MULTISAMPLE
+                        );
                         ctxt.glow.framebuffer_texture_2d(
                             glow::FRAMEBUFFER,
                             slot,
@@ -1387,6 +1639,17 @@ unsafe fn attach(
                                     glow::DRAW_FRAMEBUFFER,
                                     slot,
                                     bind_point,
+                                    Some(tex_id),
+                                    level as gl::types::GLint,
+                                    layer as gl::types::GLint,
+                                );
+                            }
+
+                            // OpenGL ES attaches the slices of 3D textures like layers
+                            gl::TEXTURE_3D => {
+                                ctxt.glow.framebuffer_texture_layer(
+                                    glow::DRAW_FRAMEBUFFER,
+                                    slot,
                                     Some(tex_id),
                                     level as gl::types::GLint,
                                     layer as gl::types::GLint,

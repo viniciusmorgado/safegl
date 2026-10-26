@@ -1,9 +1,0 @@
-[workspace]
-# Publish to crates.io only: tag each release, but don't create GitHub releases.
-git_release_enable = false
-git_tag_enable = true
-# Compare the public API with the last published version to catch breaking changes
-# that the commit messages don't announce.
-semver_check = true
-changelog_update = true
-pr_labels = ["release"]

@@ -98,6 +98,12 @@ impl UniformsStorage {
             (&RawUniformValue::Mat2(a), &mut Some(RawUniformValue::Mat2(b))) if a == b => (),
             (&RawUniformValue::Mat3(a), &mut Some(RawUniformValue::Mat3(b))) if a == b => (),
             (&RawUniformValue::Mat4(a), &mut Some(RawUniformValue::Mat4(b))) if a == b => (),
+            (&RawUniformValue::Mat2x3(a), &mut Some(RawUniformValue::Mat2x3(b))) if a == b => (),
+            (&RawUniformValue::Mat2x4(a), &mut Some(RawUniformValue::Mat2x4(b))) if a == b => (),
+            (&RawUniformValue::Mat3x2(a), &mut Some(RawUniformValue::Mat3x2(b))) if a == b => (),
+            (&RawUniformValue::Mat3x4(a), &mut Some(RawUniformValue::Mat3x4(b))) if a == b => (),
+            (&RawUniformValue::Mat4x2(a), &mut Some(RawUniformValue::Mat4x2(b))) if a == b => (),
+            (&RawUniformValue::Mat4x3(a), &mut Some(RawUniformValue::Mat4x3(b))) if a == b => (),
             (&RawUniformValue::Vec2(a), &mut Some(RawUniformValue::Vec2(b))) if a == b => (),
             (&RawUniformValue::Vec3(a), &mut Some(RawUniformValue::Vec3(b))) if a == b => (),
             (&RawUniformValue::Vec4(a), &mut Some(RawUniformValue::Vec4(b))) if a == b => (),
@@ -209,6 +215,36 @@ impl UniformsStorage {
             (&RawUniformValue::Mat4(v), target) => {
                 *target = Some(RawUniformValue::Mat4(v));
                 uniform!(ctxt, uniform_matrix_4_f32_slice, location, false, v.as_flattened());
+            }
+
+            (&RawUniformValue::Mat2x3(v), target) => {
+                *target = Some(RawUniformValue::Mat2x3(v));
+                uniform!(ctxt, uniform_matrix_2x3_f32_slice, location, false, v.as_flattened());
+            }
+
+            (&RawUniformValue::Mat2x4(v), target) => {
+                *target = Some(RawUniformValue::Mat2x4(v));
+                uniform!(ctxt, uniform_matrix_2x4_f32_slice, location, false, v.as_flattened());
+            }
+
+            (&RawUniformValue::Mat3x2(v), target) => {
+                *target = Some(RawUniformValue::Mat3x2(v));
+                uniform!(ctxt, uniform_matrix_3x2_f32_slice, location, false, v.as_flattened());
+            }
+
+            (&RawUniformValue::Mat3x4(v), target) => {
+                *target = Some(RawUniformValue::Mat3x4(v));
+                uniform!(ctxt, uniform_matrix_3x4_f32_slice, location, false, v.as_flattened());
+            }
+
+            (&RawUniformValue::Mat4x2(v), target) => {
+                *target = Some(RawUniformValue::Mat4x2(v));
+                uniform!(ctxt, uniform_matrix_4x2_f32_slice, location, false, v.as_flattened());
+            }
+
+            (&RawUniformValue::Mat4x3(v), target) => {
+                *target = Some(RawUniformValue::Mat4x3(v));
+                uniform!(ctxt, uniform_matrix_4x3_f32_slice, location, false, v.as_flattened());
             }
 
             (&RawUniformValue::Vec2(v), target) => {

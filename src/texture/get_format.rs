@@ -271,8 +271,20 @@ pub fn get_format(
             red_sz, red_ty, green_sz, green_ty, blue_sz, blue_ty, alpha_sz, alpha_ty, depth_sz,
             depth_ty,
         ) {
+            // stencil textures have neither color nor depth components
             (_, gl::NONE, _, _, _, _, _, _, _, gl::NONE) => {
-                return Err(GetFormatError::NotSupported)
+                let stencil_sz = unsafe {
+                    let bind_point = texture.bind_to_current(ctxt);
+                    ctxt.glow
+                        .get_tex_level_parameter_i32(bind_point, 0, glow::TEXTURE_STENCIL_SIZE)
+                };
+                if stencil_sz <= 0 {
+                    return Err(GetFormatError::NotSupported);
+                }
+                InternalFormat::OneComponent {
+                    ty1: InternalFormatType::UnsignedInt,
+                    bits1: stencil_sz as usize,
+                }
             }
             (_, gl::NONE, _, _, _, _, _, _, sz1, ty1) => InternalFormat::OneComponent {
                 ty1: InternalFormatType::from_glenum(ty1),

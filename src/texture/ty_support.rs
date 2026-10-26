@@ -74,9 +74,10 @@ where
     C: CapabilitiesSource,
 {
     context.get_version().0 == Api::Gl
+        || context.get_version() >= &Version(Api::GlEs, 3, 2)
         || context
             .get_extensions()
-            .gl_oes_texture_storage_multisample_2d_array // FIXME: functions have an OES suffix, this isn't handled by SafeGL
+            .gl_oes_texture_storage_multisample_2d_array
 }
 
 /// Returns true is cubemaps are supported.
@@ -97,6 +98,7 @@ where
     C: CapabilitiesSource,
 {
     context.get_version().0 == Api::Gl
+        || context.get_version() >= &Version(Api::GlEs, 3, 2)
         || context.get_extensions().gl_ext_texture_cube_map_array
         || context.get_extensions().gl_oes_texture_cube_map_array
 }

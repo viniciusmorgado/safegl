@@ -1,6 +1,6 @@
 use glow::HasContext;
 
-use crate::fbo::{self, ValidatedAttachments};
+use crate::fbo::{self, FramebufferTarget};
 
 use crate::context::Context;
 use crate::ContextExt;
@@ -10,11 +10,12 @@ use crate::draw_parameters::TimeElapsedQuery;
 use crate::QueryExt;
 
 use crate::gl;
+use crate::texture::TextureKind;
 use crate::Api;
 
 pub fn clear(
     context: &Context,
-    framebuffer: Option<&ValidatedAttachments<'_>>,
+    framebuffer: FramebufferTarget<'_>,
     rect: Option<&Rect>,
     color: Option<(f32, f32, f32, f32)>,
     color_srgb: bool,
@@ -33,8 +34,10 @@ pub fn clear(
             ctxt.state.enabled_rasterizer_discard = false;
         }
 
-        if ctxt.state.color_mask != (1, 1, 1, 1) {
+        // also undoes the per-draw-buffer masks of `DrawParameters::outputs`
+        if ctxt.state.color_mask != (1, 1, 1, 1) || ctxt.state.indexed_color_mask {
             ctxt.state.color_mask = (1, 1, 1, 1);
+            ctxt.state.indexed_color_mask = false;
             ctxt.glow.color_mask(true, true, true, true);
         }
 
@@ -120,8 +123,48 @@ pub fn clear(
                 ctxt.glow.clear_stencil(stencil);
                 ctxt.state.clear_stencil = stencil;
             }
+
+            // the stencil write mask of the last draw call would mask the cleared value too
+            if ctxt.state.stencil_mask_front != 0xffffffff
+                || ctxt.state.stencil_mask_back != 0xffffffff
+            {
+                ctxt.glow.stencil_mask(0xffffffff);
+                ctxt.state.stencil_mask_front = 0xffffffff;
+                ctxt.state.stencil_mask_back = 0xffffffff;
+            }
         }
 
-        ctxt.glow.clear(flags);
+        // `glClearColor` is undefined for integer color buffers, which are cleared one by one
+        // with the color converted to integers
+        if let (Some(color), FramebufferTarget::Attachments(attachments)) = (color, framebuffer) {
+            let kinds = attachments.get_color_kinds();
+            let integer = |kind| matches!(kind, TextureKind::Integral | TextureKind::Unsigned);
+            if kinds.iter().any(|&(_, kind)| integer(kind)) {
+                flags &= !gl::COLOR_BUFFER_BIT;
+
+                for &(location, kind) in kinds {
+                    let (r, g, b, a) = color;
+                    match kind {
+                        TextureKind::Integral => ctxt.glow.clear_buffer_i32_slice(
+                            gl::COLOR,
+                            location,
+                            &[r as i32, g as i32, b as i32, a as i32],
+                        ),
+                        TextureKind::Unsigned => ctxt.glow.clear_buffer_u32_slice(
+                            gl::COLOR,
+                            location,
+                            &[r as u32, g as u32, b as u32, a as u32],
+                        ),
+                        _ => ctxt
+                            .glow
+                            .clear_buffer_f32_slice(gl::COLOR, location, &[r, g, b, a]),
+                    }
+                }
+            }
+        }
+
+        if flags != 0 {
+            ctxt.glow.clear(flags);
+        }
     }
 }

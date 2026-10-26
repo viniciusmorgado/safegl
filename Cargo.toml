@@ -1,6 +1,6 @@
 [package]
 name = "safegl"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Vinicius Donatto Morgado <34577818+viniciusmorgado@users.noreply.github.com>"]
 description = "Safe OpenGL bindings for Rust."
 keywords = ["opengl", "gamedev"]
@@ -10,17 +10,18 @@ repository = "https://github.com/viniciusmorgado/safegl"
 readme = "README.md"
 license = "Apache-2.0"
 build = "build/main.rs"
-exclude = ["doc", ".idea"]
+exclude = ["doc", ".idea", "examples/renderers", "examples/standalone/support/fern_02"]
 edition = "2021"
 
 [features]
-default = ["gl46", "glutin_backend", "simple_window_builder", "glutin/default", "winit/rwh_06", "winit/x11", "winit/wayland", "winit/wayland-dlopen", "winit/wayland-csd-adwaita-notitle", "glutin-winit/default"]
+default = ["gl46", "backtrace", "glutin_backend", "simple_window_builder", "glutin/default", "winit/rwh_06", "winit/x11", "winit/wayland", "winit/wayland-dlopen", "winit/wayland-csd-adwaita-notitle", "glutin-winit/default"]
 # OpenGL feature tiers. Each tier includes the ones below it.
 gles30 = [] # common subset of OpenGL ES 3.0 and desktop OpenGL 4.1
 gl41 = ["gles30"] # desktop OpenGL 4.1 core, the macOS ceiling
 gl46 = ["gl41"] # desktop OpenGL 4.6 core, not available on macOS
 webgl = ["gles30", "dep:web-sys", "dep:wasm-bindgen"] # WebGL 2 in browsers (wasm32), the gles30 tier
 glutin_backend = ["glutin"]
+backtrace = ["dep:backtrace"] # prints a backtrace with the OpenGL debug messages reported as errors
 unstable = [] # used for benchmarks
 simple_window_builder = ["glutin", "glutin-winit", "winit", "raw-window-handle"] # used in the tutorial
 
@@ -50,7 +51,7 @@ default-features = false
 
 [dependencies]
 memoffset = "0.9.1"
-backtrace = "0.3.76"
+backtrace = { version = "0.3.76", optional = true }
 smallvec = "1.16.4"
 fnv = "1.0.7"
 glow = "0.18"
@@ -66,10 +67,15 @@ winit = { version = "0.30.13", default-features = false, features = ["rwh_06", "
 raw-window-handle = "0.6.2"
 glutin-winit = "0.5.0"
 takeable-option = "0.5.0"
+gltf = { version = "1.4.1", default-features = false, features = ["utils"] }
 
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[[example]]
+name = "alpha_to_coverage"
+path = "examples/standalone/alpha_to_coverage.rs"
 
 [[example]]
 name = "blitting"
@@ -102,6 +108,10 @@ path = "examples/standalone/gpgpu.rs"
 required-features = ["gl46"]
 
 [[example]]
+name = "headless"
+path = "examples/standalone/headless.rs"
+
+[[example]]
 name = "image"
 path = "examples/standalone/image.rs"
 
@@ -122,8 +132,17 @@ name = "multiple_windows"
 path = "examples/standalone/multiple_windows.rs"
 
 [[example]]
+name = "outputs_srgb"
+path = "examples/standalone/outputs_srgb.rs"
+
+[[example]]
 name = "picking"
 path = "examples/standalone/picking.rs"
+
+[[example]]
+name = "programmable_blending"
+path = "examples/standalone/programmable_blending.rs"
+required-features = ["gl46"]
 
 [[example]]
 name = "screenshot-asynchronous"
@@ -132,6 +151,11 @@ path = "examples/standalone/screenshot-asynchronous.rs"
 [[example]]
 name = "screenshot"
 path = "examples/standalone/screenshot.rs"
+
+[[example]]
+name = "shadow_bias"
+path = "examples/standalone/shadow_bias.rs"
+required-features = ["gl46"]
 
 [[example]]
 name = "shadow_mapping"
@@ -156,6 +180,11 @@ path = "examples/standalone/tessellation.rs"
 [[example]]
 name = "triangle"
 path = "examples/standalone/triangle.rs"
+
+[[example]]
+name = "weighted_oit"
+path = "examples/standalone/weighted_oit.rs"
+required-features = ["gl46"]
 
 [[example]]
 name = "tutorial-01"

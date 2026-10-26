@@ -87,15 +87,28 @@ at all, even where a 4.1 driver offers them as an extension:
 | Image load/store    | OpenGL 4.2                        | `uniforms::{ImageUnit, ImageUnitBehavior, ImageUnitAccess, ImageUnitFormat, ImageUnitError}`, `image_unit()` on textures, `UniformValue::*Image*`, `DrawError::InsufficientImageUnits` |
 | Multidraw indirect  | OpenGL 4.3                        | `index::{DrawCommandsNoIndicesBuffer, DrawCommandsIndicesBuffer, DrawCommandNoIndices, DrawCommandIndices}`, `IndicesSource::Multidraw*`     |
 | Empty framebuffers  | OpenGL 4.3                        | `framebuffer::EmptyFrameBuffer`                                                                                                              |
+| Copying images      | OpenGL 4.3                        | `texture::{copy_image, is_copy_image_supported, CopyImageTarget, CopyImageError}`, `copy_to()` on mipmaps                                 |
+| Clearing textures   | OpenGL 4.4                        | `texture::{is_clear_texture_supported, ClearTextureError}`, `clear()`, `clear_region()` and `clear_depth_stencil()` on mipmaps            |
 | Query buffers       | OpenGL 4.4                        | `to_buffer_u32()` on queries, `draw_parameters::ToBufferError`, `BufferType::QueryBuffer`                                                    |
+| Texture barrier     | OpenGL 4.5                        | `texture::{texture_barrier, is_texture_barrier_supported, TextureBarrierNotSupportedError}`                                                 |
 | Clip control        | OpenGL 4.5                        | `DrawParameters::{clip_control_origin, clip_control_depth}`, `ClipControlOrigin`, `ClipControlDepth`, `DrawError::ClipControlNotSupported`   |
+| Polygon offset clamp | OpenGL 4.6                       | `DrawParameters::polygon_offset_clamp`, `DrawError::PolygonOffsetClampNotSupported`                                                         |
 | SPIR-V shaders      | OpenGL 4.6                        | `ProgramCreationInput::SpirV`, `program::{SpirvProgram, SpirvEntryPoint}`                                                                    |
 | Bindless textures   | never (`ARB_bindless_texture`)    | `texture::bindless`, `texture::{ResidentTexture, TextureHandle, BindlessTexturesNotSupportedError}`, `resident()` on textures                 |
 
 A `gl46` build still runs on an older driver, so these APIs keep their runtime checks: for example
 `ComputeShader::is_supported` returns `false` and `resident()` returns an error when the driver lacks
 the version or extension. Optional features that every tier exposes (tessellation or geometry
-shaders on OpenGL ES 3.0, for example) are checked at runtime in the same way.
+shaders on OpenGL ES 3.0, for example) are checked at runtime in the same way. Among them:
+
+| Functionality       | Needs                                         | Items                                                                                    |
+|---------------------|-----------------------------------------------|------------------------------------------------------------------------------------------|
+| Sample shading      | OpenGL 4.0, OpenGL ES 3.2; not WebGL          | `DrawParameters::sample_shading`, `DrawError::SampleShadingNotSupported`                 |
+| Sample mask         | OpenGL 3.2, OpenGL ES 3.1; not WebGL          | `DrawParameters::sample_mask`, `DrawError::SampleMaskNotSupported`                       |
+| Per-output state    | OpenGL 4.0, OpenGL ES 3.2; not WebGL          | `DrawParameters::outputs`, `OutputState`, `DrawError::PerOutputStateNotSupported`        |
+| Invalidation        | OpenGL 4.3, OpenGL ES 3.0, WebGL 2            | `invalidate()` and `invalidate_rect()` on framebuffers, `framebuffer::InvalidateAttachments`; a no-op elsewhere |
+
+`DrawParameters::alpha_to_coverage` is core everywhere, WebGL 2 included.
 
 `BufferMode::Persistent` and `BufferMode::Immutable` are available in every tier. They use
 `glBufferStorage` (OpenGL 4.4) when the driver has it and fall back to `glBufferData` otherwise.
@@ -114,6 +127,9 @@ To select a lower tier, disable the default features:
 safegl = { version = "0.1", default-features = false, features = ["gl41", "glutin_backend", "glutin/default"] }
 ```
 
+The default `backtrace` feature prints a backtrace along with the OpenGL debug messages that
+SafeGL reports as errors; leave it out to avoid compiling the `backtrace` crate.
+
 For the browser, build for `wasm32-unknown-unknown` with the `webgl` feature and draw through
 `safegl::backend::web::WebDisplay`:
 
@@ -130,6 +146,11 @@ safegl = { version = "0.1", default-features = false, features = ["webgl"] }
   limited to `gl41` under macOS can use `gl46` under Linux.
 - **Raspberry Pi 4/5** and similar boards expose OpenGL ES 3.1 but only desktop OpenGL 3.1; use
   `gles30`.
+- **OpenGL ES** has no 1D textures (`TextureCreationError::TypeNotSupported`) and fewer formats
+  than desktop OpenGL; `is_supported` on a format tells whether the context has it. Data uploaded
+  to a texture must match its format, so a texture created from data gets a format chosen from
+  that data. Integer and float textures are read back as `(i32, i32, i32, i32)`,
+  `(u32, u32, u32, u32)` or `(f32, f32, f32, f32)`, and normalized ones as `(u8, u8, u8, u8)`.
 - **Virtual machines and software renderers** (VirtualBox, VMware, Mesa llvmpipe) usually expose
   OpenGL 4.1–4.5; use `gl41`.
 - **Windows without a vendor driver** (Microsoft's basic display driver, some Remote Desktop
@@ -161,6 +182,33 @@ For us, this also creates a practical path for onboarding and developing graphic
 new team members contribute useful tools as they learn, build confidence through hands-on work,
 and prepare to take on more demanding rendering tasks. Investing in SafeGL supports both our
 production workflow and the growth of our team.
+
+## [SafeGL tutorials](book/README.md)
+
+Learn to draw with SafeGL, from your first window and triangle to textures,
+3D models, cameras and lighting.
+
+## Examples
+
+The examples in [examples/standalone](examples/standalone) each show one feature, from the
+tutorial's triangle to shadow mapping, deferred shading and order-independent transparency. Run one
+by its name:
+
+```sh
+cargo run --example triangle
+cargo run --release --example weighted_oit
+```
+
+The examples that need OpenGL 4.2+ features require the `gl46` feature, which is enabled by
+default; the list is in `Cargo.toml`.
+
+## Renderer examples
+
+The [renderer collection](examples/renderers/README.md) contains 20 standalone
+experiments covering forward, Forward+, deferred, and visibility rendering with
+single or many lights and several anti-aliasing methods. All use OpenGL 4.6 and
+share a Ferris model. The collection can be copied and run independently
+with the published SafeGL crate.
 
 ## [SafeGL Book - Building a renderer from scratch]()
 

@@ -6,8 +6,8 @@ use crate::Rect;
 use crate::context::Context;
 use crate::ContextExt;
 
+use crate::fbo::FramebufferTarget;
 use crate::fbo::FramebuffersContainer;
-use crate::fbo::ValidatedAttachments;
 
 use crate::gl;
 use crate::version::Api;
@@ -15,8 +15,8 @@ use crate::version::Version;
 
 pub fn blit(
     context: &Context,
-    source: Option<&ValidatedAttachments<'_>>,
-    target: Option<&ValidatedAttachments<'_>>,
+    source: FramebufferTarget<'_>,
+    target: FramebufferTarget<'_>,
     mask: gl::types::GLbitfield,
     src_rect: &Rect,
     target_rect: &BlitTarget,
@@ -37,6 +37,15 @@ pub fn blit(
         if ctxt.state.enabled_scissor_test {
             ctxt.glow.disable(glow::SCISSOR_TEST);
             ctxt.state.enabled_scissor_test = false;
+        }
+
+        // blitting copies the pixels as they are, while `GL_FRAMEBUFFER_SRGB` would convert them
+        // between sRGB and linear values depending on the previous clear or draw call
+        if (ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_srgb_write_control)
+            && ctxt.state.enabled_framebuffer_srgb
+        {
+            ctxt.glow.disable(glow::FRAMEBUFFER_SRGB);
+            ctxt.state.enabled_framebuffer_srgb = false;
         }
 
         // trying to do a named blit if possible

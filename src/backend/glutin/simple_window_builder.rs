@@ -142,6 +142,9 @@ impl SimpleWindowBuilder {
     }
 
     /// Replace the used vsync configuration
+    ///
+    /// This is a preference: if the driver refuses the swap interval, the window is created
+    /// with the driver's own.
     pub fn with_vsync(mut self, vsync: bool) -> Self {
         self.vsync = vsync;
         self
@@ -227,9 +230,9 @@ impl SimpleWindowBuilder {
         } else {
             SwapInterval::DontWait
         };
-        surface
-            .set_swap_interval(&current_context, swap_interval)
-            .unwrap();
+        // the swap interval is only a preference: some drivers and environments (`vblank_mode=0`,
+        // virtual machines) refuse it, and the window works without it
+        let _ = surface.set_swap_interval(&current_context, swap_interval);
 
         let display = Display::from_context_surface(current_context, surface).unwrap();
 

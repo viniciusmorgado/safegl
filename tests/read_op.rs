@@ -22,3 +22,15 @@ fn test_read() {
 
     let _pixels: Vec<Vec<(u8, u8, u8, u8)>> = image.raw_read(&rect);
 }
+
+#[test]
+fn read_front_buffer_without_error() {
+    let display = support::build_display();
+
+    // EGL window surfaces usually have no front buffer, which used to raise an OpenGL error
+    match display.read_front_buffer::<Vec<Vec<(u8, u8, u8, u8)>>>() {
+        Ok(_) | Err(safegl::ReadError::AttachmentMissing) => (),
+        Err(e) => panic!("{e:?}"),
+    }
+    display.assert_no_error(None);
+}

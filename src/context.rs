@@ -42,6 +42,7 @@ pub use self::state::GlState;
 
 mod capabilities;
 mod extensions;
+mod restore;
 mod state;
 
 /// Stores the state and information required for SafeGL to execute commands. Most public SafeGL
@@ -275,7 +276,9 @@ impl Context {
 
     /// Changes the OpenGL context associated with this context.
     ///
-    /// The new context **must** have lists shared with the old one.
+    /// The new context **must** have lists shared with the old one. SafeGL keeps using the
+    /// version, extensions and capabilities of the first context, so this returns an error, and
+    /// keeps the old context, if the new one has another version or other extensions.
     pub unsafe fn rebuild<B>(&self, new_backend: B) -> Result<(), IncompatibleOpenGl>
     where
         B: Backend + 'static,
@@ -290,8 +293,18 @@ impl Context {
 
         new_backend.make_current();
 
+        let version = version::get_gl_version(&self.glow);
+        let extensions = extensions::get_extensions(&self.glow);
+        if version != self.version || extensions != self.extensions {
+            self.backend.borrow().make_current();
+            return Err(IncompatibleOpenGl(format!(
+                "the new context provides OpenGL {:?} {}.{} and its extensions, instead of \
+                 {:?} {}.{} and the extensions of the first context",
+                version.0, version.1, version.2, self.version.0, self.version.1, self.version.2
+            )));
+        }
+
         *self.state.borrow_mut() = Default::default();
-        // FIXME: verify version, capabilities and extensions
         *self.backend.borrow_mut() = Box::new(new_backend);
 
         // making textures resident
@@ -591,7 +604,7 @@ impl Context {
     /// component needs to directly manipulate OpenGL state.
     ///
     /// **If `action` manipulates any OpenGL state, it must be restored before `action`
-    /// completes.**
+    /// completes, or [`Context::restore_state`] must be called afterwards.**
     #[inline]
     pub unsafe fn exec_in_context<'a, T, F>(&self, action: F) -> T
     where
@@ -600,6 +613,32 @@ impl Context {
     {
         let _ctxt = self.make_current();
         action()
+    }
+
+    /// Makes the OpenGL state match the state that SafeGL expects, after code outside of SafeGL
+    /// changed it.
+    ///
+    /// SafeGL caches the OpenGL state (bound objects, blending, depth test, viewport, ...) to
+    /// avoid redundant calls. Code that shares the context with SafeGL (a GUI toolkit, a video
+    /// player, another renderer, raw calls through [`Context::glow_context`]) changes the state
+    /// behind that cache. Call this function after such code ran and before using SafeGL again:
+    ///
+    /// ```no_run
+    /// # fn example(display: &safegl::Display<safegl::glutin::surface::WindowSurface>) {
+    /// unsafe {
+    ///     display.exec_in_context(|| {
+    ///         // ... OpenGL calls that change the state ...
+    ///     });
+    /// }
+    /// display.restore_state();
+    /// # }
+    /// ```
+    ///
+    /// The other code must not delete objects that SafeGL created, and must not stop the queries,
+    /// transform feedback or conditional rendering that SafeGL started, which aren't restored.
+    pub fn restore_state(&self) {
+        let mut ctxt = self.make_current();
+        unsafe { restore::restore_state(&mut ctxt) };
     }
 
     /// Returns the `glow` context that SafeGL uses to issue OpenGL calls. Useful for interop
@@ -725,8 +764,9 @@ impl ContextExt for Context {
         if self.check_current_context {
             let backend = self.backend.borrow();
             if !backend.is_current() {
+                // `is_current` isn't checked again here: some drivers (macOS since 10.14) don't
+                // report the context as current right after it was made current
                 unsafe { backend.make_current() };
-                debug_assert!(backend.is_current());
             }
         }
 
@@ -920,39 +960,47 @@ fn default_debug_callback(
     if report_debug_output_errors {
         eprint!(
             "Debug message with high or medium severity: `{}`.\n\
-                 Please report this error: https://github.com/viniciusmorgado/safegl/issues\n\
-                 Backtrace:",
+                 Please report this error: https://github.com/viniciusmorgado/safegl/issues",
             message
         );
 
-        let mut frame_id = 1;
-        backtrace::trace(|frame| {
-            let ip = frame.ip();
-            print!("\n{:>#4} - {:p}", frame_id, ip);
-
-            backtrace::resolve(ip, |symbol| {
-                let name = symbol
-                    .name()
-                    .map(|n| n.as_str().unwrap_or("<not-utf8>"))
-                    .unwrap_or("<unknown>");
-                let filename = symbol
-                    .filename()
-                    .map(|p| p.to_str().unwrap_or("<not-utf8>"))
-                    .unwrap_or("<unknown>");
-                let line = symbol
-                    .lineno()
-                    .map(|l| l.to_string())
-                    .unwrap_or_else(|| "??".to_owned());
-
-                print!("\n         {} at {}:{}", name, filename, line);
-            });
-
-            frame_id += 1;
-            true
-        });
+        #[cfg(feature = "backtrace")]
+        print_backtrace();
 
         eprintln!("\n");
     }
+}
+
+/// Prints the current call stack to the standard error, after a debug message.
+#[cfg(feature = "backtrace")]
+fn print_backtrace() {
+    eprint!("\nBacktrace:");
+
+    let mut frame_id = 1;
+    backtrace::trace(|frame| {
+        let ip = frame.ip();
+        eprint!("\n{:>#4} - {:p}", frame_id, ip);
+
+        backtrace::resolve(ip, |symbol| {
+            let name = symbol
+                .name()
+                .map(|n| n.as_str().unwrap_or("<not-utf8>"))
+                .unwrap_or("<unknown>");
+            let filename = symbol
+                .filename()
+                .map(|p| p.to_str().unwrap_or("<not-utf8>"))
+                .unwrap_or("<unknown>");
+            let line = symbol
+                .lineno()
+                .map(|l| l.to_string())
+                .unwrap_or_else(|| "??".to_owned());
+
+            eprint!("\n         {} at {}:{}", name, filename, line);
+        });
+
+        frame_id += 1;
+        true
+    });
 }
 
 /// The callback corresponding to `DebugMessageOnError`.

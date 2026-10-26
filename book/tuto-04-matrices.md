@@ -13,11 +13,11 @@ But what if we want to do a rotation, then a translation, then a rescale? Or a s
 
 Instead, programmers use **matrices**. A matrix is a two-dimensional table of numbers which *can represent a geometrical transformation*. In computer graphics, we use 4x4 matrices.
 
-Let's get back to our moving triangle. We are going to change the vertex shader to use a matrix. Instead of adding the value of `t` to the coordinates, we are going to apply the matrix to them by multiplying it. This applies the transformation described by our matrix to the vertex's coordinates.
+Let's get back to our moving triangle. We are going to change the vertex shader to use a matrix. Instead of adding the value of `x_off` to the coordinates, we are going to apply the matrix to them by multiplying it. This applies the transformation described by our matrix to the vertex's coordinates.
 
 ```rust
 let vertex_shader_src = r#"
-    #version 140
+    #version 410 core
 
     in vec2 position;
 
@@ -31,7 +31,7 @@ let vertex_shader_src = r#"
 
 Note that it is important to write `matrix * vertex` and not `vertex * matrix`. Matrix operations produce different results depending on the order.
 
-We also need to pass the matrix when calling the `draw` function:
+In `State::draw`, calculate `let t = self.start.elapsed().as_secs_f32();` and `let x = t.sin() * 0.5;`. We also need to pass the matrix when calling the `draw` function:
 
 ```rust
 let uniforms = uniform! {
@@ -43,7 +43,7 @@ let uniforms = uniform! {
     ]
 };
 
-target.draw(&vertex_buffer, &indices, &program, &uniforms,
+target.draw(&self.vertex_buffer, &self.indices, &self.program, &uniforms,
             &Default::default()).unwrap();
 ```
 
@@ -68,4 +68,11 @@ let uniforms = uniform! {
 };
 ```
 
-**[You can find the entire source code here](https://github.com/viniciusmorgado/safegl/blob/develop/examples/standalone/tutorial-04.rs).**
+<details>
+<summary>Complete source code</summary>
+
+```rust,ignore
+{{#include ../examples/standalone/tutorial-04.rs}}
+```
+
+</details>

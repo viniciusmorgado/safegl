@@ -28,19 +28,34 @@ in `VERTICES` and `NORMALS`.
 
 ## Loading the shape
 
-We are going to use the Rust file containing the model as a module named `teapot`.
+Save the Rust file containing the model as `src/teapot.rs`, then declare it as a module in `src/main.rs`, below the macro import:
 
 ```rust
 mod teapot;
 ```
 
-Loading the data is then very straight-forward:
+When copying the complete example below into your project, omit its `#[path = "../../book/tuto-07-teapot.rs"]` attribute so Rust loads your `src/teapot.rs` file.
+
+Load the data in `State::new`:
 
 ```rust
 let positions = safegl::VertexBuffer::new(&display, &teapot::VERTICES).unwrap();
 let normals = safegl::VertexBuffer::new(&display, &teapot::NORMALS).unwrap();
 let indices = safegl::IndexBuffer::new(&display, safegl::index::PrimitiveType::TrianglesList,
                                       &teapot::INDICES).unwrap();
+```
+
+Replace the previous vertex and index fields with the following state, and return these buffers from `State::new` along with the program, display and window:
+
+```rust
+struct State {
+    positions: safegl::VertexBuffer<teapot::Vertex>,
+    normals: safegl::VertexBuffer<teapot::Normal>,
+    indices: safegl::IndexBuffer<u16>,
+    program: safegl::Program,
+    display: Display,
+    window: Window,
+}
 ```
 
 We have a new type here: the `IndexBuffer`. As you can tell from its name, it is a buffer whose
@@ -57,7 +72,7 @@ Instead of just one, we are going to get two attributes now: `position` and `nor
 Also, `position` is now a `vec3` instead of a `vec2`.
 
 ```glsl
-#version 140
+#version 410 core
 
 in vec3 position;
 in vec3 normal;
@@ -86,7 +101,7 @@ moment discarded, but we will use it in a later tutorial.
 As for the fragment shader, let's just output the color red for the moment:
 
 ```glsl
-#version 140
+#version 410 core
 
 out vec4 color;
 
@@ -113,7 +128,7 @@ let matrix = [
     [0.0, 0.0, 0.0, 1.0f32]
 ];
 
-target.draw((&positions, &normals), &indices, &program, &uniform! { matrix: matrix },
+target.draw((&self.positions, &self.normals), &self.indices, &self.program, &uniform! { matrix: matrix },
             &Default::default()).unwrap();
 ```
 
@@ -146,4 +161,16 @@ And you should now get the correct result:
 
 This looks very primitive, but it is a good first step towards 3D rendering.
 
-**[You can find the entire source code here](https://github.com/viniciusmorgado/safegl/blob/develop/examples/standalone/tutorial-07.rs).**
+If you resize the window, you will notice that the teapot stretches with it: the logical
+coordinates always go from `-1.0` to `1.0` horizontally and vertically, whatever the shape of the
+window. This is fixed in [the perspective tutorial](tuto-10-perspective.md), which takes the aspect
+ratio of the window into account.
+
+<details>
+<summary>Complete source code</summary>
+
+```rust,ignore
+{{#include ../examples/standalone/tutorial-07.rs}}
+```
+
+</details>

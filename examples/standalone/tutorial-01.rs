@@ -1,34 +1,82 @@
-use safegl::Surface;
+#![deny(deprecated)]
+
+use safegl::{glutin, winit, Surface};
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::window::{Window, WindowId};
+
+type Display = safegl::Display<glutin::surface::WindowSurface>;
+
+struct State {
+    display: Display,
+    window: Window,
+}
+
+impl State {
+    fn new(event_loop: &ActiveEventLoop) -> Self {
+        let (window, display) = safegl::backend::glutin::SimpleWindowBuilder::new()
+            .with_title("SafeGL tutorial #1")
+            .build(event_loop);
+
+        Self { display, window }
+    }
+
+    fn draw(&self) {
+        let mut target = self.display.draw();
+        target.clear_color(0.0, 0.0, 1.0, 1.0);
+        target.finish().unwrap();
+    }
+}
+
+#[derive(Default)]
+struct App {
+    state: Option<State>,
+}
+
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.is_none() {
+            let state = State::new(event_loop);
+            state.window.request_redraw();
+            self.state = Some(state);
+        }
+    }
+
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.state = None;
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        let Some(state) = &self.state else { return };
+        if state.window.id() != window_id {
+            return;
+        }
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(size) if size.width > 0 && size.height > 0 => {
+                state.display.resize(size.into());
+                state.window.request_redraw();
+            }
+            WindowEvent::RedrawRequested => {
+                let size = state.window.inner_size();
+                if size.width > 0 && size.height > 0 {
+                    state.draw();
+                }
+            }
+            _ => (),
+        }
+    }
+}
 
 fn main() {
-    // We start by creating the EventLoop, this can only be done once per process.
-    // This also needs to happen on the main thread to make the program portable.
-    let event_loop = safegl::winit::event_loop::EventLoop::builder()
-        .build()
-        .expect("event loop building");
-    let (_window, display) = safegl::backend::glutin::SimpleWindowBuilder::new()
-        .with_title("SafeGL tutorial #1")
-        .build(&event_loop);
-
-    // Start rendering by creating a new frame
-    let mut frame = display.draw();
-    // Which we fill with an opaque blue color
-    frame.clear_color(0.0, 0.0, 1.0, 1.0);
-    // By finishing the frame swap buffers and thereby make it visible on the window
-    frame.finish().unwrap();
-
-    // Now we wait until the program is closed
-    #[allow(deprecated)]
+    let event_loop = EventLoop::new().expect("create event loop");
     event_loop
-        .run(move |event, window_target| {
-            match event {
-                safegl::winit::event::Event::WindowEvent { event, .. } => match event {
-                    // This event is sent by the OS when you close the Window, or request the program to quit via the taskbar.
-                    safegl::winit::event::WindowEvent::CloseRequested => window_target.exit(),
-                    _ => (),
-                },
-                _ => (),
-            };
-        })
-        .unwrap();
+        .run_app(&mut App::default())
+        .expect("run application");
 }

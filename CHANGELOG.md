@@ -5,6 +5,171 @@ All notable changes to this project are documented in this file. Versions follow
 
 ## [Unreleased]
 
+Additions:
+
+- `DrawParameters::alpha_to_coverage`, `sample_shading` (`glMinSampleShading`) and `sample_mask`
+  (`glSampleMaski`), with the `DrawError::SampleShadingNotSupported` and `SampleMaskNotSupported`
+  errors.
+- `DrawParameters::outputs` and `OutputState`: blending and color mask per fragment shader output
+  (`glBlendFuncSeparatei`, `glColorMaski`), with the `DrawError::PerOutputStateNotSupported` and
+  `OutputStateIndexOutOfBounds` errors. Clearing a framebuffer ignores the per-output masks as it
+  does the global one, and so does `raw_clear_buffer` on textures, which used to obey the color
+  mask left by the previous draw.
+- `DrawParameters::polygon_offset_clamp` (`gl46`, `glPolygonOffsetClamp`), with the
+  `DrawError::PolygonOffsetClampNotSupported` error.
+- `texture::copy_image` and `copy_to()` on mipmaps (`gl46`, `glCopyImageSubData`): copies between
+  textures and render buffers, with format, sample count, bounds, block alignment and overlap
+  checks.
+- `clear()`, `clear_region()` and `clear_depth_stencil()` on mipmaps (`gl46`, `glClearTexImage`):
+  clears any kind of texture without a framebuffer.
+- `texture::texture_barrier` (`gl46`, `glTextureBarrier`), which makes reading a texture attached
+  to the framebuffer being drawn to well defined between barriers.
+- `invalidate()` and `invalidate_rect()` on `SimpleFrameBuffer`, `MultiOutputFrameBuffer`,
+  `DefaultFramebuffer` and `Frame`, with `framebuffer::InvalidateAttachments`
+  (`glInvalidateFramebuffer`). They do nothing where invalidation isn't supported.
+- Non-square float matrix uniforms: `[[f32; R]; C]` values bind to `matCxR` uniforms, through the
+  new `UniformValue` and `RawUniformValue` variants `Mat2x3`, `Mat2x4`, `Mat3x2`, `Mat3x4`,
+  `Mat4x2` and `Mat4x3` (glium#1708, based on glium PR #2133).
+- `backtrace` feature, enabled by default, for the backtrace printed with OpenGL debug messages
+  reported as errors (glium#1707, based on glium PR #2155).
+- `DrawError::BufferBindingOutOfRange`, returned when a block needs a buffer binding point beyond
+  the backend's limit.
+- `Context::restore_state`, which makes the OpenGL state match SafeGL's cache after code sharing
+  the context changed it (glium#2106, glium#1505, glium#1443).
+- `framebuffer::ExternalFramebuffer`, a framebuffer object created outside SafeGL (by a GUI
+  toolkit, for example) that SafeGL can draw to, clear, blit to and from, and invalidate, with the
+  `Surface::blit_from_external_framebuffer` and `blit_buffers_from_external_framebuffer` methods
+  (glium#2153, glium#2108). `SimpleFrameBuffer::get_framebuffer_object` returns the framebuffer
+  object SafeGL draws through (glium#1613).
+- `ReadError::AttachmentMissing` and `ReadError::ContextLost`.
+- `framebuffer::ValidationError::Incomplete`, `DrawError::NoStencilBuffer`,
+  `DrawError::GeometryShaderInputMismatch` and `Stencil::requires_stencil_buffer`.
+- `implement_vertex!` accepts instances of generic structs, like `Vertex<f32>` (glium#1509).
+- `UncompressedFloatFormat::U5U6U5`, the RGB565 format (based on glium PR #2152).
+- `SamplerBehavior::border_color`, `Sampler::border_color` and `uniforms::BorderColor`, for
+  `SamplerWrapFunction::BorderClamp` (based on glium PR #2120).
+- `From<Sampler<'a, T>> for UniformValue<'a>`, a uniform value that borrows the texture instead
+  of the sampler (glium#1850).
+- Texture writes beyond 2D textures (glium#2138, glium#2058, glium#1284, glium#644, based on glium
+  PR #1198): `TextureAnyImage::raw_write` writes a rectangle of one image (a layer of an array
+  texture, a face of a cubemap or a slice of a 3D texture); 1D and 3D textures and their mipmaps get
+  `write` methods taking the offset of the data; layers of 1D and 2D array textures and cubemap
+  faces get `write` methods; and 2D integer, unsigned and depth textures get `write` too.
+- Depth, stencil and depth-stencil images can be read (as `f32`, `u16` or `u32` depth values, `u8`
+  stencil values, or `u32` packing 24 bits of depth and 8 of stencil), and `DepthTexture2d` gets a
+  `read` method (glium#1856). OpenGL ES still needs the `GL_NV_read_*` extensions.
+- Examples: `outputs_srgb` (based on glium PR #2098), `headless` (glium#2091),
+  `alpha_to_coverage`, which uses the CC0 "Fern 02" model from Poly Haven, `shadow_bias`,
+  `programmable_blending` and `weighted_oit`.
+
+Fixes:
+
+- Multisample textures can be created and attached to framebuffers on OpenGL ES 3.1+, where they
+  reached `unreachable!()`.
+- Texture creation on OpenGL ES (glium#1730, glium#2017, glium#1906, glium#1482, glium#848,
+  glium#1151, based on glium PRs #1731 and #1488):
+  - textures use `glTexStorage*` on OpenGL ES 3.0+ and WebGL 2, so empty float, integer, depth and
+    depth-stencil textures no longer raise `GL_INVALID_OPERATION`;
+  - integer, depth and depth-stencil formats are reported as supported on OpenGL ES 3.0, so
+    `empty_with_format` and depth render buffers no longer fail with `FormatNotSupported`;
+  - formats that OpenGL ES doesn't have (16-bit normalized without `GL_EXT_texture_norm16`, 12-bit
+    and other legacy formats, 32-bit integer depth) are reported as unsupported instead of failing
+    in the driver;
+  - textures created with data get a storage format that matches the data's components (and, for
+    integer textures, its size), and depth textures created with floats get a float format;
+  - textures created without data pass a format and type that match the internal format;
+  - generic compressed textures, which OpenGL ES doesn't have, are created uncompressed;
+  - automatically generated mipmaps are only created for formats OpenGL ES can generate them for
+    (glium#1178); other textures get a single level;
+  - float, half-float and 16-bit normalized formats are color-renderable with
+    `GL_EXT_color_buffer_float`, `GL_EXT_color_buffer_half_float` and `GL_EXT_texture_norm16`;
+  - cube map arrays and multisample texture arrays are core in OpenGL ES 3.2, and multisample
+    texture arrays use `GL_OES_texture_storage_multisample_2d_array` before that;
+  - integer and float textures can be read back as `(i32, i32, i32, i32)`, `(u32, u32, u32, u32)`
+    and `(f32, f32, f32, f32)`, the formats OpenGL ES allows for them.
+- Multisample textures use `glTexStorage2DMultisample` only on OpenGL 4.3 and with
+  `GL_ARB_texture_storage_multisample`, instead of with `GL_ARB_texture_storage`, which panicked on
+  OpenGL 4.1 drivers such as macOS (glium#1840).
+- Creating a texture of a type the context doesn't have (1D textures on OpenGL ES, for example)
+  returns `TextureCreationError::TypeNotSupported`, and dimensions above the context's limits
+  return `DimensionsNotSupported`, instead of raising an OpenGL error (glium#1163, glium#1555,
+  glium#74).
+- Color render buffers check that their format is color-renderable (glium#505).
+- `raw_upload_from_pixel_buffer_inverted` reports that OpenGL ES can't flip the components instead
+  of raising an OpenGL error.
+- Uniform buffers and transform feedback work on OpenGL ES 3.0, and shader storage and atomic
+  counter buffers on OpenGL ES 3.1, where binding them panicked because their binding point limits
+  were 0. Buffers are read back through a mapping on OpenGL ES, which has no `glGetBufferSubData`
+  (glium#2112, based on glium PR #1700).
+- Binding an atomic counter buffer at a point several entries above the previous ones no longer
+  underflows, and running out of binding points returns `DrawError::BufferBindingOutOfRange`
+  instead of panicking.
+- `implement_buffer_content!` no longer has undefined behavior (null references, a `Box` with the
+  wrong length and alignment) and works with generic structs (glium#1949, glium#1918). The code it
+  generates uses `std::mem::size_of_val_raw`, so crates that call it need Rust 1.99.
+- The name of a uniform array refers to its first element, as in OpenGL, and every element gets its
+  own location instead of an assumed one, which was another uniform's location on WebGL
+  (glium#288, based on glium PR #666).
+- Debug builds no longer assert that the context is current right after making it current, which
+  fails on some drivers such as macOS 10.14+ (based on glium PR #1724).
+- The backtrace of OpenGL debug messages goes to the standard error, like the message
+  (glium#1397).
+- `Context::rebuild` returns an error, and keeps the old context, if the new context has another
+  version or other extensions, instead of keeping stale ones (glium#563).
+- `read_front_buffer` returns `ReadError::AttachmentMissing` where the default framebuffer has no
+  front buffer, like most EGL window surfaces, instead of raising an OpenGL error (glium#2151).
+- Blitting from a `MultiOutputFrameBuffer` reads from its first output instead of reaching
+  `unimplemented!()`.
+- Reading textures back no longer pads the rows when their size isn't a multiple of
+  `GL_PACK_ALIGNMENT` (rows of single-byte or three-byte pixels, for example), which wrote past the
+  end of the destination and returned misplaced texels.
+- `from_id` with generated mipmaps binds the texture before generating them, instead of generating
+  the mipmaps of whatever texture was bound (glium#1463).
+- `get_internal_format` reports the format of stencil textures (glium#1240).
+- `clear_color` clears integer and unsigned color attachments with `glClearBuffer`, since
+  `glClearColor` doesn't apply to them (glium#498).
+- Clearing the stencil buffer ignores the stencil write mask of the previous draw call
+  (glium#2148).
+- Drawing instances from a slice of vertices that doesn't start at the first one no longer shifts
+  or underflows the per-instance buffers (glium#1507).
+- `VertexBuffer::new_raw` and `new_raw_dynamic` use the given vertex size as the stride instead of
+  ignoring it, and reject data that isn't a whole number of vertices (glium#2028, glium#1461).
+  `VertexBufferAny::into_vertex_buffer` is implemented instead of reaching `unimplemented!()`
+  (glium#1565).
+- A vertex format that doesn't match the program returns `DrawError::AttributeTypeMismatch` or
+  `DrawError::AttributeMissing` instead of panicking (glium#1434).
+- Drawing from many slices of a buffer no longer creates vertex array objects without bound: only
+  the 16 most recently used ones of each combination of buffers and program are kept (glium#2001).
+- The columns of normalized matrix attributes are offset by the size of their components.
+- Transform feedback captures the triangles of tessellated quads instead of panicking (glium#935).
+- Reading a persistent mapping after shader writes issues `GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT`
+  (glium#1028).
+- Framebuffers check `glCheckFramebufferStatus` when their framebuffer object is created, and
+  `SimpleFrameBuffer`, `MultiOutputFrameBuffer` and `EmptyFrameBuffer` return
+  `ValidationError::Incomplete` for attachments OpenGL doesn't support, like non-color-renderable
+  formats, instead of raising OpenGL errors when drawing (glium#44, glium#1396).
+- Stencil tests and operations on a surface without a stencil buffer return
+  `DrawError::NoStencilBuffer` (glium#718).
+- Blits copy the pixels without sRGB conversion, instead of depending on the `GL_FRAMEBUFFER_SRGB`
+  state left by the previous clear or draw call (glium#1671).
+- Reading pixels after the context was lost returns `ReadError::ContextLost` (glium#1014).
+- The members of uniform and shader storage blocks declared with an instance name match the fields
+  of the Rust struct (glium#2125).
+- Drawing primitives that the geometry shader doesn't take returns
+  `DrawError::GeometryShaderInputMismatch` instead of raising an OpenGL error (glium#850,
+  glium#1460, glium#1575).
+- Integer and unsigned textures are sampled with the nearest filters, since linear filters, like
+  those of the default sampler, make them read as zero (glium#1515, glium#1420).
+- The message of `DrawError::UniformTypeMismatch` names the expected type correctly (glium#1600).
+- `GL_MAX_CLIP_DISTANCES` is only queried when the clip planes change.
+- `SimpleWindowBuilder::build` no longer panics when the driver refuses the swap interval
+  (glium#1929).
+- `implement_uniform_block!` and `program!` work when called by their path, like
+  `safegl::implement_uniform_block!`, without importing them.
+- The `manual-creation` example resizes its surface with the window (glium#2090).
+- Draw and compute commands keep their buffer fences inline instead of allocating a `Vec`
+  (based on glium PR #2057).
+
 ## [0.1.0]
 
 First release under the `safegl` name, forked from glium 0.36.0. SafeGL now issues OpenGL calls
