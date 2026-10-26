@@ -318,6 +318,39 @@ pub struct DrawParameters<'a> {
     /// returns `DrawError::MultisamplingNotSupported`.
     pub multisampling: bool,
 
+    /// Whether the alpha of the first color output decides how many samples of each pixel the
+    /// fragment covers (`GL_SAMPLE_ALPHA_TO_COVERAGE`). Default value is `false`.
+    ///
+    /// An alpha of 0.5 covers about half of the samples, so after the multisample resolve the
+    /// fragment looks half transparent, without sorting and with depth writes intact. This is the
+    /// usual way to anti-alias alpha-tested foliage, fences and hair. The exact pattern of
+    /// samples is chosen by the implementation. It has no effect on a framebuffer that isn't
+    /// multisampled.
+    pub alpha_to_coverage: bool,
+
+    /// Minimum fraction of the samples of each pixel that get their own run of the fragment
+    /// shader (`glMinSampleShading`). Default value is `None`, which shades once per pixel.
+    ///
+    /// `Some(1.0)` shades every sample. This anti-aliases what the fragment shader computes
+    /// (texture lookups, the alpha used by `alpha_to_coverage`, specular highlights) and not
+    /// only the edges of triangles, at the cost of running the shader once per sample. Values are
+    /// clamped to `0.0..=1.0`. It has no effect on a framebuffer that isn't multisampled.
+    ///
+    /// Needs OpenGL 4.0, OpenGL ES 3.2 or `GL_OES_sample_shading`. Otherwise, and on WebGL,
+    /// returns `DrawError::SampleShadingNotSupported`.
+    pub sample_shading: Option<f32>,
+
+    /// Bitmask of the samples of each pixel that drawing may write (`glSampleMaski`). Bit `i`
+    /// stands for sample `i`. Default value is `None`, which doesn't mask any sample.
+    ///
+    /// The mask is combined with the coverage of the primitive (and with `alpha_to_coverage`):
+    /// a sample is written only if it is covered and its bit is set. Only the first 32 samples
+    /// can be masked. It has no effect on a framebuffer that isn't multisampled.
+    ///
+    /// Needs OpenGL 3.2 or OpenGL ES 3.1. Otherwise, and on WebGL, returns
+    /// `DrawError::SampleMaskNotSupported`.
+    pub sample_mask: Option<u32>,
+
     /// Whether dithering is activated. Default value is `true`.
     ///
     /// Dithering will smoothen the transition between colors in your color buffer.
@@ -535,6 +568,9 @@ impl<'a> Default for DrawParameters<'a> {
             polygon_mode: PolygonMode::Fill,
             clip_planes_bitmask: 0,
             multisampling: true,
+            alpha_to_coverage: false,
+            sample_shading: None,
+            sample_mask: None,
             dithering: true,
             viewport: None,
             scissor: None,
@@ -591,6 +627,9 @@ pub fn sync(
     )?;
     sync_clip_planes_bitmask(ctxt, draw_parameters.clip_planes_bitmask)?;
     sync_multisampling(ctxt, draw_parameters.multisampling)?;
+    sync_alpha_to_coverage(ctxt, draw_parameters.alpha_to_coverage);
+    sync_sample_shading(ctxt, draw_parameters.sample_shading)?;
+    sync_sample_mask(ctxt, draw_parameters.sample_mask)?;
     sync_dithering(ctxt, draw_parameters.dithering);
     sync_viewport_scissor(
         ctxt,
@@ -776,6 +815,88 @@ fn sync_multisampling(
                 ctxt.state.enabled_multisample = false;
             }
         }
+    }
+
+    Ok(())
+}
+
+fn sync_alpha_to_coverage(ctxt: &mut context::CommandContext<'_>, alpha_to_coverage: bool) {
+    if ctxt.state.enabled_sample_alpha_to_coverage != alpha_to_coverage {
+        ctxt.state.enabled_sample_alpha_to_coverage = alpha_to_coverage;
+        set_flag_enabled(ctxt, gl::SAMPLE_ALPHA_TO_COVERAGE, alpha_to_coverage);
+    }
+}
+
+fn sync_sample_shading(
+    ctxt: &mut context::CommandContext<'_>,
+    sample_shading: Option<f32>,
+) -> Result<(), DrawError> {
+    let value = match sample_shading {
+        Some(value) => value.clamp(0.0, 1.0),
+        None => {
+            // nothing to do if it was never enabled, which is always the case when unsupported
+            if ctxt.state.enabled_sample_shading {
+                ctxt.state.enabled_sample_shading = false;
+                set_flag_enabled(ctxt, gl::SAMPLE_SHADING, false);
+            }
+            return Ok(());
+        }
+    };
+
+    let core = ctxt.version.0 == Api::Gl || ctxt.version >= &Version(Api::GlEs, 3, 2);
+    if !core && !ctxt.extensions.gl_oes_sample_shading {
+        return Err(DrawError::SampleShadingNotSupported);
+    }
+
+    if ctxt.state.min_sample_shading != value {
+        unsafe {
+            if core {
+                ctxt.extra.MinSampleShading(value);
+            } else {
+                ctxt.extra.MinSampleShadingOES(value);
+            }
+        }
+        ctxt.state.min_sample_shading = value;
+    }
+
+    if !ctxt.state.enabled_sample_shading {
+        ctxt.state.enabled_sample_shading = true;
+        set_flag_enabled(ctxt, gl::SAMPLE_SHADING, true);
+    }
+
+    Ok(())
+}
+
+fn sync_sample_mask(
+    ctxt: &mut context::CommandContext<'_>,
+    sample_mask: Option<u32>,
+) -> Result<(), DrawError> {
+    let mask = match sample_mask {
+        Some(mask) => mask,
+        None => {
+            // nothing to do if it was never enabled, which is always the case when unsupported
+            if ctxt.state.enabled_sample_mask {
+                ctxt.state.enabled_sample_mask = false;
+                set_flag_enabled(ctxt, gl::SAMPLE_MASK, false);
+            }
+            return Ok(());
+        }
+    };
+
+    if ctxt.version.0 != Api::Gl && ctxt.version < &Version(Api::GlEs, 3, 1) {
+        return Err(DrawError::SampleMaskNotSupported);
+    }
+
+    if ctxt.state.sample_mask != mask {
+        unsafe {
+            ctxt.extra.SampleMaski(0, mask);
+        }
+        ctxt.state.sample_mask = mask;
+    }
+
+    if !ctxt.state.enabled_sample_mask {
+        ctxt.state.enabled_sample_mask = true;
+        set_flag_enabled(ctxt, gl::SAMPLE_MASK, true);
     }
 
     Ok(())

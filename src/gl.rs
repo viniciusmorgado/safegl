@@ -182,6 +182,8 @@ extra_functions! {
     fn MakeImageHandleResidentARB(handle: GLuint64, access: GLenum) -> ();
     fn MakeTextureHandleNonResidentARB(handle: GLuint64) -> ();
     fn MakeTextureHandleResidentARB(handle: GLuint64) -> ();
+    fn MinSampleShading(value: GLfloat) -> ();
+    fn MinSampleShadingOES(value: GLfloat) -> ();
     fn MultiDrawArraysIndirect(mode: GLenum, indirect: *const c_void, drawcount: GLsizei, stride: GLsizei) -> ();
     fn MultiDrawElementsIndirect(mode: GLenum, type_: GLenum, indirect: *const c_void, drawcount: GLsizei, stride: GLsizei) -> ();
     fn PointSize(size: GLfloat) -> ();
@@ -192,6 +194,7 @@ extra_functions! {
     fn ProvokingVertex(mode: GLenum) -> ();
     fn ProvokingVertexEXT(mode: GLenum) -> ();
     fn ReleaseShaderCompiler() -> ();
+    fn SampleMaski(maskNumber: GLuint, mask: GLbitfield) -> ();
     fn ShaderBinary(count: GLsizei, shaders: *const GLuint, binaryformat: GLenum, binary: *const c_void, length: GLsizei) -> ();
     fn SpecializeShader(shader: GLuint, pEntryPoint: *const GLchar, numSpecializationConstants: GLuint, pConstantIndex: *const GLuint, pConstantValue: *const GLuint) -> ();
     fn StringMarkerGREMEDY(len: GLsizei, string: *const c_void) -> ();

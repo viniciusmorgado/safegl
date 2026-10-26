@@ -193,6 +193,7 @@ extensions! {
     "GL_OES_packed_depth_stencil" => gl_oes_packed_depth_stencil,
     "GL_OES_primitive_bounding_box" => gl_oes_primitive_bounding_box,
     "GL_OES_rgb8_rgba8" => gl_oes_rgb8_rgba8,
+    "GL_OES_sample_shading" => gl_oes_sample_shading,
     "GL_OES_stencil1" => gl_oes_stencil1,
     "GL_OES_stencil4" => gl_oes_stencil4,
     "GL_OES_tessellation_shader" => gl_oes_tessellation_shader,

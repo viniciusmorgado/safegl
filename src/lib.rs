@@ -1262,6 +1262,12 @@ pub enum DrawError {
 
     /// Conditional rendering isn't supported by the backend.
     ConditionalRenderingNotSupported,
+
+    /// Per-sample shading (`DrawParameters::sample_shading`) isn't supported by the backend.
+    SampleShadingNotSupported,
+
+    /// Masking samples (`DrawParameters::sample_mask`) isn't supported by the backend.
+    SampleMaskNotSupported,
 }
 
 impl Error for DrawError {
@@ -1346,6 +1352,10 @@ impl fmt::Display for DrawError {
                 "Offsetting the depth of points or lines is not supported by the backend",
             ConditionalRenderingNotSupported =>
                 "Conditional rendering is not supported by the backend",
+            SampleShadingNotSupported =>
+                "Per-sample shading is not supported by the backend",
+            SampleMaskNotSupported =>
+                "Masking samples is not supported by the backend",
         };
         match self {
             UniformTypeMismatch {
