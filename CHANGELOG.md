@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file. Versions follow
 
 ## [Unreleased]
 
+Breaking changes:
+
+- `Blend::alpha_blending` blends the alpha channel with `source + destination × (1 - source
+  alpha)` instead of `source alpha × source alpha + destination × (1 - source alpha)`, so the alpha
+  of the target is the coverage of what was drawn over it (glium#1844). Code that reads back or
+  composites the alpha of targets drawn with it sees higher, correct alphas.
+- Samplers repeat textures by default (`SamplerWrapFunction::Repeat`), like OpenGL and like textures
+  used without a sampler, instead of mirroring them (glium#1967, glium#1536). To keep the previous
+  behavior, call `.wrap_function(SamplerWrapFunction::Mirror)` on the sampler.
+- `Vertex` is an unsafe trait, since SafeGL trusts its layout to read the vertices (glium#1684).
+  `implement_vertex!` is unchanged; manual implementations become `unsafe impl Vertex for ...`.
+
 Additions:
 
 - `DrawParameters::alpha_to_coverage`, `sample_shading` (`glMinSampleShading`) and `sample_mask`
