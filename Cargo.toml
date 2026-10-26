@@ -108,6 +108,10 @@ path = "examples/standalone/gpgpu.rs"
 required-features = ["gl46"]
 
 [[example]]
+name = "headless"
+path = "examples/standalone/headless.rs"
+
+[[example]]
 name = "image"
 path = "examples/standalone/image.rs"
 
