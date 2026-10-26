@@ -667,7 +667,13 @@ impl Alloc {
         if let Some(existing_mapping) = self.persistent_mapping {
             // TODO: optimize so that it's not always necessary to make the context current
             let mut ctxt = self.context.make_current();
-            self.barrier_for_buffer_update(&mut ctxt);
+            // shader writes must also be made visible to the persistent mapping that the CPU reads
+            if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_buffer_update {
+                ctxt.glow.memory_barrier(
+                    glow::BUFFER_UPDATE_BARRIER_BIT | glow::CLIENT_MAPPED_BUFFER_BARRIER_BIT,
+                );
+                ctxt.state.latest_memory_barrier_buffer_update = ctxt.state.next_draw_call_id;
+            }
 
             let data = (existing_mapping as *mut u8).add(bytes_range.start);
             let data = Content::ref_from_ptr(data as *mut (), bytes_range.end - bytes_range.start)
