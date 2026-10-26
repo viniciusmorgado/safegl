@@ -428,7 +428,7 @@ macro_rules! implement_uniform_block {
 
     (__impl $struct_name:ident [$($gs:tt)*], $($field_name:ident),+) => (
         $crate::implement_uniform_block! { __as_item
-            impl<$($gs)*> $crate::uniforms::UniformBlock for $struct_name<$($gs)*> {
+            unsafe impl<$($gs)*> $crate::uniforms::UniformBlock for $struct_name<$($gs)*> {
                 fn matches(layout: &$crate::program::BlockLayout, base_offset: usize)
                            -> ::std::result::Result<(), $crate::uniforms::LayoutMismatchError>
                 {

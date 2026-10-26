@@ -1,7 +1,6 @@
 use crate::buffer::{Buffer, BufferAny, BufferCreationError, BufferMode, BufferType, Content};
 use crate::buffer::{BufferMutSlice, BufferSlice};
-use crate::program;
-use crate::uniforms::{AsUniformValue, LayoutMismatchError, UniformBlock, UniformValue};
+use crate::uniforms::{AsUniformValue, UniformBlock, UniformValue};
 
 use crate::GlObject;
 
@@ -291,15 +290,6 @@ where
 {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
-        #[inline]
-        fn f<T: ?Sized>(block: &program::UniformBlock) -> Result<(), LayoutMismatchError>
-        where
-            T: UniformBlock + Content,
-        {
-            // TODO: more checks?
-            T::matches(&block.layout, 0)
-        }
-
-        UniformValue::Block(self.buffer.as_slice_any(), f::<T>)
+        UniformValue::block(self.buffer.as_slice())
     }
 }

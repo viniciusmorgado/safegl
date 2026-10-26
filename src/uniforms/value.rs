@@ -144,8 +144,10 @@ pub enum UniformType {
 pub enum UniformValue<'a> {
     /// Contains a handle to the buffer, and a function that indicates whether this buffer
     /// can be bound on a block with the given layout.
-    /// The last parameter is a sender which must be used to send a `SyncFence` that expires when
-    /// the buffer has finished being used.
+    ///
+    /// The function is what makes binding the buffer safe, so this variant can only be built
+    /// with `UniformValue::block`, from a typed buffer, or with `UniformValue::block_unchecked`.
+    #[non_exhaustive]
     Block(
         BufferAnySlice<'a>,
         fn(&program::UniformBlock) -> Result<(), LayoutMismatchError>,
@@ -397,6 +399,39 @@ impl<'a> Clone for UniformValue<'a> {
 }
 
 impl<'a> UniformValue<'a> {
+    /// Builds a value that binds a buffer to a uniform block or a shader storage block, after
+    /// checking that the layout of `T` matches the layout of the block.
+    #[inline]
+    pub fn block<T>(buffer: crate::buffer::BufferSlice<'a, T>) -> UniformValue<'a>
+    where
+        T: ?Sized + UniformBlock + crate::buffer::Content,
+    {
+        fn matches<T>(block: &program::UniformBlock) -> Result<(), LayoutMismatchError>
+        where
+            T: ?Sized + UniformBlock,
+        {
+            T::matches(&block.layout, 0)
+        }
+
+        UniformValue::Block(buffer.as_slice_any(), matches::<T>)
+    }
+
+    /// Builds a value that binds a buffer to a uniform block or a shader storage block, with a
+    /// function that checks whether the buffer matches the layout of the block.
+    ///
+    /// # Safety
+    ///
+    /// The function must only accept the layouts of blocks that the content of the buffer
+    /// follows. In particular, it must not accept sampler or image members unless the buffer
+    /// holds texture handles obtained from SafeGL at their offsets.
+    #[inline]
+    pub unsafe fn block_unchecked(
+        buffer: BufferAnySlice<'a>,
+        matches: fn(&program::UniformBlock) -> Result<(), LayoutMismatchError>,
+    ) -> UniformValue<'a> {
+        UniformValue::Block(buffer, matches)
+    }
+
     /// Returns true if this value can be used with a uniform of the given type.
     pub fn is_usable_with(&self, ty: &UniformType) -> bool {
         match (self, *ty) {
@@ -566,7 +601,7 @@ impl<'a> UniformValue<'a> {
 
 macro_rules! impl_uniform_block_basic {
     ($ty:ty, $uniform_ty:expr) => {
-        impl UniformBlock for $ty {
+        unsafe impl UniformBlock for $ty {
             fn matches(
                 layout: &program::BlockLayout,
                 base_offset: usize,
