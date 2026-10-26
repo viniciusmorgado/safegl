@@ -47,28 +47,50 @@ macro_rules! assert_no_gl_error {
 /// };
 /// # }
 /// ```
+///
+/// Names that aren't identifiers, like the members of structs and the elements of arrays, are
+/// given as strings:
+///
+/// ```rust
+/// # use safegl::uniform;
+/// # fn main() {
+/// // uniform struct Light { vec3 position; vec3 color; } lights[2];
+/// let uniforms = uniform! {
+///     "lights[0].position": [0.0f32, 2.0, 0.0],
+///     "lights[0].color": [1.0f32, 1.0, 1.0],
+///     "lights[1].position": [4.0f32, 2.0, 0.0],
+///     "lights[1].color": [1.0f32, 0.0, 0.0],
+///     ambient: 0.1f32,
+/// };
+/// # }
+/// ```
 #[macro_export]
 macro_rules! uniform {
     () => {
         $crate::uniforms::EmptyUniforms
     };
 
-    ($field:ident: $value:expr) => {
-        $crate::uniforms::UniformsStorage::new(stringify!($field), $value)
+    (@name $field:ident) => {
+        stringify!($field)
     };
 
-    ($field1:ident: $value1:expr, $($field:ident: $value:expr),+) => {
-        {
-            let uniforms = $crate::uniforms::UniformsStorage::new(stringify!($field1), $value1);
-            $(
-                let uniforms = uniforms.add(stringify!($field), $value);
-            )+
-            uniforms
-        }
+    (@name $field:literal) => {
+        $field
     };
 
-    ($($field:ident: $value:expr),*,) => {
-        $crate::uniform!($($field: $value),*)
+    (@add $uniforms:expr;) => {
+        $uniforms
+    };
+
+    (@add $uniforms:expr; $field:tt: $value:expr $(, $($rest:tt)*)?) => {
+        $crate::uniform!(@add $uniforms.add($crate::uniform!(@name $field), $value); $($($rest)*)?)
+    };
+
+    ($field:tt: $value:expr $(, $($rest:tt)*)?) => {
+        $crate::uniform!(@add
+            $crate::uniforms::UniformsStorage::new($crate::uniform!(@name $field), $value);
+            $($($rest)*)?
+        )
     };
 }
 

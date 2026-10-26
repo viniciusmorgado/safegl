@@ -77,6 +77,17 @@ Breaking changes:
   can be bound to, instead of panicking at program creation.
 - `TextureCreationError` of buffer textures, `CopyError`, `CopyImageError`, `ReadError`,
   `ValidationError`, `TransformFeedbackSessionCreationError` and `DrawError` have new variants.
+- Every uniform of a program must have a value when drawing with it (glium#1388). Samplers,
+  images, uniform blocks, shader storage blocks and atomic counter buffers must be given for every
+  draw command, since their bindings are shared between programs, or the draw returns
+  `DrawError::UniformBindingMissing`. Other uniforms keep their value between draw commands, but
+  must have been given one once, or the draw returns `DrawError::UniformMissing`; pass
+  `uniforms::Keep` to keep the initializer of the shader instead. Every stage with subroutine
+  uniforms needs all of them, even when none was given. Giving a value to a member of a block by
+  name returns `DrawError::UniformBlockMember` instead of panicking.
+- `Uniforms::visit_values` gives names that live as long as the uniforms (`&'a str`), so that
+  SafeGL can collect the values before it starts to issue commands: implementations of `Uniforms`
+  and `AsUniformValue` can now use SafeGL.
 
 Additions:
 
@@ -91,6 +102,8 @@ Additions:
 - A basic type or an array matches a uniform block that has it as single member, like slices do.
 - `raw_upload_from_pixel_buffer` uploads to cubemaps and cubemap arrays, whose faces are layers,
   instead of panicking.
+- `uniform!` accepts strings as names, for the members of structs and the elements of arrays:
+  `uniform! { "lights[0].color": color }` (glium#941).
 
 Fixes:
 
@@ -124,6 +137,18 @@ Fixes:
   overflows.
 - Reading a buffer into a `Vec` no longer exposes uninitialized memory to the closure of
   `Content::read`, and `Content::to_void_ptr` no longer panics on an empty slice.
+- SafeGL can be used from the closure of `exec_in_context`, which no longer holds the context
+  while it runs, and SafeGL's vertex array object is unbound before it so that the closure can't
+  change it (glium#615). Validating a framebuffer no longer borrows the context a second time.
+  Calling SafeGL while it is issuing commands, for example from a debug callback, panics with a
+  message instead of `BorrowMutError`.
+- The debug callback is called with a shared reference to the context instead of a mutable one
+  made from a shared pointer, which was undefined behavior. A panic of the callback, which
+  aborted the process since it can't unwind through OpenGL, is resumed when the command that
+  triggered the message returns, and a callback that triggers messages itself isn't called again
+  for them.
+- Querying the depth and stencil bits of a render buffer no longer leaves SafeGL's cache of the
+  bound render buffer out of date.
 
 ## [0.2.0]
 

@@ -341,3 +341,22 @@ fn block_buffer_offsets() {
 
     display.assert_no_error(None);
 }
+
+#[test]
+fn struct_uniforms() {
+    let display = support::build_display();
+    let program = build_program(
+        &display,
+        "struct Light { vec4 color; float intensity; };\nuniform Light light;\nuniform Light lights[2];\nvoid main() { f_color = light.color * light.intensity + lights[1].color * lights[1].intensity; }",
+    );
+
+    let uniforms = uniform! {
+        "light.color": [1.0f32, 0.0, 0.0, 1.0],
+        "light.intensity": 1.0f32,
+        "lights[0].color": [0.0f32, 0.0, 0.0, 0.0],
+        "lights[0].intensity": 0.0f32,
+        "lights[1].color": [0.0f32, 0.0, 1.0, 0.0],
+        "lights[1].intensity": 1.0f32,
+    };
+    assert_eq!(draw(&display, &program, &uniforms), (255, 0, 255, 255));
+}
