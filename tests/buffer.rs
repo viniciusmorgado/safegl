@@ -469,6 +469,11 @@ fn buffer_slice_out_of_bounds() {
     .unwrap();
 
     assert!(vb.slice(0..3).is_none());
+    // a range that ends before it starts would have a negative size
+    #[allow(clippy::reversed_empty_ranges)]
+    let reversed = vb.slice(2..1);
+    assert!(reversed.is_none());
+    assert!(vb.slice(1..1).unwrap().len() == 0);
 
     display.assert_no_error(None);
 }

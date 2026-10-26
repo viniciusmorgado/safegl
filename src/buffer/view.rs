@@ -753,17 +753,16 @@ where
     /// OpenGL is performed.
     #[inline]
     pub fn slice<R: RangeArgument<usize>>(&self, range: R) -> Option<BufferSlice<'a, [T]>> {
-        if range.start().map_or(0, |e| *e) > self.len()
-            || range.end().map_or(0, |e| *e) > self.len()
-        {
+        let start = range.start().map_or(0, |e| *e);
+        let end = range.end().map_or(self.len(), |e| *e);
+        if start > end || end > self.len() {
             return None;
         }
 
         Some(BufferSlice {
             alloc: self.alloc,
-            bytes_start: self.bytes_start + range.start().map_or(0, |e| *e) * mem::size_of::<T>(),
-            bytes_end: self.bytes_start
-                + range.end().map_or(self.len(), |e| *e) * mem::size_of::<T>(),
+            bytes_start: self.bytes_start + start * mem::size_of::<T>(),
+            bytes_end: self.bytes_start + end * mem::size_of::<T>(),
             fence: self.fence,
             marker: PhantomData,
         })
@@ -1175,17 +1174,16 @@ where
     /// OpenGL is performed.
     #[inline]
     pub fn slice<R: RangeArgument<usize>>(self, range: R) -> Option<BufferMutSlice<'a, [T]>> {
-        if range.start().map_or(0, |e| *e) > self.len()
-            || range.end().map_or(0, |e| *e) > self.len()
-        {
+        let start = range.start().map_or(0, |e| *e);
+        let end = range.end().map_or(self.len(), |e| *e);
+        if start > end || end > self.len() {
             return None;
         }
 
-        let len = self.len();
         Some(BufferMutSlice {
             alloc: self.alloc,
-            bytes_start: self.bytes_start + range.start().map_or(0, |e| *e) * mem::size_of::<T>(),
-            bytes_end: self.bytes_start + range.end().map_or(len, |e| *e) * mem::size_of::<T>(),
+            bytes_start: self.bytes_start + start * mem::size_of::<T>(),
+            bytes_end: self.bytes_start + end * mem::size_of::<T>(),
             fence: self.fence,
             marker: PhantomData,
         })
