@@ -15,6 +15,7 @@ fn transform_feedback() {
     }
 
     implement_vertex!(Vertex, output_val);
+    implement_any_bit_pattern!(Vertex, output_val);
 
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 

@@ -16,6 +16,28 @@ Breaking changes:
   behavior, call `.wrap_function(SamplerWrapFunction::Mirror)` on the sampler.
 - `Vertex` is an unsafe trait, since SafeGL trusts its layout to read the vertices (glium#1684).
   `implement_vertex!` is unchanged; manual implementations become `unsafe impl Vertex for ...`.
+- Buffers can only be created without data (`Buffer::empty*`, `VertexBuffer::empty*`,
+  `UniformBuffer::empty*`, ...), invalidated, read or mapped for reading when their content
+  implements the new unsafe trait `buffer::AnyBitPattern`, which says that every bit pattern is a
+  valid value. The content of such buffers is undefined, so reading it as `bool`, `char` or a
+  reference was undefined behavior, and an empty buffer of `TextureHandle`s made the GPU use
+  garbage handles (glium#1083). The trait is implemented for integers, floats, and arrays, slices
+  and tuples of them; implement it for your structs with
+  `implement_any_bit_pattern!(Struct, field1, field2, ...)` (all fields, or their indices for
+  tuple structs), which checks every field at compile time. `Index`, `PixelValue` and
+  `TextureBufferContent` require it, and `Content::read` requires it.
+- `UniformBlock` is an unsafe trait, since the GPU trusts the layout it describes, including the
+  texture handles in it. `implement_uniform_block!` is unchanged; manual implementations become
+  `unsafe impl UniformBlock for ...`. `UniformValue::Block` can no longer be built directly: use
+  `UniformValue::block(buffer_slice)`, which checks the layout with the type of the buffer, or the
+  unsafe `UniformValue::block_unchecked`.
+
+Fixes:
+
+- `slice(start..end)` on buffers returns `None` when `start > end`, instead of a slice whose size
+  overflows.
+- Reading a buffer into a `Vec` no longer exposes uninitialized memory to the closure of
+  `Content::read`, and `Content::to_void_ptr` no longer panics on an empty slice.
 
 ## [0.2.0]
 

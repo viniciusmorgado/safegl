@@ -18,6 +18,7 @@ fn buffer_immutable_creation() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     safegl::VertexBuffer::new(
         &display,
@@ -52,6 +53,7 @@ fn buffer_dynamic_creation() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     safegl::VertexBuffer::dynamic(
         &display,
@@ -86,6 +88,7 @@ fn buffer_immutable_empty_creation() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb: safegl::VertexBuffer<Vertex> = safegl::VertexBuffer::empty(&display, 12).unwrap();
     assert_eq!(vb.len(), 12);
@@ -104,6 +107,7 @@ fn buffer_dynamic_empty_creation() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb: safegl::VertexBuffer<Vertex> = safegl::VertexBuffer::empty_dynamic(&display, 12).unwrap();
     assert_eq!(vb.len(), 12);
@@ -122,6 +126,7 @@ fn buffer_immutable_mapping_read() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let mut vb = safegl::VertexBuffer::new(
         &display,
@@ -156,6 +161,7 @@ fn buffer_dynamic_mapping_read() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let mut vb = safegl::VertexBuffer::dynamic(
         &display,
@@ -190,6 +196,7 @@ fn buffer_immutable_mapping_write() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let mut vb = safegl::VertexBuffer::new(
         &display,
@@ -229,6 +236,7 @@ fn buffer_dynamic_mapping_write() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let mut vb = safegl::VertexBuffer::dynamic(
         &display,
@@ -269,6 +277,7 @@ fn buffer_mapping_multithread() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let mut vb = safegl::VertexBuffer::empty(&display, 2).unwrap();
 
@@ -298,6 +307,7 @@ fn buffer_immutable_read() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb = safegl::VertexBuffer::new(
         &display,
@@ -337,6 +347,7 @@ fn buffer_dynamic_read() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb = safegl::VertexBuffer::dynamic(
         &display,
@@ -376,6 +387,7 @@ fn buffer_immutable_read_slice() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb = safegl::VertexBuffer::new(
         &display,
@@ -414,6 +426,7 @@ fn buffer_dynamic_read_slice() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb = safegl::VertexBuffer::dynamic(
         &display,
@@ -452,6 +465,7 @@ fn buffer_slice_out_of_bounds() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb = safegl::VertexBuffer::new(
         &display,
@@ -489,6 +503,7 @@ fn buffer_immutable_write() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb = safegl::VertexBuffer::new(
         &display,
@@ -541,6 +556,7 @@ fn buffer_dynamic_write() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb = safegl::VertexBuffer::dynamic(
         &display,
@@ -593,6 +609,7 @@ fn buffer_immutable_write_slice() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb = safegl::VertexBuffer::new(
         &display,
@@ -639,6 +656,7 @@ fn buffer_dynamic_write_slice() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb = safegl::VertexBuffer::dynamic(
         &display,
@@ -685,6 +703,7 @@ fn zero_sized_immutable_buffer() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     safegl::VertexBuffer::new(&display, &Vec::<Vertex>::new()).unwrap();
 
@@ -702,6 +721,7 @@ fn zero_sized_dynamic_buffer() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     safegl::VertexBuffer::new(&display, &Vec::<Vertex>::new()).unwrap();
 
@@ -717,6 +737,7 @@ fn invalidate() {
         field: f32,
     }
     implement_vertex!(Vertex, field);
+    implement_any_bit_pattern!(Vertex, field);
 
     let buffer = safegl::VertexBuffer::new(&display, &[Vertex { field: 2.0 }]).unwrap();
 
@@ -734,6 +755,7 @@ fn invalidate_range() {
         field: f32,
     }
     implement_vertex!(Vertex, field);
+    implement_any_bit_pattern!(Vertex, field);
 
     let buffer = safegl::VertexBuffer::new(
         &display,
@@ -837,6 +859,7 @@ fn immutable_mapping_forget_then_draw() {
     }
 
     implement_vertex!(Vertex, position);
+    implement_any_bit_pattern!(Vertex, position);
 
     let mut vb = safegl::VertexBuffer::new(
         &display,
@@ -1029,6 +1052,7 @@ fn dynamic_mapping_forget_then_draw() {
     }
 
     implement_vertex!(Vertex, position);
+    implement_any_bit_pattern!(Vertex, position);
 
     let mut vb = safegl::VertexBuffer::dynamic(
         &display,

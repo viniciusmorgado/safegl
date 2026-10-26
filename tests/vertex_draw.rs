@@ -19,12 +19,14 @@ struct Vertex {
     position: [f32; 2],
 }
 implement_vertex!(Vertex, position);
+implement_any_bit_pattern!(Vertex, position);
 
 #[derive(Copy, Clone)]
 struct Instance {
     color: [f32; 4],
 }
 implement_vertex!(Instance, color);
+implement_any_bit_pattern!(Instance, color);
 
 /// The `#version` line for desktop OpenGL, or for OpenGL ES with a default precision.
 fn header(display: &Display) -> &'static str {

@@ -30,6 +30,13 @@ implement_uniform_block!(
     first_index,
     base_instance
 );
+implement_any_bit_pattern!(
+    DrawCommandNoIndices,
+    count,
+    instance_count,
+    first_index,
+    base_instance
+);
 
 /// Represents an element in a list of draw commands.
 #[repr(C)]
@@ -48,6 +55,14 @@ pub struct DrawCommandIndices {
 }
 
 implement_uniform_block!(
+    DrawCommandIndices,
+    count,
+    instance_count,
+    first_index,
+    base_vertex,
+    base_instance
+);
+implement_any_bit_pattern!(
     DrawCommandIndices,
     count,
     instance_count,

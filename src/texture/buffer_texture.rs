@@ -629,7 +629,7 @@ pub enum TextureBufferContentType {
 }
 
 /// Trait for data types that can be interpreted by a buffer texture.
-pub unsafe trait TextureBufferContent: BufferContent {
+pub unsafe trait TextureBufferContent: BufferContent + crate::buffer::AnyBitPattern {
     /// Returns the enumeration corresponding to elements of this data type.
     fn get_type() -> TextureBufferContentType;
 }

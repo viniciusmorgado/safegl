@@ -67,6 +67,7 @@ use glow::HasContext;
 /// }
 ///
 /// implement_vertex!(Vertex, output_val);
+/// safegl::implement_any_bit_pattern!(Vertex, output_val);
 ///
 /// let mut out_buffer: safegl::VertexBuffer<Vertex> = safegl::VertexBuffer::empty(&display, 6).unwrap();
 ///

@@ -16,7 +16,7 @@ use std::os::raw;
 use std::rc::Rc;
 use std::{fmt, mem, ptr};
 
-use crate::buffer::{BufferCreationError, BufferMode, BufferType, Content};
+use crate::buffer::{AnyBitPattern, BufferCreationError, BufferMode, BufferType, Content};
 use crate::vertex::TransformFeedbackSession;
 use crate::vertex_array_object::VertexAttributesSystem;
 
@@ -955,7 +955,7 @@ impl Alloc {
     ///
     pub unsafe fn read<D: ?Sized>(&self, range: Range<usize>) -> Result<D::Owned, ReadError>
     where
-        D: Content,
+        D: Content + AnyBitPattern,
     {
         let size_to_read = range.end - range.start;
 

@@ -321,7 +321,10 @@ impl ToGlEnum for IndexType {
 }
 
 /// An index from the index buffer.
-pub unsafe trait Index: Copy + Send + 'static {
+///
+/// Indices are integers, so every bit pattern is a valid index: index buffers can be created
+/// without data and read back.
+pub unsafe trait Index: Copy + Send + crate::buffer::AnyBitPattern + 'static {
     /// Returns the `IndexType` corresponding to this type.
     fn get_type() -> IndexType;
 

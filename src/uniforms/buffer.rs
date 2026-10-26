@@ -110,6 +110,7 @@ where
     pub fn empty<F: ?Sized>(facade: &F) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         UniformBuffer::empty_impl(facade, BufferMode::Default)
     }
@@ -119,6 +120,7 @@ where
     pub fn empty_dynamic<F: ?Sized>(facade: &F) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         UniformBuffer::empty_impl(facade, BufferMode::Dynamic)
     }
@@ -128,6 +130,7 @@ where
     pub fn empty_persistent<F: ?Sized>(facade: &F) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         UniformBuffer::empty_impl(facade, BufferMode::Persistent)
     }
@@ -137,6 +140,7 @@ where
     pub fn empty_immutable<F: ?Sized>(facade: &F) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         UniformBuffer::empty_impl(facade, BufferMode::Immutable)
     }
@@ -148,6 +152,7 @@ where
     ) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         let buffer = Buffer::empty(facade, BufferType::UniformBuffer, mode)?;
 
@@ -172,6 +177,7 @@ where
     ) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         UniformBuffer::empty_unsized_impl(facade, size, BufferMode::Default)
     }
@@ -189,6 +195,7 @@ where
     ) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         UniformBuffer::empty_unsized_impl(facade, size, BufferMode::Dynamic)
     }
@@ -206,6 +213,7 @@ where
     ) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         UniformBuffer::empty_unsized_impl(facade, size, BufferMode::Persistent)
     }
@@ -223,6 +231,7 @@ where
     ) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         UniformBuffer::empty_unsized_impl(facade, size, BufferMode::Immutable)
     }
@@ -235,6 +244,7 @@ where
     ) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         let buffer = Buffer::empty_unsized(facade, BufferType::UniformBuffer, size, mode)?;
 

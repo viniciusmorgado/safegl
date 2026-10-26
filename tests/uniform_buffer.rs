@@ -135,6 +135,7 @@ fn block() {
     }
 
     implement_uniform_block!(Data, color);
+    implement_any_bit_pattern!(Data, color);
 
     let buffer = match safegl::uniforms::UniformBuffer::new(
         &display,
@@ -295,6 +296,7 @@ fn persistent_block_race_condition() {
     }
 
     implement_uniform_block!(Data, color);
+    implement_any_bit_pattern!(Data, color);
 
     let mut buffer = match safegl::uniforms::UniformBuffer::new(
         &display,

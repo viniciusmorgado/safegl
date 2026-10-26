@@ -35,6 +35,8 @@
 //! }
 //!
 //! implement_buffer_content!(Data);    // without this, you can't put `Data` in a SafeGL buffer
+//! // every bit pattern is a valid `Data`, so a buffer can be created without data and read
+//! safegl::implement_any_bit_pattern!(Data, data);
 //!
 //! // creates a buffer of 64 bytes, which thus holds 8 f32s
 //! let mut buffer = safegl::buffer::Buffer::<Data>::empty_unsized(&display, BufferType::UniformBuffer,
@@ -109,6 +111,68 @@ mod alloc;
 mod fences;
 mod view;
 
+/// Trait for types for which every bit pattern is a valid value, like integers and floats.
+///
+/// The content of a buffer is undefined after it is created without data (`empty` and similar
+/// constructors) or invalidated, and anything the GPU writes into it is only bytes. SafeGL only
+/// lets Rust read the content of a buffer, and only creates buffers whose content is undefined,
+/// when the type of their content implements this trait. Types like `bool`, `char`, references
+/// and `TextureHandle` don't implement it: a `bool` other than 0 or 1 is undefined behavior, and
+/// a texture handle that wasn't obtained from a resident texture makes the GPU sample garbage or
+/// crash.
+///
+/// The trait is implemented for the integer and floating-point types, and for arrays, slices and
+/// tuples of types that implement it. Use `implement_any_bit_pattern!` to implement it for a
+/// struct; the macro checks that every field of the struct implements it.
+///
+/// # Safety
+///
+/// Every bit pattern of the size of the type must be a valid value of the type. Padding bytes
+/// don't matter.
+///
+/// # Example
+///
+/// A buffer of texture handles can't be created without data, so it never holds invalid handles:
+///
+/// ```compile_fail
+/// # fn example(display: safegl::Display<glutin::surface::WindowSurface>) {
+/// use safegl::buffer::{Buffer, BufferMode, BufferType};
+/// let handles = Buffer::<[safegl::texture::TextureHandle<'static>]>::empty_array(
+///     &display, BufferType::UniformBuffer, 16, BufferMode::Default);
+/// # }
+/// ```
+///
+/// Nor can a buffer of `bool` be read back:
+///
+/// ```compile_fail
+/// # fn example(display: safegl::Display<glutin::surface::WindowSurface>) {
+/// use safegl::buffer::{Buffer, BufferMode, BufferType};
+/// let flags = Buffer::new(&display, &[true, false][..], BufferType::ArrayBuffer,
+///                         BufferMode::Default).unwrap();
+/// let flags = flags.read();
+/// # }
+/// ```
+pub unsafe trait AnyBitPattern {}
+
+macro_rules! impl_any_bit_pattern {
+    ($($ty:ty),+) => {
+        $(unsafe impl AnyBitPattern for $ty {})+
+    };
+}
+
+impl_any_bit_pattern!(u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize, f32, f64, ());
+
+unsafe impl<T: AnyBitPattern, const N: usize> AnyBitPattern for [T; N] {}
+unsafe impl<T: AnyBitPattern> AnyBitPattern for [T] {}
+unsafe impl<T: ?Sized> AnyBitPattern for std::marker::PhantomData<T> {}
+unsafe impl<A: AnyBitPattern> AnyBitPattern for (A,) {}
+unsafe impl<A: AnyBitPattern, B: AnyBitPattern> AnyBitPattern for (A, B) {}
+unsafe impl<A: AnyBitPattern, B: AnyBitPattern, C: AnyBitPattern> AnyBitPattern for (A, B, C) {}
+unsafe impl<A: AnyBitPattern, B: AnyBitPattern, C: AnyBitPattern, D: AnyBitPattern> AnyBitPattern
+    for (A, B, C, D)
+{
+}
+
 /// Trait for types of data that can be put inside buffers.
 pub unsafe trait Content {
     /// A type that holds a sized version of the content.
@@ -116,8 +180,13 @@ pub unsafe trait Content {
 
     /// Prepares an output buffer, then turns this buffer into an `Owned`.
     /// User-provided closure `F` must only write to and not read from `&mut Self`.
+    ///
+    /// # Safety
+    ///
+    /// The closure must fill the whole value, and `size` must be suitable for the type.
     unsafe fn read<F, E>(size: usize, _: F) -> Result<Self::Owned, E>
     where
+        Self: AnyBitPattern,
         F: FnOnce(&mut Self) -> Result<(), E>;
 
     /// Returns the size of each element.
@@ -142,13 +211,11 @@ where
     #[inline]
     unsafe fn read<F, E>(size: usize, f: F) -> Result<T, E>
     where
+        T: AnyBitPattern,
         F: FnOnce(&mut T) -> Result<(), E>,
     {
         assert!(size == mem::size_of::<T>());
-        // Note(Lokathor): This is brittle and dangerous if `T` isn't a type
-        // that can be zeroed. However, it's a breaking change to adjust the API
-        // here (eg: extra trait bound or something) so someone with more
-        // authority than me needs to look at and fix this.
+        // zeroes are a valid `T`, since every bit pattern is
         let mut value = mem::zeroed();
         f(&mut value)?;
         Ok(value)
@@ -188,11 +255,15 @@ where
     #[inline]
     unsafe fn read<F, E>(size: usize, f: F) -> Result<Vec<T>, E>
     where
+        [T]: AnyBitPattern,
         F: FnOnce(&mut [T]) -> Result<(), E>,
     {
         assert!(size % mem::size_of::<T>() == 0);
         let len = size / mem::size_of::<T>();
-        let mut value = Vec::with_capacity(len);
+        let mut value = Vec::<T>::with_capacity(len);
+        // zeroes are valid elements, since every bit pattern is; the closure must not see
+        // uninitialized memory
+        std::ptr::write_bytes(value.as_mut_ptr(), 0, len);
         value.set_len(len);
         f(&mut value)?;
         Ok(value)
@@ -205,7 +276,8 @@ where
 
     #[inline]
     fn to_void_ptr(&self) -> *const () {
-        &self[0] as *const T as *const ()
+        // an empty slice has no first element, but still has a pointer
+        self.as_ptr() as *const ()
     }
 
     #[inline]

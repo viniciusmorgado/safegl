@@ -30,6 +30,7 @@ struct Data {
     value: [f32; 4],
 }
 implement_uniform_block!(Data, value);
+implement_any_bit_pattern!(Data, value);
 
 fn indexed_binding_preserves_readback(ty: BufferType, qualifier: &str, version: u32, es: u32) {
     let display = support::build_display();
@@ -208,6 +209,7 @@ fn transform_feedback_generic_binding_does_not_change_indexed_binding() {
         output_val: (f32, f32),
     }
     implement_vertex!(Vertex, output_val);
+    implement_any_bit_pattern!(Vertex, output_val);
 
     let display = support::build_display();
     let (vb, ib) = support::build_rectangle_vb_ib(&display);

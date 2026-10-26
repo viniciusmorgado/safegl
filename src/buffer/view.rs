@@ -29,6 +29,7 @@ use crate::buffer::fences::Inserter;
 use crate::buffer::BufferCreationError;
 use crate::buffer::BufferMode;
 use crate::buffer::BufferType;
+use crate::buffer::AnyBitPattern;
 use crate::buffer::Content;
 use crate::field::Field;
 
@@ -87,6 +88,7 @@ where
     ) -> Result<Buffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: AnyBitPattern,
     {
         assert!(<T as Content>::is_size_suitable(size));
 
@@ -164,12 +166,18 @@ where
     /// `glInvalidateBufferData` is not supported, does nothing.
     ///
     #[inline]
-    pub fn invalidate(&self) {
+    pub fn invalidate(&self)
+    where
+        T: AnyBitPattern,
+    {
         self.alloc.as_ref().unwrap().invalidate(0, self.get_size());
     }
 
     /// Reads the content of the buffer.
-    pub fn read(&self) -> Result<T::Owned, ReadError> {
+    pub fn read(&self) -> Result<T::Owned, ReadError>
+    where
+        T: AnyBitPattern,
+    {
         self.fence.as_ref().unwrap().wait(
             &mut self.alloc.as_ref().unwrap().get_context().make_current(),
             0..self.get_size(),
@@ -189,7 +197,10 @@ where
     ///   to the real buffer.
     /// - For other types, calls `glMapBuffer` or `glMapSubBuffer`.
     ///
-    pub fn map(&mut self) -> Mapping<'_, T> {
+    pub fn map(&mut self) -> Mapping<'_, T>
+    where
+        T: AnyBitPattern,
+    {
         self.fence.as_ref().unwrap().wait(
             &mut self.alloc.as_ref().unwrap().get_context().make_current(),
             0..self.get_size(),
@@ -208,7 +219,10 @@ where
     ///   maps it.
     /// - For other types, calls `glMapBuffer` or `glMapSubBuffer`.
     ///
-    pub fn map_read(&mut self) -> ReadMapping<'_, T> {
+    pub fn map_read(&mut self) -> ReadMapping<'_, T>
+    where
+        T: AnyBitPattern,
+    {
         self.fence.as_ref().unwrap().wait(
             &mut self.alloc.as_ref().unwrap().get_context().make_current(),
             0..self.get_size(),
@@ -365,6 +379,7 @@ where
     ) -> Result<Buffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: AnyBitPattern,
     {
         Alloc::empty(facade, ty, mem::size_of::<T>(), mode).map(|buffer| Buffer {
             alloc: Some(buffer),
@@ -388,6 +403,7 @@ where
     ) -> Result<Buffer<[T]>, BufferCreationError>
     where
         F: Facade,
+        T: AnyBitPattern,
     {
         Alloc::empty(facade, ty, len * mem::size_of::<T>(), mode).map(|buffer| Buffer {
             alloc: Some(buffer),
@@ -426,7 +442,7 @@ where
 
 impl<T> Buffer<[T]>
 where
-    T: PixelValue,
+    T: PixelValue + AnyBitPattern,
 {
     /// Reads the content of the buffer.
     #[inline]
@@ -639,12 +655,18 @@ where
     /// Calls `glInvalidateBufferSubData` if supported.
     ///
     #[inline]
-    pub fn invalidate(&self) {
+    pub fn invalidate(&self)
+    where
+        T: AnyBitPattern,
+    {
         self.alloc.invalidate(self.bytes_start, self.get_size());
     }
 
     /// Reads the content of the buffer.
-    pub fn read(&self) -> Result<T::Owned, ReadError> {
+    pub fn read(&self) -> Result<T::Owned, ReadError>
+    where
+        T: AnyBitPattern,
+    {
         self.fence.wait(
             &mut self.alloc.get_context().make_current(),
             self.bytes_start..self.bytes_end,
@@ -771,7 +793,7 @@ where
 
 impl<'a, T> BufferSlice<'a, [T]>
 where
-    T: PixelValue + 'a,
+    T: PixelValue + AnyBitPattern + 'a,
 {
     /// Reads the content of the buffer.
     #[inline]
@@ -984,7 +1006,10 @@ where
     /// - For other types, calls `glMapBuffer` or `glMapSubBuffer`.
     ///
     #[inline]
-    pub fn map(self) -> Mapping<'a, T> {
+    pub fn map(self) -> Mapping<'a, T>
+    where
+        T: AnyBitPattern,
+    {
         self.fence.wait(
             &mut self.alloc.get_context().make_current(),
             self.bytes_start..self.bytes_end,
@@ -1003,7 +1028,10 @@ where
     /// - For other types, calls `glMapBuffer` or `glMapSubBuffer`.
     ///
     #[inline]
-    pub fn map_read(self) -> ReadMapping<'a, T> {
+    pub fn map_read(self) -> ReadMapping<'a, T>
+    where
+        T: AnyBitPattern,
+    {
         self.fence.wait(
             &mut self.alloc.get_context().make_current(),
             self.bytes_start..self.bytes_end,
@@ -1064,13 +1092,19 @@ where
     /// Calls `glInvalidateBufferSubData` if supported.
     ///
     #[inline]
-    pub fn invalidate(&self) {
+    pub fn invalidate(&self)
+    where
+        T: AnyBitPattern,
+    {
         self.alloc.invalidate(self.bytes_start, self.get_size());
     }
 
     /// Reads the content of the buffer.
     #[inline]
-    pub fn read(&self) -> Result<T::Owned, ReadError> {
+    pub fn read(&self) -> Result<T::Owned, ReadError>
+    where
+        T: AnyBitPattern,
+    {
         unsafe { self.alloc.read::<T>(self.bytes_start..self.bytes_end) }
     }
 
@@ -1192,7 +1226,7 @@ where
 
 impl<'a, T> BufferMutSlice<'a, [T]>
 where
-    T: PixelValue + 'a,
+    T: PixelValue + AnyBitPattern + 'a,
 {
     /// Reads the content of the buffer.
     #[inline]
@@ -1359,7 +1393,7 @@ impl BufferAny {
     #[inline]
     pub unsafe fn read<T>(&self) -> Result<T::Owned, ReadError>
     where
-        T: Content,
+        T: Content + AnyBitPattern,
     {
         // TODO: add check
         self.fence.wait(

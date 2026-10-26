@@ -54,6 +54,7 @@ fn basic() {
     }
 
     implement_uniform_block!(Data, color);
+    implement_any_bit_pattern!(Data, color);
 
     let buffer = match safegl::uniforms::UniformBuffer::new(
         &display,
@@ -129,6 +130,7 @@ fn custom_bind_point() {
     }
 
     implement_uniform_block!(Data, color);
+    implement_any_bit_pattern!(Data, color);
 
     let buffer = match safegl::uniforms::UniformBuffer::new(
         &display,

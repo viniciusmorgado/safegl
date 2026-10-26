@@ -15,6 +15,7 @@ struct Vertex {
 }
 
 implement_vertex!(Vertex, i_position, i_tex_id);
+implement_any_bit_pattern!(Vertex, i_position, i_tex_id);
 const SPRITES_COUNT: usize = 1024;
 
 struct Application {

@@ -276,6 +276,106 @@ macro_rules! implement_vertex {
     );
 }
 
+/// Implements the `safegl::buffer::AnyBitPattern` trait for the given struct.
+///
+/// The parameters must be the name of the struct and the names of **all** its fields, or the
+/// indices of all its fields for a tuple struct. The macro fails to compile if a field is missing
+/// or if the type of a field doesn't implement `AnyBitPattern`, so the struct is guaranteed to be
+/// valid for every bit pattern.
+///
+/// Buffers can only be created without data, invalidated, read or mapped for reading when their
+/// content implements `AnyBitPattern`.
+///
+/// ## Example
+///
+/// ```
+/// # use safegl::implement_any_bit_pattern;
+/// #[derive(Copy, Clone)]
+/// struct Particle {
+///     position: [f32; 3],
+///     age: u32,
+/// }
+/// implement_any_bit_pattern!(Particle, position, age);
+///
+/// #[derive(Copy, Clone)]
+/// struct Color(f32, f32, f32);
+/// implement_any_bit_pattern!(Color, 0, 1, 2);
+///
+/// // unsized structs work too
+/// struct Particles {
+///     count: u32,
+///     particles: [Particle],
+/// }
+/// implement_any_bit_pattern!(Particles, count, particles);
+/// ```
+///
+/// A struct with a field that can't hold every bit pattern is rejected:
+///
+/// ```compile_fail
+/// # use safegl::implement_any_bit_pattern;
+/// #[derive(Copy, Clone)]
+/// struct Flagged {
+///     value: f32,
+///     enabled: bool,
+/// }
+/// implement_any_bit_pattern!(Flagged, value, enabled);
+/// ```
+///
+/// So is a struct whose fields aren't all listed:
+///
+/// ```compile_fail
+/// # use safegl::implement_any_bit_pattern;
+/// #[derive(Copy, Clone)]
+/// struct Flagged {
+///     value: f32,
+///     enabled: bool,
+/// }
+/// implement_any_bit_pattern!(Flagged, value);
+/// ```
+#[macro_export]
+macro_rules! implement_any_bit_pattern {
+    (__underscore $index:tt) => { _ };
+
+    (__check $struct_name:ident [$($gs:ident),*] [$($pattern:tt)*] $($field:tt),+) => {
+        const _: () = {
+            #[allow(dead_code, clippy::extra_unused_type_parameters)]
+            fn check<$($gs: $crate::buffer::AnyBitPattern),*>(value: &$struct_name<$($gs),*>) {
+                fn is_any_bit_pattern<T: ?Sized + $crate::buffer::AnyBitPattern>(_: &T) {}
+                // a pattern without `..` doesn't compile if a field is missing
+                let $($pattern)* = value;
+                $(is_any_bit_pattern(&value.$field);)+
+            }
+        };
+
+        unsafe impl<$($gs: $crate::buffer::AnyBitPattern),*> $crate::buffer::AnyBitPattern
+            for $struct_name<$($gs),*>
+        {
+        }
+    };
+
+    ($struct_name:ident <$($gs:ident),+>, $($field_name:ident),+ $(,)?) => {
+        $crate::implement_any_bit_pattern!(__check $struct_name [$($gs),+]
+            [$struct_name { $($field_name: _),+ }] $($field_name),+);
+    };
+
+    ($struct_name:ident <$($gs:ident),+>, $($index:tt),+ $(,)?) => {
+        $crate::implement_any_bit_pattern!(__check $struct_name [$($gs),+]
+            [$struct_name($($crate::implement_any_bit_pattern!(__underscore $index)),+)]
+            $($index),+);
+    };
+
+    ($struct_name:ident, $($field_name:ident),+ $(,)?) => {
+        $crate::implement_any_bit_pattern!(__check $struct_name []
+            [$struct_name { $($field_name: _),+ }] $($field_name),+);
+    };
+
+    ($struct_name:ident, $($index:tt),+ $(,)?) => {
+        $crate::implement_any_bit_pattern!(__check $struct_name []
+            [$struct_name($($crate::implement_any_bit_pattern!(__underscore $index)),+)]
+            $($index),+);
+    };
+}
+
 /// Implements the `safegl::buffer::Content` trait for the given type.
 ///
 /// Contrary to the other similar macros, this one doesn't require you pass the list of parameters.
@@ -335,7 +435,10 @@ macro_rules! implement_buffer_content {
 
                 #[inline]
                 unsafe fn read<F, E>(size: usize, f: F) -> ::std::result::Result<Box<$struct_name<$($gs)*>>, E>
-                              where F: FnOnce(&mut $struct_name<$($gs)*>) -> ::std::result::Result<(), E>
+                              // the bound is higher-ranked so that it isn't rejected as trivially false
+                              // for structs that don't implement the trait
+                              where for<'__any> $struct_name<$($gs)*>: $crate::buffer::AnyBitPattern,
+                                    F: FnOnce(&mut $struct_name<$($gs)*>) -> ::std::result::Result<(), E>
                 {
                     assert!(<$struct_name<$($gs)*> as $crate::buffer::Content>::is_size_suitable(size));
                     let len = $crate::implement_buffer_content!(__len $struct_name [$($gs)*] size)
