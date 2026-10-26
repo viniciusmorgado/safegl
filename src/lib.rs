@@ -1275,6 +1275,12 @@ pub enum DrawError {
 
     /// `DrawParameters::outputs` has more entries than the backend has draw buffers.
     OutputStateIndexOutOfBounds,
+
+    /// Clamping the depth offset (`DrawParameters::polygon_offset_clamp`) isn't supported by the
+    /// backend.
+    #[cfg(feature = "gl46")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    PolygonOffsetClampNotSupported,
 }
 
 impl Error for DrawError {
@@ -1367,6 +1373,9 @@ impl fmt::Display for DrawError {
                 "Giving outputs their own blending or color mask is not supported by the backend",
             OutputStateIndexOutOfBounds =>
                 "There are more output states than draw buffers",
+            #[cfg(feature = "gl46")]
+            PolygonOffsetClampNotSupported =>
+                "Clamping the depth offset is not supported by the backend",
         };
         match self {
             UniformTypeMismatch {

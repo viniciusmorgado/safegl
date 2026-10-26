@@ -476,6 +476,21 @@ pub struct DrawParameters<'a> {
     /// `DrawError::PolygonOffsetNotSupported`.
     pub polygon_offset: PolygonOffset,
 
+    /// Largest depth offset that `polygon_offset` may apply (`glPolygonOffsetClamp`), in the
+    /// units of window-space depth, where the depth range spans 1. The default value is `0.0`,
+    /// which doesn't clamp.
+    ///
+    /// A positive value limits the offset from above, a negative value from below. Shadow maps
+    /// use it to keep the large slope-scaled offset (`PolygonOffset::factor`) that removes
+    /// shadow acne from pushing surfaces seen at grazing angles so far back that shadows come
+    /// loose from the objects that cast them ("peter-panning").
+    ///
+    /// Needs OpenGL 4.6, `GL_ARB_polygon_offset_clamp` or `GL_EXT_polygon_offset_clamp`.
+    /// Otherwise a value other than `0.0` returns `DrawError::PolygonOffsetClampNotSupported`.
+    #[cfg(feature = "gl46")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    pub polygon_offset_clamp: f32,
+
     /// Clip control origin. The default value is `LowerLeft`.
     #[cfg(feature = "gl46")]
     #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
@@ -661,6 +676,8 @@ impl<'a> Default for DrawParameters<'a> {
             primitive_restart_index: false,
             polygon_offset: Default::default(),
             #[cfg(feature = "gl46")]
+            polygon_offset_clamp: 0.0,
+            #[cfg(feature = "gl46")]
             clip_control_origin: ClipControlOrigin::LowerLeft,
             #[cfg(feature = "gl46")]
             clip_control_depth: ClipControlDepth::NegativeOneToOne,
@@ -725,7 +742,11 @@ pub fn sync(
     sync_provoking_vertex(ctxt, draw_parameters.provoking_vertex)?;
     sync_primitive_bounding_box(ctxt, &draw_parameters.primitive_bounding_box);
     sync_primitive_restart_index(ctxt, draw_parameters.primitive_restart_index)?;
-    sync_polygon_offset(ctxt, draw_parameters.polygon_offset)?;
+    sync_polygon_offset(
+        ctxt,
+        draw_parameters.polygon_offset,
+        polygon_offset_clamp(draw_parameters),
+    )?;
     #[cfg(feature = "gl46")]
     sync_clip_control(
         ctxt,
@@ -1417,9 +1438,20 @@ fn set_flag_enabled(ctxt: &mut context::CommandContext<'_>, cap: gl::types::GLen
     }
 }
 
+#[cfg(feature = "gl46")]
+fn polygon_offset_clamp(draw_parameters: &DrawParameters<'_>) -> f32 {
+    draw_parameters.polygon_offset_clamp
+}
+
+#[cfg(not(feature = "gl46"))]
+fn polygon_offset_clamp(_: &DrawParameters<'_>) -> f32 {
+    0.0
+}
+
 fn sync_polygon_offset(
     ctxt: &mut context::CommandContext<'_>,
     offset: PolygonOffset,
+    clamp: f32,
 ) -> Result<(), DrawError> {
     // `GL_POLYGON_OFFSET_POINT` and `GL_POLYGON_OFFSET_LINE` don't exist on OpenGL ES and WebGL
     let is_gl = ctxt.version.0 == Api::Gl;
@@ -1427,11 +1459,18 @@ fn sync_polygon_offset(
         return Err(DrawError::PolygonOffsetNotSupported);
     }
 
-    if ctxt.state.polygon_offset != (offset.factor, offset.units) {
-        unsafe {
-            ctxt.glow.polygon_offset(offset.factor, offset.units);
+    if ctxt.state.polygon_offset != (offset.factor, offset.units)
+        || ctxt.state.polygon_offset_clamp != clamp
+    {
+        if clamp == 0.0 && ctxt.state.polygon_offset_clamp == 0.0 {
+            unsafe {
+                ctxt.glow.polygon_offset(offset.factor, offset.units);
+            }
+        } else {
+            set_polygon_offset_clamp(ctxt, offset.factor, offset.units, clamp)?;
         }
         ctxt.state.polygon_offset = (offset.factor, offset.units);
+        ctxt.state.polygon_offset_clamp = clamp;
     }
 
     if is_gl && offset.point != ctxt.state.enabled_polygon_offset_point {
@@ -1450,6 +1489,37 @@ fn sync_polygon_offset(
     }
 
     Ok(())
+}
+
+#[cfg(feature = "gl46")]
+fn set_polygon_offset_clamp(
+    ctxt: &mut context::CommandContext<'_>,
+    factor: f32,
+    units: f32,
+    clamp: f32,
+) -> Result<(), DrawError> {
+    unsafe {
+        if ctxt.version >= &Version(Api::Gl, 4, 6) || ctxt.extensions.gl_arb_polygon_offset_clamp
+        {
+            ctxt.extra.PolygonOffsetClamp(factor, units, clamp);
+        } else if ctxt.extensions.gl_ext_polygon_offset_clamp {
+            ctxt.extra.PolygonOffsetClampEXT(factor, units, clamp);
+        } else {
+            return Err(DrawError::PolygonOffsetClampNotSupported);
+        }
+    }
+    Ok(())
+}
+
+// without `gl46` the clamp is always 0
+#[cfg(not(feature = "gl46"))]
+fn set_polygon_offset_clamp(
+    _: &mut context::CommandContext<'_>,
+    _: f32,
+    _: f32,
+    _: f32,
+) -> Result<(), DrawError> {
+    unreachable!()
 }
 
 #[cfg(feature = "gl46")]

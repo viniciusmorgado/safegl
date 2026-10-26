@@ -187,6 +187,8 @@ extra_functions! {
     fn MultiDrawArraysIndirect(mode: GLenum, indirect: *const c_void, drawcount: GLsizei, stride: GLsizei) -> ();
     fn MultiDrawElementsIndirect(mode: GLenum, type_: GLenum, indirect: *const c_void, drawcount: GLsizei, stride: GLsizei) -> ();
     fn PointSize(size: GLfloat) -> ();
+    fn PolygonOffsetClamp(factor: GLfloat, units: GLfloat, clamp: GLfloat) -> ();
+    fn PolygonOffsetClampEXT(factor: GLfloat, units: GLfloat, clamp: GLfloat) -> ();
     fn PrimitiveBoundingBox(minX: GLfloat, minY: GLfloat, minZ: GLfloat, minW: GLfloat, maxX: GLfloat, maxY: GLfloat, maxZ: GLfloat, maxW: GLfloat) -> ();
     fn PrimitiveBoundingBoxARB(minX: GLfloat, minY: GLfloat, minZ: GLfloat, minW: GLfloat, maxX: GLfloat, maxY: GLfloat, maxZ: GLfloat, maxW: GLfloat) -> ();
     fn PrimitiveBoundingBoxEXT(minX: GLfloat, minY: GLfloat, minZ: GLfloat, minW: GLfloat, maxX: GLfloat, maxY: GLfloat, maxZ: GLfloat, maxW: GLfloat) -> ();

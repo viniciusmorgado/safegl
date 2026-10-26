@@ -265,6 +265,9 @@ pub struct GlState {
     /// The latest values passed to `glPolygonOffset`.
     pub polygon_offset: (gl::types::GLfloat, gl::types::GLfloat),
 
+    /// The latest clamp passed to `glPolygonOffsetClamp`.
+    pub polygon_offset_clamp: gl::types::GLfloat,
+
     /// The latest value passed to `glMinSampleShading`.
     pub min_sample_shading: gl::types::GLfloat,
 
@@ -524,6 +527,7 @@ impl Default for GlState {
             transform_feedback_paused: false,
             primitive_bounding_box: (-1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0),
             polygon_offset: (0.0, 0.0),
+            polygon_offset_clamp: 0.0,
             min_sample_shading: 0.0,
             sample_mask: !0,
             clip_control: (gl::LOWER_LEFT, gl::NEGATIVE_ONE_TO_ONE),
