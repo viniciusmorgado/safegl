@@ -1,6 +1,6 @@
 [package]
 name = "safegl"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Vinicius Donatto Morgado <34577818+viniciusmorgado@users.noreply.github.com>"]
 description = "Safe OpenGL bindings for Rust."
 keywords = ["opengl", "gamedev"]
