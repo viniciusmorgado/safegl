@@ -575,7 +575,7 @@ impl RawProgram {
 
         TimeElapsedQuery::end_conditional_render(&mut ctxt);
 
-        let mut fences = Vec::with_capacity(0);
+        let mut fences = crate::buffer::FenceInserters::new();
 
         self.use_program(&mut ctxt);
         uniforms.bind_uniforms(&mut ctxt, self, &mut fences)?;
@@ -628,7 +628,7 @@ impl RawProgram {
 
         self.use_program(&mut ctxt);
 
-        let mut fences = Vec::with_capacity(0);
+        let mut fences = crate::buffer::FenceInserters::new();
         uniforms.bind_uniforms(&mut ctxt, self, &mut fences)?;
 
         ctxt.glow.dispatch_compute_indirect(offset as i32);

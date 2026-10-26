@@ -25,7 +25,7 @@ use crate::uniforms::UniformValue;
 use crate::uniforms::Uniforms;
 use crate::uniforms::{MagnifySamplerFilter, MinifySamplerFilter};
 
-use crate::buffer::Inserter;
+use crate::buffer::{FenceInserters, Inserter};
 use crate::context::CommandContext;
 use glow::HasContext;
 
@@ -42,7 +42,7 @@ where
         &'a self,
         mut ctxt: &mut CommandContext<'_>,
         program: &P,
-        fences: &mut Vec<Inserter<'a>>,
+        fences: &mut FenceInserters<'a>,
     ) -> Result<(), DrawError>
     where
         P: ProgramExt,

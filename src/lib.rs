@@ -487,7 +487,7 @@ trait UniformsExt {
         &'a self,
         _: &mut CommandContext<'_>,
         _: &P,
-        _: &mut Vec<buffer::Inserter<'a>>,
+        _: &mut buffer::FenceInserters<'a>,
     ) -> Result<(), DrawError>
     where
         P: ProgramExt;

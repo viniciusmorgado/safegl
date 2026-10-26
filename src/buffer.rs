@@ -76,6 +76,10 @@ pub use self::alloc::is_buffer_read_supported;
 pub(crate) use self::alloc::restore_bindings;
 pub use self::alloc::{CopyError, Mapping, ReadError, ReadMapping, WriteMapping};
 pub use self::fences::Inserter;
+
+/// The fences to insert after a draw or compute command, kept inline so that commands that use
+/// a few buffers don't allocate.
+pub(crate) type FenceInserters<'a> = smallvec::SmallVec<[Inserter<'a>; 8]>;
 pub use self::view::{Buffer, BufferAny, BufferMutSlice};
 pub use self::view::{BufferAnySlice, BufferSlice};
 

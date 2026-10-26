@@ -43,7 +43,7 @@ where
 {
     // this contains the list of fences that will need to be fulfilled after the draw command
     // has started
-    let mut fences = Vec::with_capacity(0);
+    let mut fences = crate::buffer::FenceInserters::new();
 
     // handling tessellation
     let vertices_per_patch = match indices.get_primitives_type() {
