@@ -57,7 +57,8 @@ Some restrictions apply when you use framebuffers:
 
  - You will get undefined results if you try to sample to a texture mipmap attached to the
    framebuffer that you are using. This is not enforced by safegl as it depends on your shader's
-   source code.
+   source code. With the `gl46` feature, `texture::texture_barrier` makes it defined when each
+   texel is read only by the draw that writes it, or after a barrier.
 
 # Empty framebuffers
 
