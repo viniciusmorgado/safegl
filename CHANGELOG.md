@@ -12,8 +12,9 @@ Additions:
   errors.
 - `DrawParameters::outputs` and `OutputState`: blending and color mask per fragment shader output
   (`glBlendFuncSeparatei`, `glColorMaski`), with the `DrawError::PerOutputStateNotSupported` and
-  `OutputStateIndexOutOfBounds` errors. Clearing a framebuffer, or a texture with
-  `raw_clear_buffer`, now ignores any color mask left by a previous draw.
+  `OutputStateIndexOutOfBounds` errors. Clearing a framebuffer ignores the per-output masks as it
+  does the global one, and so does `raw_clear_buffer` on textures, which used to obey the color
+  mask left by the previous draw.
 - `DrawParameters::polygon_offset_clamp` (`gl46`, `glPolygonOffsetClamp`), with the
   `DrawError::PolygonOffsetClampNotSupported` error.
 - `texture::copy_image` and `copy_to()` on mipmaps (`gl46`, `glCopyImageSubData`): copies between
@@ -23,8 +24,11 @@ Additions:
   clears any kind of texture without a framebuffer.
 - `texture::texture_barrier` (`gl46`, `glTextureBarrier`), which makes reading a texture attached
   to the framebuffer being drawn to well defined between barriers.
-- Examples: `alpha_to_coverage`, which uses the CC0 "Fern 02" model from Poly Haven, `shadow_bias`
-  and `programmable_blending`.
+- `invalidate()` and `invalidate_rect()` on `SimpleFrameBuffer`, `MultiOutputFrameBuffer`,
+  `DefaultFramebuffer` and `Frame`, with `framebuffer::InvalidateAttachments`
+  (`glInvalidateFramebuffer`). They do nothing where invalidation isn't supported.
+- Examples: `alpha_to_coverage`, which uses the CC0 "Fern 02" model from Poly Haven, `shadow_bias`,
+  `programmable_blending` and `weighted_oit`.
 
 Fixes:
 
