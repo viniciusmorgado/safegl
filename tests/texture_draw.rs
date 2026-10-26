@@ -8,36 +8,24 @@ mod support;
 
 macro_rules! create_program {
     ($display:expr, $glsl_ty:expr, $glsl_value:expr) => {{
-        let program = safegl::Program::from_source(
+        let header = if support::is_gles(&$display) {
+            "#version 300 es\nprecision highp float;\nprecision highp int;\n"
+        } else {
+            "#version 330\n"
+        };
+        safegl::Program::from_source(
             &$display,
-            "
-                    #version 110
-
-                    attribute vec2 position;
-
-                    void main() {
-                        gl_Position = vec4(position, 0.0, 1.0);
-                    }
-                ",
             &format!(
-                "
-                    #version 130
-
-                    out {} color;
-
-                    void main() {{
-                        color = {};
-                    }}
-                ",
-                $glsl_ty, $glsl_value
+                "{}in vec2 position;\nvoid main() {{ gl_Position = vec4(position, 0.0, 1.0); }}",
+                header
+            ),
+            &format!(
+                "{}out {} color;\nvoid main() {{ color = {}; }}",
+                header, $glsl_ty, $glsl_value
             ),
             None,
-        );
-
-        match program {
-            Ok(p) => p,
-            Err(_) => return,
-        }
+        )
+        .unwrap()
     }};
 }
 

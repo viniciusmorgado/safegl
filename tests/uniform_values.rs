@@ -211,7 +211,9 @@ fn multisample_array_texture() {
     let texture = match safegl::texture::Texture2dMultisampleArray::empty(&display, 4, 4, 2, 4) {
         Ok(texture) => texture,
         // multisample array textures need OpenGL 3.2 or OpenGL ES 3.2
-        Err(_) => return,
+        Err(safegl::texture::TextureCreationError::TypeNotSupported)
+            | Err(safegl::texture::TextureCreationError::FormatNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
     };
     let source = if support::is_gles(&display) {
         "#version 320 es\nprecision highp float;\nprecision highp sampler2DMSArray;\n"

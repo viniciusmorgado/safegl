@@ -1168,7 +1168,7 @@ fn copy_to() {
         safegl::buffer::BufferType::ArrayBuffer,
         BufferMode::Persistent,
     );
-    let buf1 = if let Ok(buf) = buf1 { buf } else { return };
+    let buf1 = buf1.unwrap();
 
     let buf2 = safegl::buffer::BufferView::new(
         &display,
@@ -1176,15 +1176,16 @@ fn copy_to() {
         safegl::buffer::BufferType::ArrayBuffer,
         BufferMode::Persistent,
     );
-    let buf2 = if let Ok(buf) = buf2 { buf } else { return };
+    let buf2 = buf2.unwrap();
 
-    if buf1.copy_to(buf2.as_slice()).is_err() {
-        return;
+    match buf1.copy_to(buf2.as_slice()) {
+        Err(safegl::buffer::CopyError::NotSupported) => return,
+        result => result.unwrap(),
     }
 
     let result = match buf2.read() {
         Ok(r) => r,
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     assert_eq!(result, [1, 2, 3]);
@@ -1202,7 +1203,7 @@ fn copy_to_slice() {
         safegl::buffer::BufferType::ArrayBuffer,
         BufferMode::Persistent,
     );
-    let buf1 = if let Ok(buf) = buf1 { buf } else { return };
+    let buf1 = buf1.unwrap();
 
     let buf2 = safegl::buffer::BufferView::<[u8]>::new(
         &display,
@@ -1210,15 +1211,16 @@ fn copy_to_slice() {
         safegl::buffer::BufferType::ArrayBuffer,
         BufferMode::Persistent,
     );
-    let buf2 = if let Ok(buf) = buf2 { buf } else { return };
+    let buf2 = buf2.unwrap();
 
-    if buf1.copy_to(buf2.slice(1..3).unwrap()).is_err() {
-        return;
+    match buf1.copy_to(buf2.slice(1..3).unwrap()) {
+        Err(safegl::buffer::CopyError::NotSupported) => return,
+        result => result.unwrap(),
     }
 
     let result = match buf2.read() {
         Ok(r) => r,
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     assert_eq!(result, [0, 1, 2]);

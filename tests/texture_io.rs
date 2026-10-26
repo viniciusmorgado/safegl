@@ -36,7 +36,8 @@ fn write_1d() {
     // OpenGL ES has no 1D textures
     let texture = match Texture1d::empty(&display, 4) {
         Ok(texture) => texture,
-        Err(_) => return,
+        Err(safegl::texture::TextureCreationError::TypeNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     texture.write(1, vec![(1u8, 2u8, 3u8, 4u8), (5, 6, 7, 8)]).unwrap();
@@ -193,7 +194,9 @@ fn stencil_texture_format() {
         2,
     ) {
         Ok(texture) => texture,
-        Err(_) => return,
+        Err(safegl::texture::TextureCreationError::TypeNotSupported)
+            | Err(safegl::texture::TextureCreationError::FormatNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     match texture.get_internal_format() {

@@ -897,6 +897,26 @@ blending_test!(
     (255, 255, 255, 255)
 );
 
+/// A program that colors each triangle with the `value.y` of its provoking vertex.
+fn provoking_vertex_program(
+    display: &safegl::Display<safegl::glutin::surface::WindowSurface>,
+) -> safegl::Program {
+    let header = if support::is_gles(display) {
+        "#version 300 es\nprecision highp float;\n"
+    } else {
+        "#version 330\n"
+    };
+    let vertex = format!(
+        "{header}in vec2 value;\nflat out float v_value;\n\
+         void main() {{ v_value = value.y; gl_Position = vec4(value, 0.0, 1.0); }}"
+    );
+    let fragment = format!(
+        "{header}flat in float v_value;\nout vec4 f_color;\n\
+         void main() {{ f_color = vec4(1.0, (v_value + 1.0) * 0.5, 0.0, 1.0); }}"
+    );
+    safegl::Program::from_source(display, &vertex, &fragment, None).unwrap()
+}
+
 #[test]
 fn provoking_vertex_last() {
     let display = support::build_display();
@@ -921,35 +941,7 @@ fn provoking_vertex_last() {
         )
         .unwrap()
     };
-
-    let program = safegl::Program::from_source(
-        &display,
-        "
-            #version 100
-
-            attribute lowp vec2 value;
-            varying lowp flat float v_value;
-
-            void main() {
-                v_value = value.y;
-                gl_Position = vec4(value, 0.0, 1.0);
-            }
-        ",
-        "
-            #version 100
-
-            varying lowp flat float v_value;
-
-            void main() {
-                gl_FragColor = vec4(1.0, (v_value + 1.0) * 0.5, 0.0, 1.0);
-            }
-        ",
-        None,
-    );
-    let program = match program {
-        Err(_) => return,
-        Ok(p) => p,
-    };
+    let program = provoking_vertex_program(&display);
 
     let texture = support::build_renderable_texture(&display);
     texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
@@ -1003,35 +995,7 @@ fn provoking_vertex_first() {
         )
         .unwrap()
     };
-
-    let program = safegl::Program::from_source(
-        &display,
-        "
-            #version 100
-
-            attribute lowp vec2 value;
-            varying lowp flat float v_value;
-
-            void main() {
-                v_value = value.y;
-                gl_Position = vec4(value, 0.0, 1.0);
-            }
-        ",
-        "
-            #version 100
-
-            varying lowp flat float v_value;
-
-            void main() {
-                gl_FragColor = vec4(1.0, (v_value + 1.0) * 0.5, 0.0, 1.0);
-            }
-        ",
-        None,
-    );
-    let program = match program {
-        Err(_) => return,
-        Ok(p) => p,
-    };
+    let program = provoking_vertex_program(&display);
 
     let texture = support::build_renderable_texture(&display);
     texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);

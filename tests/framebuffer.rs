@@ -194,7 +194,9 @@ fn depth_texture2d() {
         .take(128)
         .collect::<Vec<_>>();
     let depth = match safegl::texture::DepthTexture2d::new(&display, depth_data) {
-        Err(_) => return,
+        Err(safegl::texture::TextureCreationError::TypeNotSupported)
+            | Err(safegl::texture::TextureCreationError::FormatNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(t) => t,
     };
 
@@ -228,34 +230,28 @@ fn multioutput() {
     let display = support::build_display();
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
-    let program = match safegl::Program::from_source(
-        &display,
-        "
-            #version 110
-
-            attribute vec2 position;
-
-            void main() {
-                gl_Position = vec4(position, 0.0, 1.0);
-            }
-        ",
-        "
-            #version 330
-
-            out vec4 color1;
-            out vec4 color2;
-
-            void main() {
-                color1 = vec4(1.0, 1.0, 1.0, 1.0);
-                color2 = vec4(1.0, 0.0, 0.0, 1.0);
-            }
-        ",
-        None,
-    ) {
-        Err(safegl::CompilationError(..)) => return,
-        Ok(p) => p,
-        e => e.unwrap(),
+    // OpenGL ES needs a location for each output when there are several
+    let (header, color1, color2) = if support::is_gles(&display) {
+        (
+            "#version 300 es\nprecision highp float;\n",
+            "layout(location = 0) out vec4 color1;",
+            "layout(location = 1) out vec4 color2;",
+        )
+    } else {
+        ("#version 330\n", "out vec4 color1;", "out vec4 color2;")
     };
+    let program = safegl::Program::from_source(
+        &display,
+        &format!(
+            "{header}in vec2 position;\nvoid main() {{ gl_Position = vec4(position, 0.0, 1.0); }}"
+        ),
+        &format!(
+            "{header}{color1}\n{color2}\n\
+             void main() {{ color1 = vec4(1.0, 1.0, 1.0, 1.0); color2 = vec4(1.0, 0.0, 0.0, 1.0); }}"
+        ),
+        None,
+    )
+    .unwrap();
 
     // building two empty color attachments
     let color1 = safegl::Texture2d::empty_with_format(
@@ -320,7 +316,7 @@ fn array_level() {
 
     let texture = match safegl::texture::Texture2dArray::empty(&display, 128, 128, 4) {
         Ok(t) => t,
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     let mut framebuffer = safegl::framebuffer::SimpleFrameBuffer::new(
@@ -358,7 +354,7 @@ fn cubemap_layer() {
 
     let texture = match safegl::texture::Cubemap::empty(&display, 128) {
         Ok(t) => t,
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     let mut framebuffer = safegl::framebuffer::SimpleFrameBuffer::new(

@@ -21,7 +21,7 @@ fn uniforms_storage_single_value() {
     let display = support::build_display();
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
-    let program = safegl::Program::from_source(
+    let program = support::program_from_legacy(
         &display,
         "
             #version 110
@@ -41,7 +41,6 @@ fn uniforms_storage_single_value() {
                 gl_FragColor = color;
             }
         ",
-        None,
     )
     .unwrap();
 
@@ -65,7 +64,7 @@ fn uniforms_storage_multiple_values() {
     let display = support::build_display();
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
-    let program = safegl::Program::from_source(
+    let program = support::program_from_legacy(
         &display,
         "
             #version 110
@@ -86,7 +85,6 @@ fn uniforms_storage_multiple_values() {
                 gl_FragColor = color1 + color2;
             }
         ",
-        None,
     )
     .unwrap();
 
@@ -112,7 +110,7 @@ fn uniforms_storage_ignore_inactive_uniforms() {
     let display = support::build_display();
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
-    let program = safegl::Program::from_source(
+    let program = support::program_from_legacy(
         &display,
         "
             #version 110
@@ -132,7 +130,6 @@ fn uniforms_storage_ignore_inactive_uniforms() {
                 gl_FragColor = color;
             }
         ",
-        None,
     )
     .unwrap();
 
@@ -158,7 +155,7 @@ fn uniform_wrong_type() {
     let display = support::build_display();
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
-    let program = safegl::Program::from_source(
+    let program = support::program_from_legacy(
         &display,
         "
             #version 110
@@ -178,7 +175,6 @@ fn uniform_wrong_type() {
                 gl_FragColor = color;
             }
         ",
-        None,
     )
     .unwrap();
 
@@ -200,7 +196,7 @@ fn uniforms_dynamic_single_value() {
     let display = support::build_display();
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
-    let program = safegl::Program::from_source(
+    let program = support::program_from_legacy(
         &display,
         "
             #version 110
@@ -220,7 +216,6 @@ fn uniforms_dynamic_single_value() {
                 gl_FragColor = color;
             }
         ",
-        None,
     )
     .unwrap();
 
@@ -245,7 +240,7 @@ fn uniforms_dynamic_multiple_values() {
     let display = support::build_display();
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
-    let program = safegl::Program::from_source(
+    let program = support::program_from_legacy(
         &display,
         "
             #version 110
@@ -266,7 +261,6 @@ fn uniforms_dynamic_multiple_values() {
                 gl_FragColor = color1 + color2;
             }
         ",
-        None,
     )
     .unwrap();
 
@@ -293,7 +287,7 @@ fn uniforms_dynamic_ignore_inactive_uniforms() {
     let display = support::build_display();
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
-    let program = safegl::Program::from_source(
+    let program = support::program_from_legacy(
         &display,
         "
             #version 110
@@ -313,7 +307,6 @@ fn uniforms_dynamic_ignore_inactive_uniforms() {
                 gl_FragColor = color;
             }
         ",
-        None,
     )
     .unwrap();
 

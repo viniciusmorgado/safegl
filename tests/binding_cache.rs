@@ -19,8 +19,9 @@ fn header(display: &Display, desktop: u32, es: u32) -> String {
     }
 }
 
-fn vertex(display: &Display) -> String {
-    header(display, 140, 300)
+/// The vertex shader, whose version must be the one of the fragment shader on OpenGL ES.
+fn vertex(display: &Display, desktop: u32, es: u32) -> String {
+    header(display, desktop, es)
         + "in vec2 position;\nvoid main() { gl_Position = vec4(position, 0.0, 1.0); }"
 }
 
@@ -38,7 +39,7 @@ fn indexed_binding_preserves_readback(ty: BufferType, qualifier: &str, version: 
     let output = safegl::texture::Texture2d::empty(&display, 1, 1).unwrap();
     let program = safegl::Program::from_source(
         &display,
-        &vertex(&display),
+        &vertex(&display, version, es),
         &(header(&display, version, es) + &format!("layout(std140) {qualifier} Block {{ vec4 value; }};\nout vec4 color;\nvoid main() {{ color = value; }}")),
         None,
     ).unwrap();
@@ -120,9 +121,9 @@ fn buffer_texture_binding_cache() {
         } else {
             ""
         };
-    let buffer_program = safegl::Program::from_source(&display, &vertex(&display),
+    let buffer_program = safegl::Program::from_source(&display, &vertex(&display, 140, 320),
         &(fragment.clone() + "uniform samplerBuffer data; out vec4 color;\nvoid main() { color = texelFetch(data, 0); }"), None).unwrap();
-    let mixed_program = safegl::Program::from_source(&display, &vertex(&display),
+    let mixed_program = safegl::Program::from_source(&display, &vertex(&display, 140, 320),
         &(fragment + "uniform samplerBuffer data; uniform sampler2D image; out vec4 color;\nvoid main() { color = vec4(texelFetch(data, 0).rgb + texelFetch(image, ivec2(0), 0).rgb, 1.0); }"), None).unwrap();
 
     // Repeated buffer-texture draws must reuse a cached unit. Without caching,

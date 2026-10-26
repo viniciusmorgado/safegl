@@ -38,7 +38,7 @@ fn get_format_u8u8u8u8() {
     display.assert_no_error(None);
 
     let format = match texture.get_internal_format() {
-        Err(_) => return,
+        Err(safegl::texture::GetFormatError::NotSupported) => return,
         Ok(f) => f,
     };
 
@@ -72,7 +72,10 @@ fn depth_texture_1d_creation() {
     let display = support::build_display();
 
     let texture = match safegl::texture::DepthTexture1d::new(&display, vec![0.0, 0.0, 0.0, 0.0f32]) {
-        Err(_) => return, // TODO: not supported error
+        Err(safegl::texture::TextureCreationError::FormatNotSupported)
+        | Err(safegl::texture::TextureCreationError::DimensionsNotSupported)
+        | Err(safegl::texture::TextureCreationError::TypeNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(t) => t,
     };
 
@@ -167,7 +170,10 @@ fn depth_texture_2d_creation() {
     );
 
     let texture = match texture {
-        Err(_) => return, // TODO: not supported error
+        Err(safegl::texture::TextureCreationError::FormatNotSupported)
+        | Err(safegl::texture::TextureCreationError::DimensionsNotSupported)
+        | Err(safegl::texture::TextureCreationError::TypeNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(t) => t,
     };
 
@@ -222,7 +228,10 @@ macro_rules! empty_texture_test {
             let display = support::build_display();
 
             let texture = match safegl::texture::$tex_ty::empty(&display, $($dims),+) {
-                Err(_) => return,       // TODO: make sure it's `NotSupported`
+                Err(safegl::texture::TextureCreationError::FormatNotSupported)
+                | Err(safegl::texture::TextureCreationError::DimensionsNotSupported)
+                | Err(safegl::texture::TextureCreationError::TypeNotSupported) => return,
+                Err(e) => panic!("{:?}", e),
                 Ok(tex) => tex
             };
 
@@ -531,7 +540,10 @@ fn zero_sized_texture_1d_creation() {
     let display = support::build_display();
 
     let texture = match safegl::texture::Texture1d::new(&display, Vec::<(u8, u8, u8, u8)>::new()) {
-        Err(_) => return, // TODO: make sure it's `NotSupported`
+        Err(safegl::texture::TextureCreationError::FormatNotSupported)
+        | Err(safegl::texture::TextureCreationError::DimensionsNotSupported)
+        | Err(safegl::texture::TextureCreationError::TypeNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(t) => t,
     };
 
@@ -564,7 +576,10 @@ fn zero_sized_texture_3d_creation() {
 
     let texture =
         match safegl::texture::Texture3d::new(&display, Vec::<Vec<Vec<(u8, u8, u8, u8)>>>::new()) {
-            Err(_) => return, // TODO: make sure it's `NotSupported`
+            Err(safegl::texture::TextureCreationError::FormatNotSupported)
+            | Err(safegl::texture::TextureCreationError::DimensionsNotSupported)
+            | Err(safegl::texture::TextureCreationError::TypeNotSupported) => return,
+            Err(e) => panic!("{:?}", e),
             Ok(t) => t,
         };
 
@@ -593,7 +608,7 @@ fn bindless_texture_residency_context_rebuild() {
 
     let texture = match texture.resident() {
         Ok(t) => t,
-        Err(_) => return,
+        Err(safegl::texture::BindlessTexturesNotSupportedError) => return,
     };
 
     // here is the trick: we rebuild the display, meaning that texture residency has to be updated

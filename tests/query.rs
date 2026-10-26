@@ -10,7 +10,7 @@ fn query_sequence() {
     let display = support::build_display();
 
     let query = match safegl::draw_parameters::SamplesPassedQuery::new(&display) {
-        Err(_) => return,
+        Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
     };
 
@@ -42,7 +42,7 @@ fn samples_passed() {
     let display = support::build_display();
 
     let query = match safegl::draw_parameters::SamplesPassedQuery::new(&display) {
-        Err(_) => return,
+        Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
     };
 
@@ -74,7 +74,7 @@ fn any_samples_passed() {
     let display = support::build_display();
 
     let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false) {
-        Err(_) => return,
+        Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
     };
 
@@ -108,7 +108,7 @@ fn any_samples_passed_conservative() {
     let display = support::build_display();
 
     let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, true) {
-        Err(_) => return,
+        Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
     };
 
@@ -142,7 +142,7 @@ fn time_elapsed() {
     let display = support::build_display();
 
     let query = match safegl::draw_parameters::TimeElapsedQuery::new(&display) {
-        Err(_) => return,
+        Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
     };
 
@@ -174,7 +174,7 @@ fn primitives_generated() {
     let display = support::build_display();
 
     let query = match safegl::draw_parameters::PrimitivesGeneratedQuery::new(&display) {
-        Err(_) => return,
+        Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
     };
 
@@ -209,7 +209,7 @@ fn conditional_render_nodraw() {
     let display = support::build_display();
 
     let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false) {
-        Err(_) => return,
+        Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
     };
 
@@ -253,7 +253,7 @@ fn conditional_render_simultaneous_query() {
     let display = support::build_display();
 
     let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false) {
-        Err(_) => return,
+        Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
     };
 
@@ -291,7 +291,7 @@ fn query_to_buffer() {
     let display = support::build_display();
 
     let query = match safegl::draw_parameters::SamplesPassedQuery::new(&display) {
-        Err(_) => return,
+        Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
     };
 
@@ -337,7 +337,7 @@ fn conditional_render_after_query() {
 
     for (draw_first, expected) in [(true, (255, 0, 0, 255)), (false, (0, 0, 0, 0))] {
         let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false) {
-            Err(_) => return,
+            Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
             Ok(q) => q,
         };
 
@@ -396,7 +396,7 @@ fn time_elapsed_is_64_bits() {
     let display = support::build_display();
 
     let query = match safegl::draw_parameters::TimeElapsedQuery::new(&display) {
-        Err(_) => return,
+        Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
     };
     // never used: its result is 0
@@ -423,7 +423,7 @@ fn unused_query_to_buffer() {
     let display = support::build_display();
 
     let query = match safegl::draw_parameters::SamplesPassedQuery::new(&display) {
-        Err(_) => return,
+        Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
     };
 

@@ -63,7 +63,9 @@ fn multisample_textures_have_no_mipmaps() {
 
     let texture = match safegl::texture::Texture2dMultisample::empty(&display, 4, 4, 4) {
         Ok(texture) => texture,
-        Err(_) => return,
+        Err(safegl::texture::TextureCreationError::TypeNotSupported)
+            | Err(safegl::texture::TextureCreationError::FormatNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
     };
     assert_eq!(
         texture.generate_mipmaps(),

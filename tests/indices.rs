@@ -538,7 +538,8 @@ fn multidraw_array() {
     let multidraw = safegl::index::DrawCommandsNoIndicesBuffer::empty(&display, 1);
     let multidraw = match multidraw {
         Ok(buf) => buf,
-        Err(_) => return,
+        Err(safegl::buffer::BufferCreationError::BufferTypeNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     multidraw.write(&[safegl::index::DrawCommandNoIndices {
@@ -606,7 +607,8 @@ fn multidraw_elements() {
     let multidraw = safegl::index::DrawCommandsIndicesBuffer::empty(&display, 1);
     let multidraw = match multidraw {
         Ok(buf) => buf,
-        Err(_) => return,
+        Err(safegl::buffer::BufferCreationError::BufferTypeNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     multidraw.write(&[safegl::index::DrawCommandIndices {

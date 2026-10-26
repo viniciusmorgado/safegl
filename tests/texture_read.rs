@@ -50,7 +50,10 @@ macro_rules! read_texture_test {
             let display = support::build_display();
 
             let texture = match safegl::texture::$tex_ty::new(&display, $data) {
-                Err(_) => return, // TODO: make sure that the error is "NotSupported"
+                Err(safegl::texture::TextureCreationError::FormatNotSupported)
+                | Err(safegl::texture::TextureCreationError::DimensionsNotSupported)
+                | Err(safegl::texture::TextureCreationError::TypeNotSupported) => return,
+                Err(e) => panic!("{:?}", e),
                 Ok(t) => t,
             };
 
@@ -154,7 +157,9 @@ fn read_float_values_exactly() {
         2,
     ) {
         Ok(texture) => texture,
-        Err(_) => return,
+        Err(safegl::texture::TextureCreationError::TypeNotSupported)
+            | Err(safegl::texture::TextureCreationError::FormatNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
     };
     let texels = vec![vec![(1.5f32, -2.0f32, 1.0e6f32, 0.25f32); 2]; 2];
     texture

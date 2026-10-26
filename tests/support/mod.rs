@@ -9,10 +9,6 @@ use safegl::backend::{Context, Facade};
 use safegl::index::PrimitiveType;
 use safegl::Display;
 
-use safegl::winit::application::ApplicationHandler;
-use safegl::winit::event::WindowEvent;
-use safegl::winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
-use safegl::winit::window::{Window, WindowId};
 use glutin::config::ConfigTemplateBuilder;
 use glutin::context::{ContextAttributesBuilder, NotCurrentContext};
 use glutin::display::GetGlDisplay;
@@ -20,6 +16,10 @@ use glutin::prelude::*;
 use glutin::surface::{Surface, SurfaceAttributesBuilder, WindowSurface};
 use glutin_winit::DisplayBuilder;
 use raw_window_handle::HasWindowHandle;
+use safegl::winit::application::ApplicationHandler;
+use safegl::winit::event::WindowEvent;
+use safegl::winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
+use safegl::winit::window::{Window, WindowId};
 
 use std::env;
 use std::num::NonZeroU32;
@@ -345,7 +345,10 @@ where
 /// The vertex buffer has the "position" attribute of type "vec2".
 pub fn build_rectangle_vb_ib<F: ?Sized>(
     facade: &F,
-) -> (safegl::vertex::VertexBufferAny, safegl::index::IndexBufferAny)
+) -> (
+    safegl::vertex::VertexBufferAny,
+    safegl::index::IndexBufferAny,
+)
 where
     F: Facade,
 {
@@ -388,4 +391,64 @@ where
     F: Facade,
 {
     safegl::Texture2d::empty(facade, 1024, 1024).unwrap()
+}
+
+/// Translates a GLSL 1.10 shader to the GLSL of the context: `#version 330` on desktop OpenGL,
+/// and `#version 300 es` with default precisions on OpenGL ES, whose drivers don't all accept
+/// GLSL 1.10.
+pub fn modern_glsl(display: &Display<WindowSurface>, source: &str, fragment: bool) -> String {
+    /// Replaces the identifier `word` by `by` where it isn't part of a longer identifier.
+    fn replace_word(line: &str, word: &str, by: &str) -> String {
+        let is_identifier = |c: char| c.is_ascii_alphanumeric() || c == '_';
+        let mut out = String::with_capacity(line.len());
+        let mut rest = line;
+        while let Some(position) = rest.find(word) {
+            let before = rest[..position].chars().next_back();
+            let after = rest[position + word.len()..].chars().next();
+            out.push_str(&rest[..position]);
+            if before.is_some_and(is_identifier) || after.is_some_and(is_identifier) {
+                out.push_str(word);
+            } else {
+                out.push_str(by);
+            }
+            rest = &rest[position + word.len()..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    let mut out = String::from(if is_gles(display) {
+        "#version 300 es\nprecision highp float;\nprecision highp int;\n"
+    } else {
+        "#version 330\n"
+    });
+    if fragment {
+        out.push_str("out vec4 support_frag_color;\n");
+    }
+    for line in source.lines() {
+        if line.trim_start().starts_with("#version") {
+            continue;
+        }
+        let line = replace_word(line, "attribute", "in");
+        let line = replace_word(&line, "varying", if fragment { "in" } else { "out" });
+        let line = replace_word(&line, "gl_FragColor", "support_frag_color");
+        let line = replace_word(&line, "texture2D", "texture");
+        out.push_str(&line);
+        out.push('\n');
+    }
+    out
+}
+
+/// Builds a program from GLSL 1.10 shaders translated with `modern_glsl`.
+pub fn program_from_legacy(
+    display: &Display<WindowSurface>,
+    vertex: &str,
+    fragment: &str,
+) -> Result<safegl::Program, safegl::ProgramCreationError> {
+    safegl::Program::from_source(
+        display,
+        &modern_glsl(display, vertex, false),
+        &modern_glsl(display, fragment, true),
+        None,
+    )
 }

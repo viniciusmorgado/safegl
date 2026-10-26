@@ -171,7 +171,7 @@ fn multisample_resolve() {
         match RenderBuffer::new_multisample(&display, UncompressedFloatFormat::U8U8U8U8, 16, 16, 4)
         {
             Ok(buffer) => buffer,
-            Err(_) => return,
+            Err(e) => panic!("{:?}", e),
         };
     let mut source = SimpleFrameBuffer::new(&display, &multisample).unwrap();
     source.clear_color(0.0, 1.0, 0.0, 1.0);

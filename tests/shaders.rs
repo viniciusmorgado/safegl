@@ -13,7 +13,7 @@ fn program_creation() {
     let display = support::build_display();
 
     // compiling shaders and linking them together
-    safegl::Program::from_source(
+    support::program_from_legacy(
         &display,
         // vertex shader
         "
@@ -40,8 +40,6 @@ fn program_creation() {
                 gl_FragColor = vec4(vColor, 1.0);
             }
         ",
-        // geometry shader
-        None,
     )
     .unwrap();
 
@@ -86,6 +84,9 @@ fn program_linking_error() {
     let display = support::build_display();
 
     // compiling shaders and linking them together
+    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::Gl, 1, 3)) {
+        return;
+    }
     let program = safegl::Program::from_source(
         &display,
         // vertex shader
@@ -124,7 +125,7 @@ fn program_linking_error() {
 fn get_frag_data_location() {
     let display = support::build_display();
 
-    let program = safegl::Program::from_source(
+    let program = support::program_from_legacy(
         &display,
         "
             #version 110
@@ -142,14 +143,9 @@ fn get_frag_data_location() {
                 color = vec4(1.0, 1.0, 1.0, 1.0);
             }
         ",
-        None,
     );
 
-    // ignoring test in case of compilation error (version 1.30 may not be supported)
-    let program = match program {
-        Ok(p) => p,
-        Err(_) => return,
-    };
+    let program = program.unwrap();
 
     assert!(program.get_frag_data_location("color").is_some());
     assert!(program.get_frag_data_location("unexisting").is_none());
@@ -161,6 +157,9 @@ fn get_frag_data_location() {
 fn get_uniform_blocks() {
     let display = support::build_display();
 
+    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::Gl, 3, 3)) {
+        return;
+    }
     let program = safegl::Program::from_source(
         &display,
         "
@@ -187,11 +186,7 @@ fn get_uniform_blocks() {
         None,
     );
 
-    // ignoring test in case of compilation error (version may not be supported)
-    let program = match program {
-        Ok(p) => p,
-        Err(_) => return,
-    };
+    let program = program.unwrap();
 
     let blocks = program.get_uniform_blocks();
 
@@ -250,7 +245,7 @@ fn get_uniform_blocks() {
 fn get_program_binary() {
     let display = support::build_display();
 
-    let program = safegl::Program::from_source(
+    let program = support::program_from_legacy(
         &display,
         "
             #version 110
@@ -275,12 +270,12 @@ fn get_program_binary() {
                 gl_FragColor = vec4(vColor, 1.0);
             }
         ",
-        None,
     )
     .unwrap();
 
     let binary = match program.get_binary() {
-        Err(_) => return,
+        Err(safegl::program::GetBinaryError::NotSupported) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(bin) => bin,
     };
 
@@ -293,7 +288,7 @@ fn get_program_binary() {
 fn program_binary_reload() {
     let display = support::build_display();
 
-    let program = safegl::Program::from_source(
+    let program = support::program_from_legacy(
         &display,
         "
             #version 110
@@ -318,12 +313,12 @@ fn program_binary_reload() {
                 gl_FragColor = vec4(vColor, 1.0);
             }
         ",
-        None,
     )
     .unwrap();
 
     let binary = match program.get_binary() {
-        Err(_) => return,
+        Err(safegl::program::GetBinaryError::NotSupported) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(bin) => bin,
     };
 
@@ -337,7 +332,7 @@ fn program_binary_working() {
     let display = support::build_display();
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
-    let program_src = safegl::Program::from_source(
+    let program_src = support::program_from_legacy(
         &display,
         "
             #version 110
@@ -355,15 +350,18 @@ fn program_binary_working() {
                 gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
             }
         ",
-        None,
     )
     .unwrap();
 
     let binary = match program_src.get_binary() {
-        Err(_) => return,
+        Err(safegl::program::GetBinaryError::NotSupported) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(bin) => bin,
     };
 
+    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::GlEs, 3, 0)) {
+        return;
+    }
     let program = safegl::Program::new(&display, binary).unwrap();
 
     let output = support::build_renderable_texture(&display);
@@ -490,7 +488,7 @@ fn get_transform_feedback_varyings() {
 fn get_output_primitives_simple() {
     let display = support::build_display();
 
-    let program = safegl::Program::from_source(
+    let program = support::program_from_legacy(
         &display,
         "
             #version 110
@@ -506,14 +504,9 @@ fn get_output_primitives_simple() {
                 gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
             }
         ",
-        None,
     );
 
-    // ignoring test in case of compilation error
-    let program = match program {
-        Ok(p) => p,
-        Err(_) => return,
-    };
+    let program = program.unwrap();
 
     assert!(program.get_output_primitives().is_none());
     display.assert_no_error(None);
@@ -526,6 +519,9 @@ fn get_output_primitives_simple() {
 fn ssbos() {
     let display = support::build_display();
 
+    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::Gl, 4, 3)) {
+        return;
+    }
     let program = safegl::Program::from_source(
         &display,
         "
@@ -552,11 +548,7 @@ fn ssbos() {
         None,
     );
 
-    // ignoring test in case of compilation error (version may not be supported)
-    let program = match program {
-        Ok(p) => p,
-        Err(_) => return,
-    };
+    let program = program.unwrap();
 
     let blocks = program.get_shader_storage_blocks();
 
@@ -615,11 +607,14 @@ fn ssbos() {
 fn complex_layout() {
     let display = support::build_display();
 
+    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::Gl, 3, 3)) {
+        return;
+    }
     let program = safegl::Program::from_source(
         &display,
         "
             #version 330
-            uniform layout(std140);
+            layout(std140) uniform;
 
             struct Foo {
                 ivec3 a[3];
@@ -649,11 +644,7 @@ fn complex_layout() {
         None,
     );
 
-    // ignoring test in case of compilation error (version may not be supported)
-    let program = match program {
-        Ok(p) => p,
-        Err(_) => return,
-    };
+    let program = program.unwrap();
 
     let blocks = program.get_uniform_blocks();
 
@@ -779,18 +770,20 @@ fn complex_layout() {
 fn unsized_array() {
     let display = support::build_display();
 
+    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::Gl, 4, 3)) {
+        return;
+    }
     let program = safegl::Program::from_source(
         &display,
         "
             #version 430
 
-            layout(std140)
             struct Foo {
                 ivec3 a[3];
                 int b;
             };
 
-            buffer MyBlock {
+            layout(std140) buffer MyBlock {
                 vec3 position;
                 Foo foo[1];
                 Foo bar[];
@@ -812,11 +805,7 @@ fn unsized_array() {
         None,
     );
 
-    // ignoring test in case of compilation error (version may not be supported)
-    let program = match program {
-        Ok(p) => p,
-        Err(_) => return,
-    };
+    let program = program.unwrap();
 
     let blocks = program.get_shader_storage_blocks();
 
@@ -898,12 +887,14 @@ fn unsized_array() {
 fn array_layout_offsets() {
     let display = support::build_display();
 
+    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::Gl, 3, 3)) {
+        return;
+    }
     let program = safegl::Program::from_source(
         &display,
         "
             #version 330
 
-            layout(std140)
             struct Foo {
                 vec2 pos;
                 vec2 dir;
@@ -931,11 +922,7 @@ fn array_layout_offsets() {
         None,
     );
 
-    // ignoring test in case of compilation error (version may not be supported)
-    let program = match program {
-        Ok(p) => p,
-        Err(_) => return,
-    };
+    let program = program.unwrap();
 
     let blocks = program.get_uniform_blocks();
 

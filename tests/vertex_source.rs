@@ -654,7 +654,7 @@ fn instancing() {
 
     let buffer2 = match buffer2.per_instance() {
         Ok(b) => b,
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     let index_buffer =
@@ -781,7 +781,7 @@ fn per_instance_length_mismatch() {
 
     let buffer2 = match buffer2.per_instance() {
         Ok(b) => b,
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     let buffer3 = {
@@ -811,7 +811,7 @@ fn per_instance_length_mismatch() {
 
     let buffer3 = match buffer3.per_instance() {
         Ok(b) => b,
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     let index_buffer =

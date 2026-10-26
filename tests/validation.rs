@@ -158,6 +158,12 @@ fn geometry_shader_input() {
             format!("#version 330\n{stage}")
         }
     };
+    // geometry shaders need OpenGL ES 3.2
+    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::GlEs, 3, 2))
+        && support::is_gles(&display)
+    {
+        return;
+    }
     let program = safegl::Program::new(
         &display,
         safegl::program::ProgramCreationInput::SourceCode {
@@ -178,11 +184,7 @@ fn geometry_shader_input() {
             uses_point_size: false,
         },
     );
-    // geometry shaders need OpenGL ES 3.2
-    let program = match program {
-        Ok(program) => program,
-        Err(_) => return,
-    };
+    let program = program.unwrap();
     let (vb, _) = support::build_rectangle_vb_ib(&display);
     let texture = Texture2d::empty(&display, 2, 2).unwrap();
 
