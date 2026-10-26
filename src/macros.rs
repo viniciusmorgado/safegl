@@ -427,7 +427,7 @@ macro_rules! implement_uniform_block {
     (__as_item $i:item) => {$i};
 
     (__impl $struct_name:ident [$($gs:tt)*], $($field_name:ident),+) => (
-        implement_uniform_block! { __as_item
+        $crate::implement_uniform_block! { __as_item
             impl<$($gs)*> $crate::uniforms::UniformBlock for $struct_name<$($gs)*> {
                 fn matches(layout: &$crate::program::BlockLayout, base_offset: usize)
                            -> ::std::result::Result<(), $crate::uniforms::LayoutMismatchError>
@@ -607,7 +607,7 @@ macro_rules! program {
     ($facade:expr, $num:tt => $($rest:tt)*) => (
         {
             let context = $crate::backend::Facade::get_context($facade);
-            let version = program!(_parse_num_gl $num);
+            let version = $crate::program!(_parse_num_gl $num);
             $crate::program!(_inner, context, version, $($rest)*)
         }
     );
@@ -615,7 +615,7 @@ macro_rules! program {
     ($facade:expr, $num:tt es => $($rest:tt)*) => (
         {
             let context = $crate::backend::Facade::get_context($facade);
-            let version = program!(_parse_num_gles $num);
+            let version = $crate::program!(_parse_num_gles $num);
             $crate::program!(_inner, context, version, $($rest)*)
         }
     );
