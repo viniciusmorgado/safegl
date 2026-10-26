@@ -240,6 +240,7 @@ impl<'a> FramebufferAttachments<'a> {
                             default_samples: Some(samples.unwrap_or(0)),
                             default_samples_fixed: Some(fixed_samples),
                         },
+                        color_kinds: SmallVec::new(),
                         dimensions: (width, height),
                         layers,
                         depth_buffer_bits: None,
@@ -340,6 +341,7 @@ impl<'a> FramebufferAttachments<'a> {
         let mut stencil_bits = None;
         let mut samples = None; // contains `0` if not multisampling and `None` if unknown
 
+        let mut color_kinds = SmallVec::new();
         for &(index, LayeredAttachment(ref attachment)) in colors.iter() {
             if index >= max_color_attachments as u32 {
                 return Err(ValidationError::TooManyColorAttachments {
@@ -347,6 +349,7 @@ impl<'a> FramebufferAttachments<'a> {
                     obtained: index as usize,
                 });
             }
+            color_kinds.push((index, attachment.get_texture().kind()));
             raw_attachments
                 .color
                 .push((index, handle_tex!(attachment, dimensions, samples)));
@@ -387,6 +390,7 @@ impl<'a> FramebufferAttachments<'a> {
 
         Ok(ValidatedAttachments {
             raw: raw_attachments,
+            color_kinds,
             dimensions,
             layers: None, // FIXME: count layers
             depth_buffer_bits: depth_bits,
@@ -528,6 +532,7 @@ impl<'a> FramebufferAttachments<'a> {
         let mut stencil_bits = None;
         let mut samples = None; // contains `0` if not multisampling and `None` if unknown
 
+        let mut color_kinds = SmallVec::new();
         for &(index, ref attachment) in colors.iter() {
             if index >= max_color_attachments as u32 {
                 return Err(ValidationError::TooManyColorAttachments {
@@ -535,6 +540,11 @@ impl<'a> FramebufferAttachments<'a> {
                     obtained: index as usize,
                 });
             }
+            let kind = match attachment {
+                RegularAttachment::Texture(tex) => tex.get_texture().kind(),
+                RegularAttachment::RenderBuffer(rb) => rb.kind(),
+            };
+            color_kinds.push((index, kind));
             raw_attachments
                 .color
                 .push((index, handle_atch!(attachment, dimensions, samples)));
@@ -577,6 +587,7 @@ impl<'a> FramebufferAttachments<'a> {
 
         Ok(ValidatedAttachments {
             raw: raw_attachments,
+            color_kinds,
             dimensions,
             layers: None,
             depth_buffer_bits: depth_bits,
@@ -599,6 +610,8 @@ pub enum FramebufferTarget<'a> {
 #[derive(Clone)]
 pub struct ValidatedAttachments<'a> {
     raw: RawAttachments,
+    // the location and kind of each color attachment
+    color_kinds: SmallVec<[(u32, TextureKind); 4]>,
     dimensions: (u32, u32),
     layers: Option<u32>,
     depth_buffer_bits: Option<u16>,
@@ -607,6 +620,12 @@ pub struct ValidatedAttachments<'a> {
 }
 
 impl<'a> ValidatedAttachments<'a> {
+    /// Returns the fragment output location and the kind of each color attachment.
+    #[inline]
+    pub fn get_color_kinds(&self) -> &[(u32, TextureKind)] {
+        &self.color_kinds
+    }
+
     /// Returns `true` if the framebuffer is layered.
     #[inline]
     pub fn is_layered(&self) -> bool {

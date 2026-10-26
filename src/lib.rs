@@ -894,6 +894,9 @@ pub trait Surface {
     );
 
     /// Clears the color attachment of the target. The color is converted to sRGB when the target has sRGB format.
+    ///
+    /// The color attachments of integer formats are cleared with the components converted to
+    /// integers.
     fn clear_color(&mut self, red: f32, green: f32, blue: f32, alpha: f32) {
         self.clear(None, Some((red, green, blue, alpha)), false, None, None);
     }
