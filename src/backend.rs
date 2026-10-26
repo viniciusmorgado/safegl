@@ -62,8 +62,9 @@ pub unsafe trait Backend {
 
     /// Creates the `glow` context used to issue OpenGL calls.
     ///
-    /// Called once, after the context has been made current. The default implementation loads
-    /// the functions with `get_proc_address`.
+    /// Called after the context has been made current, when SafeGL is created and when its
+    /// context is rebuilt. The default implementation loads the functions with
+    /// `get_proc_address`.
     #[cfg(not(all(target_family = "wasm", not(target_os = "emscripten"))))]
     unsafe fn create_glow_context(&self) -> glow::Context {
         glow::Context::from_loader_function(|symbol| self.get_proc_address(symbol))
@@ -71,7 +72,8 @@ pub unsafe trait Backend {
 
     /// Creates the `glow` context used to issue OpenGL calls.
     ///
-    /// Called once, after the context has been made current.
+    /// Called after the context has been made current, when SafeGL is created and when its
+    /// context is rebuilt.
     #[cfg(all(target_family = "wasm", not(target_os = "emscripten")))]
     unsafe fn create_glow_context(&self) -> glow::Context;
 

@@ -90,6 +90,10 @@ pub struct Context {
     /// resumed when the command that triggered the message returns.
     debug_callback_panic: Cell<Option<Box<dyn Any + Send>>>,
 
+    /// Whether the debug messages are synchronous, to set up the debug output again when the
+    /// OpenGL context changes.
+    debug_output_synchronous: bool,
+
     /// Whether or not errors triggered by ARB_debug_output (and similar extensions) should be
     /// reported to the user when `DebugCallbackBehavior::DebugMessageOnError` is used. This must
     /// be set to `false` in some situations, like compiling/linking shaders.
@@ -302,6 +306,7 @@ impl Context {
             debug_callback: RefCell::new(debug_callback),
             frame_in_progress: Cell::new(false),
             debug_callback_panic: Cell::new(None),
+            debug_output_synchronous: synchronous,
             report_debug_output_errors,
             backend: RefCell::new(Box::new(backend)),
             check_current_context,
@@ -328,9 +333,7 @@ impl Context {
             /*assert!(::get_gl_error(&mut ctxt).is_none(),
             "SafeGL has triggered an OpenGL error during initialization. Please report \
              this error: https://github.com/viniciusmorgado/safegl/issues");*/
-            if ctxt.version.0 == Api::Gl && ctxt.extensions.gl_arb_seamless_cube_map {
-                ctxt.glow.enable(glow::TEXTURE_CUBE_MAP_SEAMLESS);
-            }
+            init_state(&ctxt);
         }
 
         Ok(context)
@@ -351,20 +354,48 @@ impl Context {
     where
         B: Backend + 'static,
     {
-        // framebuffer objects and vertex array objects aren't shared,
-        // so we have to destroy them
+        self.rebuild_inner(move |context| {
+            let old_backend = context.backend.replace(Box::new(new_backend));
+            Box::new(move |context: &Context| {
+                context.backend.replace(old_backend);
+            })
+        })
+    }
+
+    /// Changes the OpenGL context associated with this context. `switch` changes it in the
+    /// backend, and returns a function that changes it back if the new one isn't compatible.
+    pub(crate) unsafe fn rebuild_inner<'a, F>(&self, switch: F) -> Result<(), IncompatibleOpenGl>
+    where
+        F: FnOnce(&Context) -> Box<dyn FnOnce(&Context) + 'a>,
+    {
         {
             let mut ctxt = self.make_current();
+
+            // framebuffer objects and vertex array objects aren't shared,
+            // so we have to destroy them
             fbo::FramebuffersContainer::purge_all(&mut ctxt);
             vertex_array_object::VertexAttributesSystem::purge_all(&mut ctxt);
+
+            // the old context could outlive this one and send messages to a dangling pointer
+            if ctxt.state.enabled_debug_output == Some(true) {
+                ctxt.glow.disable(glow::DEBUG_OUTPUT);
+                ctxt.state.enabled_debug_output = Some(false);
+            }
         }
 
-        new_backend.make_current();
+        let switch_back = switch(self);
+        self.backend.borrow().make_current();
 
-        let version = version::get_gl_version(&self.glow);
-        let extensions = extensions::get_extensions(&self.glow);
+        // glow reads the version and the extensions once, when it is created
+        let new_glow = self.backend.borrow().create_glow_context();
+        let version = version::get_gl_version(&new_glow);
+        let extensions = extensions::get_extensions(&new_glow);
         if version != self.version || extensions != self.extensions {
+            switch_back(self);
             self.backend.borrow().make_current();
+            if self.debug_callback.borrow().is_some() {
+                init_debug_callback(self, self.debug_output_synchronous);
+            }
             return Err(IncompatibleOpenGl(format!(
                 "the new context provides OpenGL {:?} {}.{} and its extensions, instead of \
                  {:?} {}.{} and the extensions of the first context",
@@ -373,7 +404,12 @@ impl Context {
         }
 
         *self.state.borrow_mut() = Default::default();
-        *self.backend.borrow_mut() = Box::new(new_backend);
+
+        // the debug output and the other state are set up again in the new context
+        if self.debug_callback.borrow().is_some() {
+            init_debug_callback(self, self.debug_output_synchronous);
+        }
+        init_state(&self.make_current());
 
         // making textures resident
         let textures = self.resident_texture_handles.borrow();
@@ -1123,7 +1159,14 @@ fn printall_debug_callback(
 
 /// Initializes `GL_KHR_debug`, `GL_ARB_debug`, or a similar extension so that the debug output
 /// is reported.
-fn init_debug_callback(context: &Rc<Context>, synchronous: bool) {
+/// Sets up the state that SafeGL expects in a new OpenGL context.
+unsafe fn init_state(ctxt: &CommandContext<'_>) {
+    if ctxt.version.0 == Api::Gl && ctxt.extensions.gl_arb_seamless_cube_map {
+        ctxt.glow.enable(glow::TEXTURE_CUBE_MAP_SEAMLESS);
+    }
+}
+
+fn init_debug_callback(context: &Context, synchronous: bool) {
     // this is the C callback
     extern "system" fn callback_wrapper(
         source: gl::types::GLenum,
@@ -1191,7 +1234,7 @@ fn init_debug_callback(context: &Rc<Context>, synchronous: bool) {
 
     struct ContextRawPtr(*const Context);
     unsafe impl Send for ContextRawPtr {}
-    let context_raw_ptr = ContextRawPtr(&**context);
+    let context_raw_ptr = ContextRawPtr(context);
 
     unsafe {
         let mut ctxt = context.make_current();

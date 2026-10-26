@@ -229,6 +229,11 @@ Fixes:
   programs of `Program::from_source` and `program!` output sRGB and draw with it disabled. It
   now explains both values of `outputs_srgb`, `clear_color_srgb`, and the conversion that OpenGL
   ES can't turn off without `GL_EXT_sRGB_write_control` (glium#1115).
+- `Context::rebuild` compares the version and the extensions of the new context with the first
+  one: it compared the values that glow read from the first context, so it never refused a
+  context. It also sets up the debug output and the seamless cube maps of the new context, and
+  turns off the debug output of the previous one, whose messages would have reached a SafeGL
+  context that could be gone. `Backend::create_glow_context` is called again for the new context.
 
 ## [0.2.0]
 
