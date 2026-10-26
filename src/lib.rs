@@ -423,6 +423,11 @@ trait TextureExt {
     /// Prepares the texture to be accessed, after possibly being modified in a shader
     /// with image load/store
     fn prepare_for_access(&self, _: &mut CommandContext<'_>, access_type: TextureAccess);
+
+    /// Returns true if the texture has a signed or unsigned integer format.
+    fn is_integer(&self) -> bool {
+        false
+    }
 }
 
 /// Ways a texture could possibly be accessed after being written to in a shader via an image unit

@@ -1110,6 +1110,11 @@ impl TextureExt for TextureAny {
     }
 
     #[inline]
+    fn is_integer(&self) -> bool {
+        matches!(self.kind(), TextureKind::Integral | TextureKind::Unsigned)
+    }
+
+    #[inline]
     fn get_context(&self) -> &Rc<Context> {
         &self.context
     }

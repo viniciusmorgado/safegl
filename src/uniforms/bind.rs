@@ -23,6 +23,7 @@ use crate::uniforms::ImageUnitBehavior;
 use crate::uniforms::SamplerBehavior;
 use crate::uniforms::UniformValue;
 use crate::uniforms::Uniforms;
+use crate::uniforms::{MagnifySamplerFilter, MinifySamplerFilter};
 
 use crate::buffer::Inserter;
 use crate::context::CommandContext;
@@ -1268,6 +1269,22 @@ where
     T: TextureExt,
 {
     texture.prepare_for_access(ctxt, crate::TextureAccess::TextureFetch);
+
+    // integer textures can only be sampled without filtering: with linear filters they are
+    // incomplete and read as zero
+    let sampler = sampler.map(|mut sampler| {
+        if texture.is_integer() {
+            sampler.magnify_filter = MagnifySamplerFilter::Nearest;
+            sampler.minify_filter = match sampler.minify_filter {
+                MinifySamplerFilter::Nearest | MinifySamplerFilter::Linear => {
+                    MinifySamplerFilter::Nearest
+                }
+                _ => MinifySamplerFilter::NearestMipmapNearest,
+            };
+            sampler.max_anisotropy = 1;
+        }
+        sampler
+    });
 
     let sampler = if let Some(sampler) = sampler {
         Some(crate::sampler_object::get_sampler(ctxt, &sampler)?)
