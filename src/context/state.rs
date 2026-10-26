@@ -64,6 +64,12 @@ pub struct GlState {
     /// Whether GL_SAMPLE_COVERAGE is enabled
     pub enabled_sample_coverage: bool,
 
+    /// Whether GL_SAMPLE_MASK is enabled
+    pub enabled_sample_mask: bool,
+
+    /// Whether GL_SAMPLE_SHADING is enabled
+    pub enabled_sample_shading: bool,
+
     /// Whether GL_SCISSOR_TEST is enabled
     pub enabled_scissor_test: bool,
 
@@ -109,6 +115,14 @@ pub struct GlState {
         gl::types::GLboolean,
         gl::types::GLboolean,
     ),
+
+    /// Whether `glColorMaski` may have given some draw buffers a mask other than `color_mask`.
+    pub indexed_color_mask: bool,
+
+    /// Whether `glEnablei`, `glBlendEquationSeparatei` or `glBlendFuncSeparatei` may have given
+    /// some draw buffers a blending state other than `enabled_blend`, `blend_equation` and
+    /// `blend_func`.
+    pub indexed_blend: bool,
 
     /// The latest buffer bound to `GL_ARRAY_BUFFER`.
     pub array_buffer_binding: Option<glow::Buffer>,
@@ -250,6 +264,15 @@ pub struct GlState {
 
     /// The latest values passed to `glPolygonOffset`.
     pub polygon_offset: (gl::types::GLfloat, gl::types::GLfloat),
+
+    /// The latest clamp passed to `glPolygonOffsetClamp`.
+    pub polygon_offset_clamp: gl::types::GLfloat,
+
+    /// The latest value passed to `glMinSampleShading`.
+    pub min_sample_shading: gl::types::GLfloat,
+
+    /// The latest value passed to `glSampleMaski` for the first mask word.
+    pub sample_mask: gl::types::GLbitfield,
 
     /// The latest value passed to `glHint` for smoothing.
     pub smooth: (gl::types::GLenum, gl::types::GLenum),
@@ -428,6 +451,8 @@ impl Default for GlState {
             enabled_rasterizer_discard: false,
             enabled_sample_alpha_to_coverage: false,
             enabled_sample_coverage: false,
+            enabled_sample_mask: false,
+            enabled_sample_shading: false,
             enabled_scissor_test: false,
             enabled_stencil_test: false,
             enabled_line_smooth: false,
@@ -442,6 +467,8 @@ impl Default for GlState {
             clear_depth: 1.0,
             clear_stencil: 0,
             color_mask: (1, 1, 1, 1),
+            indexed_color_mask: false,
+            indexed_blend: false,
             array_buffer_binding: None,
             pixel_pack_buffer_binding: None,
             pixel_unpack_buffer_binding: None,
@@ -500,6 +527,9 @@ impl Default for GlState {
             transform_feedback_paused: false,
             primitive_bounding_box: (-1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0),
             polygon_offset: (0.0, 0.0),
+            polygon_offset_clamp: 0.0,
+            min_sample_shading: 0.0,
+            sample_mask: !0,
             clip_control: (gl::LOWER_LEFT, gl::NEGATIVE_ONE_TO_ONE),
 
             next_draw_call_id: 1,

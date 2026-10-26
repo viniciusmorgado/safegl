@@ -1679,6 +1679,19 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         // closing `impl Mipmap` block
         (writeln!(dest, "}}")).unwrap();
 
+        (writeln!(
+            dest,
+            "#[cfg(feature = \"gl46\")]
+             impl<'t> From<{name}Mipmap<'t>> for crate::texture::CopyImageTarget<'t> {{
+                 #[inline]
+                 fn from(mipmap: {name}Mipmap<'t>) -> crate::texture::CopyImageTarget<'t> {{
+                     crate::texture::CopyImageTarget::Texture(mipmap.0)
+                 }}
+             }}",
+            name = name
+        ))
+        .unwrap();
+
         if !dimensions.is_array() && !dimensions.is_cube() {
             // into raw image
             (writeln!(

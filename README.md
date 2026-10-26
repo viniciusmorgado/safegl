@@ -87,15 +87,28 @@ at all, even where a 4.1 driver offers them as an extension:
 | Image load/store    | OpenGL 4.2                        | `uniforms::{ImageUnit, ImageUnitBehavior, ImageUnitAccess, ImageUnitFormat, ImageUnitError}`, `image_unit()` on textures, `UniformValue::*Image*`, `DrawError::InsufficientImageUnits` |
 | Multidraw indirect  | OpenGL 4.3                        | `index::{DrawCommandsNoIndicesBuffer, DrawCommandsIndicesBuffer, DrawCommandNoIndices, DrawCommandIndices}`, `IndicesSource::Multidraw*`     |
 | Empty framebuffers  | OpenGL 4.3                        | `framebuffer::EmptyFrameBuffer`                                                                                                              |
+| Copying images      | OpenGL 4.3                        | `texture::{copy_image, is_copy_image_supported, CopyImageTarget, CopyImageError}`, `copy_to()` on mipmaps                                 |
+| Clearing textures   | OpenGL 4.4                        | `texture::{is_clear_texture_supported, ClearTextureError}`, `clear()`, `clear_region()` and `clear_depth_stencil()` on mipmaps            |
 | Query buffers       | OpenGL 4.4                        | `to_buffer_u32()` on queries, `draw_parameters::ToBufferError`, `BufferType::QueryBuffer`                                                    |
+| Texture barrier     | OpenGL 4.5                        | `texture::{texture_barrier, is_texture_barrier_supported, TextureBarrierNotSupportedError}`                                                 |
 | Clip control        | OpenGL 4.5                        | `DrawParameters::{clip_control_origin, clip_control_depth}`, `ClipControlOrigin`, `ClipControlDepth`, `DrawError::ClipControlNotSupported`   |
+| Polygon offset clamp | OpenGL 4.6                       | `DrawParameters::polygon_offset_clamp`, `DrawError::PolygonOffsetClampNotSupported`                                                         |
 | SPIR-V shaders      | OpenGL 4.6                        | `ProgramCreationInput::SpirV`, `program::{SpirvProgram, SpirvEntryPoint}`                                                                    |
 | Bindless textures   | never (`ARB_bindless_texture`)    | `texture::bindless`, `texture::{ResidentTexture, TextureHandle, BindlessTexturesNotSupportedError}`, `resident()` on textures                 |
 
 A `gl46` build still runs on an older driver, so these APIs keep their runtime checks: for example
 `ComputeShader::is_supported` returns `false` and `resident()` returns an error when the driver lacks
 the version or extension. Optional features that every tier exposes (tessellation or geometry
-shaders on OpenGL ES 3.0, for example) are checked at runtime in the same way.
+shaders on OpenGL ES 3.0, for example) are checked at runtime in the same way. Among them:
+
+| Functionality       | Needs                                         | Items                                                                                    |
+|---------------------|-----------------------------------------------|------------------------------------------------------------------------------------------|
+| Sample shading      | OpenGL 4.0, OpenGL ES 3.2; not WebGL          | `DrawParameters::sample_shading`, `DrawError::SampleShadingNotSupported`                 |
+| Sample mask         | OpenGL 3.2, OpenGL ES 3.1; not WebGL          | `DrawParameters::sample_mask`, `DrawError::SampleMaskNotSupported`                       |
+| Per-output state    | OpenGL 4.0, OpenGL ES 3.2; not WebGL          | `DrawParameters::outputs`, `OutputState`, `DrawError::PerOutputStateNotSupported`        |
+| Invalidation        | OpenGL 4.3, OpenGL ES 3.0, WebGL 2            | `invalidate()` and `invalidate_rect()` on framebuffers, `framebuffer::InvalidateAttachments`; a no-op elsewhere |
+
+`DrawParameters::alpha_to_coverage` is core everywhere, WebGL 2 included.
 
 `BufferMode::Persistent` and `BufferMode::Immutable` are available in every tier. They use
 `glBufferStorage` (OpenGL 4.4) when the driver has it and fall back to `glBufferData` otherwise.

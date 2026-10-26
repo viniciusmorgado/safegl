@@ -199,6 +199,13 @@ where
     if bind_point == gl::TEXTURE_CUBE_MAP || bind_point == gl::TEXTURE_CUBE_MAP_ARRAY {
         assert!(data.is_none()); // TODO: not supported
     }
+    if (bind_point == gl::TEXTURE_2D_MULTISAMPLE
+        && !super::is_texture_2d_multisample_supported(facade.get_context()))
+        || (bind_point == gl::TEXTURE_2D_MULTISAMPLE_ARRAY
+            && !super::is_texture_2d_multisample_array_supported(facade.get_context()))
+    {
+        return Err(TextureCreationError::DimensionsNotSupported);
+    }
 
     let should_generate_mipmaps = mipmaps.should_generate();
     let texture_levels = mipmaps.num_levels(width, height, depth) as gl::types::GLsizei;
@@ -527,8 +534,10 @@ where
                 a => a,
             };
 
+            // `glTexStorage2DMultisample` is the only way to create one on OpenGL ES 3.1+
             if storage_internal_format.is_some()
                 && (ctxt.version >= &Version(Api::Gl, 4, 2)
+                    || ctxt.version >= &Version(Api::GlEs, 3, 1)
                     || ctxt.extensions.gl_arb_texture_storage)
             {
                 ctxt.glow.tex_storage_2d_multisample(
@@ -1017,6 +1026,18 @@ impl TextureExt for TextureAny {
                         ctxt.glow.memory_barrier(glow::FRAMEBUFFER_BARRIER_BIT);
                     }
                     ctxt.state.latest_memory_barrier_framebuffer = ctxt.state.next_draw_call_id;
+                }
+            }
+            #[cfg(feature = "gl46")]
+            crate::TextureAccess::Update => {
+                if self.latest_shader_write.get()
+                    >= ctxt.state.latest_memory_barrier_texture_update
+                {
+                    unsafe {
+                        ctxt.glow.memory_barrier(glow::TEXTURE_UPDATE_BARRIER_BIT);
+                    }
+                    ctxt.state.latest_memory_barrier_texture_update =
+                        ctxt.state.next_draw_call_id;
                 }
             }
         }

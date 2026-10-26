@@ -134,7 +134,7 @@ pub use crate::draw_parameters::{
     BackfaceCullingMode, Blend, BlendingFunction, LinearBlendingFactor,
 };
 pub use crate::draw_parameters::{
-    Depth, DepthTest, DrawParameters, PolygonMode, StencilOperation, StencilTest,
+    Depth, DepthTest, DrawParameters, OutputState, PolygonMode, StencilOperation, StencilTest,
 };
 pub use crate::index::IndexBuffer;
 pub use crate::ops::ReadError;
@@ -433,6 +433,9 @@ enum TextureAccess {
     ImageUnit { will_write: bool },
     /// Texture being used as a framebuffer object
     Framebuffer,
+    /// Texture being cleared or copied with `glClearTexImage` or `glCopyImageSubData`
+    #[cfg(feature = "gl46")]
+    Update,
 }
 
 /// Internal trait for textures.
@@ -1262,6 +1265,25 @@ pub enum DrawError {
 
     /// Conditional rendering isn't supported by the backend.
     ConditionalRenderingNotSupported,
+
+    /// Per-sample shading (`DrawParameters::sample_shading`) isn't supported by the backend.
+    SampleShadingNotSupported,
+
+    /// Masking samples (`DrawParameters::sample_mask`) isn't supported by the backend.
+    SampleMaskNotSupported,
+
+    /// Giving outputs their own blending or color mask (`DrawParameters::outputs`) isn't
+    /// supported by the backend.
+    PerOutputStateNotSupported,
+
+    /// `DrawParameters::outputs` has more entries than the backend has draw buffers.
+    OutputStateIndexOutOfBounds,
+
+    /// Clamping the depth offset (`DrawParameters::polygon_offset_clamp`) isn't supported by the
+    /// backend.
+    #[cfg(feature = "gl46")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    PolygonOffsetClampNotSupported,
 }
 
 impl Error for DrawError {
@@ -1346,6 +1368,17 @@ impl fmt::Display for DrawError {
                 "Offsetting the depth of points or lines is not supported by the backend",
             ConditionalRenderingNotSupported =>
                 "Conditional rendering is not supported by the backend",
+            SampleShadingNotSupported =>
+                "Per-sample shading is not supported by the backend",
+            SampleMaskNotSupported =>
+                "Masking samples is not supported by the backend",
+            PerOutputStateNotSupported =>
+                "Giving outputs their own blending or color mask is not supported by the backend",
+            OutputStateIndexOutOfBounds =>
+                "There are more output states than draw buffers",
+            #[cfg(feature = "gl46")]
+            PolygonOffsetClampNotSupported =>
+                "Clamping the depth offset is not supported by the backend",
         };
         match self {
             UniformTypeMismatch {
@@ -1408,6 +1441,28 @@ pub struct Frame {
 }
 
 impl Frame {
+    /// Discards the content of the attachments selected by `which`
+    /// (`glInvalidateFramebuffer`).
+    ///
+    /// This tells the GPU that their content isn't needed any more, so that it doesn't have
+    /// to keep it or write it back to memory, which saves bandwidth, especially on the
+    /// tile-based GPUs of mobile devices. Their content is undefined afterwards, until they
+    /// are drawn to or cleared. Typical uses are the depth buffer at the end of a frame, and
+    /// intermediate targets once they have been read.
+    ///
+    /// This is only a hint: it does nothing without OpenGL 4.3, OpenGL ES 3.0 or
+    /// `GL_ARB_invalidate_subdata`.
+    pub fn invalidate(&self, which: framebuffer::InvalidateAttachments) {
+        let mut ctxt = self.context.make_current();
+        unsafe { fbo::FramebuffersContainer::invalidate(&mut ctxt, None, which, None) }
+    }
+
+    /// Like `invalidate`, but only inside `rect` (`glInvalidateSubFramebuffer`).
+    pub fn invalidate_rect(&self, which: framebuffer::InvalidateAttachments, rect: &Rect) {
+        let mut ctxt = self.context.make_current();
+        unsafe { fbo::FramebuffersContainer::invalidate(&mut ctxt, None, which, Some(rect)) }
+    }
+
     /// Builds a new `Frame`. Use the `draw` function on `Display` instead of this function.
     #[inline]
     pub fn new(context: Rc<Context>, dimensions: (u32, u32)) -> Frame {

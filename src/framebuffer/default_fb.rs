@@ -18,7 +18,7 @@ use crate::DrawError;
 use crate::{Program, Surface};
 
 use crate::fbo;
-use crate::framebuffer::{MultiOutputFrameBuffer, SimpleFrameBuffer};
+use crate::framebuffer::{InvalidateAttachments, MultiOutputFrameBuffer, SimpleFrameBuffer};
 use crate::index;
 use crate::uniforms::MagnifySamplerFilter;
 use crate::vertex;
@@ -44,6 +44,28 @@ pub struct DefaultFramebuffer {
 }
 
 impl DefaultFramebuffer {
+    /// Discards the content of the attachments selected by `which`
+    /// (`glInvalidateFramebuffer`).
+    ///
+    /// This tells the GPU that their content isn't needed any more, so that it doesn't have
+    /// to keep it or write it back to memory, which saves bandwidth, especially on the
+    /// tile-based GPUs of mobile devices. Their content is undefined afterwards, until they
+    /// are drawn to or cleared. Typical uses are the depth buffer at the end of a frame, and
+    /// intermediate targets once they have been read.
+    ///
+    /// This is only a hint: it does nothing without OpenGL 4.3, OpenGL ES 3.0 or
+    /// `GL_ARB_invalidate_subdata`.
+    pub fn invalidate(&self, which: InvalidateAttachments) {
+        let mut ctxt = self.context.make_current();
+        unsafe { fbo::FramebuffersContainer::invalidate(&mut ctxt, None, which, None) }
+    }
+
+    /// Like `invalidate`, but only inside `rect` (`glInvalidateSubFramebuffer`).
+    pub fn invalidate_rect(&self, which: InvalidateAttachments, rect: &Rect) {
+        let mut ctxt = self.context.make_current();
+        unsafe { fbo::FramebuffersContainer::invalidate(&mut ctxt, None, which, Some(rect)) }
+    }
+
     /// Creates a `DefaultFramebuffer` with the back left buffer.
     #[inline]
     pub fn back_left<F: ?Sized>(facade: &F) -> DefaultFramebuffer

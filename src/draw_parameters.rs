@@ -272,6 +272,27 @@ pub struct DrawParameters<'a> {
     /// is `(true, true, true, true)`.
     pub color_mask: (bool, bool, bool, bool),
 
+    /// Blending and color mask of each output of the fragment shader, overriding `blend` and
+    /// `color_mask` for it. The default value is an empty slice, where every output uses
+    /// `blend` and `color_mask`.
+    ///
+    /// Entry `i` applies to the output at location `i`, which is draw buffer `i` of the
+    /// framebuffer: the location that the program gives to an output's name with a
+    /// `MultiOutputFrameBuffer`, and location 0 with a `SimpleFrameBuffer`. Outputs past the
+    /// end of the slice use `blend` and `color_mask`. Typical uses are a G-buffer where one
+    /// attachment blends and the others don't, and weighted blended order-independent
+    /// transparency, whose two outputs blend differently.
+    ///
+    /// OpenGL has a single blend constant: the entries whose factors use it must have the same
+    /// `Blend::constant_value` as each other and as `blend`, if it uses one, or
+    /// `DrawError::BlendingParameterNotSupported` is returned.
+    ///
+    /// More entries than `Capabilities::max_draw_buffers` return
+    /// `DrawError::OutputStateIndexOutOfBounds`. Needs OpenGL 4.0 or OpenGL ES 3.2. Elsewhere,
+    /// WebGL included, an entry that differs from `blend` and `color_mask` returns
+    /// `DrawError::PerOutputStateNotSupported`.
+    pub outputs: &'a [OutputState],
+
     /// Width in pixels of the lines to draw when drawing lines.
     ///
     /// `None` means "don't care". Use this when you don't draw lines.
@@ -317,6 +338,39 @@ pub struct DrawParameters<'a> {
     /// OpenGL ES and WebGL can't disable multisampling of a multisampled framebuffer; `false`
     /// returns `DrawError::MultisamplingNotSupported`.
     pub multisampling: bool,
+
+    /// Whether the alpha of the first color output decides how many samples of each pixel the
+    /// fragment covers (`GL_SAMPLE_ALPHA_TO_COVERAGE`). Default value is `false`.
+    ///
+    /// An alpha of 0.5 covers about half of the samples, so after the multisample resolve the
+    /// fragment looks half transparent, without sorting and with depth writes intact. This is the
+    /// usual way to anti-alias alpha-tested foliage, fences and hair. The exact pattern of
+    /// samples is chosen by the implementation. It has no effect on a framebuffer that isn't
+    /// multisampled.
+    pub alpha_to_coverage: bool,
+
+    /// Minimum fraction of the samples of each pixel that get their own run of the fragment
+    /// shader (`glMinSampleShading`). Default value is `None`, which shades once per pixel.
+    ///
+    /// `Some(1.0)` shades every sample. This anti-aliases what the fragment shader computes
+    /// (texture lookups, the alpha used by `alpha_to_coverage`, specular highlights) and not
+    /// only the edges of triangles, at the cost of running the shader once per sample. Values are
+    /// clamped to `0.0..=1.0`. It has no effect on a framebuffer that isn't multisampled.
+    ///
+    /// Needs OpenGL 4.0, OpenGL ES 3.2 or `GL_OES_sample_shading`. Otherwise, and on WebGL,
+    /// returns `DrawError::SampleShadingNotSupported`.
+    pub sample_shading: Option<f32>,
+
+    /// Bitmask of the samples of each pixel that drawing may write (`glSampleMaski`). Bit `i`
+    /// stands for sample `i`. Default value is `None`, which doesn't mask any sample.
+    ///
+    /// The mask is combined with the coverage of the primitive (and with `alpha_to_coverage`):
+    /// a sample is written only if it is covered and its bit is set. Only the first 32 samples
+    /// can be masked. It has no effect on a framebuffer that isn't multisampled.
+    ///
+    /// Needs OpenGL 3.2 or OpenGL ES 3.1. Otherwise, and on WebGL, returns
+    /// `DrawError::SampleMaskNotSupported`.
+    pub sample_mask: Option<u32>,
 
     /// Whether dithering is activated. Default value is `true`.
     ///
@@ -422,6 +476,21 @@ pub struct DrawParameters<'a> {
     /// `DrawError::PolygonOffsetNotSupported`.
     pub polygon_offset: PolygonOffset,
 
+    /// Largest depth offset that `polygon_offset` may apply (`glPolygonOffsetClamp`), in the
+    /// units of window-space depth, where the depth range spans 1. The default value is `0.0`,
+    /// which doesn't clamp.
+    ///
+    /// A positive value limits the offset from above, a negative value from below. Shadow maps
+    /// use it to keep the large slope-scaled offset (`PolygonOffset::factor`) that removes
+    /// shadow acne from pushing surfaces seen at grazing angles so far back that shadows come
+    /// loose from the objects that cast them ("peter-panning").
+    ///
+    /// Needs OpenGL 4.6, `GL_ARB_polygon_offset_clamp` or `GL_EXT_polygon_offset_clamp`.
+    /// Otherwise a value other than `0.0` returns `DrawError::PolygonOffsetClampNotSupported`.
+    #[cfg(feature = "gl46")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    pub polygon_offset_clamp: f32,
+
     /// Clip control origin. The default value is `LowerLeft`.
     #[cfg(feature = "gl46")]
     #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
@@ -431,6 +500,58 @@ pub struct DrawParameters<'a> {
     #[cfg(feature = "gl46")]
     #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
     pub clip_control_depth: ClipControlDepth,
+}
+
+/// Blending and color mask of one output of the fragment shader. See `DrawParameters::outputs`.
+///
+/// Example: the two outputs of weighted blended order-independent transparency, where the
+/// first one adds up colors and the second one multiplies the transparencies.
+///
+/// ```
+/// use safegl::draw_parameters::OutputState;
+/// use safegl::{Blend, BlendingFunction, LinearBlendingFactor};
+///
+/// let add = BlendingFunction::Addition {
+///     source: LinearBlendingFactor::One,
+///     destination: LinearBlendingFactor::One,
+/// };
+/// let multiply = BlendingFunction::Addition {
+///     source: LinearBlendingFactor::Zero,
+///     destination: LinearBlendingFactor::OneMinusSourceColor,
+/// };
+/// let outputs = [
+///     OutputState {
+///         blend: Blend { color: add, alpha: add, ..Default::default() },
+///         ..Default::default()
+///     },
+///     OutputState {
+///         blend: Blend { color: multiply, alpha: multiply, ..Default::default() },
+///         ..Default::default()
+///     },
+/// ];
+/// let params = safegl::DrawParameters {
+///     outputs: &outputs,
+///     ..Default::default()
+/// };
+/// ```
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct OutputState {
+    /// How the output is merged with the existing pixel. See `DrawParameters::blend`.
+    pub blend: Blend,
+
+    /// Which components of the output are written: red, green, blue, alpha. See
+    /// `DrawParameters::color_mask`.
+    pub color_mask: (bool, bool, bool, bool),
+}
+
+impl Default for OutputState {
+    /// No blending and all components written, like the defaults of `DrawParameters`.
+    fn default() -> OutputState {
+        OutputState {
+            blend: Default::default(),
+            color_mask: (true, true, true, true),
+        }
+    }
 }
 
 /// Condition whether to render or not.
@@ -529,12 +650,16 @@ impl<'a> Default for DrawParameters<'a> {
             stencil: Default::default(),
             blend: Default::default(),
             color_mask: (true, true, true, true),
+            outputs: &[],
             line_width: None,
             point_size: None,
             backface_culling: BackfaceCullingMode::CullingDisabled,
             polygon_mode: PolygonMode::Fill,
             clip_planes_bitmask: 0,
             multisampling: true,
+            alpha_to_coverage: false,
+            sample_shading: None,
+            sample_mask: None,
             dithering: true,
             viewport: None,
             scissor: None,
@@ -550,6 +675,8 @@ impl<'a> Default for DrawParameters<'a> {
             primitive_bounding_box: (-1.0..1.0, -1.0..1.0, -1.0..1.0, -1.0..1.0),
             primitive_restart_index: false,
             polygon_offset: Default::default(),
+            #[cfg(feature = "gl46")]
+            polygon_offset_clamp: 0.0,
             #[cfg(feature = "gl46")]
             clip_control_origin: ClipControlOrigin::LowerLeft,
             #[cfg(feature = "gl46")]
@@ -578,10 +705,11 @@ pub fn sync(
     dimensions: (u32, u32),
     primitives_types: PrimitiveType,
 ) -> Result<(), DrawError> {
+    validate_outputs(ctxt, draw_parameters)?;
     depth::sync_depth(ctxt, &draw_parameters.depth)?;
     stencil::sync_stencil(ctxt, &draw_parameters.stencil);
-    blend::sync_blending(ctxt, draw_parameters.blend)?;
-    sync_color_mask(ctxt, draw_parameters.color_mask);
+    blend::sync_blending(ctxt, draw_parameters.blend, draw_parameters.outputs)?;
+    sync_color_mask(ctxt, draw_parameters.color_mask, draw_parameters.outputs);
     sync_line_width(ctxt, draw_parameters.line_width);
     sync_point_size(ctxt, draw_parameters.point_size);
     sync_polygon_mode(
@@ -591,6 +719,9 @@ pub fn sync(
     )?;
     sync_clip_planes_bitmask(ctxt, draw_parameters.clip_planes_bitmask)?;
     sync_multisampling(ctxt, draw_parameters.multisampling)?;
+    sync_alpha_to_coverage(ctxt, draw_parameters.alpha_to_coverage);
+    sync_sample_shading(ctxt, draw_parameters.sample_shading)?;
+    sync_sample_mask(ctxt, draw_parameters.sample_mask)?;
     sync_dithering(ctxt, draw_parameters.dithering);
     sync_viewport_scissor(
         ctxt,
@@ -611,7 +742,11 @@ pub fn sync(
     sync_provoking_vertex(ctxt, draw_parameters.provoking_vertex)?;
     sync_primitive_bounding_box(ctxt, &draw_parameters.primitive_bounding_box);
     sync_primitive_restart_index(ctxt, draw_parameters.primitive_restart_index)?;
-    sync_polygon_offset(ctxt, draw_parameters.polygon_offset)?;
+    sync_polygon_offset(
+        ctxt,
+        draw_parameters.polygon_offset,
+        polygon_offset_clamp(draw_parameters),
+    )?;
     #[cfg(feature = "gl46")]
     sync_clip_control(
         ctxt,
@@ -622,22 +757,71 @@ pub fn sync(
     Ok(())
 }
 
-fn sync_color_mask(ctxt: &mut context::CommandContext<'_>, mask: (bool, bool, bool, bool)) {
-    let mask = (
+/// Checks that `DrawParameters::outputs` fits in the draw buffers, and that the backend can
+/// give draw buffers their own state if an entry needs it.
+fn validate_outputs(
+    ctxt: &context::CommandContext<'_>,
+    draw_parameters: &DrawParameters<'_>,
+) -> Result<(), DrawError> {
+    let outputs = draw_parameters.outputs;
+    if outputs.is_empty() {
+        return Ok(());
+    }
+
+    if outputs.len() > ctxt.capabilities.max_draw_buffers.max(0) as usize {
+        return Err(DrawError::OutputStateIndexOutOfBounds);
+    }
+
+    let global_blend = blend::BlendState::new(draw_parameters.blend);
+    let overrides = outputs.iter().any(|output| {
+        output.color_mask != draw_parameters.color_mask
+            || blend::BlendState::new(output.blend) != global_blend
+    });
+    // `glColorMaski`, `glEnablei` and `glBlend*i` are core in OpenGL 4.0 and OpenGL ES 3.2
+    let supported = ctxt.version.0 == Api::Gl
+        || (ctxt.version >= &Version(Api::GlEs, 3, 2) && !crate::version::is_webgl());
+    if overrides && !supported {
+        return Err(DrawError::PerOutputStateNotSupported);
+    }
+
+    Ok(())
+}
+
+/// Sets the color mask of all draw buffers to `mask`, then overrides it for the draw buffers
+/// whose entry in `outputs` differs.
+fn sync_color_mask(
+    ctxt: &mut context::CommandContext<'_>,
+    mask: (bool, bool, bool, bool),
+    outputs: &[OutputState],
+) {
+    let gl_mask = (
         if mask.0 { 1 } else { 0 },
         if mask.1 { 1 } else { 0 },
         if mask.2 { 1 } else { 0 },
         if mask.3 { 1 } else { 0 },
     );
 
-    if ctxt.state.color_mask != mask {
+    // `glColorMask` sets every draw buffer, which also undoes the masks of a previous draw
+    // call that had overrides
+    if ctxt.state.indexed_color_mask || ctxt.state.color_mask != gl_mask {
         unsafe {
-            ctxt.glow
-                .color_mask(mask.0 != 0, mask.1 != 0, mask.2 != 0, mask.3 != 0);
+            ctxt.glow.color_mask(mask.0, mask.1, mask.2, mask.3);
         }
 
-        ctxt.state.color_mask = mask;
+        ctxt.state.color_mask = gl_mask;
     }
+
+    let mut indexed = false;
+    for (index, output) in outputs.iter().enumerate() {
+        if output.color_mask != mask {
+            let m = output.color_mask;
+            unsafe {
+                ctxt.glow.color_mask_draw_buffer(index as u32, m.0, m.1, m.2, m.3);
+            }
+            indexed = true;
+        }
+    }
+    ctxt.state.indexed_color_mask = indexed;
 }
 
 fn sync_line_width(ctxt: &mut context::CommandContext<'_>, line_width: Option<f32>) {
@@ -776,6 +960,88 @@ fn sync_multisampling(
                 ctxt.state.enabled_multisample = false;
             }
         }
+    }
+
+    Ok(())
+}
+
+fn sync_alpha_to_coverage(ctxt: &mut context::CommandContext<'_>, alpha_to_coverage: bool) {
+    if ctxt.state.enabled_sample_alpha_to_coverage != alpha_to_coverage {
+        ctxt.state.enabled_sample_alpha_to_coverage = alpha_to_coverage;
+        set_flag_enabled(ctxt, gl::SAMPLE_ALPHA_TO_COVERAGE, alpha_to_coverage);
+    }
+}
+
+fn sync_sample_shading(
+    ctxt: &mut context::CommandContext<'_>,
+    sample_shading: Option<f32>,
+) -> Result<(), DrawError> {
+    let value = match sample_shading {
+        Some(value) => value.clamp(0.0, 1.0),
+        None => {
+            // nothing to do if it was never enabled, which is always the case when unsupported
+            if ctxt.state.enabled_sample_shading {
+                ctxt.state.enabled_sample_shading = false;
+                set_flag_enabled(ctxt, gl::SAMPLE_SHADING, false);
+            }
+            return Ok(());
+        }
+    };
+
+    let core = ctxt.version.0 == Api::Gl || ctxt.version >= &Version(Api::GlEs, 3, 2);
+    if !core && !ctxt.extensions.gl_oes_sample_shading {
+        return Err(DrawError::SampleShadingNotSupported);
+    }
+
+    if ctxt.state.min_sample_shading != value {
+        unsafe {
+            if core {
+                ctxt.extra.MinSampleShading(value);
+            } else {
+                ctxt.extra.MinSampleShadingOES(value);
+            }
+        }
+        ctxt.state.min_sample_shading = value;
+    }
+
+    if !ctxt.state.enabled_sample_shading {
+        ctxt.state.enabled_sample_shading = true;
+        set_flag_enabled(ctxt, gl::SAMPLE_SHADING, true);
+    }
+
+    Ok(())
+}
+
+fn sync_sample_mask(
+    ctxt: &mut context::CommandContext<'_>,
+    sample_mask: Option<u32>,
+) -> Result<(), DrawError> {
+    let mask = match sample_mask {
+        Some(mask) => mask,
+        None => {
+            // nothing to do if it was never enabled, which is always the case when unsupported
+            if ctxt.state.enabled_sample_mask {
+                ctxt.state.enabled_sample_mask = false;
+                set_flag_enabled(ctxt, gl::SAMPLE_MASK, false);
+            }
+            return Ok(());
+        }
+    };
+
+    if ctxt.version.0 != Api::Gl && ctxt.version < &Version(Api::GlEs, 3, 1) {
+        return Err(DrawError::SampleMaskNotSupported);
+    }
+
+    if ctxt.state.sample_mask != mask {
+        unsafe {
+            ctxt.extra.SampleMaski(0, mask);
+        }
+        ctxt.state.sample_mask = mask;
+    }
+
+    if !ctxt.state.enabled_sample_mask {
+        ctxt.state.enabled_sample_mask = true;
+        set_flag_enabled(ctxt, gl::SAMPLE_MASK, true);
     }
 
     Ok(())
@@ -1172,9 +1438,20 @@ fn set_flag_enabled(ctxt: &mut context::CommandContext<'_>, cap: gl::types::GLen
     }
 }
 
+#[cfg(feature = "gl46")]
+fn polygon_offset_clamp(draw_parameters: &DrawParameters<'_>) -> f32 {
+    draw_parameters.polygon_offset_clamp
+}
+
+#[cfg(not(feature = "gl46"))]
+fn polygon_offset_clamp(_: &DrawParameters<'_>) -> f32 {
+    0.0
+}
+
 fn sync_polygon_offset(
     ctxt: &mut context::CommandContext<'_>,
     offset: PolygonOffset,
+    clamp: f32,
 ) -> Result<(), DrawError> {
     // `GL_POLYGON_OFFSET_POINT` and `GL_POLYGON_OFFSET_LINE` don't exist on OpenGL ES and WebGL
     let is_gl = ctxt.version.0 == Api::Gl;
@@ -1182,11 +1459,18 @@ fn sync_polygon_offset(
         return Err(DrawError::PolygonOffsetNotSupported);
     }
 
-    if ctxt.state.polygon_offset != (offset.factor, offset.units) {
-        unsafe {
-            ctxt.glow.polygon_offset(offset.factor, offset.units);
+    if ctxt.state.polygon_offset != (offset.factor, offset.units)
+        || ctxt.state.polygon_offset_clamp != clamp
+    {
+        if clamp == 0.0 && ctxt.state.polygon_offset_clamp == 0.0 {
+            unsafe {
+                ctxt.glow.polygon_offset(offset.factor, offset.units);
+            }
+        } else {
+            set_polygon_offset_clamp(ctxt, offset.factor, offset.units, clamp)?;
         }
         ctxt.state.polygon_offset = (offset.factor, offset.units);
+        ctxt.state.polygon_offset_clamp = clamp;
     }
 
     if is_gl && offset.point != ctxt.state.enabled_polygon_offset_point {
@@ -1205,6 +1489,37 @@ fn sync_polygon_offset(
     }
 
     Ok(())
+}
+
+#[cfg(feature = "gl46")]
+fn set_polygon_offset_clamp(
+    ctxt: &mut context::CommandContext<'_>,
+    factor: f32,
+    units: f32,
+    clamp: f32,
+) -> Result<(), DrawError> {
+    unsafe {
+        if ctxt.version >= &Version(Api::Gl, 4, 6) || ctxt.extensions.gl_arb_polygon_offset_clamp
+        {
+            ctxt.extra.PolygonOffsetClamp(factor, units, clamp);
+        } else if ctxt.extensions.gl_ext_polygon_offset_clamp {
+            ctxt.extra.PolygonOffsetClampEXT(factor, units, clamp);
+        } else {
+            return Err(DrawError::PolygonOffsetClampNotSupported);
+        }
+    }
+    Ok(())
+}
+
+// without `gl46` the clamp is always 0
+#[cfg(not(feature = "gl46"))]
+fn set_polygon_offset_clamp(
+    _: &mut context::CommandContext<'_>,
+    _: f32,
+    _: f32,
+    _: f32,
+) -> Result<(), DrawError> {
+    unreachable!()
 }
 
 #[cfg(feature = "gl46")]

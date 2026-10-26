@@ -1,8 +1,10 @@
 use crate::context::CommandContext;
 
+use super::OutputState;
 use crate::gl;
 use crate::DrawError;
 use glow::HasContext;
+use smallvec::SmallVec;
 
 /// Blend effect that the GPU will use for blending.
 ///
@@ -221,65 +223,74 @@ impl LinearBlendingFactor {
     }
 }
 
-pub fn sync_blending(ctxt: &mut CommandContext<'_>, blend: Blend) -> Result<(), DrawError> {
-    #[inline(always)]
-    fn blend_eq(blending_function: BlendingFunction) -> gl::types::GLenum {
-        match blending_function {
-            BlendingFunction::AlwaysReplace | BlendingFunction::Addition { .. } => gl::FUNC_ADD,
-            BlendingFunction::Subtraction { .. } => gl::FUNC_SUBTRACT,
-            BlendingFunction::ReverseSubtraction { .. } => gl::FUNC_REVERSE_SUBTRACT,
+/// The OpenGL state that a `Blend` translates to.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub(crate) struct BlendState {
+    /// Whether `GL_BLEND` is enabled. When it isn't, the other fields keep their defaults.
+    enabled: bool,
+    /// Color and alpha equations.
+    equation: (gl::types::GLenum, gl::types::GLenum),
+    /// Source and destination factors of the color, then of the alpha.
+    func: (
+        gl::types::GLenum,
+        gl::types::GLenum,
+        gl::types::GLenum,
+        gl::types::GLenum,
+    ),
+    /// The blend constant, if one of the factors uses it.
+    constant: Option<(f32, f32, f32, f32)>,
+}
 
-            // `GL_MIN` and `GL_MAX` are core in OpenGL ES 3.0
-            BlendingFunction::Min => gl::MIN,
-            BlendingFunction::Max => gl::MAX,
-        }
-    }
+impl BlendState {
+    pub(crate) fn new(blend: Blend) -> BlendState {
+        #[inline(always)]
+        fn blend_eq(blending_function: BlendingFunction) -> gl::types::GLenum {
+            match blending_function {
+                BlendingFunction::AlwaysReplace | BlendingFunction::Addition { .. } => {
+                    gl::FUNC_ADD
+                }
+                BlendingFunction::Subtraction { .. } => gl::FUNC_SUBTRACT,
+                BlendingFunction::ReverseSubtraction { .. } => gl::FUNC_REVERSE_SUBTRACT,
 
-    #[inline(always)]
-    fn blending_factors(
-        blending_function: BlendingFunction,
-    ) -> Option<(LinearBlendingFactor, LinearBlendingFactor)> {
-        match blending_function {
-            BlendingFunction::AlwaysReplace | BlendingFunction::Min | BlendingFunction::Max => None,
-            BlendingFunction::Addition {
-                source,
-                destination,
-            } => Some((source, destination)),
-            BlendingFunction::Subtraction {
-                source,
-                destination,
-            } => Some((source, destination)),
-            BlendingFunction::ReverseSubtraction {
-                source,
-                destination,
-            } => Some((source, destination)),
-        }
-    }
-
-    if let (BlendingFunction::AlwaysReplace, BlendingFunction::AlwaysReplace) =
-        (blend.color, blend.alpha)
-    {
-        // Both color and alpha always replace. This equals no blending.
-        if ctxt.state.enabled_blend {
-            unsafe {
-                ctxt.glow.disable(glow::BLEND);
+                // `GL_MIN` and `GL_MAX` are core in OpenGL ES 3.0
+                BlendingFunction::Min => gl::MIN,
+                BlendingFunction::Max => gl::MAX,
             }
-            ctxt.state.enabled_blend = false;
-        }
-    } else {
-        if !ctxt.state.enabled_blend {
-            unsafe {
-                ctxt.glow.enable(glow::BLEND);
-            }
-            ctxt.state.enabled_blend = true;
         }
 
-        let (color_eq, alpha_eq) = (blend_eq(blend.color), blend_eq(blend.alpha));
-        if ctxt.state.blend_equation != (color_eq, alpha_eq) {
-            unsafe {
-                ctxt.glow.blend_equation_separate(color_eq, alpha_eq);
+        #[inline(always)]
+        fn blending_factors(
+            blending_function: BlendingFunction,
+        ) -> Option<(LinearBlendingFactor, LinearBlendingFactor)> {
+            match blending_function {
+                BlendingFunction::AlwaysReplace
+                | BlendingFunction::Min
+                | BlendingFunction::Max => None,
+                BlendingFunction::Addition {
+                    source,
+                    destination,
+                } => Some((source, destination)),
+                BlendingFunction::Subtraction {
+                    source,
+                    destination,
+                } => Some((source, destination)),
+                BlendingFunction::ReverseSubtraction {
+                    source,
+                    destination,
+                } => Some((source, destination)),
             }
-            ctxt.state.blend_equation = (color_eq, alpha_eq);
+        }
+
+        if let (BlendingFunction::AlwaysReplace, BlendingFunction::AlwaysReplace) =
+            (blend.color, blend.alpha)
+        {
+            // Both color and alpha always replace. This equals no blending.
+            return BlendState {
+                enabled: false,
+                equation: (gl::FUNC_ADD, gl::FUNC_ADD),
+                func: (gl::ONE, gl::ZERO, gl::ONE, gl::ZERO),
+                constant: None,
+            };
         }
 
         // Map to dummy factors if the blending equation does not use the factors.
@@ -288,62 +299,141 @@ pub fn sync_blending(ctxt: &mut CommandContext<'_>, blend: Blend) -> Result<(), 
         let (alpha_factor_src, alpha_factor_dst) = blending_factors(blend.alpha)
             .unwrap_or((LinearBlendingFactor::One, LinearBlendingFactor::Zero));
 
-        // Updating the blending color if necessary.
-        if (color_factor_src == LinearBlendingFactor::ConstantColor
-            || color_factor_src == LinearBlendingFactor::OneMinusConstantColor
-            || color_factor_dst == LinearBlendingFactor::ConstantColor
-            || color_factor_dst == LinearBlendingFactor::OneMinusConstantColor
-            || alpha_factor_src == LinearBlendingFactor::ConstantColor
-            || alpha_factor_src == LinearBlendingFactor::OneMinusConstantColor
-            || alpha_factor_dst == LinearBlendingFactor::ConstantColor
-            || alpha_factor_dst == LinearBlendingFactor::OneMinusConstantColor
-            || color_factor_src == LinearBlendingFactor::ConstantAlpha
-            || color_factor_src == LinearBlendingFactor::OneMinusConstantAlpha
-            || color_factor_dst == LinearBlendingFactor::ConstantAlpha
-            || color_factor_dst == LinearBlendingFactor::OneMinusConstantAlpha
-            || alpha_factor_src == LinearBlendingFactor::ConstantAlpha
-            || alpha_factor_src == LinearBlendingFactor::OneMinusConstantAlpha
-            || alpha_factor_dst == LinearBlendingFactor::ConstantAlpha
-            || alpha_factor_dst == LinearBlendingFactor::OneMinusConstantAlpha)
-            && ctxt.state.blend_color != blend.constant_value
-        {
-            let (r, g, b, a) = blend.constant_value;
+        let uses_constant = [
+            color_factor_src,
+            color_factor_dst,
+            alpha_factor_src,
+            alpha_factor_dst,
+        ]
+        .iter()
+        .any(|factor| {
+            matches!(
+                factor,
+                LinearBlendingFactor::ConstantColor
+                    | LinearBlendingFactor::OneMinusConstantColor
+                    | LinearBlendingFactor::ConstantAlpha
+                    | LinearBlendingFactor::OneMinusConstantAlpha
+            )
+        });
+
+        BlendState {
+            enabled: true,
+            equation: (blend_eq(blend.color), blend_eq(blend.alpha)),
+            func: (
+                color_factor_src.to_glenum(),
+                color_factor_dst.to_glenum(),
+                alpha_factor_src.to_glenum(),
+                alpha_factor_dst.to_glenum(),
+            ),
+            constant: if uses_constant {
+                Some(blend.constant_value)
+            } else {
+                None
+            },
+        }
+    }
+}
+
+/// Sets the blending of all draw buffers to `blend`, then overrides it for the draw buffers
+/// whose entry in `outputs` differs.
+///
+/// The caller has already checked that `outputs` fits in the draw buffers and that the backend
+/// supports per-draw-buffer state if any entry differs from `blend`.
+pub fn sync_blending(
+    ctxt: &mut CommandContext<'_>,
+    blend: Blend,
+    outputs: &[OutputState],
+) -> Result<(), DrawError> {
+    let global = BlendState::new(blend);
+    let overrides = outputs
+        .iter()
+        .map(|output| BlendState::new(output.blend))
+        .enumerate()
+        .filter(|(_, state)| *state != global)
+        .collect::<SmallVec<[_; 8]>>();
+
+    // There is a single blend constant for all draw buffers.
+    let mut constant = global.constant;
+    for (_, state) in &overrides {
+        match (constant, state.constant) {
+            (Some(a), Some(b)) if a != b => return Err(DrawError::BlendingParameterNotSupported),
+            (None, Some(b)) => constant = Some(b),
+            _ => (),
+        }
+    }
+    if let Some(constant) = constant {
+        if ctxt.state.blend_color != constant {
+            let (r, g, b, a) = constant;
             unsafe {
                 ctxt.glow.blend_color(r, g, b, a);
             }
-            ctxt.state.blend_color = blend.constant_value;
-        }
-
-        // Updating the blending function if necessary.
-        let color_factor_src = color_factor_src.to_glenum();
-        let color_factor_dst = color_factor_dst.to_glenum();
-        let alpha_factor_src = alpha_factor_src.to_glenum();
-        let alpha_factor_dst = alpha_factor_dst.to_glenum();
-        if ctxt.state.blend_func
-            != (
-                color_factor_src,
-                color_factor_dst,
-                alpha_factor_src,
-                alpha_factor_dst,
-            )
-        {
-            unsafe {
-                ctxt.glow.blend_func_separate(
-                    color_factor_src,
-                    color_factor_dst,
-                    alpha_factor_src,
-                    alpha_factor_dst,
-                );
-            }
-
-            ctxt.state.blend_func = (
-                color_factor_src,
-                color_factor_dst,
-                alpha_factor_src,
-                alpha_factor_dst,
-            );
+            ctxt.state.blend_color = constant;
         }
     }
+
+    // The global functions set every draw buffer. If a previous draw call overrode some of
+    // them, the cache can't be trusted and everything is set again.
+    let force = ctxt.state.indexed_blend;
+
+    if force || ctxt.state.enabled_blend != global.enabled {
+        unsafe {
+            if global.enabled {
+                ctxt.glow.enable(glow::BLEND);
+            } else {
+                ctxt.glow.disable(glow::BLEND);
+            }
+        }
+        ctxt.state.enabled_blend = global.enabled;
+    }
+
+    // When blending is disabled, the cached equation and function are kept.
+    let equation = if global.enabled {
+        global.equation
+    } else {
+        ctxt.state.blend_equation
+    };
+    if force || ctxt.state.blend_equation != equation {
+        unsafe {
+            ctxt.glow.blend_equation_separate(equation.0, equation.1);
+        }
+        ctxt.state.blend_equation = equation;
+    }
+
+    let func = if global.enabled {
+        global.func
+    } else {
+        ctxt.state.blend_func
+    };
+    if force || ctxt.state.blend_func != func {
+        unsafe {
+            ctxt.glow.blend_func_separate(func.0, func.1, func.2, func.3);
+        }
+        ctxt.state.blend_func = func;
+    }
+
+    for (index, state) in &overrides {
+        let index = *index as u32;
+        unsafe {
+            if state.enabled {
+                ctxt.glow.enable_draw_buffer(glow::BLEND, index);
+                ctxt.glow.blend_equation_separate_draw_buffer(
+                    index,
+                    state.equation.0,
+                    state.equation.1,
+                );
+                ctxt.glow.blend_func_separate_draw_buffer(
+                    index,
+                    state.func.0,
+                    state.func.1,
+                    state.func.2,
+                    state.func.3,
+                );
+            } else {
+                ctxt.glow.disable_draw_buffer(glow::BLEND, index);
+            }
+        }
+    }
+    ctxt.state.indexed_blend = !overrides.is_empty();
 
     Ok(())
 }

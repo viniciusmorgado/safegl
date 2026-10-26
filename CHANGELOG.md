@@ -5,6 +5,37 @@ All notable changes to this project are documented in this file. Versions follow
 
 ## [Unreleased]
 
+Additions:
+
+- `DrawParameters::alpha_to_coverage`, `sample_shading` (`glMinSampleShading`) and `sample_mask`
+  (`glSampleMaski`), with the `DrawError::SampleShadingNotSupported` and `SampleMaskNotSupported`
+  errors.
+- `DrawParameters::outputs` and `OutputState`: blending and color mask per fragment shader output
+  (`glBlendFuncSeparatei`, `glColorMaski`), with the `DrawError::PerOutputStateNotSupported` and
+  `OutputStateIndexOutOfBounds` errors. Clearing a framebuffer ignores the per-output masks as it
+  does the global one, and so does `raw_clear_buffer` on textures, which used to obey the color
+  mask left by the previous draw.
+- `DrawParameters::polygon_offset_clamp` (`gl46`, `glPolygonOffsetClamp`), with the
+  `DrawError::PolygonOffsetClampNotSupported` error.
+- `texture::copy_image` and `copy_to()` on mipmaps (`gl46`, `glCopyImageSubData`): copies between
+  textures and render buffers, with format, sample count, bounds, block alignment and overlap
+  checks.
+- `clear()`, `clear_region()` and `clear_depth_stencil()` on mipmaps (`gl46`, `glClearTexImage`):
+  clears any kind of texture without a framebuffer.
+- `texture::texture_barrier` (`gl46`, `glTextureBarrier`), which makes reading a texture attached
+  to the framebuffer being drawn to well defined between barriers.
+- `invalidate()` and `invalidate_rect()` on `SimpleFrameBuffer`, `MultiOutputFrameBuffer`,
+  `DefaultFramebuffer` and `Frame`, with `framebuffer::InvalidateAttachments`
+  (`glInvalidateFramebuffer`). They do nothing where invalidation isn't supported.
+- Examples: `alpha_to_coverage`, which uses the CC0 "Fern 02" model from Poly Haven, `shadow_bias`,
+  `programmable_blending` and `weighted_oit`.
+
+Fixes:
+
+- Multisample textures can be created and attached to framebuffers on OpenGL ES 3.1+, where they
+  reached `unreachable!()`. Creating one where it isn't supported returns
+  `TextureCreationError::DimensionsNotSupported`.
+
 ## [0.1.0]
 
 First release under the `safegl` name, forked from glium 0.36.0. SafeGL now issues OpenGL calls

@@ -33,8 +33,10 @@ pub fn clear(
             ctxt.state.enabled_rasterizer_discard = false;
         }
 
-        if ctxt.state.color_mask != (1, 1, 1, 1) {
+        // also undoes the per-draw-buffer masks of `DrawParameters::outputs`
+        if ctxt.state.color_mask != (1, 1, 1, 1) || ctxt.state.indexed_color_mask {
             ctxt.state.color_mask = (1, 1, 1, 1);
+            ctxt.state.indexed_color_mask = false;
             ctxt.glow.color_mask(true, true, true, true);
         }
 
