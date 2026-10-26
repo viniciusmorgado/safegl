@@ -210,6 +210,46 @@ impl<T: SurfaceTypeTrait + ResizeableSurface> Display<T> {
         })
     }
 
+    /// Returns the glutin context, for example to create a context that shares its objects with
+    /// `ContextAttributesBuilder::with_sharing` before calling `rebuild`.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the returned reference is still alive when `rebuild` is called.
+    #[inline]
+    pub fn gl_context(&self) -> std::cell::Ref<'_, PossiblyCurrentContext> {
+        std::cell::Ref::map(self.gl_context.borrow(), |pair| {
+            &pair.as_ref().unwrap().context
+        })
+    }
+
+    /// Replaces the glutin context and surface of the display, for example to move it to another
+    /// window.
+    ///
+    /// The textures, buffers, programs and other objects of SafeGL keep working: the new context
+    /// must share them with the current one, and provide the same OpenGL version and extensions.
+    /// If it doesn't, this returns an error and the display keeps its current context and
+    /// surface.
+    ///
+    /// # Safety
+    ///
+    /// `context` must share its objects with the current context of the display, for example by
+    /// being created with `ContextAttributesBuilder::with_sharing(&*display.gl_context())`.
+    pub unsafe fn rebuild(
+        &self,
+        context: PossiblyCurrentContext,
+        surface: Surface<T>,
+    ) -> Result<(), IncompatibleOpenGl> {
+        let pair = ContextSurfacePair::new(context, surface);
+        let gl_context = &self.gl_context;
+        self.context.rebuild_inner(move |_| {
+            let old_pair = gl_context.borrow_mut().replace(pair);
+            Box::new(move |_: &context::Context| {
+                *gl_context.borrow_mut() = old_pair;
+            })
+        })
+    }
+
     /// Resize the underlying surface.
     #[inline]
     pub fn resize(&self, new_size: (u32, u32)) {

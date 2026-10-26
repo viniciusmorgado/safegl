@@ -139,6 +139,9 @@ Additions:
 - `PrimitivesGeneratedQuery` works on OpenGL ES 3.2 and with `GL_EXT_geometry_shader` or
   `GL_OES_geometry_shader`, and `TimeElapsedQuery` with `GL_EXT_disjoint_timer_query`, instead of
   returning `QueryCreationError::NotSupported` on every version of OpenGL ES.
+- `Display::rebuild(context, surface)` moves a display to another glutin context and surface,
+  for example of another window, keeping its objects, and `Display::gl_context()` gives the glutin
+  context to share them with.
 
 Fixes:
 
