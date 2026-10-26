@@ -53,3 +53,9 @@ that. This is where **invalidating** a buffer or a texture comes into play. By c
 `.invalidate()`, you tell the OpenGL implementation that you don't care about what was already
 in the buffer. This allows it to use the same optimization as when you rewrite the entire
 buffer or texture.
+
+The content of an invalidated buffer is undefined until you write to it again, like the content of
+a buffer created with `empty()`. Reading undefined bytes as a `bool`, a `char` or a texture handle
+would give values that can't exist, so SafeGL only invalidates and creates empty buffers whose
+content implements `buffer::AnyBitPattern`: integers, floats, arrays and tuples of them, and your
+own structs of such fields, declared with `implement_any_bit_pattern!(MyStruct, field1, field2)`.

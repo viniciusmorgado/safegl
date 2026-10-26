@@ -67,7 +67,7 @@ Breaking changes:
   indirect offsets.
 - Texture writes (`write`, `write_compressed_data`, `raw_write`, `raw_upload_from_pixel_buffer*`)
   return `Result<(), texture::UploadError>`, and texture reads (`read`, `read_to_pixel_buffer`,
-  `unchecked_read*`, `raw_read`, `raw_read_to_pixel_buffer`) return `Result<_, ReadError>`, instead
+  `raw_read`, `raw_read_to_pixel_buffer`) return `Result<_, ReadError>`, instead
   of panicking on regions out of the texture, data whose size doesn't match (glium#1875),
   unsupported formats, multisample textures, small pixel buffers and lost contexts. Add `.unwrap()`
   or `?` to the calls.

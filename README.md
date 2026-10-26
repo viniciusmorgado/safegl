@@ -84,7 +84,7 @@ at all, even where a 4.1 driver offers them as an extension:
 | Compute shaders     | OpenGL 4.3                        | `program::ComputeShader`, `program::ComputeCommand`, `BufferType::DispatchIndirectBuffer`                                                    |
 | Shader storage      | OpenGL 4.3                        | `BufferType::ShaderStorageBuffer`, `Program::get_shader_storage_blocks`, binding buffers to GLSL `buffer` blocks                             |
 | Atomic counters     | OpenGL 4.2                        | `BufferType::AtomicCounterBuffer`, `Program::get_atomic_counters`, binding buffers to `atomic_uint` uniforms                                 |
-| Image load/store    | OpenGL 4.2                        | `uniforms::{ImageUnit, ImageUnitBehavior, ImageUnitAccess, ImageUnitFormat, ImageUnitError}`, `image_unit()` on textures, `UniformValue::*Image*`, `DrawError::InsufficientImageUnits` |
+| Image load/store    | OpenGL 4.2                        | `uniforms::{ImageUnit, ImageUnitBehavior, ImageUnitAccess, ImageUnitFormat, ImageUnitError}`, `image_unit()` on textures, `UniformValue::Image`, `DrawError::InsufficientImageUnits` |
 | Multidraw indirect  | OpenGL 4.3                        | `index::{DrawCommandsNoIndicesBuffer, DrawCommandsIndicesBuffer, DrawCommandNoIndices, DrawCommandIndices}`, `IndicesSource::Multidraw*`     |
 | Empty framebuffers  | OpenGL 4.3                        | `framebuffer::EmptyFrameBuffer`                                                                                                              |
 | Copying images      | OpenGL 4.3                        | `texture::{copy_image, is_copy_image_supported, CopyImageTarget, CopyImageError}`, `copy_to()` on mipmaps                                 |
@@ -117,14 +117,14 @@ shaders on OpenGL ES 3.0, for example) are checked at runtime in the same way. A
 
 ```toml
 [dependencies]
-safegl = "0.1"
+safegl = "1"
 ```
 
 To select a lower tier, disable the default features:
 
 ```toml
 [dependencies]
-safegl = { version = "0.1", default-features = false, features = ["gl41", "glutin_backend", "glutin/default"] }
+safegl = { version = "1", default-features = false, features = ["gl41", "glutin_backend", "glutin/default"] }
 ```
 
 The default `backtrace` feature prints a backtrace along with the OpenGL debug messages that
@@ -135,7 +135,7 @@ For the browser, build for `wasm32-unknown-unknown` with the `webgl` feature and
 
 ```toml
 [dependencies]
-safegl = { version = "0.1", default-features = false, features = ["webgl"] }
+safegl = { version = "1", default-features = false, features = ["webgl"] }
 ```
 
 ### Platform notes
@@ -149,8 +149,14 @@ safegl = { version = "0.1", default-features = false, features = ["webgl"] }
 - **OpenGL ES** has no 1D textures (`TextureCreationError::TypeNotSupported`) and fewer formats
   than desktop OpenGL; `is_supported` on a format tells whether the context has it. Data uploaded
   to a texture must match its format, so a texture created from data gets a format chosen from
-  that data. Integer and float textures are read back as `(i32, i32, i32, i32)`,
-  `(u32, u32, u32, u32)` or `(f32, f32, f32, f32)`, and normalized ones as `(u8, u8, u8, u8)`.
+  that data. OpenGL ES only reads textures back as `(i32, i32, i32, i32)`,
+  `(u32, u32, u32, u32)` or `(f32, f32, f32, f32)` for integer and float textures, and as
+  `(u8, u8, u8, u8)` for normalized ones; `read()` and `read_as()` convert the other pixel
+  formats on the CPU.
+- **OpenGL ES** can't move shader storage blocks and image uniforms to other binding points:
+  SafeGL binds them where the shader's `layout(binding = N)` puts them, and two of them with the
+  same binding return `DrawError::SharedBindingPoint`. It also converts the colors written to
+  sRGB targets unless the driver has `GL_EXT_sRGB_write_control`, whatever `outputs_srgb` is.
 - **Virtual machines and software renderers** (VirtualBox, VMware, Mesa llvmpipe) usually expose
   OpenGL 4.1–4.5; use `gl41`.
 - **Windows without a vendor driver** (Microsoft's basic display driver, some Remote Desktop
@@ -201,6 +207,28 @@ cargo run --release --example weighted_oit
 
 The examples that need OpenGL 4.2+ features require the `gl46` feature, which is enabled by
 default; the list is in `Cargo.toml`.
+
+## Running the tests
+
+The tests open hidden windows, so they need a display server and an OpenGL driver:
+
+```sh
+cargo test
+```
+
+Environment variables select the context that the tests use:
+
+- `SAFEGL_GL_VERSION`: the version of the context, such as `"OpenGL 4.1"` or `"OpenGL ES 3.2"`.
+  Without it, the tests use the newest version of the compiled tier.
+- `SAFEGL_GL_DISPLAY=egl`: create the context with EGL instead of GLX or WGL. Under Wayland, the
+  tests use EGL anyway; unset `WAYLAND_DISPLAY` to use GLX through XWayland.
+
+Tests of features that the context lacks return early, while every other error fails them. Mesa's
+software renderer runs the whole suite (`LIBGL_ALWAYS_SOFTWARE=1`, plus
+`__GLX_VENDOR_LIBRARY_NAME=mesa` or `__EGL_VENDOR_LIBRARY_FILENAMES` pointing to Mesa's EGL vendor
+file on a machine with another driver). Set `MESA_SHADER_CACHE_DISABLE=true` when switching between
+desktop OpenGL and OpenGL ES with Mesa: its shader cache can report as compiled a desktop GLSL
+shader that OpenGL ES rejects, and its linker then crashes.
 
 ## Renderer examples
 
@@ -278,9 +306,9 @@ hardware you intend to support before choosing lower-level bindings for performa
 Mixing SafeGL with raw calls requires care: SafeGL tracks OpenGL state internally. SafeGL
 re-exports glow as `safegl::glow`, and `Context::glow_context` returns the `glow::Context` it uses,
 so libraries built on glow (such as `egui_glow`) can share the same context. Issue those calls
-inside `exec_in_context`, and restore any OpenGL state your code changes before SafeGL is used
-again. For integrations that require frequent direct state manipulation, using glow on its own
-may be simpler.
+inside `exec_in_context`, then call `Context::restore_state`, which brings the OpenGL state back to
+what SafeGL expects, before SafeGL is used again. For integrations that require frequent direct
+state manipulation, using glow on its own may be simpler.
 
 Limitations:
 
