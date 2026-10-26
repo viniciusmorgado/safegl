@@ -1,5 +1,5 @@
 use crate::RawUniformValue;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 
@@ -20,6 +20,8 @@ pub struct UniformsStorage {
     shader_storage_blocks: RefCell<SmallVec<[Option<gl::types::GLuint>; 4]>>,
     subroutine_uniforms:
         RefCell<HashMap<ShaderStage, Vec<gl::types::GLuint>, BuildHasherDefault<FnvHasher>>>,
+    /// The `uniform_values_generation` of the state when the values were cached.
+    generation: Cell<u64>,
 }
 
 impl UniformsStorage {
@@ -32,7 +34,24 @@ impl UniformsStorage {
             uniform_blocks: RefCell::new(SmallVec::new()),
             shader_storage_blocks: RefCell::new(SmallVec::new()),
             subroutine_uniforms: RefCell::new(HashMap::with_hasher(Default::default())),
+            generation: Cell::new(0),
         }
+    }
+
+    /// Forgets the cached values if `restore_state` was called since they were cached. The
+    /// uniforms that were given a value stay known as set.
+    fn check_generation(&self, ctxt: &CommandContext<'_>) {
+        if self.generation.get() == ctxt.state.uniform_values_generation {
+            return;
+        }
+        self.generation.set(ctxt.state.uniform_values_generation);
+
+        for value in self.values.borrow_mut().values_mut() {
+            *value = None;
+        }
+        self.uniform_blocks.borrow_mut().clear();
+        self.shader_storage_blocks.borrow_mut().clear();
+        self.subroutine_uniforms.borrow_mut().clear();
     }
 
     /// Returns true if a value was given to the uniform at `location`.
@@ -50,6 +69,7 @@ impl UniformsStorage {
         location: gl::types::GLint,
         value: &RawUniformValue,
     ) {
+        self.check_generation(ctxt);
         let mut values = self.values.borrow_mut();
         let locations = &self.locations;
 
@@ -557,6 +577,7 @@ impl UniformsStorage {
         location: gl::types::GLuint,
         value: gl::types::GLuint,
     ) {
+        self.check_generation(ctxt);
         let mut blocks = self.uniform_blocks.borrow_mut();
 
         if blocks.len() <= location as usize {
@@ -589,6 +610,7 @@ impl UniformsStorage {
         location: gl::types::GLuint,
         value: gl::types::GLuint,
     ) {
+        self.check_generation(ctxt);
         let mut blocks = self.shader_storage_blocks.borrow_mut();
 
         if blocks.len() <= location as usize {
@@ -633,6 +655,7 @@ impl UniformsStorage {
         stage: ShaderStage,
         indices: &[gl::types::GLuint],
     ) {
+        self.check_generation(ctxt);
         let mut subroutine_uniforms = self.subroutine_uniforms.borrow_mut();
         if let Some(stored_indices) = subroutine_uniforms.get(&stage) {
             if &stored_indices[..] == indices {

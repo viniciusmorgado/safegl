@@ -15,6 +15,13 @@ pub(crate) unsafe fn restore_state(ctxt: &mut CommandContext<'_>) {
     restore_capabilities(ctxt);
     restore_bindings(ctxt);
     restore_fixed_function(ctxt);
+
+    // the other code may have bound an element array buffer, or changed the attributes, while a
+    // vertex array object of SafeGL was bound: they are created again when needed
+    crate::vertex_array_object::VertexAttributesSystem::purge_all(ctxt);
+
+    // and it may have changed the uniforms of SafeGL's programs
+    ctxt.state.uniform_values_generation += 1;
 }
 
 /// Enables or disables `cap`.

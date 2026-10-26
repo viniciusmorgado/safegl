@@ -86,3 +86,90 @@ fn upload_after_foreign_state_changes() {
     assert_eq!(data[1][1], (1, 2, 3, 4));
     display.assert_no_error(None);
 }
+
+#[test]
+fn foreign_code_changing_safegl_objects() {
+    use safegl::GlObject;
+
+    let display = support::build_display();
+
+    let (vb, ib) = support::build_rectangle_vb_ib(&display);
+    let program = program!(&display,
+        330 => {
+            vertex: "#version 330\nin vec2 position;\nvoid main() { gl_Position = vec4(position, 0.0, 1.0); }",
+            fragment: "#version 330\nuniform sampler2D tex;\nuniform vec4 tint;\nout vec4 f_color;\nvoid main() { f_color = texture(tex, vec2(0.5)) * tint; }",
+        },
+        300 es => {
+            vertex: "#version 300 es\nin vec2 position;\nvoid main() { gl_Position = vec4(position, 0.0, 1.0); }",
+            fragment: "#version 300 es\nprecision highp float;\nuniform sampler2D tex;\nuniform vec4 tint;\nout vec4 f_color;\nvoid main() { f_color = texture(tex, vec2(0.5)) * tint; }",
+        },
+    )
+    .unwrap();
+    let green = support::build_unicolor_texture2d(&display, 0.0, 1.0, 0.0);
+    let target = support::build_renderable_texture(&display);
+    let tint = [1.0f32, 1.0, 1.0, 1.0];
+
+    let draw = || {
+        target.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+        target
+            .as_surface()
+            .draw(&vb, &ib, &program, &uniform! { tex: &green, tint: tint }, &Default::default())
+            .unwrap();
+        let data: Vec<Vec<(u8, u8, u8, u8)>> = target.read().unwrap();
+        data[0][0]
+    };
+    assert_eq!(draw(), (0, 255, 0, 255));
+
+    // a library that calls OpenGL directly while SafeGL's vertex array object is still bound
+    unsafe {
+        let gl = display.glow_context();
+        let index_buffer = gl.create_buffer().unwrap();
+        gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(index_buffer));
+        gl.buffer_data_size(glow::ELEMENT_ARRAY_BUFFER, 64, glow::STATIC_DRAW);
+
+        gl.use_program(Some(program.get_id()));
+        let tint_location = gl.get_uniform_location(program.get_id(), "tint");
+        gl.uniform_4_f32(tint_location.as_ref(), 0.0, 0.0, 0.0, 0.0);
+
+        let black = gl.create_texture().unwrap();
+        for unit in 0..4 {
+            gl.active_texture(glow::TEXTURE0 + unit);
+            gl.bind_texture(glow::TEXTURE_2D, Some(black));
+        }
+        let sampler = gl.create_sampler().unwrap();
+        gl.bind_sampler(0, Some(sampler));
+        gl.active_texture(glow::TEXTURE3);
+    }
+    display.restore_state();
+
+    // the indices, the uniform and the texture of SafeGL are used again
+    assert_eq!(draw(), (0, 255, 0, 255));
+
+    display.assert_no_error(None);
+}
+
+#[test]
+fn indexed_draws_across_frames() {
+    // drawing an indexed mesh, then uploading another index buffer, then drawing the mesh again
+    let display = support::build_display();
+    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+    let texture = support::build_renderable_texture(&display);
+
+    for frame in 0..3 {
+        texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+        texture
+            .as_surface()
+            .draw(&vb, &ib, &program, &uniform! {}, &Default::default())
+            .unwrap();
+        let _other = safegl::IndexBuffer::new(
+            &display,
+            safegl::index::PrimitiveType::TrianglesList,
+            &[frame as u16, 1, 2],
+        )
+        .unwrap();
+        let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
+        assert_eq!(data[0][0], (255, 0, 0, 255));
+    }
+
+    display.assert_no_error(None);
+}
