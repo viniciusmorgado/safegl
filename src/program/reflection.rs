@@ -263,26 +263,30 @@ pub unsafe fn reflect_uniforms(
 
     // Flatten arrays
     let mut uniforms_flattened = HashMap::with_hasher(Default::default());
-    for uniform in uniforms {
+    for (name, uniform) in uniforms {
         // If this is a normal non-array element, just move it over
-        if !uniform.0.ends_with("[0]") {
-            assert!(uniform.1.size.is_none());
-            uniforms_flattened.insert(uniform.0, uniform.1);
+        let Some(name_base) = name.strip_suffix("[0]") else {
+            assert!(uniform.size.is_none());
+            uniforms_flattened.insert(name, uniform);
             continue;
-        }
+        };
 
-        // We've got an array, first get the base of the name
-        let name_base = uniform.0.split('[').next().unwrap();
-        let uniform_base = uniform.1;
+        // As in OpenGL, the name of the array refers to its first element
+        let first = Uniform {
+            size: None,
+            ..uniform
+        };
+        uniforms_flattened.insert(name_base.to_owned(), first);
+        uniforms_flattened.insert(name.clone(), first);
 
-        // Go over all the elements in the array
-        for i in 0..uniform_base.size.unwrap() {
-            let uniform = Uniform {
-                size: None,
-                location: uniform_base.location + (i as i32),
-                ..uniform_base
-            };
-            uniforms_flattened.insert(format!("{}[{}]", name_base, i), uniform);
+        // The locations of the other elements aren't necessarily consecutive, and on WebGL they
+        // are objects that must be queried one by one
+        for i in 1..uniform.size.unwrap_or(1) {
+            let element = format!("{}[{}]", name_base, i);
+            let location = locations.register(ctxt.glow.get_uniform_location(program, &element));
+            if location != -1 {
+                uniforms_flattened.insert(element, Uniform { location, ..first });
+            }
         }
     }
 
