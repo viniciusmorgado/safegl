@@ -95,6 +95,8 @@ fn main() {
         .make_current(&surface)
         .unwrap();
     let gl_window = Rc::new(RefCell::new(Takeable::new((context, surface))));
+    // the event loop resizes the surface along with the window
+    let resizable_gl_window = gl_window.clone();
 
     // in order to create our context, we will need to provide an object which implements
     // the `Backend` trait
@@ -194,9 +196,12 @@ fn main() {
     // drawing a frame to prove that it works
     // note that constructing a `Frame` object manually is a bit hacky and may be changed
     // in the future
-    let mut target = safegl::Frame::new(context.clone(), context.get_framebuffer_dimensions());
-    target.clear_color(0.0, 1.0, 0.0, 1.0);
-    target.finish().unwrap();
+    let draw = |context: &Rc<safegl::backend::Context>| {
+        let mut target = safegl::Frame::new(context.clone(), context.get_framebuffer_dimensions());
+        target.clear_color(0.0, 1.0, 0.0, 1.0);
+        target.finish().unwrap();
+    };
+    draw(&context);
 
     // the window is still available
     #[allow(deprecated)]
@@ -204,6 +209,18 @@ fn main() {
         .run(|event, window_target| match event {
             safegl::winit::event::Event::WindowEvent { event, .. } => match event {
                 safegl::winit::event::WindowEvent::CloseRequested => window_target.exit(),
+                // the surface keeps its size until it is resized, which would make the drawing
+                // stretch or move with the window
+                safegl::winit::event::WindowEvent::Resized(size) => {
+                    if let (Some(width), Some(height)) =
+                        (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
+                    {
+                        let pair = resizable_gl_window.borrow();
+                        pair.1.resize(&pair.0, width, height);
+                    }
+                    window.request_redraw();
+                }
+                safegl::winit::event::WindowEvent::RedrawRequested => draw(&context),
                 _ => (),
             },
             _ => (),
