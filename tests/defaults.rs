@@ -53,3 +53,33 @@ fn alpha_blending_keeps_the_source_alpha() {
     assert!((127..=128).contains(&a), "{a}");
     display.assert_no_error(None);
 }
+
+#[test]
+fn samplers_repeat_by_default() {
+    let display = support::build_display();
+    let (vb, ib) = support::build_rectangle_vb_ib(&display);
+    // the left texel is red and the right one green; 1.25 repeats to 0.25 but mirrors to 0.75
+    let program = build_program(
+        &display,
+        "uniform sampler2D tex; void main() { f_color = texture(tex, vec2(1.25, 0.5)); }",
+    );
+    let texture = safegl::Texture2d::new(
+        &display,
+        vec![vec![(255u8, 0u8, 0u8, 255u8), (0u8, 255u8, 0u8, 255u8)]],
+    )
+    .unwrap();
+    let sampler = texture
+        .sampled()
+        .magnify_filter(safegl::uniforms::MagnifySamplerFilter::Nearest)
+        .minify_filter(safegl::uniforms::MinifySamplerFilter::Nearest);
+
+    let output = support::build_renderable_texture(&display);
+    output
+        .as_surface()
+        .draw(&vb, &ib, &program, &uniform! { tex: sampler }, &Default::default())
+        .unwrap();
+
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read();
+    assert_eq!(data[0][0], (255, 0, 0, 255));
+    display.assert_no_error(None);
+}

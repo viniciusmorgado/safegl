@@ -228,9 +228,10 @@ impl<'t, T: 't> Clone for Sampler<'t, T> {
 
 /// Behavior of a sampler.
 ///
-/// The default behavior, used by `texture.sampled()`, wraps with `Mirror`, minifies with
-/// `LinearMipmapLinear`, magnifies with `Linear`, has no depth comparison, no anisotropic
-/// filtering and no border color. Integer textures are always sampled with the nearest filters.
+/// The default behavior, used by `texture.sampled()`, wraps with `Repeat`, like OpenGL and like
+/// textures used without a sampler, minifies with `LinearMipmapLinear`, magnifies with `Linear`,
+/// and has no depth comparison, no anisotropic filtering and no border color. Integer textures are
+/// always sampled with the nearest filters.
 ///
 /// A texture used as a uniform without a sampler (`uniform! { tex: &texture }`) keeps its own
 /// parameters instead, which repeat the texture and filter it linearly, or with the nearest
@@ -275,9 +276,9 @@ impl Default for SamplerBehavior {
     fn default() -> SamplerBehavior {
         SamplerBehavior {
             wrap_function: (
-                SamplerWrapFunction::Mirror,
-                SamplerWrapFunction::Mirror,
-                SamplerWrapFunction::Mirror,
+                SamplerWrapFunction::Repeat,
+                SamplerWrapFunction::Repeat,
+                SamplerWrapFunction::Repeat,
             ),
             minify_filter: MinifySamplerFilter::LinearMipmapLinear,
             magnify_filter: MagnifySamplerFilter::Linear,
