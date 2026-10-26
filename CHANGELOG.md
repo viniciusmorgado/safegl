@@ -237,6 +237,10 @@ Fixes:
   context. It also sets up the debug output and the seamless cube maps of the new context, and
   turns off the debug output of the previous one, whose messages would have reached a SafeGL
   context that could be gone. `Backend::create_glow_context` is called again for the new context.
+- With the default `DebugCallbackBehavior::DebugMessageOnError`, the driver no longer generates the
+  debug messages of low severity and the notifications, which the callback ignores: the NVIDIA
+  driver formatted one for every buffer it created, and crashed doing it once while another thread
+  created a context.
 
 ## [0.2.0]
 

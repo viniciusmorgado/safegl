@@ -94,6 +94,10 @@ pub struct Context {
     /// OpenGL context changes.
     debug_output_synchronous: bool,
 
+    /// Whether the callback only reports messages of medium and high severity, so that the
+    /// driver doesn't need to generate the others.
+    debug_output_errors_only: bool,
+
     /// Whether or not errors triggered by ARB_debug_output (and similar extensions) should be
     /// reported to the user when `DebugCallbackBehavior::DebugMessageOnError` is used. This must
     /// be set to `false` in some situations, like compiling/linking shaders.
@@ -280,6 +284,7 @@ impl Context {
         let resident_texture_handles = RefCell::new(Vec::new());
         let resident_image_handles = RefCell::new(Vec::new());
 
+        let errors_only = matches!(callback_behavior, DebugCallbackBehavior::DebugMessageOnError);
         let (debug_callback, synchronous) = match callback_behavior {
             DebugCallbackBehavior::Ignore => (None, false),
             DebugCallbackBehavior::DebugMessageOnError => (
@@ -307,6 +312,7 @@ impl Context {
             frame_in_progress: Cell::new(false),
             debug_callback_panic: Cell::new(None),
             debug_output_synchronous: synchronous,
+            debug_output_errors_only: errors_only,
             report_debug_output_errors,
             backend: RefCell::new(Box::new(backend)),
             check_current_context,
@@ -318,7 +324,7 @@ impl Context {
         });
 
         if context.debug_callback.borrow().is_some() {
-            init_debug_callback(&context, synchronous);
+            init_debug_callback(&context);
         }
 
         // making sure that an error wasn't triggered during initialization
@@ -394,7 +400,7 @@ impl Context {
             switch_back(self);
             self.backend.borrow().make_current();
             if self.debug_callback.borrow().is_some() {
-                init_debug_callback(self, self.debug_output_synchronous);
+                init_debug_callback(self);
             }
             return Err(IncompatibleOpenGl(format!(
                 "the new context provides OpenGL {:?} {}.{} and its extensions, instead of \
@@ -407,7 +413,7 @@ impl Context {
 
         // the debug output and the other state are set up again in the new context
         if self.debug_callback.borrow().is_some() {
-            init_debug_callback(self, self.debug_output_synchronous);
+            init_debug_callback(self);
         }
         init_state(&self.make_current());
 
@@ -1044,6 +1050,9 @@ pub enum DebugCallbackBehavior {
 
     /// Print a message on stdout on error, except in some circumstances like when compiling
     /// shaders. This is the default behavior in debug mode.
+    ///
+    /// Only the messages of medium and high severity are printed, so the driver is told not to
+    /// generate the others: some drivers format a notification for every buffer they create.
     DebugMessageOnError,
 
     /// Print every single output received by the driver.
@@ -1166,7 +1175,22 @@ unsafe fn init_state(ctxt: &CommandContext<'_>) {
     }
 }
 
-fn init_debug_callback(context: &Context, synchronous: bool) {
+/// Disables the debug messages of low severity and notifications, which the default callback
+/// ignores: some drivers spend a lot of time formatting them, for every buffer for example.
+unsafe fn disable_minor_debug_messages(
+    control: impl Fn(gl::types::GLenum, gl::types::GLenum, gl::types::GLenum, gl::types::GLboolean),
+    has_notifications: bool,
+) {
+    control(gl::DONT_CARE, gl::DONT_CARE, gl::DEBUG_SEVERITY_LOW, gl::FALSE);
+    if has_notifications {
+        control(gl::DONT_CARE, gl::DONT_CARE, gl::DEBUG_SEVERITY_NOTIFICATION, gl::FALSE);
+    }
+}
+
+fn init_debug_callback(context: &Context) {
+    let synchronous = context.debug_output_synchronous;
+    let errors_only = context.debug_output_errors_only;
+
     // this is the C callback
     extern "system" fn callback_wrapper(
         source: gl::types::GLenum,
@@ -1263,6 +1287,15 @@ fn init_debug_callback(context: &Context, synchronous: bool) {
                     ptr::null(),
                     gl::TRUE,
                 );
+                if errors_only {
+                    disable_minor_debug_messages(
+                        |source, ty, severity, enabled| {
+                            ctxt.extra
+                                .DebugMessageControl(source, ty, severity, 0, ptr::null(), enabled)
+                        },
+                        true,
+                    );
+                }
 
                 if ctxt.state.enabled_debug_output != Some(true) {
                     ctxt.glow.enable(glow::DEBUG_OUTPUT);
@@ -1279,6 +1312,15 @@ fn init_debug_callback(context: &Context, synchronous: bool) {
                     ptr::null(),
                     gl::TRUE,
                 );
+                if errors_only {
+                    disable_minor_debug_messages(
+                        |source, ty, severity, enabled| {
+                            ctxt.extra
+                                .DebugMessageControlKHR(source, ty, severity, 0, ptr::null(), enabled)
+                        },
+                        true,
+                    );
+                }
 
                 if ctxt.state.enabled_debug_output != Some(true) {
                     ctxt.glow.enable(glow::DEBUG_OUTPUT);
@@ -1295,6 +1337,15 @@ fn init_debug_callback(context: &Context, synchronous: bool) {
                     ptr::null(),
                     gl::TRUE,
                 );
+                if errors_only {
+                    disable_minor_debug_messages(
+                        |source, ty, severity, enabled| {
+                            ctxt.extra
+                                .DebugMessageControlARB(source, ty, severity, 0, ptr::null(), enabled)
+                        },
+                        false,
+                    );
+                }
 
                 ctxt.state.enabled_debug_output = Some(true);
             }
