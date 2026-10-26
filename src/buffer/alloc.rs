@@ -1570,6 +1570,62 @@ fn is_buffer_type_supported(ctxt: &mut CommandContext<'_>, ty: BufferType) -> bo
 /// ## Unsafety
 ///
 /// Assumes that the type of buffer is supported by the backend.
+/// Binds the cached buffers to their bind points again, after code outside of SafeGL changed
+/// them, and forgets the cached indexed bindings, which SafeGL sets before each use.
+pub(crate) unsafe fn restore_bindings(ctxt: &mut CommandContext<'_>) {
+    let state = &ctxt.state;
+    #[cfg_attr(not(feature = "gl46"), allow(unused_mut))]
+    let mut bindings = vec![
+        (BufferType::ArrayBuffer, state.array_buffer_binding),
+        (BufferType::PixelPackBuffer, state.pixel_pack_buffer_binding),
+        (
+            BufferType::PixelUnpackBuffer,
+            state.pixel_unpack_buffer_binding,
+        ),
+        (BufferType::UniformBuffer, state.uniform_buffer_binding),
+        (BufferType::CopyReadBuffer, state.copy_read_buffer_binding),
+        (BufferType::CopyWriteBuffer, state.copy_write_buffer_binding),
+        (
+            BufferType::DrawIndirectBuffer,
+            state.draw_indirect_buffer_binding,
+        ),
+        (BufferType::TextureBuffer, state.texture_buffer_binding),
+        (
+            BufferType::TransformFeedbackBuffer,
+            state.transform_feedback_buffer_binding,
+        ),
+    ];
+    #[cfg(feature = "gl46")]
+    bindings.extend([
+        (
+            BufferType::DispatchIndirectBuffer,
+            state.dispatch_indirect_buffer_binding,
+        ),
+        (BufferType::QueryBuffer, state.query_buffer_binding),
+        (
+            BufferType::AtomicCounterBuffer,
+            state.atomic_counter_buffer_binding,
+        ),
+        (
+            BufferType::ShaderStorageBuffer,
+            state.shader_storage_buffer_binding,
+        ),
+    ]);
+
+    for (ty, buffer) in bindings {
+        if is_buffer_type_supported(ctxt, ty) {
+            ctxt.glow.bind_buffer(ty.to_glenum(), buffer);
+        }
+    }
+
+    ctxt.state.indexed_uniform_buffer_bindings.clear();
+    ctxt.state.indexed_atomic_counter_buffer_bindings.clear();
+    ctxt.state.indexed_shader_storage_buffer_bindings.clear();
+    ctxt.state
+        .indexed_transform_feedback_buffer_bindings
+        .clear();
+}
+
 unsafe fn bind_buffer(
     ctxt: &mut CommandContext<'_>,
     id: Option<glow::Buffer>,

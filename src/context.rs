@@ -42,6 +42,7 @@ pub use self::state::GlState;
 
 mod capabilities;
 mod extensions;
+mod restore;
 mod state;
 
 /// Stores the state and information required for SafeGL to execute commands. Most public SafeGL
@@ -591,7 +592,7 @@ impl Context {
     /// component needs to directly manipulate OpenGL state.
     ///
     /// **If `action` manipulates any OpenGL state, it must be restored before `action`
-    /// completes.**
+    /// completes, or [`Context::restore_state`] must be called afterwards.**
     #[inline]
     pub unsafe fn exec_in_context<'a, T, F>(&self, action: F) -> T
     where
@@ -600,6 +601,32 @@ impl Context {
     {
         let _ctxt = self.make_current();
         action()
+    }
+
+    /// Makes the OpenGL state match the state that SafeGL expects, after code outside of SafeGL
+    /// changed it.
+    ///
+    /// SafeGL caches the OpenGL state (bound objects, blending, depth test, viewport, ...) to
+    /// avoid redundant calls. Code that shares the context with SafeGL (a GUI toolkit, a video
+    /// player, another renderer, raw calls through [`Context::glow_context`]) changes the state
+    /// behind that cache. Call this function after such code ran and before using SafeGL again:
+    ///
+    /// ```no_run
+    /// # fn example(display: &safegl::Display<safegl::glutin::surface::WindowSurface>) {
+    /// unsafe {
+    ///     display.exec_in_context(|| {
+    ///         // ... OpenGL calls that change the state ...
+    ///     });
+    /// }
+    /// display.restore_state();
+    /// # }
+    /// ```
+    ///
+    /// The other code must not delete objects that SafeGL created, and must not stop the queries,
+    /// transform feedback or conditional rendering that SafeGL started, which aren't restored.
+    pub fn restore_state(&self) {
+        let mut ctxt = self.make_current();
+        unsafe { restore::restore_state(&mut ctxt) };
     }
 
     /// Returns the `glow` context that SafeGL uses to issue OpenGL calls. Useful for interop
