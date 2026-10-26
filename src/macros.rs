@@ -280,7 +280,9 @@ macro_rules! implement_vertex {
 ///
 /// Contrary to the other similar macros, this one doesn't require you pass the list of parameters.
 ///
-/// **Only use this macro on structs.** Using it with anything else will result in a segfault.
+/// **Only use this macro on structs whose last field is a slice.** The code it generates uses
+/// `std::mem::size_of_val_raw` and `std::alloc::Layout::for_value_raw`, so crates that call it
+/// need Rust 1.99 or newer.
 ///
 /// ## Example
 ///
@@ -296,12 +298,38 @@ macro_rules! implement_vertex {
 /// ```
 ///
 #[macro_export]
-// TODO: this whole macro is ultra dangerous
 macro_rules! implement_buffer_content {
     (__as_item $i:item) => {$i};
 
+    // A pointer to the struct whose slice has `len` elements. It has no address, so it can only be
+    // given to functions that read its length.
+    (__with_len $struct_name:ident [$($gs:tt)*] $len:expr) => {
+        ::std::ptr::slice_from_raw_parts_mut(::std::ptr::null_mut::<()>(), $len)
+            as *mut $struct_name<$($gs)*>
+    };
+
+    // The number of elements of a struct of `size` bytes, if there is such a struct.
+    (__len $struct_name:ident [$($gs:tt)*] $size:expr) => {{
+        let size: usize = $size;
+        let size_of = |len: usize| unsafe {
+            ::std::mem::size_of_val_raw(
+                $crate::implement_buffer_content!(__with_len $struct_name [$($gs)*] len),
+            )
+        };
+        let min_size = size_of(0);
+        let step = size_of(1) - min_size;
+
+        if size < min_size || step == 0 || (size - min_size) % step != 0 {
+            None
+        } else {
+            // the padding at the end can make some sizes impossible
+            let len = (size - min_size) / step;
+            if size_of(len) == size { Some(len) } else { None }
+        }
+    }};
+
     (__impl $struct_name:ident [$($gs:tt)*]) => {
-        implement_buffer_content! { __as_item
+        $crate::implement_buffer_content! { __as_item
             unsafe impl<$($gs)*> $crate::buffer::Content for $struct_name<$($gs)*> {
                 type Owned = Box<$struct_name<$($gs)*>>;
 
@@ -309,14 +337,24 @@ macro_rules! implement_buffer_content {
                 unsafe fn read<F, E>(size: usize, f: F) -> ::std::result::Result<Box<$struct_name<$($gs)*>>, E>
                               where F: FnOnce(&mut $struct_name<$($gs)*>) -> ::std::result::Result<(), E>
                 {
-                    use std::mem;
+                    assert!(<$struct_name<$($gs)*> as $crate::buffer::Content>::is_size_suitable(size));
+                    let len = $crate::implement_buffer_content!(__len $struct_name [$($gs)*] size)
+                        .unwrap();
 
-                    assert!(<$struct_name as $crate::buffer::Content>::is_size_suitable(size));
+                    // the value is allocated with its own layout, so that `Box` can free it
+                    let layout = unsafe {
+                        ::std::alloc::Layout::for_value_raw(
+                            $crate::implement_buffer_content!(__with_len $struct_name [$($gs)*] len),
+                        )
+                    };
+                    let data = unsafe { ::std::alloc::alloc_zeroed(layout) };
+                    if data.is_null() {
+                        ::std::alloc::handle_alloc_error(layout);
+                    }
 
-                    let mut storage: Vec<u8> = Vec::with_capacity(size);
-                    unsafe { storage.set_len(size) };
-                    let storage = storage.into_boxed_slice();
-                    let mut storage: Box<$struct_name<$($gs)*>> = unsafe { mem::transmute(storage) };
+                    let ptr = ::std::ptr::slice_from_raw_parts_mut(data as *mut (), len)
+                        as *mut $struct_name<$($gs)*>;
+                    let mut storage = unsafe { Box::from_raw(ptr) };
 
                     f(&mut storage)?;
                     Ok(storage)
@@ -324,52 +362,29 @@ macro_rules! implement_buffer_content {
 
                 #[inline]
                 fn get_elements_size() -> usize {
-                    use std::mem;
-
-                    let fake_ptr: &$struct_name = unsafe { mem::transmute((0usize, 0usize)) };
-                    mem::size_of_val(fake_ptr)
+                    unsafe {
+                        ::std::mem::size_of_val_raw(
+                            $crate::implement_buffer_content!(__with_len $struct_name [$($gs)*] 0),
+                        )
+                    }
                 }
 
                 #[inline]
                 fn to_void_ptr(&self) -> *const () {
-                    use std::mem;
-                    let (ptr, _): (*const (), usize) = unsafe { mem::transmute(self) };
-                    ptr
+                    self as *const Self as *const ()
                 }
 
                 #[inline]
                 fn ref_from_ptr(ptr: *mut (), size: usize) -> Option<*mut $struct_name<$($gs)*>> {
-                    use std::mem;
-
-                    let fake_ptr: &$struct_name = unsafe { mem::transmute((0usize, 0usize)) };
-                    let min_size = mem::size_of_val(fake_ptr);
-
-                    let fake_ptr: &$struct_name = unsafe { mem::transmute((0usize, 1usize)) };
-                    let step = mem::size_of_val(fake_ptr) - min_size;
-
-                    if size < min_size {
-                        return None;
-                    }
-
-                    let variadic = size - min_size;
-                    if variadic % step != 0 {
-                        return None;
-                    }
-
-                    Some(unsafe { mem::transmute((ptr, (variadic / step) as usize)) })
+                    let len = $crate::implement_buffer_content!(__len $struct_name [$($gs)*] size)?;
+                    Some(::std::ptr::slice_from_raw_parts_mut(ptr, len) as *mut $struct_name<$($gs)*>)
                 }
 
                 #[inline]
                 fn is_size_suitable(size: usize) -> bool {
-                    use std::mem;
-
-                    let fake_ptr: &$struct_name = unsafe { mem::transmute((0usize, 0usize)) };
-                    let min_size = mem::size_of_val(fake_ptr);
-
-                    let fake_ptr: &$struct_name = unsafe { mem::transmute((0usize, 1usize)) };
-                    let step = mem::size_of_val(fake_ptr) - min_size;
-
-                    size > min_size && (size - min_size) % step == 0
+                    let min_size = <$struct_name<$($gs)*> as $crate::buffer::Content>::get_elements_size();
+                    size > min_size
+                        && $crate::implement_buffer_content!(__len $struct_name [$($gs)*] size).is_some()
                 }
             }
         }
