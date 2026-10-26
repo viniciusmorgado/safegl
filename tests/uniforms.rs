@@ -54,7 +54,7 @@ fn uniforms_storage_single_value() {
         .draw(&vb, &ib, &program, &uniforms, &Default::default())
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     f2b_check_rha(data[0][0], *data.last().unwrap().last().unwrap());
 
     display.assert_no_error(None);
@@ -100,7 +100,7 @@ fn uniforms_storage_multiple_values() {
         .draw(&vb, &ib, &program, &uniforms, &Default::default())
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(data[0][0], (255, 0, 0, 255));
     assert_eq!(data.last().unwrap().last().unwrap(), &(255, 0, 0, 255));
 
@@ -147,7 +147,7 @@ fn uniforms_storage_ignore_inactive_uniforms() {
         .draw(&vb, &ib, &program, &uniforms, &Default::default())
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     f2b_check_rha(data[0][0], *data.last().unwrap().last().unwrap());
 
     display.assert_no_error(None);
@@ -234,7 +234,7 @@ fn uniforms_dynamic_single_value() {
         .draw(&vb, &ib, &program, &uniforms, &Default::default())
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     f2b_check_rha(data[0][0], *data.last().unwrap().last().unwrap());
 
     display.assert_no_error(None);
@@ -281,7 +281,7 @@ fn uniforms_dynamic_multiple_values() {
         .draw(&vb, &ib, &program, &uniforms, &Default::default())
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(data[0][0], (255, 0, 0, 255));
     assert_eq!(data.last().unwrap().last().unwrap(), &(255, 0, 0, 255));
 
@@ -329,7 +329,7 @@ fn uniforms_dynamic_ignore_inactive_uniforms() {
         .draw(&vb, &ib, &program, &uniforms, &Default::default())
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     f2b_check_rha(data[0][0], *data.last().unwrap().last().unwrap());
 
     display.assert_no_error(None);

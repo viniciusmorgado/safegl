@@ -7,6 +7,7 @@ use crate::context::Context;
 
 use crate::ops;
 use crate::uniforms;
+use crate::BlitError;
 use crate::BlitTarget;
 use crate::ContextExt;
 use crate::FboAttachments;
@@ -181,22 +182,25 @@ impl Surface for DefaultFramebuffer {
         target: &S,
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,
-    ) where
+    ) -> Result<(), BlitError>
+    where
         S: Surface,
     {
-        target.blit_from_frame(source_rect, target_rect, filter)
+        target.blit_from_frame(&self.context, source_rect, target_rect, filter)
     }
 
     #[inline]
     fn blit_buffers_from_frame(
         &self,
+        source: &Context,
         source_rect: &Rect,
         target_rect: &BlitTarget,
         filter: MagnifySamplerFilter,
         mask: BlitMask,
-    ) {
+    ) -> Result<(), BlitError> {
         ops::blit(
             &self.context,
+            source,
             fbo::FramebufferTarget::Raw(None),
             self.get_attachments(),
             mask.to_glenum(),
@@ -214,9 +218,10 @@ impl Surface for DefaultFramebuffer {
         target_rect: &BlitTarget,
         filter: MagnifySamplerFilter,
         mask: BlitMask,
-    ) {
+    ) -> Result<(), BlitError> {
         ops::blit(
             &self.context,
+            source.get_fbo_context(),
             source.get_attachments(),
             self.get_attachments(),
             mask.to_glenum(),
@@ -234,9 +239,10 @@ impl Surface for DefaultFramebuffer {
         target_rect: &BlitTarget,
         filter: MagnifySamplerFilter,
         mask: BlitMask,
-    ) {
+    ) -> Result<(), BlitError> {
         ops::blit(
             &self.context,
+            source.get_fbo_context(),
             source.get_attachments(),
             self.get_attachments(),
             mask.to_glenum(),
@@ -254,9 +260,10 @@ impl Surface for DefaultFramebuffer {
         target_rect: &BlitTarget,
         filter: MagnifySamplerFilter,
         mask: BlitMask,
-    ) {
+    ) -> Result<(), BlitError> {
         ops::blit(
             &self.context,
+            source.get_fbo_context(),
             source.get_attachments(),
             self.get_attachments(),
             mask.to_glenum(),
@@ -268,6 +275,11 @@ impl Surface for DefaultFramebuffer {
 }
 
 impl FboAttachments for DefaultFramebuffer {
+    #[inline]
+    fn get_fbo_context(&self) -> &Context {
+        &self.context
+    }
+
     #[inline]
     fn get_attachments(&self) -> fbo::FramebufferTarget<'_> {
         fbo::FramebufferTarget::Raw(None)

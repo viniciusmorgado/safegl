@@ -61,7 +61,7 @@ impl ApplicationContext for Application {
             }
         }
 
-        program.execute(uniform! { MyBlock: &*buffer }, NUM_VALUES as u32 / 4, 1, 1);
+        program.execute(uniform! { MyBlock: &*buffer }, NUM_VALUES as u32 / 4, 1, 1).unwrap();
 
         {
             let mapping = buffer.map();

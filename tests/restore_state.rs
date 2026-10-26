@@ -53,7 +53,7 @@ fn draw_red(display: &Display) -> (u8, u8, u8, u8) {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     data[0][0]
 }
 
@@ -80,9 +80,9 @@ fn upload_after_foreign_state_changes() {
             height: 2,
         },
         vec![vec![(1u8, 2u8, 3u8, 4u8); 2]; 2],
-    );
+    ).unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(data[1][1], (1, 2, 3, 4));
     display.assert_no_error(None);
 }

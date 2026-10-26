@@ -560,7 +560,7 @@ impl ApplicationContext for Application {
                 height: height as i32,
             },
             MagnifySamplerFilter::Nearest,
-        );
+        ).unwrap();
 
         let inset = 256;
         let source = inset / 8;

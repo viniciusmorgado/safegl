@@ -123,7 +123,7 @@ fn simple_render_to_texture() {
         )
         .unwrap();
 
-    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     assert_eq!(read_back[0][0], (255, 0, 0, 255));
     assert_eq!(read_back[64][64], (255, 0, 0, 255));
@@ -215,7 +215,7 @@ fn depth_texture2d() {
         .unwrap();
 
     // reading back the color
-    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = color.read();
+    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = color.read().unwrap();
 
     assert_eq!(read_back[0][0], (255, 255, 255, 255));
     assert_eq!(read_back[127][127], (0, 0, 0, 255));
@@ -296,7 +296,7 @@ fn multioutput() {
         .unwrap();
 
     // checking color1
-    let read_back1: Vec<Vec<(u8, u8, u8, u8)>> = color1.read();
+    let read_back1: Vec<Vec<(u8, u8, u8, u8)>> = color1.read().unwrap();
     for row in read_back1.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 255, 255, 255));
@@ -304,7 +304,7 @@ fn multioutput() {
     }
 
     // checking color2
-    let read_back2: Vec<Vec<(u8, u8, u8, u8)>> = color2.read();
+    let read_back2: Vec<Vec<(u8, u8, u8, u8)>> = color2.read().unwrap();
     for row in read_back2.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 0, 255));
@@ -410,34 +410,40 @@ fn multi_color_attachments_maximum() {
 
 #[cfg(feature = "gl46")]
 #[test]
-#[should_panic]
 fn empty_framebuffer_wrong_layers() {
-    use safegl::framebuffer::EmptyFrameBuffer;
+    use safegl::framebuffer::{EmptyFrameBuffer, ValidationError};
 
     let display = support::build_display();
 
     // ignore the test
     if !EmptyFrameBuffer::is_supported(&display) {
-        panic!();
+        return;
     }
 
-    let _fb = EmptyFrameBuffer::new(&display, 256, 256, Some(0), None, true);
+    let fb = EmptyFrameBuffer::new(&display, 256, 256, Some(0), None, true);
+    assert!(matches!(
+        fb,
+        Err(ValidationError::EmptyFramebufferUnsupportedDimensions)
+    ));
 }
 
 #[cfg(feature = "gl46")]
 #[test]
-#[should_panic]
 fn empty_framebuffer_wrong_samples() {
-    use safegl::framebuffer::EmptyFrameBuffer;
+    use safegl::framebuffer::{EmptyFrameBuffer, ValidationError};
 
     let display = support::build_display();
 
     // ignore the test
     if !EmptyFrameBuffer::is_supported(&display) {
-        panic!();
+        return;
     }
 
-    let _fb = EmptyFrameBuffer::new(&display, 256, 256, None, Some(0), true);
+    let fb = EmptyFrameBuffer::new(&display, 256, 256, None, Some(0), true);
+    assert!(matches!(
+        fb,
+        Err(ValidationError::EmptyFramebufferUnsupportedDimensions)
+    ));
 }
 
 #[cfg(feature = "gl46")]

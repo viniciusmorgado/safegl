@@ -957,7 +957,7 @@ fn immutable_mapping_forget_then_draw() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for pixel in data.iter().flat_map(|e| e.iter()) {
         assert_eq!(*pixel, (255, 0, 0, 255));
     }
@@ -1150,7 +1150,7 @@ fn dynamic_mapping_forget_then_draw() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for pixel in data.iter().flat_map(|e| e.iter()) {
         assert_eq!(*pixel, (255, 0, 0, 255));
     }

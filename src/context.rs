@@ -112,6 +112,9 @@ pub struct Context {
 
 /// This struct is a guard that is returned when you want to access the OpenGL backend.
 pub struct CommandContext<'a> {
+    /// The context that is current.
+    pub context: &'a Context,
+
     /// The glow context used to issue OpenGL calls.
     pub glow: &'a glow::Context,
 
@@ -161,6 +164,15 @@ pub struct CommandContext<'a> {
     // TODO: use this when possible
     //impl<'a, 'b> !Send for CommandContext<'a, 'b> {}
     marker: PhantomData<*mut u8>,
+}
+
+impl<'a> CommandContext<'a> {
+    /// Returns true if `context` is the current context: OpenGL objects can only be used with
+    /// the context that created them.
+    #[inline]
+    pub fn owns(&self, context: &Context) -> bool {
+        std::ptr::eq(self.context, context)
+    }
 }
 
 impl Context {
@@ -771,6 +783,7 @@ impl ContextExt for Context {
         }
 
         CommandContext {
+            context: self,
             glow: &self.glow,
             extra: &self.extra,
             state: self.state.borrow_mut(),
@@ -823,6 +836,7 @@ impl Drop for Context {
             }
 
             let mut ctxt = CommandContext {
+                context: self,
                 glow: &self.glow,
                 extra: &self.extra,
                 state: self.state.borrow_mut(),

@@ -191,7 +191,7 @@ fn main() {
         .unwrap();
 
     // reading the texture back and saving it, flipped since OpenGL's rows go from the bottom
-    let image: safegl::texture::RawImage2d<'_, u8> = texture.read();
+    let image: safegl::texture::RawImage2d<'_, u8> = texture.read().unwrap();
     let image =
         image::ImageBuffer::from_raw(image.width, image.height, image.data.into_owned()).unwrap();
     let image = image::DynamicImage::ImageRgba8(image).flipv();

@@ -76,7 +76,7 @@ fn textures_from_data_with_fewer_than_four_components() {
     let rgb = Texture2d::new(&display, vec![vec![(255u8, 128u8, 64u8); 2]; 2]).unwrap();
 
     let read = |texture: &Texture2d| -> (u8, u8, u8, u8) {
-        let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+        let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
         data[1][1]
     };
     assert_eq!(read(&red), (255, 0, 0, 255));
@@ -92,7 +92,7 @@ fn unsigned_texture_from_bytes() {
 
     // OpenGL ES only accepts bytes for an 8-bit integer format
     let texture = UnsignedTexture2d::new(&display, vec![vec![(1u8, 2u8, 3u8, 4u8); 2]; 2]).unwrap();
-    let data: Vec<Vec<(u32, u32, u32, u32)>> = unsafe { texture.unchecked_read() };
+    let data: Vec<Vec<(u32, u32, u32, u32)>> = unsafe { texture.unchecked_read().unwrap() };
     assert_eq!(data[0][0], (1, 2, 3, 4));
 
     display.assert_no_error(None);
@@ -169,7 +169,7 @@ fn rgb565() {
 
     // RGB565 is color-renderable, and its extreme values are exact
     texture.as_surface().clear_color(1.0, 0.0, 1.0, 1.0);
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(data[0][0], (255, 0, 255, 255));
     display.assert_no_error(None);
 }

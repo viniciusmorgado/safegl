@@ -671,6 +671,10 @@ impl QueryExt for RawQuery {
     fn is_unused(&self) -> bool {
         !self.has_been_used.get()
     }
+
+    fn get_context(&self) -> &Context {
+        &self.context
+    }
 }
 
 impl fmt::Debug for RawQuery {
@@ -804,6 +808,11 @@ macro_rules! impl_helper {
             #[inline]
             fn is_unused(&self) -> bool {
                 self.query.is_unused()
+            }
+
+            #[inline]
+            fn get_context(&self) -> &Context {
+                QueryExt::get_context(&self.query)
             }
         }
     };

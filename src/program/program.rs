@@ -467,6 +467,11 @@ impl GlObject for Program {
 }
 
 impl ProgramExt for Program {
+    #[inline]
+    fn get_context(&self) -> &crate::context::Context {
+        self.raw.get_context()
+    }
+
     fn use_program(&self, ctxt: &mut CommandContext<'_>) {
         // compatibility was checked at program creation
         if ctxt.version.0 == Api::Gl {

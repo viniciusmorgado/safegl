@@ -34,7 +34,7 @@ fn foreign_framebuffer(display: &Display, texture: &Texture2d) -> glow::Framebuf
 }
 
 fn pixel(texture: &Texture2d) -> (u8, u8, u8, u8) {
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     data[1][1]
 }
 
@@ -99,7 +99,7 @@ fn blit_to_and_from() {
             height: SIZE as i32,
         },
         safegl::uniforms::MagnifySamplerFilter::Nearest,
-    );
+    ).unwrap();
     assert_eq!(pixel(&foreign), (0, 255, 0, 255));
 
     let copy = Texture2d::empty(&display, SIZE, SIZE).unwrap();
@@ -112,7 +112,7 @@ fn blit_to_and_from() {
             height: SIZE as i32,
         },
         safegl::uniforms::MagnifySamplerFilter::Nearest,
-    );
+    ).unwrap();
     assert_eq!(pixel(&copy), (0, 255, 0, 255));
 
     display.assert_no_error(None);

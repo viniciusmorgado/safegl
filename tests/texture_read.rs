@@ -29,7 +29,7 @@ fn texture_2d_read_pixelbuffer() {
     .unwrap();
 
     let read_back: Vec<Vec<(u8, u8, u8, u8)>> =
-        match texture.read_to_pixel_buffer().read_as_texture_2d() {
+        match texture.read_to_pixel_buffer().unwrap().read_as_texture_2d() {
             Ok(r) => r,
             Err(safegl::buffer::ReadError::NotSupported) => return,
             e => e.unwrap(),
@@ -54,7 +54,7 @@ macro_rules! read_texture_test {
                 Ok(t) => t,
             };
 
-            let read_back: Vec<Vec<$data_ty>> = texture.read();
+            let read_back: Vec<Vec<$data_ty>> = texture.read().unwrap();
 
             assert_eq!(read_back, $data);
 

@@ -26,7 +26,7 @@ fn supported(display: &Display) -> bool {
 }
 
 fn read(texture: &Texture2d) -> Vec<Vec<(u8, u8, u8, u8)>> {
-    texture.read()
+    texture.read().unwrap()
 }
 
 fn assert_all(texture: &Texture2d, expected: (u8, u8, u8, u8)) {
@@ -207,7 +207,7 @@ fn clear_unsigned_texture() {
         .main_level()
         .clear((1u32, 2u32, 3u32, 4u32))
         .unwrap();
-    let data: Vec<Vec<(u32, u32, u32, u32)>> = unsafe { texture.unchecked_read() };
+    let data: Vec<Vec<(u32, u32, u32, u32)>> = unsafe { texture.unchecked_read().unwrap() };
     for pixel in data.iter().flatten() {
         assert_eq!(*pixel, (1, 2, 3, 4));
     }

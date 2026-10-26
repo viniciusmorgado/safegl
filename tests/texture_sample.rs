@@ -61,7 +61,7 @@ macro_rules! texture_sample_test {
                 )
                 .unwrap();
 
-            let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read();
+            let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read().unwrap();
             for row in data.iter() {
                 for pixel in row.iter() {
                     assert_eq!(pixel, &(255, 0, 0, 255));
@@ -168,7 +168,7 @@ fn bindless_texture() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 0, 255));

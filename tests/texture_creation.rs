@@ -130,7 +130,7 @@ fn texture_2d_as_uniform_value_lifetime() {
     let uniforms = get_uniforms(&texture);
     assert!(matches!(
         uniforms,
-        safegl::uniforms::UniformValue::Texture2d(..)
+        safegl::uniforms::UniformValue::Texture(..)
     ));
 
     display.assert_no_error(None);
@@ -651,7 +651,7 @@ fn bindless_texture_residency_context_rebuild() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 0, 255));
@@ -677,9 +677,9 @@ fn upload_from_pixel_buffer() {
 
     texture
         .main_level()
-        .raw_upload_from_pixel_buffer(buffer.as_slice(), 0..2, 0..2, 0..1);
+        .raw_upload_from_pixel_buffer(buffer.as_slice(), 0..2, 0..2, 0..1).unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(data[0][0], (0, 255, 0, 255));
     assert_eq!(data[0][1], (255, 0, 255, 0));
     assert_eq!(data[1][0], (255, 255, 0, 255));
@@ -708,9 +708,9 @@ fn upload_from_pixel_buffer_inverted() {
 
     texture
         .main_level()
-        .raw_upload_from_pixel_buffer_inverted(buffer.as_slice(), 0..2, 0..2, 0..1);
+        .raw_upload_from_pixel_buffer_inverted(buffer.as_slice(), 0..2, 0..2, 0..1).unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(data[0][0], (0, 255, 0, 255));
     assert_eq!(data[0][1], (255, 0, 255, 0));
     assert_eq!(data[1][0], (0, 255, 255, 255));

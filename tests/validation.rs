@@ -32,7 +32,7 @@ fn build_program(display: &Display, fragment: &str) -> safegl::Program {
 }
 
 fn pixel(texture: &Texture2d) -> (u8, u8, u8, u8) {
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     data[0][0]
 }
 
@@ -103,9 +103,9 @@ fn blit_copies_pixels_as_they_are() {
             height: 2,
         },
         MagnifySamplerFilter::Nearest,
-    );
+    ).unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = target.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = target.read().unwrap();
     assert_eq!(data[0][0], (128, 128, 128, 255));
     display.assert_no_error(None);
 }

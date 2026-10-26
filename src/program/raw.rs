@@ -8,6 +8,10 @@ use crate::version::Version;
 
 use crate::backend::Facade;
 use crate::context::Context;
+#[cfg(feature = "gl46")]
+use crate::vertex::TransformFeedbackSession;
+#[cfg(feature = "gl46")]
+use crate::TransformFeedbackSessionExt;
 use crate::ContextExt;
 #[cfg(feature = "gl46")]
 use crate::UniformsExt;
@@ -556,24 +560,27 @@ impl RawProgram {
         y: u32,
         z: u32,
     ) -> Result<(), DrawError>
-    // TODO: other error?
     where
         U: Uniforms,
     {
         let mut ctxt = self.context.make_current();
 
-        // TODO: return an error instead
-        assert!(x < ctxt.capabilities.max_compute_work_group_count.0 as u32);
-        assert!(y < ctxt.capabilities.max_compute_work_group_count.1 as u32);
-        assert!(z < ctxt.capabilities.max_compute_work_group_count.2 as u32);
+        if !is_compute_supported(&ctxt) {
+            return Err(DrawError::ComputeShadersNotSupported);
+        }
 
-        assert!(
-            ctxt.version >= &Version(Api::Gl, 4, 3)
-                || ctxt.version >= &Version(Api::GlEs, 3, 1)
-                || ctxt.extensions.gl_arb_compute_shader
-        );
+        // the maximum number of work groups is included
+        let (max_x, max_y, max_z) = ctxt.capabilities.max_compute_work_group_count;
+        if x > max_x as u32 || y > max_y as u32 || z > max_z as u32 {
+            return Err(DrawError::WorkGroupCountTooLarge {
+                requested: (x, y, z),
+                maximum: (max_x as u32, max_y as u32, max_z as u32),
+            });
+        }
 
         TimeElapsedQuery::end_conditional_render(&mut ctxt);
+        // `glUseProgram` is invalid while transform feedback is active
+        TransformFeedbackSession::unbind(&mut ctxt);
 
         let mut fences = crate::buffer::FenceInserters::new();
 
@@ -602,25 +609,36 @@ impl RawProgram {
         uniforms: U,
         buffer: BufferSlice<'_, ComputeCommand>,
     ) -> Result<(), DrawError>
-    // TODO: other error?
     where
         U: Uniforms,
     {
         let mut ctxt = self.context.make_current();
 
-        assert!(
-            ctxt.version >= &Version(Api::Gl, 4, 3)
-                || ctxt.version >= &Version(Api::GlEs, 3, 1)
-                || ctxt.extensions.gl_arb_compute_shader
-        );
+        if !is_compute_supported(&ctxt) {
+            return Err(DrawError::ComputeShadersNotSupported);
+        }
+
+        if !ctxt.owns(buffer.get_context()) {
+            return Err(DrawError::ContextMismatch {
+                object: "dispatch commands buffer".to_owned(),
+            });
+        }
+
+        // OpenGL requires the offset of the commands to be a multiple of 4
+        let offset = buffer.get_offset_bytes();
+        if offset % 4 != 0 {
+            return Err(DrawError::BufferOffsetNotAligned {
+                name: "dispatch commands buffer".to_owned(),
+                offset,
+                alignment: 4,
+            });
+        }
 
         TimeElapsedQuery::end_conditional_render(&mut ctxt);
+        // `glUseProgram` is invalid while transform feedback is active
+        TransformFeedbackSession::unbind(&mut ctxt);
 
         buffer.prepare_and_bind_for_dispatch_indirect(&mut ctxt);
-        let offset = buffer.get_offset_bytes();
-
-        // an error is generated if the offset is not a multiple of 4
-        assert!(offset % 4 == 0);
 
         if let Some(fence) = buffer.add_fence() {
             fence.insert(&mut ctxt);
@@ -660,6 +678,11 @@ impl GlObject for RawProgram {
 }
 
 impl ProgramExt for RawProgram {
+    #[inline]
+    fn get_context(&self) -> &Context {
+        &self.context
+    }
+
     #[inline]
     fn use_program(&self, ctxt: &mut CommandContext<'_>) {
         unsafe {
@@ -803,4 +826,12 @@ unsafe fn check_program_link_errors(
     }
 
     Ok(())
+}
+
+/// Returns true if compute shaders are supported.
+#[cfg(feature = "gl46")]
+fn is_compute_supported(ctxt: &CommandContext<'_>) -> bool {
+    ctxt.version >= &Version(Api::Gl, 4, 3)
+        || ctxt.version >= &Version(Api::GlEs, 3, 1)
+        || ctxt.extensions.gl_arb_compute_shader
 }

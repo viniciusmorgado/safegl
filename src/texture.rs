@@ -905,6 +905,63 @@ impl fmt::Display for TextureCreationError {
 
 impl Error for TextureCreationError {}
 
+/// Error that can happen when uploading data to a texture.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UploadError {
+    /// The region is outside of the texture, or its dimensions don't match the data.
+    OutOfBounds,
+
+    /// The data doesn't have the size that the region needs in its format.
+    DataSizeMismatch {
+        /// The size in bytes that the region needs.
+        expected: usize,
+        /// The size in bytes of the data.
+        obtained: usize,
+    },
+
+    /// The backend doesn't support uploading data in this format to this texture.
+    FormatNotSupported,
+
+    /// OpenGL can't upload data to multisample textures; draw to them instead.
+    MultisampleTexture,
+
+    /// The pixel buffer to upload from belongs to another context than the texture. OpenGL
+    /// objects can only be used with the context that created them.
+    ContextMismatch,
+
+    /// The pixel buffer doesn't hold enough pixels for the region.
+    BufferTooSmall,
+}
+
+impl fmt::Display for UploadError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UploadError::OutOfBounds => fmt.write_str(
+                "The region is outside of the texture, or its dimensions don't match the data",
+            ),
+            UploadError::DataSizeMismatch { expected, obtained } => write!(
+                fmt,
+                "The data has {} bytes, but the region needs {}",
+                obtained, expected
+            ),
+            UploadError::FormatNotSupported => fmt.write_str(
+                "The backend doesn't support uploading data in this format to this texture",
+            ),
+            UploadError::MultisampleTexture => {
+                fmt.write_str("OpenGL can't upload data to multisample textures")
+            }
+            UploadError::ContextMismatch => fmt.write_str(
+                "The pixel buffer belongs to another context than the texture",
+            ),
+            UploadError::BufferTooSmall => {
+                fmt.write_str("The pixel buffer doesn't hold enough pixels for the region")
+            }
+        }
+    }
+}
+
+impl Error for UploadError {}
+
 impl From<FormatNotSupportedError> for TextureCreationError {
     #[inline]
     fn from(_: FormatNotSupportedError) -> TextureCreationError {

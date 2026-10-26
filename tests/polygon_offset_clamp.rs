@@ -145,7 +145,7 @@ fn draw_offset_quad(clamp: f32) -> Result<(u8, u8, u8, u8), DrawError> {
     drop(target);
 
     display.assert_no_error(None);
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = color.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = color.read().unwrap();
     Ok(data[SIZE as usize / 2][SIZE as usize / 2])
 }
 

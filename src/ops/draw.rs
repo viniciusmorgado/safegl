@@ -5,6 +5,7 @@ use glow::HasContext;
 use crate::BufferExt;
 use crate::BufferSliceExt;
 use crate::DrawError;
+use crate::GlObject;
 use crate::ProgramExt;
 use crate::UniformsExt;
 
@@ -101,6 +102,9 @@ where
     // starting the state changes
     let mut ctxt = context.make_current();
 
+    // OpenGL objects can only be used with the context that created them
+    check_contexts(&ctxt, program, &indices, draw_parameters)?;
+
     // handling vertices source
     let (vertices_count, instances_count, base_vertex) = {
         let index_buffer = match indices {
@@ -129,8 +133,9 @@ where
         // object that is used to build the bindings
         let mut binder =
             VertexAttributesSystem::start(&mut ctxt, program, index_buffer, use_base_vertex);
-        // number of vertices in the vertices sources, or `None` if there is a mismatch
+        // number of vertices in the vertices sources, and whether they have different numbers
         let mut vertices_count: Option<usize> = None;
+        let mut vertices_mismatch = false;
         // number of instances to draw
         let mut instances_count: Option<usize> = None;
 
@@ -140,7 +145,11 @@ where
             #[allow(clippy::single_match)]
             match src {
                 VerticesSource::VertexBuffer(buffer, format, per_instance) => {
-                    // TODO: assert!(buffer.get_elements_size() == total_size(format));
+                    if !binder_context_owns(&buffer, context) {
+                        return Err(DrawError::ContextMismatch {
+                            object: "vertex buffer".to_owned(),
+                        });
+                    }
 
                     if let Some(fence) = buffer.add_fence() {
                         fences.push(fence);
@@ -155,8 +164,7 @@ where
                 VerticesSource::VertexBuffer(ref buffer, _, false) => {
                     if let Some(curr) = vertices_count {
                         if curr != buffer.get_elements_count() {
-                            vertices_count = None;
-                            break;
+                            vertices_mismatch = true;
                         }
                     } else {
                         vertices_count = Some(buffer.get_elements_count());
@@ -174,8 +182,7 @@ where
                 VerticesSource::Marker { len, per_instance } if !per_instance => {
                     if let Some(curr) = vertices_count {
                         if curr != len {
-                            vertices_count = None;
-                            break;
+                            vertices_mismatch = true;
                         }
                     } else {
                         vertices_count = Some(len);
@@ -194,6 +201,11 @@ where
             }
         }
 
+        let vertices_count = if vertices_mismatch {
+            None
+        } else {
+            vertices_count
+        };
         (vertices_count, instances_count, binder.bind()?.unwrap_or(0))
     };
 
@@ -203,6 +215,15 @@ where
             fbo::FramebuffersContainer::get_framebuffer_for_drawing(&mut ctxt, framebuffer);
         unsafe { fbo::bind_framebuffer(&mut ctxt, fbo_id, true, false) };
     };
+
+    // transform feedback can't stay active while the program changes, unless the draw command
+    // continues the session
+    if !draw_parameters
+        .transform_feedback
+        .is_some_and(|session| session.is_active(&ctxt))
+    {
+        TransformFeedbackSession::unbind(&mut ctxt);
+    }
 
     // binding the program and uniforms
     program.use_program(&mut ctxt);
@@ -218,12 +239,8 @@ where
         )?;
         sync_vertices_per_patch(&mut ctxt, vertices_per_patch);
 
-        // TODO: make sure that the program is the right one
-        // TODO: changing the current transform feedback requires pausing/unbinding before changing the program
         if let Some(ref tf) = draw_parameters.transform_feedback {
             tf.bind(&mut ctxt, indices.get_primitives_type());
-        } else {
-            TransformFeedbackSession::unbind(&mut ctxt);
         }
     }
 
@@ -414,4 +431,67 @@ unsafe fn sync_vertices_per_patch(
             ctxt.state.patch_patch_vertices = vertices_per_patch;
         }
     }
+}
+
+/// Returns true if the buffer belongs to the context.
+fn binder_context_owns(buffer: &crate::buffer::BufferAnySlice<'_>, context: &Context) -> bool {
+    std::ptr::eq(&**buffer.get_context(), context)
+}
+
+/// Checks that the program, the indices and the objects of the draw parameters belong to the
+/// current context.
+fn check_contexts(
+    ctxt: &context::CommandContext<'_>,
+    program: &Program,
+    indices: &IndicesSource<'_>,
+    draw_parameters: &DrawParameters<'_>,
+) -> Result<(), DrawError> {
+    let mismatch = |object: &str| {
+        Err(DrawError::ContextMismatch {
+            object: object.to_owned(),
+        })
+    };
+
+    if !ctxt.owns(program.get_context()) {
+        return mismatch("program");
+    }
+
+    match *indices {
+        IndicesSource::IndexBuffer { ref buffer, .. } => {
+            if !ctxt.owns(buffer.get_context()) {
+                return mismatch("index buffer");
+            }
+        }
+        #[cfg(feature = "gl46")]
+        IndicesSource::MultidrawArray { ref buffer, .. } => {
+            if !ctxt.owns(buffer.get_context()) {
+                return mismatch("draw commands buffer");
+            }
+        }
+        #[cfg(feature = "gl46")]
+        IndicesSource::MultidrawElement {
+            ref commands,
+            ref indices,
+            ..
+        } => {
+            if !ctxt.owns(commands.get_context()) {
+                return mismatch("draw commands buffer");
+            }
+            if !ctxt.owns(indices.get_context()) {
+                return mismatch("index buffer");
+            }
+        }
+        IndicesSource::NoIndices { .. } => (),
+    }
+
+    if let Some(session) = draw_parameters.transform_feedback {
+        if !ctxt.owns(session.get_context()) {
+            return mismatch("transform feedback session");
+        }
+        if session.get_program_id() != program.get_id() {
+            return Err(DrawError::TransformFeedbackProgramMismatch);
+        }
+    }
+
+    draw_parameters::check_query_contexts(ctxt, draw_parameters)
 }

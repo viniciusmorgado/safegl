@@ -469,7 +469,8 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
             use crate::texture::pixel_buffer::PixelBuffer;
             use crate::texture::{{TextureCreationError, Texture1dDataSource, Texture2dDataSource}};
             use crate::texture::{{Texture3dDataSource, Texture2dDataSink, MipmapsOption, CompressedMipmapsOption}};
-            use crate::texture::{{RawImage1d, RawImage2d, RawImage3d, CubeLayer}};
+            use crate::texture::{{RawImage1d, RawImage2d, RawImage3d, CubeLayer, UploadError}};
+            use crate::ReadError;
             use crate::texture::pixel::PixelValue;
 
             use crate::image_format::{{ClientFormatAny, TextureFormatRequest}};
@@ -627,21 +628,21 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                             impl<'a> AsUniformValue for &'a {myname} {{
                                 #[inline]
                                 fn as_uniform_value(&self) -> UniformValue<'_> {{
-                                    UniformValue::{myname}(*self, None)
+                                    UniformValue::Texture(&***self, None)
                                 }}
                             }}
 
                             impl AsUniformValue for {myname} {{
                                 #[inline]
                                 fn as_uniform_value(&self) -> UniformValue<'_> {{
-                                    UniformValue::{myname}(self, None)
+                                    UniformValue::Texture(&**self, None)
                                 }}
                             }}
 
                             impl<'a> AsUniformValue for Sampler<'a, {myname}> {{
                                 #[inline]
                                 fn as_uniform_value(&self) -> UniformValue<'_> {{
-                                    UniformValue::{myname}(self.0, Some(self.1))
+                                    UniformValue::Texture(&**self.0, Some(self.1))
                                 }}
                             }}
 
@@ -650,7 +651,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                             impl<'a> From<Sampler<'a, {myname}>> for UniformValue<'a> {{
                                 #[inline]
                                 fn from(sampler: Sampler<'a, {myname}>) -> UniformValue<'a> {{
-                                    UniformValue::{myname}(sampler.0, Some(sampler.1))
+                                    UniformValue::Texture(&**sampler.0, Some(sampler.1))
                                 }}
                             }}
 
@@ -684,15 +685,12 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         && (dimensions != TextureDimensions::Texture2dMultisample
             && dimensions != TextureDimensions::Texture2dMultisampleArray)
     {
-        let image_variant = name
-            .replace("Texture", "Image")
-            .replace("Cubemap", "ImageCube");
         writeln!(dest, "
                     #[cfg(feature = \"gl46\")]
                     impl<'a> AsUniformValue for ImageUnit<'a, {myname}> {{
                         #[inline]
                         fn as_uniform_value(&self) -> UniformValue<'_>  {{
-                            UniformValue::{valname}(self.0, Some(self.1))
+                            UniformValue::Image(&**self.0, self.1)
                         }}
                     }}
 
@@ -706,7 +704,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                              ImageUnit::new(self, format)
                         }}
                     }}
-                ", myname = name, valname = image_variant).unwrap();
+                ", myname = name).unwrap();
     }
 
     // `ToXXXAttachment` trait impl
@@ -1189,11 +1187,11 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                 /// You should avoid doing this at all cost during performance-critical
                 /// operations (for example, while you're drawing).
                 ///
-                /// ## Panic
-                ///
-                /// Panics on OpenGL ES without `GL_NV_read_depth`, which can't read depth values.
+                /// Returns `ReadError::AttachmentTypeNotSupported` on OpenGL ES without
+                /// `GL_NV_read_depth`, which can't read depth values, and
+                /// `ReadError::ContextLost` if the context has been lost.
                 #[inline]
-                pub fn read<T>(&self) -> T where T: Texture2dDataSink<f32> {{
+                pub fn read<T>(&self) -> Result<T, ReadError> where T: Texture2dDataSink<f32> {{
                     let rect = Rect {{ left: 0, bottom: 0, width: self.get_width(),
                                        height: self.get_height().unwrap_or(1) }};
                     self.0.main_level().first_layer().into_image(None).unwrap().raw_read(&rect)
@@ -1221,8 +1219,10 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                 /// You should avoid doing this at all cost during performance-critical
                 /// operations (for example, while you're drawing).
                 /// Use `read_to_pixel_buffer` instead.
+                ///
+                /// Returns `ReadError::ContextLost` if the context has been lost.
                 #[inline]
-                pub fn read<T>(&self) -> T where T: Texture2dDataSink<(u8, u8, u8, u8)> {{
+                pub fn read<T>(&self) -> Result<T, ReadError> where T: Texture2dDataSink<(u8, u8, u8, u8)> {{
                     unsafe {{ self.unchecked_read() }}
                 }}
             "#
@@ -1240,7 +1240,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                 /// (a pixel buffer). Contrary to the `read` function, this operation is
                 /// done asynchronously and doesn't need a synchronization.
                 #[inline]
-                pub fn read_to_pixel_buffer(&self) -> PixelBuffer<(u8, u8, u8, u8)> {{
+                pub fn read_to_pixel_buffer(&self) -> Result<PixelBuffer<(u8, u8, u8, u8)>, ReadError> {{
                     unsafe {{ self.unchecked_read_to_pixel_buffer() }}
                 }}
             "#
@@ -1256,7 +1256,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                 /// operations (for example, while you're drawing).
                 /// Use `read_to_pixel_buffer` instead.
                 #[inline]
-                pub unsafe fn unchecked_read<T, P>(&self) -> T where T: Texture2dDataSink<P>, P: PixelValue {{
+                pub unsafe fn unchecked_read<T, P>(&self) -> Result<T, ReadError> where T: Texture2dDataSink<P>, P: PixelValue {{
                     let rect = Rect {{ left: 0, bottom: 0, width: self.get_width(),
                                        height: self.get_height().unwrap_or(1) }};
                     self.0.main_level().first_layer().into_image(None).unwrap().raw_read(&rect)
@@ -1272,14 +1272,14 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                 /// (a pixel buffer). Contrary to the `read` function, this operation is
                 /// done asynchronously and doesn't need a synchronization.
                 #[inline]
-                pub unsafe fn unchecked_read_to_pixel_buffer<P>(&self) -> PixelBuffer<P> where P: PixelValue {{
+                pub unsafe fn unchecked_read_to_pixel_buffer<P>(&self) -> Result<PixelBuffer<P>, ReadError> where P: PixelValue {{
                     let rect = Rect {{ left: 0, bottom: 0, width: self.get_width(),
                                        height: self.get_height().unwrap_or(1) }};
                     let pb = PixelBuffer::new_empty(self.0.get_context(),
                                                     rect.width as usize * rect.height as usize);
                     self.0.main_level().first_layer().into_image(None).unwrap()
-                          .raw_read_to_pixel_buffer(&rect, &pb);
-                    pb
+                          .raw_read_to_pixel_buffer(&rect, &pb)?;
+                    Ok(pb)
                 }}
             "#)).unwrap();
     }
@@ -1327,11 +1327,12 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                 /// Note that this may cause a synchronization if you use the texture right before
                 /// or right after this call.
                 ///
-                /// ## Panic
-                ///
-                /// Panics if the data doesn't fit in the texture.
+                /// Returns an error if the data doesn't fit in the texture, or if its size or
+                /// format doesn't match.
                 #[inline]
-                pub fn write<'a, T>(&self, offset: u32, data: T) where T: Texture1dDataSource<'a> {{
+                pub fn write<'a, T>(&self, offset: u32, data: T) -> Result<(), UploadError>
+                    where T: Texture1dDataSource<'a>
+                {{
                     self.main_level().write(offset, data)
                 }}
             "#
@@ -1348,11 +1349,10 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                 /// Note that this may cause a synchronization if you use the texture right before
                 /// or right after this call.
                 ///
-                /// ## Panic
-                ///
-                /// Panics if the data doesn't fit in the texture.
+                /// Returns an error if the data doesn't fit in the texture, or if its size or
+                /// format doesn't match.
                 #[inline]
-                pub fn write<'a, T>(&self, offset: (u32, u32, u32), data: T)
+                pub fn write<'a, T>(&self, offset: (u32, u32, u32), data: T) -> Result<(), UploadError>
                     where T: Texture3dDataSource<'a>
                 {{
                     self.main_level().write(offset, data)
@@ -1385,12 +1385,13 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                 /// or right after this call. Prefer creating a whole new texture if you change a
                 /// huge part of it.
                 ///
-                /// ## Panic
-                ///
-                /// Panics if the the dimensions of `data` don't match the `Rect`.
+                /// Returns an error if the dimensions of `data` don't match the `Rect`, if the
+                /// `Rect` is out of the texture, or if the size or format of the data doesn't match.
                 {compressed_restrictions}
                 #[inline]
-                pub fn write<'a, T>(&self, rect: Rect, data: T) where T: {data_source_trait}<'a> {{
+                pub fn write<'a, T>(&self, rect: Rect, data: T) -> Result<(), UploadError>
+                    where T: {data_source_trait}<'a>
+                {{
                     self.main_level().write(rect, data)
                 }}
             "#,
@@ -1410,19 +1411,15 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                 /// or right after this call. Prefer creating a whole new texture if you change a
                 /// huge part of it.
                 ///
-                /// ## Panic
+                /// Returns an error if the dimensions of `data` don't match the `Rect`, or if
+                /// the size of the data doesn't match its format.
                 ///
-                /// Panics if the the dimensions of `data` don't match the `Rect`.
-                ///
-                /// Calling this will result in a panic of type INVALID_OPERATION error if `Rect::width`
-                /// or `Rect::height` is not equal to 0 (border), or if the written dimensions do not match
-                /// the original texture dimensions. The contents of any texel outside the region modified
-                /// by the call are undefined. These restrictions may be relaxed for specific compressed
-                /// internal formats whose images are easily edited.
+                /// The contents of any texel outside the region modified by the call are
+                /// undefined.
                 #[inline]
                 pub fn write_compressed_data(&self, rect: Rect, data: &[u8],
                                              width: u32, height: u32, format: {format})
-                                             -> Result<(), ()>
+                                             -> Result<(), UploadError>
                 {{
                     // FIXME is having width and height as parameter redundant as rect kinda of
                     // already provides them?
@@ -1617,15 +1614,16 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                     /// Note that this may cause a synchronization if you use the texture right before
                     /// or right after this call.
                     ///
-                    /// ## Panic
-                    ///
-                    /// Panics if the data doesn't fit in the texture level.
-                    pub fn write<'a, T>(&self, offset: u32, data: T) where T: Texture1dDataSource<'a> {{
+                    /// Returns an error if the data doesn't fit in the texture level, or if its
+                    /// size or format doesn't match.
+                    pub fn write<'a, T>(&self, offset: u32, data: T) -> Result<(), UploadError>
+                        where T: Texture1dDataSource<'a>
+                    {{
                         let RawImage1d {{ data, width, format: client_format }} = data.into_raw();
                         let client_format = ClientFormatAny::ClientFormat(client_format);
 
                         self.0.upload_texture(offset, 0, 0, (client_format, data), width, None, None,
-                                              true).unwrap()
+                                              true)
                     }}
                 "#)).unwrap();
         }
@@ -1638,10 +1636,9 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                     /// Note that this may cause a synchronization if you use the texture right before
                     /// or right after this call.
                     ///
-                    /// ## Panic
-                    ///
-                    /// Panics if the data doesn't fit in the texture level.
-                    pub fn write<'a, T>(&self, offset: (u32, u32, u32), data: T)
+                    /// Returns an error if the data doesn't fit in the texture level, or if its
+                    /// size or format doesn't match.
+                    pub fn write<'a, T>(&self, offset: (u32, u32, u32), data: T) -> Result<(), UploadError>
                         where T: Texture3dDataSource<'a>
                     {{
                         let RawImage3d {{ data, width, height, depth, format: client_format }} =
@@ -1649,7 +1646,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                         let client_format = ClientFormatAny::ClientFormat(client_format);
 
                         self.0.upload_texture(offset.0, offset.1, offset.2, (client_format, data),
-                                              width, Some(height), Some(depth), true).unwrap()
+                                              width, Some(height), Some(depth), true)
                     }}
                 "#)).unwrap();
         }
@@ -1674,21 +1671,24 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                     /// Note that this may cause a synchronization if you use the texture right before
                     /// or right after this call.
                     ///
-                    /// ## Panic
-                    ///
-                    /// Panics if the the dimensions of `data` don't match the `Rect`.
+                    /// Returns an error if the dimensions of `data` don't match the `Rect`, if the
+                    /// `Rect` is out of the level, or if the size or format of the data doesn't
+                    /// match.
                     {compressed_restrictions}
-                    pub fn write<'a, T>(&self, rect: Rect, data: T) where T: {data_source_trait}<'a> {{
+                    pub fn write<'a, T>(&self, rect: Rect, data: T) -> Result<(), UploadError>
+                        where T: {data_source_trait}<'a>
+                    {{
                         let RawImage2d {{ data, width, height, format: client_format }} =
                                                 data.into_raw();
 
-                        assert_eq!(width, rect.width);
-                        assert_eq!(height, rect.height);
+                        if width != rect.width || height != rect.height {{
+                            return Err(UploadError::OutOfBounds);
+                        }}
 
                         let client_format = ClientFormatAny::ClientFormat(client_format);
 
                         self.0.upload_texture(rect.left, rect.bottom, 0, (client_format, data),
-                                              width, Some(height), None, true).unwrap()
+                                              width, Some(height), None, true)
                     }}
                 "#, data_source_trait = data_source_trait,
                     compressed_restrictions = compressed_restrictions)).unwrap();
@@ -1703,24 +1703,18 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                     /// Note that this may cause a synchronization if you use the texture right before
                     /// or right after this call.
                     ///
-                    /// ## Panic
+                    /// Returns an error if the dimensions of `data` don't match the `Rect`, or if
+                    /// the size of the data doesn't match its format.
                     ///
-                    /// Panics if the the dimensions of `data` don't match the `Rect`.
-                    ///
-                    /// Calling this will result in a panic of type INVALID_OPERATION error if `Rect::width`
-                    /// or `Rect::height` is not equal to 0 (border), or if the written dimensions do not match
-                    /// the original texture dimensions. The contents of any texel outside the region modified
-                    /// by the call are undefined. These restrictions may be relaxed for specific compressed
-                    /// internal formats whose images are easily edited.
+                    /// The contents of any texel outside the region modified by the call are
+                    /// undefined.
                     pub fn write_compressed_data(&self, rect: Rect, data: &[u8],
                                                  width: u32, height: u32, format: {format})
-                                                 -> Result<(), ()>
+                                                 -> Result<(), UploadError>
                     {{
-                        // FIXME is having width and height as parameter redundant as rect kinda of
-                        // already provides them?
-
-                        assert_eq!(width, rect.width);
-                        assert_eq!(height, rect.height);
+                        if width != rect.width || height != rect.height {{
+                            return Err(UploadError::OutOfBounds);
+                        }}
 
                         let data = Cow::Borrowed(data.as_ref());
                         let client_format = {client_format_any}(format);
@@ -1874,10 +1868,9 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
             (write!(dest, r#"
                     /// Uploads some data in this layer, starting at the texel `offset`.
                     ///
-                    /// ## Panic
-                    ///
-                    /// Panics if the data doesn't fit in the layer.
-                    pub fn write<'a, T>(&self, offset: u32, data: T)
+                    /// Returns an error if the data doesn't fit in the layer, or if its size or
+                    /// format doesn't match.
+                    pub fn write<'a, T>(&self, offset: u32, data: T) -> Result<(), UploadError>
                         where T: Texture1dDataSource<'a>, T::Data: PixelValue
                     {{
                         let RawImage1d {{ data, width, format }} = data.into_raw();
@@ -1892,11 +1885,12 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
             (write!(dest, r#"
                     /// Uploads some data in a rectangle of this layer.
                     ///
-                    /// ## Panic
-                    ///
-                    /// Panics if the dimensions of `data` don't match the `Rect`, or if the
-                    /// `Rect` is out of the layer.
-                    pub fn write<'a, T>(&self, rect: Rect, data: T) where T: Texture2dDataSource<'a> {{
+                    /// Returns an error if the dimensions of `data` don't match the `Rect`, if the
+                    /// `Rect` is out of the layer, or if the size or format of the data doesn't
+                    /// match.
+                    pub fn write<'a, T>(&self, rect: Rect, data: T) -> Result<(), UploadError>
+                        where T: Texture2dDataSource<'a>
+                    {{
                         self.0.into_image(None).unwrap().raw_write(&rect, data)
                     }}
                 "#)).unwrap();
@@ -1946,11 +1940,12 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
             (write!(dest, r#"
                     /// Uploads some data in a rectangle of this face.
                     ///
-                    /// ## Panic
-                    ///
-                    /// Panics if the dimensions of `data` don't match the `Rect`, or if the
-                    /// `Rect` is out of the face.
-                    pub fn write<'a, T>(&self, rect: Rect, data: T) where T: Texture2dDataSource<'a> {{
+                    /// Returns an error if the dimensions of `data` don't match the `Rect`, if the
+                    /// `Rect` is out of the face, or if the size or format of the data doesn't
+                    /// match.
+                    pub fn write<'a, T>(&self, rect: Rect, data: T) -> Result<(), UploadError>
+                        where T: Texture2dDataSource<'a>
+                    {{
                         self.0.raw_write(&rect, data)
                     }}
                 "#)).unwrap();

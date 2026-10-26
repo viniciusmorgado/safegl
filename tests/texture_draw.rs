@@ -57,7 +57,7 @@ macro_rules! draw_and_validate {
 
         $display.assert_no_error(None);
 
-        let data: Vec<Vec<(u8, u8, u8, u8)>> = $texture.read();
+        let data: Vec<Vec<(u8, u8, u8, u8)>> = $texture.read().unwrap();
         for row in data.iter() {
             for pixel in row.iter() {
                 assert_eq!(pixel, &$rust_value);

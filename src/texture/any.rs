@@ -19,7 +19,7 @@ use crate::texture::Texture2dDataSink;
 use crate::texture::TextureKind;
 use crate::texture::{get_format, GetFormatError, InternalFormat};
 use crate::texture::{CubeLayer, MipmapsOption, TextureCreationError, TextureFormat};
-use crate::texture::{RawImage2d, Texture2dDataSource};
+use crate::texture::{RawImage2d, Texture2dDataSource, UploadError};
 
 use crate::fbo::ClearBufferData;
 
@@ -42,6 +42,7 @@ use glow::HasContext;
 
 use crate::fbo;
 use crate::ops;
+use crate::ops::ReadError;
 
 /// Type of a texture.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -1334,8 +1335,11 @@ impl<'a> TextureAnyMipmap<'a> {
     /// In the case of 2D texture arrays, use array size as depth.
     #[inline]
     fn get_mipmap_dimensions(&self) -> (u32, u32, u32) {
+        // the faces of cubemaps are layers too
         let tex_depth = match self.texture.ty {
             Dimensions::Texture2dArray { array_size, .. } => array_size,
+            Dimensions::Cubemap { .. } => 6,
+            Dimensions::CubemapArray { array_size, .. } => 6 * array_size,
             _ => self.depth.unwrap_or(1),
         };
         let tex_height = match self.texture.ty {
@@ -1411,10 +1415,12 @@ impl<'a> TextureAnyMipmap<'a> {
 
     /// Uploads data to the texture from a buffer.
     ///
-    /// # Panic
+    /// `x`, `y` and `z` are the ranges of texels to write. For arrays of one-dimensional textures,
+    /// `y` is the range of layers, for arrays of two-dimensional textures `z` is, and for cubemaps
+    /// `z` is the range of faces (`6 * layer + face` for cubemap arrays).
     ///
-    /// Panics if the offsets and dimensions are outside the boundaries of the texture. Panics
-    /// if the buffer is not big enough to hold the data.
+    /// Returns an error if the ranges are outside of the texture, if the buffer is not big enough
+    /// to hold the data, or if the texture is multisampled.
     #[inline]
     pub fn raw_upload_from_pixel_buffer<P>(
         &self,
@@ -1422,19 +1428,17 @@ impl<'a> TextureAnyMipmap<'a> {
         x: Range<u32>,
         y: Range<u32>,
         z: Range<u32>,
-    ) where
+    ) -> Result<(), UploadError>
+    where
         P: PixelValue,
     {
-        self.raw_upload_from_pixel_buffer_impl(source, x, y, z, false);
+        self.raw_upload_from_pixel_buffer_impl(source, x, y, z, false)
     }
 
     /// Uploads data to the texture from a buffer. The R, G and B components are flipped.
     ///
-    /// # Panic
-    ///
-    /// Panics if the offsets and dimensions are outside the boundaries of the texture. Panics
-    /// if the buffer is not big enough to hold the data. Panics on OpenGL ES, which can't flip
-    /// the components while uploading.
+    /// See `raw_upload_from_pixel_buffer`. Returns `UploadError::FormatNotSupported` on OpenGL ES,
+    /// which can't flip the components while uploading.
     #[inline]
     pub fn raw_upload_from_pixel_buffer_inverted<P>(
         &self,
@@ -1442,10 +1446,11 @@ impl<'a> TextureAnyMipmap<'a> {
         x: Range<u32>,
         y: Range<u32>,
         z: Range<u32>,
-    ) where
+    ) -> Result<(), UploadError>
+    where
         P: PixelValue,
     {
-        self.raw_upload_from_pixel_buffer_impl(source, x, y, z, true);
+        self.raw_upload_from_pixel_buffer_impl(source, x, y, z, true)
     }
 
     fn raw_upload_from_pixel_buffer_impl<P>(
@@ -1455,23 +1460,39 @@ impl<'a> TextureAnyMipmap<'a> {
         y: Range<u32>,
         z: Range<u32>,
         inverted: bool,
-    ) where
+    ) -> Result<(), UploadError>
+    where
         P: PixelValue,
     {
+        // OpenGL objects can only be used with the context that created them
+        if !Rc::ptr_eq(source.get_context(), &self.texture.context) {
+            return Err(UploadError::ContextMismatch);
+        }
+
+        if let Dimensions::Texture2dMultisample { .. } | Dimensions::Texture2dMultisampleArray { .. } =
+            self.texture.ty
+        {
+            return Err(UploadError::MultisampleTexture);
+        }
+
         let tex_dim = self.get_mipmap_dimensions();
-        assert!(x.start < tex_dim.0);
-        assert!(y.start < tex_dim.1);
-        assert!(z.start < tex_dim.2);
-        assert!(x.end <= tex_dim.0);
-        assert!(y.end <= tex_dim.1);
-        assert!(z.end <= tex_dim.2);
+        if x.start > x.end
+            || y.start > y.end
+            || z.start > z.end
+            || x.end > tex_dim.0
+            || y.end > tex_dim.1
+            || z.end > tex_dim.2
+        {
+            return Err(UploadError::OutOfBounds);
+        }
 
         let width = x.end - x.start;
         let height = y.end - y.start;
         let depth = z.end - z.start;
 
-        if source.len() < (width * height * depth) as usize {
-            panic!("Buffer is too small");
+        let texels = (width * height * depth) as usize;
+        if source.len() < texels {
+            return Err(UploadError::BufferTooSmall);
         }
 
         let (client_format, client_type) = image_format::client_format_to_glenum(
@@ -1480,108 +1501,89 @@ impl<'a> TextureAnyMipmap<'a> {
             self.texture.requested_format,
             inverted,
         )
-        .unwrap();
+        .map_err(|_| UploadError::FormatNotSupported)?;
 
         let mut ctxt = self.texture.context.make_current();
 
         // binds the pixel buffer
         source.prepare_and_bind_for_pixel_unpack(&mut ctxt);
+        let offset = source.get_offset_bytes();
+        let level = self.level as gl::types::GLint;
 
-        match self.texture.ty {
-            Dimensions::Texture1d { .. } => {
-                self.texture.bind_to_current(&mut ctxt);
-                unsafe {
+        unsafe {
+            if ctxt.state.pixel_store_unpack_alignment != 1 {
+                ctxt.state.pixel_store_unpack_alignment = 1;
+                ctxt.glow.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
+            }
+
+            let bind_point = self.texture.bind_to_current(&mut ctxt);
+            match self.texture.ty {
+                Dimensions::Texture1d { .. } => {
                     ctxt.extra.TexSubImage1D(
-                        self.texture.get_bind_point(),
-                        self.level as gl::types::GLint,
+                        bind_point,
+                        level,
                         x.start as gl::types::GLint,
                         width as gl::types::GLsizei,
                         client_format,
                         client_type,
-                        source.get_offset_bytes() as *const () as *const _,
+                        offset as *const c_void,
                     );
                 }
-            }
 
-            Dimensions::Texture1dArray { .. }
-            | Dimensions::Texture2d { .. }
-            | Dimensions::Texture2dMultisample { .. }
-            | Dimensions::Texture2dMultisampleArray { .. } => {
-                if ctxt.version >= &Version(Api::Gl, 4, 5)
-                    || ctxt.extensions.gl_arb_direct_state_access
-                {
-                    unsafe {
-                        ctxt.glow.texture_sub_image_2d(
-                            self.texture.id,
-                            self.level as gl::types::GLint,
-                            x.start as gl::types::GLint,
-                            y.start as gl::types::GLint,
-                            width as gl::types::GLsizei,
-                            height as gl::types::GLsizei,
-                            client_format,
-                            client_type,
-                            glow::PixelUnpackData::BufferOffset(source.get_offset_bytes() as u32),
-                        );
-                    }
-                } else {
-                    self.texture.bind_to_current(&mut ctxt);
-                    unsafe {
+                Dimensions::Texture1dArray { .. } | Dimensions::Texture2d { .. } => {
+                    ctxt.glow.tex_sub_image_2d(
+                        bind_point,
+                        level,
+                        x.start as gl::types::GLint,
+                        y.start as gl::types::GLint,
+                        width as gl::types::GLsizei,
+                        height as gl::types::GLsizei,
+                        client_format,
+                        client_type,
+                        glow::PixelUnpackData::BufferOffset(offset as u32),
+                    );
+                }
+
+                // without direct state access, the faces of a cubemap are separate targets
+                Dimensions::Cubemap { .. } => {
+                    let face_bytes = (width * height) as usize * mem::size_of::<P>();
+                    for (index, face) in z.clone().enumerate() {
                         ctxt.glow.tex_sub_image_2d(
-                            self.texture.get_bind_point(),
-                            self.level as gl::types::GLint,
+                            gl::TEXTURE_CUBE_MAP_POSITIVE_X + face,
+                            level,
                             x.start as gl::types::GLint,
                             y.start as gl::types::GLint,
                             width as gl::types::GLsizei,
                             height as gl::types::GLsizei,
                             client_format,
                             client_type,
-                            glow::PixelUnpackData::BufferOffset(source.get_offset_bytes() as u32),
+                            glow::PixelUnpackData::BufferOffset(
+                                (offset + index * face_bytes) as u32,
+                            ),
                         );
                     }
                 }
-            }
 
-            Dimensions::Texture2dArray { .. } | Dimensions::Texture3d { .. } => {
-                if ctxt.version >= &Version(Api::Gl, 4, 5)
-                    || ctxt.extensions.gl_arb_direct_state_access
-                {
-                    unsafe {
-                        ctxt.glow.texture_sub_image_3d(
-                            self.texture.id,
-                            self.level as gl::types::GLint,
-                            x.start as gl::types::GLint,
-                            y.start as gl::types::GLint,
-                            z.start as gl::types::GLint,
-                            width as gl::types::GLsizei,
-                            height as gl::types::GLsizei,
-                            depth as gl::types::GLsizei,
-                            client_format,
-                            client_type,
-                            glow::PixelUnpackData::BufferOffset(source.get_offset_bytes() as u32),
-                        );
-                    }
-                } else {
-                    self.texture.bind_to_current(&mut ctxt);
-                    unsafe {
-                        ctxt.glow.tex_sub_image_3d(
-                            self.texture.get_bind_point(),
-                            self.level as gl::types::GLint,
-                            x.start as gl::types::GLint,
-                            y.start as gl::types::GLint,
-                            z.start as gl::types::GLint,
-                            width as gl::types::GLsizei,
-                            height as gl::types::GLsizei,
-                            depth as gl::types::GLsizei,
-                            client_format,
-                            client_type,
-                            glow::PixelUnpackData::BufferOffset(source.get_offset_bytes() as u32),
-                        );
-                    }
+                Dimensions::Texture2dArray { .. }
+                | Dimensions::Texture3d { .. }
+                | Dimensions::CubemapArray { .. } => {
+                    ctxt.glow.tex_sub_image_3d(
+                        bind_point,
+                        level,
+                        x.start as gl::types::GLint,
+                        y.start as gl::types::GLint,
+                        z.start as gl::types::GLint,
+                        width as gl::types::GLsizei,
+                        height as gl::types::GLsizei,
+                        depth as gl::types::GLsizei,
+                        client_format,
+                        client_type,
+                        glow::PixelUnpackData::BufferOffset(offset as u32),
+                    );
                 }
-            }
 
-            Dimensions::Cubemap { .. } | Dimensions::CubemapArray { .. } => {
-                panic!("Can't upload to cubemaps"); // TODO: better handling
+                Dimensions::Texture2dMultisample { .. }
+                | Dimensions::Texture2dMultisampleArray { .. } => unreachable!(),
             }
         }
 
@@ -1589,6 +1591,8 @@ impl<'a> TextureAnyMipmap<'a> {
         if let Some(fence) = source.add_fence() {
             fence.insert(&mut ctxt);
         }
+
+        Ok(())
     }
 }
 
@@ -1603,8 +1607,7 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
         height: Option<u32>,
         depth: Option<u32>,
         regen_mipmaps: bool,
-    ) -> Result<(), ()>
-    // TODO return a better Result!?
+    ) -> Result<(), UploadError>
     where
         P: Send + Copy + Clone + 'd,
     {
@@ -1621,15 +1624,18 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
             && !is_client_compressed;
 
         assert!(!regen_mipmaps || level == 0); // when regen_mipmaps is true, level must be 0!
-        assert!(x_offset <= self.width);
-        assert!(y_offset <= self.height.unwrap_or(1));
-        assert!(z_offset <= self.depth.unwrap_or(1));
-        assert!(x_offset + width <= self.width);
-        assert!(y_offset + height.unwrap_or(1) <= self.height.unwrap_or(1));
-        assert!(z_offset + depth.unwrap_or(1) <= self.depth.unwrap_or(1));
+        if x_offset as u64 + width as u64 > self.width as u64
+            || y_offset as u64 + height.unwrap_or(1) as u64 > self.height.unwrap_or(1) as u64
+            || z_offset as u64 + depth.unwrap_or(1) as u64 > self.depth.unwrap_or(1) as u64
+        {
+            return Err(UploadError::OutOfBounds);
+        }
 
         if data.len() * mem::size_of::<P>() != data_bufsize {
-            panic!("Texture data size mismatch");
+            return Err(UploadError::DataSizeMismatch {
+                expected: data_bufsize,
+                obtained: data.len() * mem::size_of::<P>(),
+            });
         }
 
         let (client_format, client_type) = image_format::client_format_to_glenum(
@@ -1638,7 +1644,7 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
             self.texture.requested_format,
             false,
         )
-        .map_err(|_| ())?;
+        .map_err(|_| UploadError::FormatNotSupported)?;
 
         let mut ctxt = self.texture.context.make_current();
 
@@ -1964,12 +1970,10 @@ impl<'a> TextureAnyImage<'a> {
     /// Uploads data to a rectangle of the image. A layer of a one-dimensional texture array is
     /// an image with a height of 1.
     ///
-    /// # Panic
-    ///
-    /// - Panics if the rect is out of range, or if its dimensions don't match the data.
-    /// - Panics if the texture is multisampled, since OpenGL can't upload data to them.
-    /// - Panics if the format of the data isn't compatible with the texture's.
-    pub fn raw_write<'d, D>(&self, rect: &Rect, data: D)
+    /// Returns an error if the rect is out of the image or its dimensions don't match the data,
+    /// if the texture is multisampled, or if the format of the data isn't compatible with the
+    /// texture's.
+    pub fn raw_write<'d, D>(&self, rect: &Rect, data: D) -> Result<(), UploadError>
     where
         D: Texture2dDataSource<'d>,
     {
@@ -1980,19 +1984,19 @@ impl<'a> TextureAnyImage<'a> {
             format,
         } = data.into_raw();
 
-        assert_eq!(
-            rect.width, width,
-            "the width of the rect doesn't match the data"
-        );
-        assert_eq!(
-            rect.height, height,
-            "the height of the rect doesn't match the data"
-        );
-        assert!(
-            rect.left + rect.width <= self.width
-                && rect.bottom + rect.height <= self.height.unwrap_or(1),
-            "rectangle out of bounds"
-        );
+        if let Dimensions::Texture2dMultisample { .. } | Dimensions::Texture2dMultisampleArray { .. } =
+            self.texture.ty
+        {
+            return Err(UploadError::MultisampleTexture);
+        }
+
+        if rect.width != width
+            || rect.height != height
+            || rect.left as u64 + rect.width as u64 > self.width as u64
+            || rect.bottom as u64 + rect.height as u64 > self.height.unwrap_or(1) as u64
+        {
+            return Err(UploadError::OutOfBounds);
+        }
 
         let (client_format, client_type) = image_format::client_format_to_glenum(
             &self.texture.context,
@@ -2000,14 +2004,17 @@ impl<'a> TextureAnyImage<'a> {
             self.texture.requested_format,
             false,
         )
-        .expect("the format of the data isn't compatible with the texture");
+        .map_err(|_| UploadError::FormatNotSupported)?;
 
         let data_size = data.len() * mem::size_of::<D::Data>();
-        assert_eq!(
-            data_size,
-            ClientFormatAny::ClientFormat(format).get_buffer_size(width, Some(height), None, None),
-            "Texture data size mismatch"
-        );
+        let expected =
+            ClientFormatAny::ClientFormat(format).get_buffer_size(width, Some(height), None, None);
+        if data_size != expected {
+            return Err(UploadError::DataSizeMismatch {
+                expected,
+                obtained: data_size,
+            });
+        }
         // the size of `data` in bytes has been checked against the size of the rect above
         let data = unsafe { slice::from_raw_parts(data.as_ptr() as *const u8, data_size) };
 
@@ -2097,39 +2104,31 @@ impl<'a> TextureAnyImage<'a> {
                     );
                 }
                 Dimensions::Texture2dMultisample { .. }
-                | Dimensions::Texture2dMultisampleArray { .. } => {
-                    panic!("OpenGL can't upload data to a multisample texture");
-                }
+                | Dimensions::Texture2dMultisampleArray { .. } => unreachable!(),
             }
         }
+
+        Ok(())
     }
 
-    /// Reads the content of the image.
+    /// Returns true if the rect is inside of the image.
+    fn contains(&self, rect: &Rect) -> bool {
+        rect.left as u64 + rect.width as u64 <= self.width as u64
+            && rect.bottom as u64 + rect.height as u64 <= self.height.unwrap_or(1) as u64
+    }
+
+    /// Reads the content of a rectangle of the image.
     ///
-    /// # Panic
-    ///
-    /// - Panics if the rect is out of range.
-    /// - Panics if it fails to read the texture.
-    ///
-    pub fn raw_read<T, P>(&self, rect: &Rect) -> T
+    /// Returns an error if the rect is out of the image, if the backend can't read the image in
+    /// the format `P`, or if the context has been lost.
+    pub fn raw_read<T, P>(&self, rect: &Rect) -> Result<T, ReadError>
     where
         T: Texture2dDataSink<P>,
         P: PixelValue,
     {
-        assert!(
-            rect.left <= self.width && rect.width <= self.width - rect.left,
-            "rectangle out of bounds: left={}, width={}",
-            rect.left,
-            rect.width
-        );
-
-        let texture_height = self.height.unwrap_or(1);
-        assert!(
-            rect.bottom <= texture_height && rect.height <= texture_height - rect.bottom,
-            "rectangle out of bounds: bottom={}, height={}",
-            rect.bottom,
-            rect.height
-        );
+        if !self.contains(rect) {
+            return Err(ReadError::OutOfBounds);
+        }
 
         let mut ctxt = self.texture.context.make_current();
 
@@ -2137,54 +2136,48 @@ impl<'a> TextureAnyImage<'a> {
         ops::read(
             &mut ctxt,
             &fbo::RegularAttachment::Texture(*self),
-            &rect,
+            rect,
             &mut data,
             false,
-        )
-        .unwrap();
+        )?;
 
-        T::from_raw(Cow::Owned(data), self.width, self.height.unwrap_or(1))
+        Ok(T::from_raw(Cow::Owned(data), rect.width, rect.height))
     }
 
-    /// Reads the content of the image to a pixel buffer.
+    /// Reads the content of a rectangle of the image to a pixel buffer.
     ///
-    /// # Panic
-    ///
-    /// - Panics if the rect is out of range.
-    /// - Panics if the buffer is not large enough.
-    /// - Panics if it fails to read the texture.
-    ///
-    pub fn raw_read_to_pixel_buffer<P>(&self, rect: &Rect, dest: &PixelBuffer<P>)
+    /// Returns an error if the rect is out of the image, if the buffer is too small or belongs to
+    /// another context, if the backend can't read the image in the format `P`, or if the context
+    /// has been lost.
+    pub fn raw_read_to_pixel_buffer<P>(
+        &self,
+        rect: &Rect,
+        dest: &PixelBuffer<P>,
+    ) -> Result<(), ReadError>
     where
         P: PixelValue,
     {
-        assert!(
-            rect.left <= self.width && rect.width <= self.width - rect.left,
-            "rectangle out of bounds: left={}, width={}",
-            rect.left,
-            rect.width
-        );
+        if !self.contains(rect) {
+            return Err(ReadError::OutOfBounds);
+        }
 
-        let texture_height = self.height.unwrap_or(1);
-        assert!(
-            rect.bottom <= texture_height && rect.height <= texture_height - rect.bottom,
-            "rectangle out of bounds: bottom={}, height={}",
-            rect.bottom,
-            rect.height
-        );
+        // OpenGL objects can only be used with the context that created them
+        if !Rc::ptr_eq(dest.get_context(), &self.texture.context) {
+            return Err(ReadError::ContextMismatch);
+        }
 
-        assert!(dest.len() >= rect.width as usize * rect.height as usize);
+        if dest.len() < rect.width as usize * rect.height as usize {
+            return Err(ReadError::BufferTooSmall);
+        }
 
-        let size = rect.width as usize * rect.height as usize * 4;
         let mut ctxt = self.texture.context.make_current();
         ops::read(
             &mut ctxt,
             &fbo::RegularAttachment::Texture(*self),
-            &rect,
+            rect,
             dest,
             false,
         )
-        .unwrap();
     }
 
     /// Clears the content of the texture to a specific value.

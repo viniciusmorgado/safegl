@@ -69,7 +69,7 @@
 //!     safegl::VertexBuffer::new(&display, &[Particle { position: [0.0; 4] }; 1024]).unwrap();
 //!
 //! // a compute shader with `buffer Particles { vec4 position[]; };` writes the particles...
-//! compute.execute(safegl::uniform! { Particles: &*particles }, 1024 / 64, 1, 1);
+//! compute.execute(safegl::uniform! { Particles: &*particles }, 1024 / 64, 1, 1).unwrap();
 //! // ...and the next draw calls read them as vertices, after the memory barrier SafeGL inserts
 //! # }
 //! ```

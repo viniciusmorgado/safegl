@@ -103,7 +103,7 @@ fn triangles_list() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     assert_eq!(data[0][0], (255, 0, 0, 255));
     assert_eq!(data.last().unwrap().last().unwrap(), &(255, 0, 0, 255));
@@ -151,7 +151,7 @@ fn triangle_strip() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     assert_eq!(data[0][0], (255, 0, 0, 255));
     assert_eq!(data.last().unwrap().last().unwrap(), &(255, 0, 0, 255));
@@ -203,7 +203,7 @@ fn triangle_fan() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     assert_eq!(data[0][0], (255, 0, 0, 255));
     assert_eq!(data.last().unwrap().last().unwrap(), &(255, 0, 0, 255));
@@ -310,7 +310,7 @@ fn triangles_list_noindices() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     assert_eq!(data[0][0], (255, 0, 0, 255));
     assert_eq!(data.last().unwrap().last().unwrap(), &(255, 0, 0, 255));
@@ -355,7 +355,7 @@ fn triangle_strip_noindices() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     assert_eq!(data[0][0], (255, 0, 0, 255));
     assert_eq!(data.last().unwrap().last().unwrap(), &(255, 0, 0, 255));
@@ -406,7 +406,7 @@ fn triangle_fan_noindices() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     assert_eq!(data[0][0], (255, 0, 0, 255));
     assert_eq!(data.last().unwrap().last().unwrap(), &(255, 0, 0, 255));
@@ -486,7 +486,7 @@ fn indexbuffer_slice_draw() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture1.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture1.read().unwrap();
     assert_eq!(data[0][0], (0, 0, 0, 0));
     assert_eq!(data.last().unwrap().last().unwrap(), &(255, 0, 0, 255));
 
@@ -503,7 +503,7 @@ fn indexbuffer_slice_draw() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture2.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture2.read().unwrap();
     assert_eq!(data[0][0], (255, 0, 0, 255));
     assert_eq!(data.last().unwrap().last().unwrap(), &(0, 0, 0, 0));
 
@@ -561,7 +561,7 @@ fn multidraw_array() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 0, 255));
@@ -630,7 +630,7 @@ fn multidraw_elements() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 0, 255));

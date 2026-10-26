@@ -47,7 +47,7 @@ fn alpha_blending_keeps_the_source_alpha() {
         .unwrap();
 
     // half of the red, and an alpha of 0.5 rather than 0.5 × 0.5
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     let (r, _, _, a) = data[0][0];
     assert!((127..=128).contains(&r), "{r}");
     assert!((127..=128).contains(&a), "{a}");
@@ -79,7 +79,7 @@ fn samplers_repeat_by_default() {
         .draw(&vb, &ib, &program, &uniform! { tex: sampler }, &Default::default())
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read().unwrap();
     assert_eq!(data[0][0], (255, 0, 0, 255));
     display.assert_no_error(None);
 }

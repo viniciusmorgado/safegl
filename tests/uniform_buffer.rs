@@ -158,7 +158,7 @@ fn block() {
         .draw(&vb, &ib, &program, &uniforms, &Default::default())
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 255, 0, 255));
@@ -356,7 +356,7 @@ fn persistent_block_race_condition() {
         mapping.color.2 = 0.0;
     }
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 255, 255, 255));

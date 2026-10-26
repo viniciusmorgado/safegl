@@ -21,7 +21,7 @@ fn clear_color() {
     let texture = support::build_renderable_texture(&display);
     texture.as_surface().clear_color(1.0, 0.0, 0.0, 1.0);
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     for row in data.iter() {
         for pixel in row.iter() {
@@ -49,7 +49,7 @@ fn clear_color_rect() {
         .as_surface()
         .clear(Some(&rect), Some((0.0, 1.0, 0.0, 1.0)), false, None, None);
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     for row in data.iter() {
         for (col, pixel) in row.iter().enumerate() {
@@ -138,14 +138,14 @@ fn multiple_displays() {
         .unwrap();
     texture2.as_surface().clear_color(0.0, 1.0, 0.0, 0.0);
 
-    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture1.read();
+    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture1.read().unwrap();
     for row in read_back.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 0, 255));
         }
     }
 
-    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture2.read();
+    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture2.read().unwrap();
     for row in read_back.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(0, 255, 0, 0));

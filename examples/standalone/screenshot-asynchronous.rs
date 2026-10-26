@@ -60,13 +60,14 @@ mod screenshot {
                 safegl::texture::Texture2d::empty(facade, dimensions.0, dimensions.1).unwrap();
             let framebuffer = safegl::framebuffer::SimpleFrameBuffer::new(facade, &texture).unwrap();
             framebuffer.blit_from_frame(
+                facade.get_context(),
                 &rect,
                 &blit_target,
                 safegl::uniforms::MagnifySamplerFilter::Nearest,
-            );
+            ).unwrap();
 
             // Read the texture into new pixel buffer
-            let pixel_buffer = texture.read_to_pixel_buffer();
+            let pixel_buffer = texture.read_to_pixel_buffer().unwrap();
 
             AsyncScreenshotTask {
                 target_frame,

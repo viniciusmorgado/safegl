@@ -131,7 +131,7 @@ fn framebuffer<'a>(
 
 /// Asserts that every pixel of `texture` is `expected`, give or take 1 for rounding.
 fn assert_texture(texture: &Texture2d, expected: (u8, u8, u8, u8)) {
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for pixel in data.iter().flatten() {
         let close = |a: u8, b: u8| a.abs_diff(b) <= 1;
         assert!(

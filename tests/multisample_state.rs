@@ -119,8 +119,8 @@ fn resolved_red(
             height: SIZE as i32,
         },
         MagnifySamplerFilter::Nearest,
-    );
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = resolved.read();
+    ).unwrap();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = resolved.read().unwrap();
     let sum: u32 = data.iter().flatten().map(|pixel| pixel.0 as u32).sum();
     sum as f32 / (SIZE * SIZE) as f32
 }

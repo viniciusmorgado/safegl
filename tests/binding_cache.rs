@@ -147,7 +147,7 @@ fn buffer_texture_binding_cache() {
         .draw(&vb, &ib, &mixed_program, &uniforms, &Default::default())
         .unwrap();
     display.assert_no_error(None);
-    let pixels: Vec<Vec<(u8, u8, u8, u8)>> = output.read();
+    let pixels: Vec<Vec<(u8, u8, u8, u8)>> = output.read().unwrap();
     assert_eq!(pixels, vec![vec![(255, 255, 0, 255)]]);
 }
 
@@ -172,11 +172,11 @@ fn atomic_counter_binding_cache() {
     )
     .unwrap();
     assert_eq!(b.read().unwrap(), 20);
-    shader.execute(uniform! { counter: &a }, 1, 1, 1);
+    shader.execute(uniform! { counter: &a }, 1, 1, 1).unwrap();
     assert_eq!(b.read().unwrap(), 20);
     assert_eq!(a.read().unwrap(), 11);
     assert_eq!(b.read().unwrap(), 20);
-    shader.execute(uniform! { counter: &a }, 1, 1, 1);
+    shader.execute(uniform! { counter: &a }, 1, 1, 1).unwrap();
     assert_eq!(a.read().unwrap(), 12);
     display.assert_no_error(None);
 }
@@ -196,7 +196,7 @@ fn atomic_counter_high_binding_point() {
         BufferMode::Dynamic,
     )
     .unwrap();
-    shader.execute(uniform! { counter: &counter }, 1, 1, 1);
+    shader.execute(uniform! { counter: &counter }, 1, 1, 1).unwrap();
     assert_eq!(counter.read().unwrap(), 6);
     display.assert_no_error(None);
 }

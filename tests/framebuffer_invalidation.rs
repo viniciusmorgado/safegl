@@ -14,7 +14,7 @@ const SIZE: u32 = 16;
 /// The content of invalidated attachments is undefined, so these tests check that invalidating
 /// raises no OpenGL error and that the attachments can be drawn to afterwards.
 fn assert_red(texture: &Texture2d) {
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for pixel in data.iter().flatten() {
         assert_eq!(*pixel, (255, 0, 0, 255));
     }

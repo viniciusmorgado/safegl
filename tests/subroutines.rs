@@ -102,7 +102,7 @@ fn subroutine_bindings_simple() {
         .draw(&vb, &indices, &program, &uniforms, &Default::default())
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     assert_eq!(data[0][0], (0, 0, 255, 255));
     assert_eq!(data.last().unwrap().last().unwrap(), &(0, 0, 255, 255));
@@ -118,7 +118,7 @@ fn subroutine_bindings_simple() {
         .draw(&vb, &indices, &program, &uniforms, &Default::default())
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     assert_eq!(data[0][0], (255, 0, 0, 255));
     assert_eq!(data.last().unwrap().last().unwrap(), &(255, 0, 0, 255));
@@ -214,7 +214,7 @@ fn subroutine_bindings_explicit_location() {
         .draw(&vb, &indices, &program, &uniforms, &Default::default())
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     assert_eq!(data[0][0], (0, 0, 255, 255));
     assert_eq!(data.last().unwrap().last().unwrap(), &(0, 0, 255, 255));
@@ -230,7 +230,7 @@ fn subroutine_bindings_explicit_location() {
         .draw(&vb, &indices, &program, &uniforms, &Default::default())
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     assert_eq!(data[0][0], (255, 0, 0, 255));
     assert_eq!(data.last().unwrap().last().unwrap(), &(255, 0, 0, 255));
@@ -351,7 +351,7 @@ fn subroutine_bindings_multi() {
         .draw(&vb, &indices, &program, &uniforms, &Default::default())
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     assert_eq!(data[0][0], (0, 0, 255, 255));
     assert_eq!(data.last().unwrap().last().unwrap(), &(0, 0, 255, 255));
@@ -368,7 +368,7 @@ fn subroutine_bindings_multi() {
         .draw(&vb, &indices, &program, &uniforms, &Default::default())
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     assert_eq!(data[0][0], (0, 0, 255, 255));
     assert_eq!(data.last().unwrap().last().unwrap(), &(0, 0, 255, 255));

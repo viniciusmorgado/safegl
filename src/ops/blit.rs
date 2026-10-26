@@ -1,5 +1,6 @@
 use glow::HasContext;
 
+use crate::BlitError;
 use crate::BlitTarget;
 use crate::Rect;
 
@@ -13,19 +14,28 @@ use crate::gl;
 use crate::version::Api;
 use crate::version::Version;
 
+#[allow(clippy::too_many_arguments)]
 pub fn blit(
     context: &Context,
+    source_context: &Context,
     source: FramebufferTarget<'_>,
     target: FramebufferTarget<'_>,
     mask: gl::types::GLbitfield,
     src_rect: &Rect,
     target_rect: &BlitTarget,
     filter: gl::types::GLenum,
-) {
-    assert!(
-        (mask & gl::DEPTH_BUFFER_BIT == 0 && mask & gl::STENCIL_BUFFER_BIT == 0) || filter == gl::NEAREST,
-        "Blitting the depth and/or stencil buffer with filter being anything other than GL_NEAREST is an invalid operation."
-    );
+) -> Result<(), BlitError> {
+    // OpenGL objects can only be used with the context that created them
+    if !std::ptr::eq(context, source_context) {
+        return Err(BlitError::ContextMismatch);
+    }
+
+    if (mask & gl::DEPTH_BUFFER_BIT != 0 || mask & gl::STENCIL_BUFFER_BIT != 0)
+        && filter != gl::NEAREST
+    {
+        return Err(BlitError::LinearFilterOnDepthStencil);
+    }
+
     unsafe {
         let mut ctxt = context.make_current();
 
@@ -65,7 +75,7 @@ pub fn blit(
                 filter,
             );
 
-            return;
+            return Ok(());
         }
 
         // binding source framebuffer
@@ -94,4 +104,6 @@ pub fn blit(
             filter,
         );
     }
+
+    Ok(())
 }

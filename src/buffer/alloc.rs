@@ -52,6 +52,13 @@ impl Error for ReadError {}
 pub enum CopyError {
     /// The backend doesn't support copying between buffers.
     NotSupported,
+
+    /// The target belongs to another context than the source. OpenGL objects can only be used
+    /// with the context that created them.
+    ContextMismatch,
+
+    /// The target is smaller than the source.
+    TargetTooSmall,
 }
 
 impl fmt::Display for CopyError {
@@ -59,6 +66,8 @@ impl fmt::Display for CopyError {
         use self::CopyError::*;
         let desc = match *self {
             NotSupported => "The backend doesn't support copying between buffers",
+            ContextMismatch => "The target belongs to another context than the source",
+            TargetTooSmall => "The target is smaller than the source",
         };
         fmt.write_str(desc)
     }
@@ -1015,7 +1024,7 @@ impl Alloc {
     ///
     /// # Panic
     ///
-    /// Panics if the offset/sizes are out of range.
+    /// Panics if the range is out of the source.
     ///
     pub fn copy_to(
         &self,
@@ -1023,12 +1032,17 @@ impl Alloc {
         target: &Alloc,
         dest_offset: usize,
     ) -> Result<(), CopyError> {
-        // TODO: read+write manually
-        // TODO: check that the other buffer belongs to the same context
+        // OpenGL objects can only be used with the context that created them
+        if !Rc::ptr_eq(&self.context, &target.context) {
+            return Err(CopyError::ContextMismatch);
+        }
 
+        // the ranges come from slices, which are always inside their buffer
         assert!(range.end >= range.start);
         assert!(range.end <= self.size);
-        assert!(dest_offset + range.end - range.start <= target.size);
+        if dest_offset + range.end - range.start > target.size {
+            return Err(CopyError::TargetTooSmall);
+        }
 
         let mut ctxt = self.context.make_current();
 

@@ -131,7 +131,7 @@ fn multiple_buffers_source() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 0, 255));
@@ -225,7 +225,7 @@ fn slice_draw_indices() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(data.last().unwrap()[0], (0, 0, 0, 0));
     assert_eq!(data[0].last().unwrap(), &(255, 0, 0, 255));
 
@@ -315,7 +315,7 @@ fn slice_draw_noindices() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(data.last().unwrap()[0], (0, 0, 0, 0));
     assert_eq!(data[0].last().unwrap(), &(255, 0, 0, 255));
 
@@ -463,7 +463,7 @@ fn slice_draw_multiple() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(data.last().unwrap()[0], (0, 0, 0, 0));
     assert_eq!(data[0].last().unwrap(), &(255, 0, 0, 255));
 
@@ -519,7 +519,7 @@ fn attributes_marker() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 0, 255));
@@ -582,7 +582,7 @@ fn attributes_marker_indices() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 0, 255));
@@ -709,7 +709,7 @@ fn instancing() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 0, 255));
@@ -985,7 +985,7 @@ fn normalized_vertex() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     // If the data wasn't normalized, the 128 would be 255 instead
     assert_eq!(data[0][0], (0, 128, 0, 255));
 

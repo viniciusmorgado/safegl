@@ -24,7 +24,7 @@ fn color_mask() {
         .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(0, 0, 0, 255));
@@ -107,7 +107,7 @@ fn scissor() {
         .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     assert_eq!(data[0][0], (255, 0, 0, 255));
     assert_eq!(data[1][0], (0, 0, 0, 0));
@@ -147,7 +147,7 @@ fn scissor_followed_by_clear() {
         .unwrap();
     texture.as_surface().clear_color(1.0, 0.0, 1.0, 1.0);
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 255, 255));
@@ -181,7 +181,7 @@ fn viewport_followed_by_clear() {
         .unwrap();
     texture.as_surface().clear_color(1.0, 0.0, 1.0, 1.0);
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 255, 255));
@@ -214,7 +214,7 @@ fn viewport() {
         .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     assert_eq!(data[0][0], (255, 0, 0, 255));
     assert_eq!(data[1][0], (0, 0, 0, 0));
@@ -248,7 +248,7 @@ fn dont_draw_primitives() {
         .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(0, 255, 0, 0));
@@ -286,7 +286,7 @@ fn dont_draw_primitives_then_draw() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 0, 255));
@@ -412,7 +412,7 @@ fn cull_clockwise() {
         )
         .unwrap();
 
-    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(read_back[0].last().unwrap(), &(255, 0, 0, 255));
     assert_eq!(read_back.last().unwrap()[0], (0, 0, 0, 0));
 
@@ -535,7 +535,7 @@ fn cull_counterclockwise() {
         )
         .unwrap();
 
-    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(read_back[0].last().unwrap(), &(0, 0, 0, 0));
     assert_eq!(read_back.last().unwrap()[0], (255, 0, 0, 255));
 
@@ -653,7 +653,7 @@ fn cull_clockwise_trianglestrip() {
         )
         .unwrap();
 
-    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(read_back[0][0], (0, 0, 0, 0));
     assert_eq!(read_back.last().unwrap().last().unwrap(), &(0, 0, 0, 0));
 
@@ -771,7 +771,7 @@ fn cull_counterclockwise_trianglestrip() {
         )
         .unwrap();
 
-    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(read_back[0][0], (255, 0, 0, 255));
     assert_eq!(read_back.last().unwrap().last().unwrap(), &(255, 0, 0, 255));
 
@@ -858,7 +858,7 @@ macro_rules! blending_test {
             texture.as_surface().draw(&vb, &ib, &program, &uniform!{ color: $dest },
                                       &params).unwrap();
 
-            let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+            let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
             for row in data.iter() {
                 for pixel in row.iter() {
                     assert_eq!(pixel, &$result);
@@ -967,7 +967,7 @@ fn provoking_vertex_last() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     // only the bottom-left half of the screen is filled
     for row in data.iter().take(256) {
@@ -1055,7 +1055,7 @@ fn provoking_vertex_first() {
         e => e.unwrap(),
     }
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     // only the bottom-left half of the screen is filled
     for row in data.iter().take(256) {
@@ -1183,7 +1183,7 @@ fn depth_clamp_all() {
         e => e.unwrap(),
     }
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     for row in data.iter() {
         for pixel in row.iter() {
@@ -1310,7 +1310,7 @@ fn depth_clamp_near() {
         e => e.unwrap(),
     }
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     // the left part of the texture is red
     for row in data.iter() {
@@ -1445,7 +1445,7 @@ fn depth_clamp_far() {
         e => e.unwrap(),
     }
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     // the left part of the texture is black
     for row in data.iter() {
@@ -1612,7 +1612,7 @@ fn primitive_restart_index() {
         e => e.unwrap(),
     }
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     let tex_w = texture.get_width() as usize;
     let tex_h = texture.get_height().unwrap() as usize;

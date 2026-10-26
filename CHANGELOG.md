@@ -39,9 +39,77 @@ Breaking changes:
   nanoseconds overflow after 4.3 seconds, and counters can exceed them too.
 - `DrawError::RasterizerDiscardNotSupported` is removed: `draw_primitives: false` works on OpenGL
   ES 3.0 and above, where `GL_RASTERIZER_DISCARD` is core, instead of returning that error.
+- OpenGL objects can only be used with the context that created them, and SafeGL now checks it
+  everywhere instead of using whatever object has the same name in the other context
+  (glium#24): draws and compute dispatches return `DrawError::ContextMismatch`, framebuffers
+  `ValidationError::ContextMismatch`, copies `CopyError::ContextMismatch` and
+  `CopyImageError::ContextMismatch`, buffer textures and transform feedback sessions their own
+  `ContextMismatch`, and texture transfers `UploadError::ContextMismatch` and
+  `ReadError::ContextMismatch`. `LinearSyncFence::into_sync_fence` returns the fence when given
+  another context.
+- The blit methods of `Surface` (`blit_color`, `blit_whole_color_to`, `fill`, `blit_from_*`,
+  `blit_buffers_from_*`) return `Result<(), BlitError>`: a source from another context, a depth or
+  stencil blit with a linear filter (which used to panic) and a blit from an external framebuffer
+  to a surface that can't receive it (which used to panic too) are errors. `blit_from_frame` and
+  `blit_buffers_from_frame` take the context whose default framebuffer is the source.
+- `UniformValue` has a single `Texture(&TextureAny, Option<SamplerBehavior>)` variant and a single
+  `Image(&TextureAny, ImageUnitBehavior)` variant instead of one per texture type (glium#1035). The
+  kind and dimensions of the texture are checked against the sampler or image type of the uniform
+  at draw time, which also makes multisample array textures and `usampler1DArray` uniforms work.
+  The image unit behavior is no longer optional: `None` panicked.
+- Sampling a texture with a shadow sampler (`sampler2DShadow`, ...) without a depth comparison in
+  its sampler, or with another sampler and a depth comparison, returns
+  `DrawError::DepthComparisonMismatch`: OpenGL returns undefined values then.
+- `ComputeShader::execute` and `execute_indirect` return `Result<(), DrawError>` instead of
+  panicking on uniform errors, on unsupported compute shaders
+  (`DrawError::ComputeShadersNotSupported`), on too many work groups
+  (`DrawError::WorkGroupCountTooLarge`, which also allows the maximum itself now) and on unaligned
+  indirect offsets.
+- Texture writes (`write`, `write_compressed_data`, `raw_write`, `raw_upload_from_pixel_buffer*`)
+  return `Result<(), texture::UploadError>`, and texture reads (`read`, `read_to_pixel_buffer`,
+  `unchecked_read*`, `raw_read`, `raw_read_to_pixel_buffer`) return `Result<_, ReadError>`, instead
+  of panicking on regions out of the texture, data whose size doesn't match (glium#1875),
+  unsupported formats, multisample textures, small pixel buffers and lost contexts. Add `.unwrap()`
+  or `?` to the calls.
+- A transform feedback session must be used with the program it was built for, or the draw
+  returns `DrawError::TransformFeedbackProgramMismatch`.
+- `UniformType` has an `Unknown(u32)` variant for the types of vendor extensions, which no value
+  can be bound to, instead of panicking at program creation.
+- `TextureCreationError` of buffer textures, `CopyError`, `CopyImageError`, `ReadError`,
+  `ValidationError`, `TransformFeedbackSessionCreationError` and `DrawError` have new variants.
+
+Additions:
+
+- `UniformValue::DoubleMat2x3` and the other non-square double-precision matrices, from
+  `[[f64; R]; C]` arrays, and 64-bit integer uniform values are bound to their GLSL types.
+- `UniformValue` implements `AsUniformValue`, so a value built in advance, for example from a
+  `Sampler`, can be passed to `uniform!`.
+- A buffer slice that starts at an offset can be bound to a uniform block, a shader storage block
+  or an atomic counter buffer, which used to panic; an offset that isn't aligned as the backend
+  requires returns `DrawError::BufferOffsetNotAligned`. `Capabilities` gives the
+  `uniform_buffer_offset_alignment` and `shader_storage_buffer_offset_alignment`.
+- A basic type or an array matches a uniform block that has it as single member, like slices do.
+- `raw_upload_from_pixel_buffer` uploads to cubemaps and cubemap arrays, whose faces are layers,
+  instead of panicking.
 
 Fixes:
 
+- Buffer slices are bound with their own range to uniform blocks, shader storage blocks, atomic
+  counter buffers and transform feedback, instead of the whole buffer.
+- Programs using cube map array images, `samplerCubeArrayShadow`, `usampler1DArray`, 64-bit
+  integers, double-precision matrix inputs or half-float inputs no longer panic at creation.
+- Creating a `Texture2dMultisampleArray` no longer raises `GL_INVALID_ENUM`.
+- A transform feedback session can be used by several draws in a row, which append their
+  vertices, instead of panicking on the second one; transform feedback ends before the program
+  changes and before compute dispatches, where it raised `GL_INVALID_OPERATION`.
+- Indexed draws bind every vertex buffer even when they don't have the same length.
+- Running out of texture units returns `DrawError::InsufficientTextureUnits` instead of panicking.
+- Double-precision uniforms work on OpenGL 4.0 and above without `GL_ARB_gpu_shader_fp64` in the
+  extensions list, instead of panicking.
+- Empty framebuffers with a width, height, number of layers or number of samples of 0 return
+  `ValidationError::EmptyFramebufferUnsupportedDimensions` instead of panicking.
+- `BufferTexture::from_buffer` returns `TextureCreationError::NotSupported` without buffer
+  textures instead of panicking.
 - Conditional rendering with a query that was never used draws nothing, since the query counted
   no samples, instead of raising `GL_INVALID_OPERATION`.
 - Drawing with the same query as `samples_passed_query` and as the condition returns
@@ -52,7 +120,6 @@ Fixes:
   leaking it.
 - The documentation of `PrimitivesGeneratedQuery` says that it counts the primitives of the last
   vertex processing stage, without a geometry shader too.
-
 - `slice(start..end)` on buffers returns `None` when `start > end`, instead of a slice whose size
   overflows.
 - Reading a buffer into a `Vec` no longer exposes uninitialized memory to the closure of

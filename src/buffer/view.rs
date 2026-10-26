@@ -26,10 +26,10 @@ use crate::buffer::alloc::ReadMapping;
 use crate::buffer::alloc::WriteMapping;
 use crate::buffer::fences::Fences;
 use crate::buffer::fences::Inserter;
+use crate::buffer::AnyBitPattern;
 use crate::buffer::BufferCreationError;
 use crate::buffer::BufferMode;
 use crate::buffer::BufferType;
-use crate::buffer::AnyBitPattern;
 use crate::buffer::Content;
 use crate::field::Field;
 
@@ -253,9 +253,8 @@ where
 
     /// Copies the content of the buffer to another buffer.
     ///
-    /// # Panic
-    ///
-    /// Panics if `T` is unsized and the other buffer is too small.
+    /// Returns `CopyError::TargetTooSmall` if `T` is unsized and the other buffer is too small,
+    /// and `CopyError::ContextMismatch` if it belongs to another context.
     ///
     pub fn copy_to<'a, S>(&self, target: S) -> Result<(), CopyError>
     where
@@ -677,9 +676,8 @@ where
 
     /// Copies the content of this slice to another slice.
     ///
-    /// # Panic
-    ///
-    /// Panics if `T` is unsized and the other buffer is too small.
+    /// Returns `CopyError::TargetTooSmall` if `T` is unsized and the other buffer is too small,
+    /// and `CopyError::ContextMismatch` if it belongs to another context.
     pub fn copy_to<S>(&self, target: S) -> Result<(), CopyError>
     where
         S: Into<BufferSlice<'a, T>>,
@@ -940,7 +938,7 @@ where
         index: gl::types::GLuint,
     ) {
         self.alloc
-            .prepare_and_bind_for_uniform(ctxt, index, 0..self.alloc.get_size());
+            .prepare_and_bind_for_uniform(ctxt, index, self.bytes_start..self.bytes_end);
     }
 
     #[cfg(feature = "gl46")]
@@ -950,8 +948,11 @@ where
         ctxt: &mut CommandContext<'_>,
         index: gl::types::GLuint,
     ) {
-        self.alloc
-            .prepare_and_bind_for_shared_storage(ctxt, index, 0..self.alloc.get_size());
+        self.alloc.prepare_and_bind_for_shared_storage(
+            ctxt,
+            index,
+            self.bytes_start..self.bytes_end,
+        );
     }
 
     #[cfg(feature = "gl46")]
@@ -961,14 +962,17 @@ where
         ctxt: &mut CommandContext<'_>,
         index: gl::types::GLuint,
     ) {
-        self.alloc
-            .prepare_and_bind_for_atomic_counter(ctxt, index, 0..self.alloc.get_size());
+        self.alloc.prepare_and_bind_for_atomic_counter(
+            ctxt,
+            index,
+            self.bytes_start..self.bytes_end,
+        );
     }
 
     #[inline]
     fn bind_to_transform_feedback(&self, ctxt: &mut CommandContext<'_>, index: gl::types::GLuint) {
         self.alloc
-            .bind_to_transform_feedback(ctxt, index, 0..self.alloc.get_size());
+            .bind_to_transform_feedback(ctxt, index, self.bytes_start..self.bytes_end);
     }
 }
 
@@ -1110,9 +1114,8 @@ where
 
     /// Copies the content of this slice to another slice.
     ///
-    /// # Panic
-    ///
-    /// Panics if `T` is unsized and the other buffer is too small.
+    /// Returns `CopyError::TargetTooSmall` if `T` is unsized and the other buffer is too small,
+    /// and `CopyError::ContextMismatch` if it belongs to another context.
     pub fn copy_to<S>(&self, target: S) -> Result<(), CopyError>
     where
         S: Into<BufferSlice<'a, T>>,
@@ -1693,7 +1696,7 @@ impl<'a> BufferExt for BufferAnySlice<'a> {
         index: gl::types::GLuint,
     ) {
         self.alloc
-            .prepare_and_bind_for_uniform(ctxt, index, 0..self.alloc.get_size());
+            .prepare_and_bind_for_uniform(ctxt, index, self.bytes_start..self.bytes_end);
     }
 
     #[cfg(feature = "gl46")]
@@ -1703,8 +1706,11 @@ impl<'a> BufferExt for BufferAnySlice<'a> {
         ctxt: &mut CommandContext<'_>,
         index: gl::types::GLuint,
     ) {
-        self.alloc
-            .prepare_and_bind_for_shared_storage(ctxt, index, 0..self.alloc.get_size());
+        self.alloc.prepare_and_bind_for_shared_storage(
+            ctxt,
+            index,
+            self.bytes_start..self.bytes_end,
+        );
     }
 
     #[cfg(feature = "gl46")]
@@ -1714,13 +1720,16 @@ impl<'a> BufferExt for BufferAnySlice<'a> {
         ctxt: &mut CommandContext<'_>,
         index: gl::types::GLuint,
     ) {
-        self.alloc
-            .prepare_and_bind_for_atomic_counter(ctxt, index, 0..self.alloc.get_size());
+        self.alloc.prepare_and_bind_for_atomic_counter(
+            ctxt,
+            index,
+            self.bytes_start..self.bytes_end,
+        );
     }
 
     #[inline]
     fn bind_to_transform_feedback(&self, ctxt: &mut CommandContext<'_>, index: gl::types::GLuint) {
         self.alloc
-            .bind_to_transform_feedback(ctxt, index, 0..self.alloc.get_size());
+            .bind_to_transform_feedback(ctxt, index, self.bytes_start..self.bytes_end);
     }
 }

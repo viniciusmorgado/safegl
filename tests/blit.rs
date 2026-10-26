@@ -35,9 +35,9 @@ fn blit_texture_to_window() {
         &target.as_surface(),
         &dest_rect,
         safegl::uniforms::MagnifySamplerFilter::Nearest,
-    );
+    ).unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = target.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = target.read().unwrap();
 
     assert_eq!(data[1][1], (0, 255, 0, 255));
     assert_eq!(data[1][2], (0, 255, 0, 255));
@@ -98,10 +98,10 @@ fn blit_color_and_depth_buffer() {
         &dst_rect,
         MagnifySamplerFilter::Nearest,
         BlitMask::color_and_depth(),
-    );
+    ).unwrap();
 
     // check result
-    let color_data: Vec<Vec<(u8, u8, u8, u8)>> = dst_tex_color.read();
+    let color_data: Vec<Vec<(u8, u8, u8, u8)>> = dst_tex_color.read().unwrap();
     assert_eq!(
         color_data,
         vec![
@@ -136,9 +136,9 @@ fn blit_from_multi_output_framebuffer() {
             height: 2,
         },
         MagnifySamplerFilter::Nearest,
-    );
+    ).unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = target.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = target.read().unwrap();
     assert_eq!(data[0][0], (0, 0, 255, 255));
     display.assert_no_error(None);
 }

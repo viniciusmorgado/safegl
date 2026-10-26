@@ -80,6 +80,18 @@ where
                     return;
                 }
 
+                // shadow samplers return undefined values without a depth comparison, and
+                // other samplers with one
+                if let UniformValue::Texture(_, sampler) = value {
+                    let compares = sampler.is_some_and(|s| s.depth_texture_comparison.is_some());
+                    if compares != crate::uniforms::is_shadow_sampler(uniform.ty) {
+                        visiting_result = Err(DrawError::DepthComparisonMismatch {
+                            name: name.to_owned(),
+                        });
+                        return;
+                    }
+                }
+
                 match bind_uniform(
                     &mut ctxt,
                     &value,
@@ -219,6 +231,32 @@ where
     Ok(())
 }
 
+/// Checks that a buffer bound to a block belongs to the current context and starts at an offset
+/// that is a multiple of `alignment`.
+fn check_block_buffer(
+    ctxt: &context::CommandContext<'_>,
+    buffer: &crate::buffer::BufferAnySlice<'_>,
+    alignment: usize,
+    name: &str,
+) -> Result<(), DrawError> {
+    if !ctxt.owns(buffer.get_context()) {
+        return Err(DrawError::ContextMismatch {
+            object: format!("uniform `{}`", name),
+        });
+    }
+
+    let offset = buffer.get_offset_bytes();
+    if offset % alignment != 0 {
+        return Err(DrawError::BufferOffsetNotAligned {
+            name: name.to_owned(),
+            offset,
+            alignment,
+        });
+    }
+
+    Ok(())
+}
+
 fn bind_uniform_block<'a, P>(
     ctxt: &mut context::CommandContext<'_>,
     value: &UniformValue<'a>,
@@ -250,7 +288,12 @@ where
                 })?;
             buffer_bind_points.set_used(bind_point);
 
-            assert!(buffer.get_offset_bytes() == 0); // TODO: not implemented
+            check_block_buffer(
+                ctxt,
+                buffer,
+                ctxt.capabilities.uniform_buffer_offset_alignment,
+                name,
+            )?;
             let fence = buffer.add_fence();
             let block_id = block.id as gl::types::GLuint;
 
@@ -330,7 +373,12 @@ where
                 })?;
             buffer_bind_points.set_used(bind_point);
 
-            assert!(buffer.get_offset_bytes() == 0); // TODO: not implemented
+            check_block_buffer(
+                ctxt,
+                buffer,
+                ctxt.capabilities.shader_storage_buffer_offset_alignment,
+                name,
+            )?;
             let fence = buffer.add_fence();
             let block_id = block.id as gl::types::GLuint;
 
@@ -381,7 +429,7 @@ where
                 });
             }
 
-            assert!(buffer.get_offset_bytes() == 0); // TODO: not implemented
+            check_block_buffer(ctxt, buffer, 4, name)?;
             let fence = buffer.add_fence();
 
             buffer.prepare_and_bind_for_atomic_counter(
@@ -417,6 +465,20 @@ where
 
     #[cfg(not(target_os = "vita"))]
     assert!(location >= 0);
+
+    // textures can only be used with the context that created them
+    let texture_context = match *value {
+        UniformValue::Texture(texture, _) => Some(TextureExt::get_context(texture)),
+        UniformValue::BufferTexture(ref texture) => Some(TextureExt::get_context(texture)),
+        #[cfg(feature = "gl46")]
+        UniformValue::Image(texture, _) => Some(TextureExt::get_context(texture)),
+        _ => None,
+    };
+    if texture_context.is_some_and(|context| !ctxt.owns(context)) {
+        return Err(DrawError::ContextMismatch {
+            object: format!("uniform `{}`", name),
+        });
+    }
 
     match *value {
         UniformValue::Block(_, _) => Err(DrawError::UniformBufferToValue {
@@ -589,473 +651,33 @@ where
             program.set_uniform(ctxt, location, &RawUniformValue::UnsignedInt64Vec4(val));
             Ok(())
         }
-        UniformValue::Texture1d(texture, sampler) => bind_texture_uniform(
+        UniformValue::DoubleMat2x3(val) => {
+            program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat2x3(val));
+            Ok(())
+        }
+        UniformValue::DoubleMat2x4(val) => {
+            program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat2x4(val));
+            Ok(())
+        }
+        UniformValue::DoubleMat3x2(val) => {
+            program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat3x2(val));
+            Ok(())
+        }
+        UniformValue::DoubleMat3x4(val) => {
+            program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat3x4(val));
+            Ok(())
+        }
+        UniformValue::DoubleMat4x2(val) => {
+            program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat4x2(val));
+            Ok(())
+        }
+        UniformValue::DoubleMat4x3(val) => {
+            program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat4x3(val));
+            Ok(())
+        }
+        UniformValue::Texture(texture, sampler) => bind_texture_uniform(
             ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedTexture1d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::SrgbTexture1d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedSrgbTexture1d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::IntegralTexture1d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::UnsignedTexture1d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::DepthTexture1d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::Texture2d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedTexture2d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::SrgbTexture2d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedSrgbTexture2d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::IntegralTexture2d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::UnsignedTexture2d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::DepthTexture2d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::Texture2dMultisample(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::SrgbTexture2dMultisample(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::IntegralTexture2dMultisample(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::UnsignedTexture2dMultisample(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::DepthTexture2dMultisample(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::Texture3d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedTexture3d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::SrgbTexture3d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedSrgbTexture3d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::IntegralTexture3d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::UnsignedTexture3d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::DepthTexture3d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::Texture1dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedTexture1dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::SrgbTexture1dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedSrgbTexture1dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::IntegralTexture1dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::UnsignedTexture1dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::DepthTexture1dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::Texture2dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedTexture2dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::SrgbTexture2dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedSrgbTexture2dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::IntegralTexture2dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::UnsignedTexture2dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::DepthTexture2dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::Texture2dMultisampleArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::SrgbTexture2dMultisampleArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::IntegralTexture2dMultisampleArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::UnsignedTexture2dMultisampleArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::DepthTexture2dMultisampleArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::Cubemap(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedCubemap(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::SrgbCubemap(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedSrgbCubemap(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::IntegralCubemap(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::UnsignedCubemap(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::DepthCubemap(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CubemapArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedCubemapArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::SrgbCubemapArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedSrgbCubemapArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::IntegralCubemapArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::UnsignedCubemapArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::DepthCubemapArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
+            texture,
             sampler,
             location,
             program,
@@ -1065,189 +687,9 @@ where
             bind_texture_uniform(ctxt, &texture, None, location, program, texture_bind_points)
         }
         #[cfg(feature = "gl46")]
-        UniformValue::Image1d(texture, unit) => bind_image_uniform(
+        UniformValue::Image(texture, unit) => bind_image_uniform(
             ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::IntegralImage1d(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::UnsignedImage1d(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::Image2d(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::IntegralImage2d(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::UnsignedImage2d(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::Image3d(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::IntegralImage3d(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::UnsignedImage3d(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::Image1dArray(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::IntegralImage1dArray(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::UnsignedImage1dArray(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::Image2dArray(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::IntegralImage2dArray(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::UnsignedImage2dArray(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::ImageCube(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::IntegralImageCube(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::UnsignedImageCube(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::ImageCubeArray(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::IntegralImageCubeArray(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::UnsignedImageCubeArray(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
+            texture,
             unit,
             location,
             program,
@@ -1312,14 +754,11 @@ where
                 None
             }
         })
-        .unwrap_or_else(|| {
-            texture_bind_points
-                .get_unused()
-                .expect("Not enough texture units available")
-        });
-    assert!(
-        (texture_unit as gl::types::GLint) < ctxt.capabilities.max_combined_texture_image_units
-    );
+        .or_else(|| texture_bind_points.get_unused())
+        .filter(|&unit| {
+            (unit as gl::types::GLint) < ctxt.capabilities.max_combined_texture_image_units
+        })
+        .ok_or(DrawError::InsufficientTextureUnits)?;
     texture_bind_points.set_used(texture_unit);
 
     // updating the program to use the right unit
@@ -1367,7 +806,7 @@ where
 fn bind_image_uniform<P, T>(
     ctxt: &mut context::CommandContext,
     texture: &T,
-    unit_behavior: Option<ImageUnitBehavior>,
+    unit_behavior: ImageUnitBehavior,
     location: gl::types::GLint,
     program: &P,
     image_unit_bind_points: &mut Bitsfield,
@@ -1378,7 +817,6 @@ where
 {
     use crate::ToGlEnum;
 
-    let unit_behavior = unit_behavior.expect("Unit behavior should always be provided");
     let image_unit = match image_unit_bind_points.get_unused() {
         Some(unit) => unit,
         None => return Err(DrawError::InsufficientImageUnits),

@@ -92,6 +92,16 @@ pub enum ReadError {
 
     /// The OpenGL context has been lost, and the data is gone with it.
     ContextLost,
+
+    /// The rectangle to read is outside of the image.
+    OutOfBounds,
+
+    /// The pixel buffer to read into is too small for the rectangle.
+    BufferTooSmall,
+
+    /// The pixel buffer to read into belongs to another context than the image. OpenGL objects
+    /// can only be used with the context that created them.
+    ContextMismatch,
 }
 
 impl fmt::Display for ReadError {
@@ -110,6 +120,12 @@ impl fmt::Display for ReadError {
                 "The buffer to read from doesn't exist",
             ContextLost =>
                 "The OpenGL context has been lost",
+            OutOfBounds =>
+                "The rectangle to read is outside of the image",
+            BufferTooSmall =>
+                "The pixel buffer to read into is too small for the rectangle",
+            ContextMismatch =>
+                "The pixel buffer belongs to another context than the image",
         };
         fmt.write_str(desc)
     }

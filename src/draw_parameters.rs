@@ -596,6 +596,40 @@ impl<'a> SamplesQueryParam<'a> {
     }
 }
 
+/// Checks that the queries of the draw parameters belong to the current context.
+pub(crate) fn check_query_contexts(
+    ctxt: &context::CommandContext<'_>,
+    draw_parameters: &DrawParameters<'_>,
+) -> Result<(), DrawError> {
+    let samples = |query: &SamplesQueryParam<'_>| match *query {
+        SamplesQueryParam::SamplesPassedQuery(q) => ctxt.owns(QueryExt::get_context(q)),
+        SamplesQueryParam::AnySamplesPassedQuery(q) => ctxt.owns(QueryExt::get_context(q)),
+    };
+
+    let owned = draw_parameters.samples_passed_query.as_ref().is_none_or(samples)
+        && draw_parameters
+            .time_elapsed_query
+            .is_none_or(|q| ctxt.owns(QueryExt::get_context(q)))
+        && draw_parameters
+            .primitives_generated_query
+            .is_none_or(|q| ctxt.owns(QueryExt::get_context(q)))
+        && draw_parameters
+            .transform_feedback_primitives_written_query
+            .is_none_or(|q| ctxt.owns(QueryExt::get_context(q)))
+        && draw_parameters
+            .condition
+            .as_ref()
+            .is_none_or(|condition| samples(&condition.query));
+
+    if owned {
+        Ok(())
+    } else {
+        Err(DrawError::ContextMismatch {
+            object: "query".to_owned(),
+        })
+    }
+}
+
 /// Checks the queries of the draw parameters. Returns `Ok(false)` if the draw command must not
 /// draw anything: its condition is a query that was never used, whose result counts as no
 /// samples, and on which OpenGL refuses to begin conditional rendering.

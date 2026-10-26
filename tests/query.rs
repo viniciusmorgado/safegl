@@ -234,7 +234,7 @@ fn conditional_render_nodraw() {
             .unwrap();
     }
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     for row in data.iter() {
         for pixel in row.iter() {
@@ -384,7 +384,7 @@ fn conditional_render_after_query() {
             result => result.unwrap(),
         }
 
-        let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+        let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
         assert!(data.iter().flatten().all(|&p| p == expected));
     }
 

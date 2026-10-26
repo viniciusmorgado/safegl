@@ -134,6 +134,12 @@ pub struct Capabilities {
     /// Number of available buffer bind points for `GL_UNIFORM_BUFFER`.
     pub max_indexed_uniform_buffer: gl::types::GLint,
 
+    /// Alignment in bytes of the offsets of buffer ranges bound to `GL_UNIFORM_BUFFER`.
+    pub uniform_buffer_offset_alignment: usize,
+
+    /// Alignment in bytes of the offsets of buffer ranges bound to `GL_SHADER_STORAGE_BUFFER`.
+    pub shader_storage_buffer_offset_alignment: usize,
+
     /// Number of work groups for compute shaders.
     pub max_compute_work_group_count: (gl::types::GLint, gl::types::GLint, gl::types::GLint),
 
@@ -498,6 +504,28 @@ pub unsafe fn get_capabilities(
                 gl.get_parameter_i32(glow::MAX_UNIFORM_BUFFER_BINDINGS)
             } else {
                 0
+            }
+        },
+
+        uniform_buffer_offset_alignment: {
+            if version >= &Version(Api::Gl, 3, 1)
+                || version >= &Version(Api::GlEs, 3, 0)
+                || extensions.gl_arb_uniform_buffer_object
+            {
+                gl.get_parameter_i32(glow::UNIFORM_BUFFER_OFFSET_ALIGNMENT).max(1) as usize
+            } else {
+                1
+            }
+        },
+
+        shader_storage_buffer_offset_alignment: {
+            if version >= &Version(Api::Gl, 4, 3)
+                || version >= &Version(Api::GlEs, 3, 1)
+                || extensions.gl_arb_shader_storage_buffer_object
+            {
+                gl.get_parameter_i32(glow::SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT).max(1) as usize
+            } else {
+                1
             }
         },
 

@@ -141,6 +141,7 @@ pub use self::sampler::{
 };
 pub use self::sampler::{BorderColor, Sampler, SamplerBehavior};
 pub use self::uniforms::{DynamicUniforms, EmptyUniforms, UniformsStorage};
+pub(crate) use self::value::is_shadow_sampler;
 pub use self::value::{UniformType, UniformValue};
 
 use std::error::Error;
