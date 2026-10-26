@@ -58,7 +58,7 @@ impl ComputeShader {
         let shader = build_shader(facade, gl::COMPUTE_SHADER, src)?;
 
         Ok(ComputeShader {
-            raw: RawProgram::from_shaders(facade, &[shader], false, false, false, None)?,
+            raw: RawProgram::from_shaders(facade, &[shader], false, false, false, None, None)?,
         })
     }
 
@@ -76,7 +76,7 @@ impl ComputeShader {
         let shader = build_spirv_shader(facade, gl::COMPUTE_SHADER, spirv)?;
 
         Ok(ComputeShader {
-            raw: RawProgram::from_shaders(facade, &[shader], false, false, false, None)?,
+            raw: RawProgram::from_shaders(facade, &[shader], false, false, false, None, None)?,
         })
     }
 

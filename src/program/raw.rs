@@ -95,6 +95,7 @@ impl RawProgram {
         has_tessellation_control_shader: bool,
         has_tessellation_evaluation_shader: bool,
         transform_feedback: Option<(Vec<String>, TransformFeedbackMode)>,
+        fragment_source: Option<&str>,
     ) -> Result<RawProgram, ProgramCreationError>
     where
         F: Facade,
@@ -122,6 +123,15 @@ impl RawProgram {
                 };
 
                 ctxt.glow.transform_feedback_varyings(id, &names, mode);
+            }
+
+            // the fragment outputs without a location get locations in their declaration order,
+            // so that the first one goes to the first draw buffer on every driver; OpenGL ES
+            // requires a location when there are several outputs
+            if ctxt.version.0 == crate::version::Api::Gl {
+                if let Some(source) = fragment_source {
+                    bind_fragment_output_locations(&ctxt, id, source);
+                }
             }
 
             // linking
@@ -850,4 +860,37 @@ fn is_compute_supported(ctxt: &CommandContext<'_>) -> bool {
     ctxt.version >= &Version(Api::Gl, 4, 3)
         || ctxt.version >= &Version(Api::GlEs, 3, 1)
         || ctxt.extensions.gl_arb_compute_shader
+}
+
+/// Binds the outputs of a fragment shader that have no location to locations in their
+/// declaration order, skipping the locations given in the shader.
+unsafe fn bind_fragment_output_locations(
+    ctxt: &CommandContext<'_>,
+    program: glow::Program,
+    source: &str,
+) {
+    let outputs = crate::program::shader::fragment_outputs(source);
+
+    let is_free = |location: u32, size: u32| {
+        outputs.iter().all(|output| match output.location {
+            Some(taken) => location + size <= taken || taken + output.size <= location,
+            None => true,
+        })
+    };
+
+    let mut next = 0;
+    let mut assigned: Vec<(u32, u32)> = Vec::new();
+    for output in outputs.iter().filter(|output| output.location.is_none()) {
+        while !is_free(next, output.size)
+            || assigned
+                .iter()
+                .any(|&(start, size)| next < start + size && start < next + output.size)
+        {
+            next += 1;
+        }
+        ctxt.glow
+            .bind_frag_data_location(program, next, &output.name);
+        assigned.push((next, output.size));
+        next += output.size;
+    }
 }
