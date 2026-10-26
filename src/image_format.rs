@@ -395,161 +395,54 @@ impl UncompressedFloatFormat {
         let version = context.get_version();
         let extensions = context.get_extensions();
 
+        // OpenGL ES 3.0 only has a subset of the desktop formats: the 16-bit normalized formats
+        // need `GL_EXT_texture_norm16`, and the legacy formats below 8 bits per channel (apart
+        // from RGBA4 and RGB5_A1) and the 12-bit ones don't exist
+        let es3 = version >= &Version(Api::GlEs, 3, 0);
+        let es_norm16 = es3 && extensions.gl_ext_texture_norm16;
+
         match self {
-            UncompressedFloatFormat::U8 => {
+            Self::U8 | Self::U8U8 => {
+                version >= &Version(Api::Gl, 3, 0) || es3 || extensions.gl_arb_texture_rg
+            }
+            Self::U16 | Self::U16U16 => {
+                version >= &Version(Api::Gl, 3, 0) || es_norm16 || extensions.gl_arb_texture_rg
+            }
+            Self::I8 | Self::I8I8 | Self::I8I8I8 | Self::I8I8I8I8 => {
+                version >= &Version(Api::Gl, 3, 2) || es3 || extensions.gl_ext_texture_snorm
+            }
+            Self::I16 | Self::I16I16 | Self::I16I16I16 | Self::I16I16I16I16 => {
+                version >= &Version(Api::Gl, 3, 2) || es_norm16 || extensions.gl_ext_texture_snorm
+            }
+            Self::U3U3U2
+            | Self::U4U4U4
+            | Self::U5U5U5
+            | Self::U10U10U10
+            | Self::U12U12U12
+            | Self::U2U2U2U2
+            | Self::U12U12U12U12 => version >= &Version(Api::Gl, 1, 1),
+            Self::U8U8U8 | Self::U4U4U4U4 | Self::U5U5U5U1 | Self::U8U8U8U8 | Self::U10U10U10U2 => {
+                version >= &Version(Api::Gl, 1, 1) || es3
+            }
+            Self::U16U16U16 => version >= &Version(Api::Gl, 3, 0) || es_norm16,
+            Self::U16U16U16U16 => version >= &Version(Api::Gl, 1, 1) || es_norm16,
+            Self::F16 | Self::F16F16 | Self::F32 | Self::F32F32 => {
                 version >= &Version(Api::Gl, 3, 0)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_arb_texture_rg
-            }
-            UncompressedFloatFormat::I8 => {
-                version >= &Version(Api::Gl, 3, 2)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_ext_texture_snorm
-            }
-            UncompressedFloatFormat::U16 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_arb_texture_rg
-            }
-            UncompressedFloatFormat::I16 => {
-                version >= &Version(Api::Gl, 3, 2)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_ext_texture_snorm
-            }
-            UncompressedFloatFormat::U8U8 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_arb_texture_rg
-            }
-            UncompressedFloatFormat::I8I8 => {
-                version >= &Version(Api::Gl, 3, 2)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_ext_texture_snorm
-            }
-            UncompressedFloatFormat::U16U16 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_arb_texture_rg
-            }
-            UncompressedFloatFormat::I16I16 => {
-                version >= &Version(Api::Gl, 3, 2)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_ext_texture_snorm
-            }
-            UncompressedFloatFormat::U3U3U2 => {
-                version >= &Version(Api::Gl, 1, 1) || version >= &Version(Api::GlEs, 3, 0)
-            }
-            UncompressedFloatFormat::U4U4U4 => {
-                version >= &Version(Api::Gl, 1, 1) || version >= &Version(Api::GlEs, 3, 0)
-            }
-            UncompressedFloatFormat::U5U5U5 => {
-                version >= &Version(Api::Gl, 1, 1) || version >= &Version(Api::GlEs, 3, 0)
-            }
-            UncompressedFloatFormat::U8U8U8 => {
-                version >= &Version(Api::Gl, 1, 1) || version >= &Version(Api::GlEs, 3, 0)
-            }
-            UncompressedFloatFormat::I8I8I8 => {
-                version >= &Version(Api::Gl, 3, 2)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_ext_texture_snorm
-            }
-            UncompressedFloatFormat::U10U10U10 => {
-                version >= &Version(Api::Gl, 1, 1) || version >= &Version(Api::GlEs, 3, 0)
-            }
-            UncompressedFloatFormat::U12U12U12 => {
-                version >= &Version(Api::Gl, 1, 1) || version >= &Version(Api::GlEs, 3, 0)
-            }
-            UncompressedFloatFormat::U16U16U16 => {
-                version >= &Version(Api::Gl, 3, 0) || version >= &Version(Api::GlEs, 3, 0)
-            }
-            UncompressedFloatFormat::I16I16I16 => {
-                version >= &Version(Api::Gl, 3, 2)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_ext_texture_snorm
-            }
-            UncompressedFloatFormat::U2U2U2U2 => {
-                version >= &Version(Api::Gl, 1, 1) || version >= &Version(Api::GlEs, 3, 0)
-            }
-            UncompressedFloatFormat::U4U4U4U4 => {
-                version >= &Version(Api::Gl, 1, 1) || version >= &Version(Api::GlEs, 3, 0)
-            }
-            UncompressedFloatFormat::U5U5U5U1 => {
-                version >= &Version(Api::Gl, 1, 1) || version >= &Version(Api::GlEs, 3, 0)
-            }
-            UncompressedFloatFormat::U8U8U8U8 => {
-                version >= &Version(Api::Gl, 1, 1) || version >= &Version(Api::GlEs, 3, 0)
-            }
-            UncompressedFloatFormat::I8I8I8I8 => {
-                version >= &Version(Api::Gl, 3, 2)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_ext_texture_snorm
-            }
-            UncompressedFloatFormat::U10U10U10U2 => {
-                version >= &Version(Api::Gl, 1, 1) || version >= &Version(Api::GlEs, 3, 0)
-            }
-            UncompressedFloatFormat::U12U12U12U12 => {
-                version >= &Version(Api::Gl, 1, 1) || version >= &Version(Api::GlEs, 3, 0)
-            }
-            UncompressedFloatFormat::U16U16U16U16 => {
-                version >= &Version(Api::Gl, 1, 1) || version >= &Version(Api::GlEs, 3, 0)
-            }
-            UncompressedFloatFormat::I16I16I16I16 => {
-                version >= &Version(Api::Gl, 3, 2)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_ext_texture_snorm
-            }
-            UncompressedFloatFormat::F16 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || version >= &Version(Api::GlEs, 3, 0)
+                    || es3
                     || (extensions.gl_arb_texture_float && extensions.gl_arb_texture_rg)
             }
-            UncompressedFloatFormat::F16F16 => {
+            Self::F16F16F16 | Self::F16F16F16F16 | Self::F32F32F32 | Self::F32F32F32F32 => {
                 version >= &Version(Api::Gl, 3, 0)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || (extensions.gl_arb_texture_float && extensions.gl_arb_texture_rg)
-            }
-            UncompressedFloatFormat::F16F16F16 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || version >= &Version(Api::GlEs, 3, 0)
+                    || es3
                     || extensions.gl_arb_texture_float
                     || extensions.gl_ati_texture_float
             }
-            UncompressedFloatFormat::F16F16F16F16 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_arb_texture_float
-                    || extensions.gl_ati_texture_float
+            Self::F11F11F10 => {
+                version >= &Version(Api::Gl, 3, 2) || es3 || extensions.gl_ext_packed_float
             }
-            UncompressedFloatFormat::F32 => {
+            Self::F9F9F9 => {
                 version >= &Version(Api::Gl, 3, 0)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || (extensions.gl_arb_texture_float && extensions.gl_arb_texture_rg)
-            }
-            UncompressedFloatFormat::F32F32 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || (extensions.gl_arb_texture_float && extensions.gl_arb_texture_rg)
-            }
-            UncompressedFloatFormat::F32F32F32 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_arb_texture_float
-                    || extensions.gl_ati_texture_float
-            }
-            UncompressedFloatFormat::F32F32F32F32 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_arb_texture_float
-                    || extensions.gl_ati_texture_float
-            }
-            UncompressedFloatFormat::F11F11F10 => {
-                version >= &Version(Api::Gl, 3, 2)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_ext_packed_float
-            }
-            UncompressedFloatFormat::F9F9F9 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || version >= &Version(Api::GlEs, 3, 0)
+                    || es3
                     || extensions.gl_ext_texture_shared_exponent
             }
         }
@@ -600,13 +493,22 @@ impl UncompressedFloatFormat {
                     || extensions.gl_oes_rgb8_rgba8
             }
             UncompressedFloatFormat::U10U10U10U2 => version >= &Version(Api::GlEs, 3, 0),
-            UncompressedFloatFormat::F16 => version >= &Version(Api::GlEs, 3, 2),
-            UncompressedFloatFormat::F16F16 => version >= &Version(Api::GlEs, 3, 2),
-            UncompressedFloatFormat::F16F16F16F16 => version >= &Version(Api::GlEs, 3, 2),
-            UncompressedFloatFormat::F32 => version >= &Version(Api::GlEs, 3, 2),
-            UncompressedFloatFormat::F32F32 => version >= &Version(Api::GlEs, 3, 2),
-            UncompressedFloatFormat::F32F32F32F32 => version >= &Version(Api::GlEs, 3, 2),
-            UncompressedFloatFormat::F11F11F10 => version >= &Version(Api::GlEs, 3, 2),
+            UncompressedFloatFormat::U16
+            | UncompressedFloatFormat::U16U16
+            | UncompressedFloatFormat::U16U16U16U16 => extensions.gl_ext_texture_norm16,
+            UncompressedFloatFormat::F16
+            | UncompressedFloatFormat::F16F16
+            | UncompressedFloatFormat::F16F16F16F16 => {
+                version >= &Version(Api::GlEs, 3, 2)
+                    || extensions.gl_ext_color_buffer_float
+                    || extensions.gl_ext_color_buffer_half_float
+            }
+            UncompressedFloatFormat::F32
+            | UncompressedFloatFormat::F32F32
+            | UncompressedFloatFormat::F32F32F32F32
+            | UncompressedFloatFormat::F11F11F10 => {
+                version >= &Version(Api::GlEs, 3, 2) || extensions.gl_ext_color_buffer_float
+            }
             _ => false,
         }
     }
@@ -782,6 +684,11 @@ impl UncompressedIntFormat {
         let version = context.get_version();
         let extensions = context.get_extensions();
 
+        // every integral format is core in OpenGL ES 3.0
+        if version >= &Version(Api::GlEs, 3, 0) {
+            return true;
+        }
+
         match self {
             UncompressedIntFormat::I8 => {
                 version >= &Version(Api::Gl, 3, 0)
@@ -948,6 +855,11 @@ impl UncompressedUintFormat {
     {
         let version = context.get_version();
         let extensions = context.get_extensions();
+
+        // every integral format is core in OpenGL ES 3.0
+        if version >= &Version(Api::GlEs, 3, 0) {
+            return true;
+        }
 
         match self {
             UncompressedUintFormat::U8 => {
@@ -1275,19 +1187,20 @@ impl DepthFormat {
         let extensions = context.get_extensions();
 
         match self {
-            DepthFormat::I16 => {
-                version >= &Version(Api::Gl, 3, 0) || extensions.gl_arb_depth_texture
+            DepthFormat::I16 | DepthFormat::I24 => {
+                version >= &Version(Api::Gl, 3, 0)
+                    || version >= &Version(Api::GlEs, 3, 0)
+                    || extensions.gl_arb_depth_texture
             }
 
-            DepthFormat::I24 => {
-                version >= &Version(Api::Gl, 3, 0) || extensions.gl_arb_depth_texture
-            }
-
+            // OpenGL ES has no 32-bit integer depth format
             DepthFormat::I32 => {
                 version >= &Version(Api::Gl, 3, 0) || extensions.gl_arb_depth_texture
             }
 
-            DepthFormat::F32 => version >= &Version(Api::Gl, 3, 0),
+            DepthFormat::F32 => {
+                version >= &Version(Api::Gl, 3, 0) || version >= &Version(Api::GlEs, 3, 0)
+            }
         }
     }
 
@@ -1335,11 +1248,14 @@ impl DepthStencilFormat {
         match self {
             DepthStencilFormat::I24I8 => {
                 version >= &Version(Api::Gl, 3, 0)
+                    || version >= &Version(Api::GlEs, 3, 0)
                     || extensions.gl_ext_packed_depth_stencil
                     || extensions.gl_oes_packed_depth_stencil
             }
 
-            DepthStencilFormat::F32I8 => version >= &Version(Api::Gl, 3, 0),
+            DepthStencilFormat::F32I8 => {
+                version >= &Version(Api::Gl, 3, 0) || version >= &Version(Api::GlEs, 3, 0)
+            }
         }
     }
 
@@ -1766,8 +1682,9 @@ impl ClientFormatAny {
 pub enum RequestType {
     /// A format suitable for `glTexImage#D`.
     TexImage(Option<ClientFormatAny>),
-    /// A format suitable for `glTexStorage#D`.
-    TexStorage,
+    /// A format suitable for `glTexStorage#D`, with the client format of the data that will be
+    /// put in the texture if it must match.
+    TexStorage(Option<ClientFormatAny>),
     /// A format suitable for `glRenderbufferStorage`.
     Renderbuffer,
 }
@@ -1778,7 +1695,7 @@ impl RequestType {
     pub fn get_client_format(&self) -> Option<ClientFormatAny> {
         match self {
             RequestType::TexImage(f) => *f,
-            RequestType::TexStorage => None,
+            RequestType::TexStorage(f) => *f,
             RequestType::Renderbuffer => None,
         }
     }
@@ -1871,7 +1788,10 @@ pub fn format_request_to_glenum(
         }
 
         TextureFormatRequest::Specific(TextureFormat::UncompressedFloat(format)) => {
-            if format.is_supported(context) {
+            if format.is_supported(context)
+                && (!matches!(rq_ty, RequestType::Renderbuffer)
+                    || format.is_color_renderable(context))
+            {
                 format.to_glenum()
             } else {
                 return Err(FormatNotSupportedError);
@@ -1889,6 +1809,11 @@ pub fn format_request_to_glenum(
                 _ => unreachable!(),
             });
             format_request_to_glenum(context, TextureFormatRequest::Specific(newformat), rq_ty)?
+        }
+
+        // OpenGL ES has no generic compressed formats, so the texture isn't compressed there
+        TextureFormatRequest::AnyCompressed if version.0 == Api::GlEs => {
+            format_request_to_glenum(context, TextureFormatRequest::AnyFloatingPoint, rq_ty)?
         }
 
         TextureFormatRequest::AnyCompressed => {
@@ -1927,7 +1852,7 @@ pub fn format_request_to_glenum(
                         size.unwrap_or(4) as gl::types::GLenum
                     }
                 }
-                RequestType::TexStorage | RequestType::Renderbuffer => {
+                RequestType::TexStorage(_) | RequestType::Renderbuffer => {
                     return Err(FormatNotSupportedError)
                 }
             }
@@ -1970,7 +1895,10 @@ pub fn format_request_to_glenum(
         }
 
         TextureFormatRequest::Specific(TextureFormat::Srgb(format)) => {
-            if format.is_supported(context) {
+            if format.is_supported(context)
+                && (!matches!(rq_ty, RequestType::Renderbuffer)
+                    || format.is_color_renderable(context))
+            {
                 format.to_glenum()
             } else {
                 return Err(FormatNotSupportedError);
@@ -1997,7 +1925,7 @@ pub fn format_request_to_glenum(
                         None => gl::COMPRESSED_SRGB_ALPHA,
                         _ => unreachable!(),
                     },
-                    RequestType::TexStorage | RequestType::Renderbuffer => {
+                    RequestType::TexStorage(_) | RequestType::Renderbuffer => {
                         return Err(FormatNotSupportedError)
                     }
                 }
@@ -2021,14 +1949,29 @@ pub fn format_request_to_glenum(
         TextureFormatRequest::AnyIntegral => {
             let size = rq_ty.get_client_format().map(|c| c.get_num_components());
 
-            if version >= &Version(Api::Gl, 3, 0) {
-                match size {
-                    // FIXME: choose between 8, 16 and 32 depending on the client format
-                    Some(1) => gl::R32I,
-                    Some(2) => gl::RG32I,
-                    Some(3) => gl::RGB32I,
-                    Some(4) => gl::RGBA32I,
-                    None => gl::RGBA32I,
+            if version >= &Version(Api::Gl, 3, 0) || version >= &Version(Api::GlEs, 3, 0) {
+                // OpenGL ES only uploads data whose type matches the format, so the number of
+                // bits comes from the data there; desktop OpenGL always gets 32 bits
+                let bits = match (version.0, rq_ty.get_client_format()) {
+                    (Api::GlEs, Some(ClientFormatAny::ClientFormat(client))) => {
+                        8 * client.get_size() / client.get_num_components() as usize
+                    }
+                    _ => 32,
+                };
+
+                match (size, bits) {
+                    (Some(1), 8) => gl::R8I,
+                    (Some(1), 16) => gl::R16I,
+                    (Some(1), _) => gl::R32I,
+                    (Some(2), 8) => gl::RG8I,
+                    (Some(2), 16) => gl::RG16I,
+                    (Some(2), _) => gl::RG32I,
+                    (Some(3), 8) => gl::RGB8I,
+                    (Some(3), 16) => gl::RGB16I,
+                    (Some(3), _) => gl::RGB32I,
+                    (Some(4), 8) | (None, 8) => gl::RGBA8I,
+                    (Some(4), 16) | (None, 16) => gl::RGBA16I,
+                    (Some(4), _) | (None, _) => gl::RGBA32I,
                     _ => unreachable!(),
                 }
             } else {
@@ -2061,7 +2004,10 @@ pub fn format_request_to_glenum(
         }
 
         TextureFormatRequest::Specific(TextureFormat::UncompressedIntegral(format)) => {
-            if format.is_supported(context) {
+            if format.is_supported(context)
+                && (!matches!(rq_ty, RequestType::Renderbuffer)
+                    || format.is_color_renderable(context))
+            {
                 format.to_glenum()
             } else {
                 return Err(FormatNotSupportedError);
@@ -2074,14 +2020,29 @@ pub fn format_request_to_glenum(
         TextureFormatRequest::AnyUnsigned => {
             let size = rq_ty.get_client_format().map(|c| c.get_num_components());
 
-            if version >= &Version(Api::Gl, 3, 0) {
-                match size {
-                    // FIXME: choose between 8, 16 and 32 depending on the client format
-                    Some(1) => gl::R32UI,
-                    Some(2) => gl::RG32UI,
-                    Some(3) => gl::RGB32UI,
-                    Some(4) => gl::RGBA32UI,
-                    None => gl::RGBA32UI,
+            if version >= &Version(Api::Gl, 3, 0) || version >= &Version(Api::GlEs, 3, 0) {
+                // OpenGL ES only uploads data whose type matches the format, so the number of
+                // bits comes from the data there; desktop OpenGL always gets 32 bits
+                let bits = match (version.0, rq_ty.get_client_format()) {
+                    (Api::GlEs, Some(ClientFormatAny::ClientFormat(client))) => {
+                        8 * client.get_size() / client.get_num_components() as usize
+                    }
+                    _ => 32,
+                };
+
+                match (size, bits) {
+                    (Some(1), 8) => gl::R8UI,
+                    (Some(1), 16) => gl::R16UI,
+                    (Some(1), _) => gl::R32UI,
+                    (Some(2), 8) => gl::RG8UI,
+                    (Some(2), 16) => gl::RG16UI,
+                    (Some(2), _) => gl::RG32UI,
+                    (Some(3), 8) => gl::RGB8UI,
+                    (Some(3), 16) => gl::RGB16UI,
+                    (Some(3), _) => gl::RGB32UI,
+                    (Some(4), 8) | (None, 8) => gl::RGBA8UI,
+                    (Some(4), 16) | (None, 16) => gl::RGBA16UI,
+                    (Some(4), _) | (None, _) => gl::RGBA32UI,
                     _ => unreachable!(),
                 }
             } else {
@@ -2114,7 +2075,10 @@ pub fn format_request_to_glenum(
         }
 
         TextureFormatRequest::Specific(TextureFormat::UncompressedUnsigned(format)) => {
-            if format.is_supported(context) {
+            if format.is_supported(context)
+                && (!matches!(rq_ty, RequestType::Renderbuffer)
+                    || format.is_color_renderable(context))
+            {
                 format.to_glenum()
             } else {
                 return Err(FormatNotSupportedError);
@@ -2125,10 +2089,10 @@ pub fn format_request_to_glenum(
         /*                            DEPTH                                */
         /*******************************************************************/
         TextureFormatRequest::AnyDepth => {
-            if version >= &Version(Api::Gl, 2, 0) {
+            if version >= &Version(Api::Gl, 2, 0) || version >= &Version(Api::GlEs, 3, 0) {
                 match rq_ty {
                     RequestType::TexImage(_) => gl::DEPTH_COMPONENT,
-                    RequestType::TexStorage | RequestType::Renderbuffer => gl::DEPTH_COMPONENT24,
+                    RequestType::TexStorage(_) | RequestType::Renderbuffer => gl::DEPTH_COMPONENT24,
                 }
             } else if version >= &Version(Api::Gl, 1, 4)
                 || extensions.gl_arb_depth_texture
@@ -2136,7 +2100,7 @@ pub fn format_request_to_glenum(
             {
                 match rq_ty {
                     RequestType::TexImage(_) => gl::DEPTH_COMPONENT,
-                    RequestType::TexStorage | RequestType::Renderbuffer => {
+                    RequestType::TexStorage(_) | RequestType::Renderbuffer => {
                         return Err(FormatNotSupportedError)
                     } // TODO: sized format?
                 }
@@ -2166,7 +2130,7 @@ pub fn format_request_to_glenum(
         }
 
         TextureFormatRequest::Specific(TextureFormat::StencilFormat(format)) => match rq_ty {
-            RequestType::TexImage(_) | RequestType::TexStorage => {
+            RequestType::TexImage(_) | RequestType::TexStorage(_) => {
                 if format.is_supported_for_textures(context) {
                     format.to_glenum()
                 } else {
@@ -2186,20 +2150,24 @@ pub fn format_request_to_glenum(
         /*                        DEPTH-STENCIL                            */
         /*******************************************************************/
         TextureFormatRequest::AnyDepthStencil => {
-            if version >= &Version(Api::Gl, 3, 0) {
+            if version >= &Version(Api::Gl, 3, 0) || version >= &Version(Api::GlEs, 3, 0) {
                 match rq_ty {
                     RequestType::TexImage(_) => gl::DEPTH_STENCIL,
-                    RequestType::TexStorage | RequestType::Renderbuffer => gl::DEPTH24_STENCIL8,
+                    RequestType::TexStorage(_) | RequestType::Renderbuffer => gl::DEPTH24_STENCIL8,
                 }
             } else if extensions.gl_ext_packed_depth_stencil {
                 match rq_ty {
                     RequestType::TexImage(_) => gl::DEPTH_STENCIL_EXT,
-                    RequestType::TexStorage | RequestType::Renderbuffer => gl::DEPTH24_STENCIL8_EXT,
+                    RequestType::TexStorage(_) | RequestType::Renderbuffer => {
+                        gl::DEPTH24_STENCIL8_EXT
+                    }
                 }
             } else if extensions.gl_oes_packed_depth_stencil {
                 match rq_ty {
                     RequestType::TexImage(_) => gl::DEPTH_STENCIL_OES,
-                    RequestType::TexStorage | RequestType::Renderbuffer => gl::DEPTH24_STENCIL8_OES,
+                    RequestType::TexStorage(_) | RequestType::Renderbuffer => {
+                        gl::DEPTH24_STENCIL8_OES
+                    }
                 }
             } else {
                 return Err(FormatNotSupportedError);
@@ -2216,9 +2184,101 @@ pub fn format_request_to_glenum(
     })
 }
 
+/// Returns the format and type to pass to `glTexImage#D` when a texture is created without
+/// data.
+///
+/// No pixels are transferred, but OpenGL ES (and desktop OpenGL for integer, depth and stencil
+/// textures) still requires a format and type that are compatible with the internal format.
+pub fn default_client_format_to_glenum(
+    format: TextureFormatRequest,
+) -> (gl::types::GLenum, gl::types::GLenum) {
+    use self::UncompressedFloatFormat as F;
+    use self::UncompressedIntFormat as I;
+    use self::UncompressedUintFormat as U;
+
+    let color = |components: u8| match components {
+        1 => gl::RED,
+        2 => gl::RG,
+        3 => gl::RGB,
+        _ => gl::RGBA,
+    };
+    let integer = |components: u8| match components {
+        1 => gl::RED_INTEGER,
+        2 => gl::RG_INTEGER,
+        3 => gl::RGB_INTEGER,
+        _ => gl::RGBA_INTEGER,
+    };
+
+    match format {
+        TextureFormatRequest::Specific(TextureFormat::UncompressedFloat(format)) => {
+            let (components, ty) = match format {
+                F::U8 | F::U16 => (1, gl::UNSIGNED_BYTE),
+                F::I8 | F::I16 => (1, gl::BYTE),
+                F::F16 | F::F32 => (1, gl::FLOAT),
+                F::U8U8 | F::U16U16 => (2, gl::UNSIGNED_BYTE),
+                F::I8I8 | F::I16I16 => (2, gl::BYTE),
+                F::F16F16 | F::F32F32 => (2, gl::FLOAT),
+                F::U3U3U2
+                | F::U4U4U4
+                | F::U5U5U5
+                | F::U8U8U8
+                | F::U10U10U10
+                | F::U12U12U12
+                | F::U16U16U16 => (3, gl::UNSIGNED_BYTE),
+                F::I8I8I8 | F::I16I16I16 => (3, gl::BYTE),
+                F::F16F16F16 | F::F32F32F32 | F::F11F11F10 | F::F9F9F9 => (3, gl::FLOAT),
+                F::I8I8I8I8 | F::I16I16I16I16 => (4, gl::BYTE),
+                F::F16F16F16F16 | F::F32F32F32F32 => (4, gl::FLOAT),
+                _ => (4, gl::UNSIGNED_BYTE),
+            };
+            (color(components), ty)
+        }
+        TextureFormatRequest::Specific(TextureFormat::UncompressedIntegral(format)) => {
+            let components = match format {
+                I::I8 | I::I16 | I::I32 => 1,
+                I::I8I8 | I::I16I16 | I::I32I32 => 2,
+                I::I8I8I8 | I::I16I16I16 | I::I32I32I32 => 3,
+                I::I8I8I8I8 | I::I16I16I16I16 | I::I32I32I32I32 => 4,
+            };
+            (integer(components), gl::INT)
+        }
+        TextureFormatRequest::Specific(TextureFormat::UncompressedUnsigned(format)) => {
+            let components = match format {
+                U::U8 | U::U16 | U::U32 => 1,
+                U::U8U8 | U::U16U16 | U::U32U32 => 2,
+                U::U8U8U8 | U::U16U16U16 | U::U32U32U32 => 3,
+                U::U8U8U8U8 | U::U16U16U16U16 | U::U32U32U32U32 | U::U10U10U10U2 => 4,
+            };
+            (integer(components), gl::UNSIGNED_INT)
+        }
+        TextureFormatRequest::Specific(TextureFormat::Srgb(SrgbFormat::U8U8U8)) => {
+            (gl::RGB, gl::UNSIGNED_BYTE)
+        }
+        TextureFormatRequest::AnyIntegral => (gl::RGBA_INTEGER, gl::INT),
+        TextureFormatRequest::AnyUnsigned => (gl::RGBA_INTEGER, gl::UNSIGNED_INT),
+        TextureFormatRequest::AnyDepth
+        | TextureFormatRequest::Specific(TextureFormat::DepthFormat(_)) => {
+            (gl::DEPTH_COMPONENT, gl::FLOAT)
+        }
+        TextureFormatRequest::AnyDepthStencil
+        | TextureFormatRequest::Specific(TextureFormat::DepthStencilFormat(
+            DepthStencilFormat::I24I8,
+        )) => (gl::DEPTH_STENCIL, gl::UNSIGNED_INT_24_8),
+        TextureFormatRequest::Specific(TextureFormat::DepthStencilFormat(
+            DepthStencilFormat::F32I8,
+        )) => (gl::DEPTH_STENCIL, gl::FLOAT_32_UNSIGNED_INT_24_8_REV),
+        TextureFormatRequest::AnyStencil
+        | TextureFormatRequest::Specific(TextureFormat::StencilFormat(_)) => {
+            (gl::STENCIL_INDEX, gl::UNSIGNED_BYTE)
+        }
+        _ => (gl::RGBA, gl::UNSIGNED_BYTE),
+    }
+}
+
 /// Checks that the client texture format is supported.
 ///
-/// If `inverted` is true, returns a format where the R, G and B components are flipped.
+/// If `inverted` is true, returns a format where the R, G and B components are flipped. OpenGL
+/// ES has no such format, so this returns an error there.
 ///
 /// Returns two GLenums suitable for `glTexImage#D` and `glTexSubImage#D`.
 pub fn client_format_to_glenum(
@@ -2528,7 +2588,9 @@ pub fn client_format_to_glenum(
         }
     };
 
-    if inverted {
+    if inverted && context.get_opengl_version().0 != Api::Gl {
+        Err(FormatNotSupportedError)
+    } else if inverted {
         value.and_then(|(format, ty)| {
             let format = match format {
                 gl::RGB => gl::BGR,

@@ -6,6 +6,7 @@ use crate::context::CommandContext;
 use crate::context::Context;
 use crate::version::Api;
 use crate::version::Version;
+use crate::CapabilitiesSource;
 use crate::ContextExt;
 use crate::Rect;
 use crate::TextureExt;
@@ -162,6 +163,105 @@ fn get_bind_point(ty: Dimensions) -> gl::types::GLenum {
     }
 }
 
+/// Returns `TypeNotSupported` if the context has no textures of type `ty`, and
+/// `DimensionsNotSupported` if the dimensions are above the context's limits.
+fn check_dimensions(context: &Context, ty: Dimensions) -> Result<(), TextureCreationError> {
+    let supported = match ty {
+        Dimensions::Texture1d { .. } => super::is_texture_1d_supported(context),
+        Dimensions::Texture1dArray { .. } => super::is_texture_1d_array_supported(context),
+        Dimensions::Texture2dMultisample { .. } => {
+            super::is_texture_2d_multisample_supported(context)
+        }
+        Dimensions::Texture2dMultisampleArray { .. } => {
+            super::is_texture_2d_multisample_array_supported(context)
+        }
+        Dimensions::CubemapArray { .. } => super::is_cubemap_arrays_supported(context),
+        _ => true,
+    };
+
+    if !supported {
+        return Err(TextureCreationError::TypeNotSupported);
+    }
+
+    let capabilities = context.get_capabilities();
+    // the limit for the width and height, and the one for the depth or number of layers
+    let (max_size, max_depth) = match ty {
+        Dimensions::Texture3d { .. } => (
+            capabilities.max_3d_texture_size,
+            capabilities.max_3d_texture_size,
+        ),
+        Dimensions::Cubemap { .. } | Dimensions::CubemapArray { .. } => (
+            capabilities.max_cube_map_texture_size,
+            capabilities.max_array_texture_layers,
+        ),
+        _ => (
+            capabilities.max_texture_size,
+            capabilities.max_array_texture_layers,
+        ),
+    };
+
+    let fits = |value: Option<u32>, max: gl::types::GLint| match value {
+        Some(value) => value <= cmp::max(max, 0) as u32,
+        None => true,
+    };
+
+    let (width, height, depth, array_size, _) = extract_dimensions(ty);
+    if !fits(Some(width), max_size)
+        || !fits(height, max_size)
+        || !fits(depth, max_depth)
+        || !fits(array_size, max_depth)
+    {
+        return Err(TextureCreationError::DimensionsNotSupported);
+    }
+
+    Ok(())
+}
+
+/// Returns true if `glTexStorage1D`, `glTexStorage2D` and `glTexStorage3D` are available.
+fn is_tex_storage_supported(ctxt: &CommandContext<'_>) -> bool {
+    ctxt.version >= &Version(Api::Gl, 4, 2)
+        || ctxt.version >= &Version(Api::GlEs, 3, 0)
+        || ctxt.extensions.gl_arb_texture_storage
+}
+
+/// Returns true if `glTexStorage2DMultisample` is available.
+fn is_tex_storage_multisample_supported(ctxt: &CommandContext<'_>) -> bool {
+    ctxt.version >= &Version(Api::Gl, 4, 3)
+        || ctxt.version >= &Version(Api::GlEs, 3, 1)
+        || ctxt.extensions.gl_arb_texture_storage_multisample
+}
+
+/// Returns true if OpenGL ES can generate mipmaps for a texture of this internal format, which
+/// must be unsized or both color-renderable and filterable.
+fn is_es_mipmap_generation_supported(
+    context: &Context,
+    internal_format: gl::types::GLenum,
+) -> bool {
+    let float_renderable = context.get_opengl_version() >= &Version(Api::GlEs, 3, 2)
+        || context.get_extensions().gl_ext_color_buffer_float;
+
+    match internal_format {
+        gl::RED | gl::RG | gl::RGB | gl::RGBA => true,
+        gl::R8
+        | gl::RG8
+        | gl::RGB8
+        | gl::RGB565
+        | gl::RGBA4
+        | gl::RGB5_A1
+        | gl::RGBA8
+        | gl::RGB10_A2
+        | gl::SRGB8_ALPHA8 => true,
+        gl::R16F | gl::RG16F | gl::RGBA16F => {
+            float_renderable || context.get_extensions().gl_ext_color_buffer_half_float
+        }
+        gl::R11F_G11F_B10F => float_renderable,
+        gl::R32F | gl::RG32F | gl::RGBA32F => {
+            float_renderable && context.get_extensions().gl_oes_texture_float_linear
+        }
+        _ => false,
+    }
+}
+
 unsafe fn generate_mipmaps(ctxt: &CommandContext<'_>, bind_point: gl::types::GLenum) {
     ctxt.glow.generate_mipmap(bind_point);
 }
@@ -199,13 +299,7 @@ where
     if bind_point == gl::TEXTURE_CUBE_MAP || bind_point == gl::TEXTURE_CUBE_MAP_ARRAY {
         assert!(data.is_none()); // TODO: not supported
     }
-    if (bind_point == gl::TEXTURE_2D_MULTISAMPLE
-        && !super::is_texture_2d_multisample_supported(facade.get_context()))
-        || (bind_point == gl::TEXTURE_2D_MULTISAMPLE_ARRAY
-            && !super::is_texture_2d_multisample_array_supported(facade.get_context()))
-    {
-        return Err(TextureCreationError::DimensionsNotSupported);
-    }
+    check_dimensions(facade.get_context(), ty)?;
 
     let should_generate_mipmaps = mipmaps.should_generate();
     let texture_levels = mipmaps.num_levels(width, height, depth) as gl::types::GLsizei;
@@ -215,10 +309,16 @@ where
         format,
         image_format::RequestType::TexImage(data.as_ref().map(|&(c, _)| c)),
     )?;
+    // OpenGL ES only uploads data whose components match the storage format, so the storage
+    // format is chosen from the data there
+    let storage_client = match facade.get_context().get_opengl_version().0 {
+        Api::Gl => None,
+        _ => data.as_ref().map(|&(c, _)| c),
+    };
     let storage_internal_format = image_format::format_request_to_glenum(
         facade.get_context(),
         format,
-        image_format::RequestType::TexStorage,
+        image_format::RequestType::TexStorage(storage_client),
     )
     .ok();
 
@@ -226,18 +326,51 @@ where
         (&Some((client_format, _)), f) => {
             image_format::client_format_to_glenum(facade.get_context(), client_format, f, false)?
         }
-        (&None, TextureFormatRequest::AnyDepth) => (gl::DEPTH_COMPONENT, gl::FLOAT),
-        (&None, TextureFormatRequest::Specific(TextureFormat::DepthFormat(_))) => {
-            (gl::DEPTH_COMPONENT, gl::FLOAT)
-        }
-        (&None, TextureFormatRequest::AnyDepthStencil) => {
-            (gl::DEPTH_STENCIL, gl::UNSIGNED_INT_24_8)
-        }
-        (&None, TextureFormatRequest::Specific(TextureFormat::DepthStencilFormat(_))) => {
-            (gl::DEPTH_STENCIL, gl::UNSIGNED_INT_24_8)
-        }
-        (&None, _) => (gl::RGBA, gl::UNSIGNED_BYTE),
+        (&None, f) => image_format::default_client_format_to_glenum(f),
     };
+
+    // OpenGL ES only accepts depth data whose type matches the internal format, so a depth
+    // texture of any format initialized with floats or shorts gets the matching format
+    let storage_internal_format = match storage_internal_format {
+        Some(gl::DEPTH_COMPONENT24)
+            if matches!(format, TextureFormatRequest::AnyDepth)
+                && data.is_some()
+                && facade.get_context().get_opengl_version().0 != Api::Gl =>
+        {
+            match client_type {
+                gl::FLOAT => Some(gl::DEPTH_COMPONENT32F),
+                gl::UNSIGNED_SHORT => Some(gl::DEPTH_COMPONENT16),
+                _ => storage_internal_format,
+            }
+        }
+        other => other,
+    };
+
+    // `AutoGeneratedMipmaps` only allows mipmaps, so on OpenGL ES a texture whose format can't
+    // have its mipmaps generated gets a single level instead
+    let (should_generate_mipmaps, texture_levels) = if should_generate_mipmaps
+        && facade.get_context().get_opengl_version().0 != Api::Gl
+        && !is_es_mipmap_generation_supported(
+            facade.get_context(),
+            storage_internal_format.unwrap_or(teximg_internal_format),
+        ) {
+        (false, 1)
+    } else {
+        (should_generate_mipmaps, texture_levels)
+    };
+
+    let is_multisampled = matches!(
+        ty,
+        Dimensions::Texture2dMultisample { .. } | Dimensions::Texture2dMultisampleArray { .. }
+    );
+
+    // OpenGL ES can only create multisample textures with `glTexStorage*Multisample`
+    if is_multisampled
+        && storage_internal_format.is_none()
+        && facade.get_context().get_opengl_version().0 != Api::Gl
+    {
+        return Err(TextureCreationError::FormatNotSupported);
+    }
 
     let (filtering, mipmap_filtering) = match format {
         TextureFormatRequest::Specific(TextureFormat::UncompressedIntegral(_)) => {
@@ -254,11 +387,6 @@ where
         TextureFormatRequest::AnyStencil => (gl::NEAREST, gl::NEAREST_MIPMAP_NEAREST),
         _ => (gl::LINEAR, gl::LINEAR_MIPMAP_LINEAR),
     };
-
-    let is_multisampled = matches!(
-        ty,
-        Dimensions::Texture2dMultisample { .. } | Dimensions::Texture2dMultisampleArray { .. }
-    );
 
     let mut ctxt = facade.get_context().make_current();
 
@@ -368,10 +496,7 @@ where
                 a => a,
             };
 
-            if storage_internal_format.is_some()
-                && (ctxt.version >= &Version(Api::Gl, 4, 2)
-                    || ctxt.extensions.gl_arb_texture_storage)
-            {
+            if storage_internal_format.is_some() && is_tex_storage_supported(&ctxt) {
                 ctxt.glow.tex_storage_3d(
                     bind_point,
                     texture_levels,
@@ -459,10 +584,7 @@ where
                 a => a,
             };
 
-            if storage_internal_format.is_some()
-                && (ctxt.version >= &Version(Api::Gl, 4, 2)
-                    || ctxt.extensions.gl_arb_texture_storage)
-            {
+            if storage_internal_format.is_some() && is_tex_storage_supported(&ctxt) {
                 ctxt.glow.tex_storage_2d(
                     bind_point,
                     texture_levels,
@@ -535,11 +657,7 @@ where
             };
 
             // `glTexStorage2DMultisample` is the only way to create one on OpenGL ES 3.1+
-            if storage_internal_format.is_some()
-                && (ctxt.version >= &Version(Api::Gl, 4, 2)
-                    || ctxt.version >= &Version(Api::GlEs, 3, 1)
-                    || ctxt.extensions.gl_arb_texture_storage)
-            {
+            if storage_internal_format.is_some() && is_tex_storage_multisample_supported(&ctxt) {
                 ctxt.glow.tex_storage_2d_multisample(
                     glow::TEXTURE_2D_MULTISAMPLE,
                     samples.unwrap() as gl::types::GLsizei,
@@ -574,10 +692,23 @@ where
             };
 
             if storage_internal_format.is_some()
-                && (ctxt.version >= &Version(Api::Gl, 4, 2)
-                    || ctxt.extensions.gl_arb_texture_storage)
+                && (ctxt.version >= &Version(Api::Gl, 4, 3)
+                    || ctxt.version >= &Version(Api::GlEs, 3, 2)
+                    || ctxt.extensions.gl_arb_texture_storage_multisample)
             {
                 ctxt.extra.TexStorage3DMultisample(
+                    gl::TEXTURE_2D_MULTISAMPLE_ARRAY,
+                    samples.unwrap() as gl::types::GLsizei,
+                    storage_internal_format.unwrap() as gl::types::GLenum,
+                    width,
+                    height,
+                    array_size.unwrap() as gl::types::GLsizei,
+                    gl::TRUE,
+                );
+            } else if storage_internal_format.is_some()
+                && ctxt.extensions.gl_oes_texture_storage_multisample_2d_array
+            {
+                ctxt.extra.TexStorage3DMultisampleOES(
                     gl::TEXTURE_2D_MULTISAMPLE_ARRAY,
                     samples.unwrap() as gl::types::GLsizei,
                     storage_internal_format.unwrap() as gl::types::GLenum,
@@ -610,10 +741,7 @@ where
                 a => a,
             };
 
-            if storage_internal_format.is_some()
-                && (ctxt.version >= &Version(Api::Gl, 4, 2)
-                    || ctxt.extensions.gl_arb_texture_storage)
-            {
+            if storage_internal_format.is_some() && is_tex_storage_supported(&ctxt) {
                 ctxt.glow.tex_storage_1d(
                     bind_point,
                     texture_levels,
@@ -895,9 +1023,11 @@ impl TextureAny {
                 let depth_bits: gl::types::GLint =
                     ctxt.glow
                         .get_texture_level_parameter_i32(texture, 0, glow::TEXTURE_DEPTH_SIZE);
-                let stencil_bits: gl::types::GLint =
-                    ctxt.glow
-                        .get_texture_level_parameter_i32(texture, 0, glow::TEXTURE_STENCIL_SIZE);
+                let stencil_bits: gl::types::GLint = ctxt.glow.get_texture_level_parameter_i32(
+                    texture,
+                    0,
+                    glow::TEXTURE_STENCIL_SIZE,
+                );
                 (depth_bits as u16, stencil_bits as u16)
             }
         } else if !crate::version::is_webgl()
@@ -908,9 +1038,11 @@ impl TextureAny {
                 let depth_bits: gl::types::GLint =
                     ctxt.glow
                         .get_tex_level_parameter_i32(bind_point, 0, glow::TEXTURE_DEPTH_SIZE);
-                let stencil_bits: gl::types::GLint =
-                    ctxt.glow
-                        .get_tex_level_parameter_i32(bind_point, 0, glow::TEXTURE_STENCIL_SIZE);
+                let stencil_bits: gl::types::GLint = ctxt.glow.get_tex_level_parameter_i32(
+                    bind_point,
+                    0,
+                    glow::TEXTURE_STENCIL_SIZE,
+                );
                 (depth_bits as u16, stencil_bits as u16)
             }
         } else {
@@ -1030,14 +1162,12 @@ impl TextureExt for TextureAny {
             }
             #[cfg(feature = "gl46")]
             crate::TextureAccess::Update => {
-                if self.latest_shader_write.get()
-                    >= ctxt.state.latest_memory_barrier_texture_update
+                if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_texture_update
                 {
                     unsafe {
                         ctxt.glow.memory_barrier(glow::TEXTURE_UPDATE_BARRIER_BIT);
                     }
-                    ctxt.state.latest_memory_barrier_texture_update =
-                        ctxt.state.next_draw_call_id;
+                    ctxt.state.latest_memory_barrier_texture_update = ctxt.state.next_draw_call_id;
                 }
             }
         }
@@ -1290,7 +1420,8 @@ impl<'a> TextureAnyMipmap<'a> {
     /// # Panic
     ///
     /// Panics if the offsets and dimensions are outside the boundaries of the texture. Panics
-    /// if the buffer is not big enough to hold the data.
+    /// if the buffer is not big enough to hold the data. Panics on OpenGL ES, which can't flip
+    /// the components while uploading.
     #[inline]
     pub fn raw_upload_from_pixel_buffer_inverted<P>(
         &self,

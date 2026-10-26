@@ -106,6 +106,41 @@ impl fmt::Display for ReadError {
 
 impl Error for ReadError {}
 
+/// Returns the only client format that OpenGL ES guarantees for reading from `source`.
+fn es_read_format(source: &Source<'_>) -> ClientFormat {
+    use crate::image_format::UncompressedFloatFormat as F;
+
+    let requested = match source {
+        Source::Attachment(fbo::RegularAttachment::Texture(tex)) => {
+            Some(tex.get_texture().get_requested_format())
+        }
+        _ => None,
+    };
+
+    match requested {
+        Some(TextureFormatRequest::AnyIntegral)
+        | Some(TextureFormatRequest::Specific(TextureFormat::UncompressedIntegral(_))) => {
+            ClientFormat::I32I32I32I32
+        }
+        Some(TextureFormatRequest::AnyUnsigned)
+        | Some(TextureFormatRequest::Specific(TextureFormat::UncompressedUnsigned(_))) => {
+            ClientFormat::U32U32U32U32
+        }
+        Some(TextureFormatRequest::Specific(TextureFormat::UncompressedFloat(
+            F::F16
+            | F::F16F16
+            | F::F16F16F16
+            | F::F16F16F16F16
+            | F::F32
+            | F::F32F32
+            | F::F32F32F32
+            | F::F32F32F32F32
+            | F::F11F11F10,
+        ))) => ClientFormat::F32F32F32F32,
+        _ => ClientFormat::U8U8U8U8,
+    }
+}
+
 /// Reads pixels from the source into the destination.
 ///
 /// Panics if the destination is not large enough.
@@ -135,11 +170,10 @@ where
         .ok_or(ReadError::DimensionsTooLarge)?;
 
     // checking that the output format is supported
-    // OpenGL supported everything, while OpenGL ES only supports U8U8U8U8 plus an additional
-    // implementation-defined format
-    if ctxt.version.0 == Api::GlEs && output_pixel_format != ClientFormat::U8U8U8U8 {
-        // TODO: GLES is guaranteed to support GL_RGBA and an implementation-defined format
-        //       queried with GL_IMPLEMENTATION_COLOR_READ_FORMAT. We only handle GL_RGBA.
+    // OpenGL supports everything, while OpenGL ES only supports one format per kind of
+    // attachment, plus an implementation-defined format queried with
+    // GL_IMPLEMENTATION_COLOR_READ_FORMAT that we don't handle
+    if ctxt.version.0 == Api::GlEs && output_pixel_format != es_read_format(&source) {
         return Err(ReadError::OutputFormatNotSupported);
     }
 
