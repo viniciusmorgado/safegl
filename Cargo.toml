@@ -215,6 +215,11 @@ name = "tutorial-14"
 path = "examples/standalone/tutorial-14.rs"
 
 [[example]]
+name = "shadow_bias"
+path = "examples/standalone/shadow_bias.rs"
+required-features = ["gl46"]
+
+[[example]]
 name = "spirv"
 path = "examples/standalone/spirv/main.rs"
 required-features = ["gl46"]
