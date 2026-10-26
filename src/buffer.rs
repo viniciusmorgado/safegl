@@ -56,6 +56,7 @@
 //!
 //! ```no_run
 //! # use glutin::surface::{ResizeableSurface, SurfaceTypeTrait};
+//! # #[cfg(feature = "gl46")]
 //! # fn example<T>(display: safegl::Display<T>, compute: safegl::program::ComputeShader)
 //! # where T: SurfaceTypeTrait + ResizeableSurface {
 //! #[derive(Copy, Clone)]

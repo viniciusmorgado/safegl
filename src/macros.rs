@@ -7,10 +7,13 @@
 /// the arguments of this macro match the `println!` macro.
 ///
 /// ## Example
-/// ```ignore rust
+/// ```no_run
+/// # use safegl::assert_no_gl_error;
+/// # fn example(my_display: &safegl::Display<safegl::glutin::surface::WindowSurface>) {
 /// assert_no_gl_error!(my_display);
 /// assert_no_gl_error!(my_display, "custom message");
 /// assert_no_gl_error!(my_display, "custom format {}", 5);
+/// # }
 /// ```
 #[macro_export]
 macro_rules! assert_no_gl_error {

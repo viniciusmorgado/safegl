@@ -519,6 +519,7 @@ impl RawProgram {
     /// ## Example
     ///
     /// ```no_run
+    /// # #[cfg(feature = "gl46")]
     /// # fn example(program: safegl::Program) {
     /// for (name, uniform) in program.get_shader_storage_blocks() {
     ///     println!("Name: {}", name);
@@ -537,6 +538,7 @@ impl RawProgram {
     /// ## Example
     ///
     /// ```no_run
+    /// # #[cfg(feature = "gl46")]
     /// # fn example(program: safegl::Program) {
     /// for (name, uniform) in program.get_atomic_counters() {
     ///     println!("Name: {}", name);

@@ -11,17 +11,22 @@ use crate::backend::Facade;
 /// Buffer that contains a uniform block.
 ///
 /// For example, to use a `UniformBuffer<[u32; 8]>`, you must declare it in GLSL as
-///```ignore
-///     uniform MyBlock {
-///         uint array[8];
-///     };
-///```
+/// ```glsl
+/// uniform MyBlock {
+///     uint array[8];
+/// };
+/// ```
 ///
 /// and pass it to `uniform!` like this:
-///     # use safegl::uniform;
-///     uniform! {
-///         MyBlock: &buffer,
-///     }
+///
+/// ```no_run
+/// # use safegl::uniform;
+/// # fn example(buffer: safegl::uniforms::UniformBuffer<[u32; 8]>) {
+/// let uniforms = uniform! {
+///     MyBlock: &buffer,
+/// };
+/// # }
+/// ```
 #[derive(Debug)]
 pub struct UniformBuffer<T: ?Sized>
 where
