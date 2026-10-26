@@ -76,3 +76,34 @@ fn round_trip_through_a_buffer() {
 
     display.assert_no_error(None);
 }
+
+#[test]
+fn several_unsized_uniform_buffers() {
+    struct Bones {
+        matrices: [[[f32; 4]; 4]],
+    }
+    implement_buffer_content!(Bones);
+
+    let display = support::build_display();
+    let mut buffers: Vec<_> = [21, 1, 1]
+        .iter()
+        .map(|&count| {
+            safegl::uniforms::UniformBuffer::<Bones>::empty_unsized_dynamic(&display, count * 64)
+                .unwrap()
+        })
+        .collect();
+
+    // every buffer is mapped with its own number of matrices
+    for (i, buffer) in buffers.iter_mut().enumerate() {
+        let mut mapping = buffer.map();
+        for matrix in mapping.matrices.iter_mut() {
+            *matrix = [[i as f32; 4]; 4];
+        }
+    }
+    for (i, buffer) in buffers.iter().enumerate() {
+        let bones = buffer.read().unwrap();
+        assert_eq!(bones.matrices.len(), [21, 1, 1][i]);
+        assert!(bones.matrices.iter().all(|m| *m == [[i as f32; 4]; 4]));
+    }
+    display.assert_no_error(None);
+}

@@ -291,3 +291,45 @@ fn uniform_type_mismatch_message() {
         "The type of a uniform doesn't match what the program requires: `color` is a FloatVec4"
     );
 }
+
+#[test]
+fn depth_buffer_of_16_bits() {
+    let display = support::build_display();
+    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+    let color = Texture2d::empty(&display, 2, 2).unwrap();
+    let depth = safegl::framebuffer::DepthRenderBuffer::new(
+        &display,
+        safegl::texture::DepthFormat::I16,
+        2,
+        2,
+    )
+    .unwrap();
+
+    // the driver either supports the combination, or SafeGL reports it before drawing
+    match SimpleFrameBuffer::with_depth_buffer(&display, &color, &depth) {
+        Ok(mut target) => {
+            target.clear_color_and_depth((0.0, 0.0, 0.0, 0.0), 1.0);
+            target
+                .draw(
+                    &vb,
+                    &ib,
+                    &program,
+                    &safegl::uniforms::EmptyUniforms,
+                    &safegl::DrawParameters {
+                        depth: safegl::Depth {
+                            test: safegl::DepthTest::IfLess,
+                            write: true,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            drop(target);
+            assert_eq!(pixel(&color), (255, 0, 0, 255));
+        }
+        Err(ValidationError::Incomplete { .. }) => (),
+        Err(e) => panic!("{e}"),
+    }
+    display.assert_no_error(None);
+}
