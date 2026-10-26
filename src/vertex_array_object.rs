@@ -14,7 +14,13 @@ use crate::GlObject;
 
 use crate::context::CommandContext;
 use crate::gl;
+use crate::DrawError;
 use glow::HasContext;
+
+/// The number of VAOs kept for the same buffers and program bound at different offsets, after
+/// which the least recently used one is destroyed, so that drawing from many slices of a buffer
+/// doesn't create VAOs without bound.
+const MAX_VAOS_PER_BUFFERS: usize = 16;
 
 /// Stores and handles vertex attributes.
 pub struct VertexAttributesSystem {
@@ -168,8 +174,9 @@ impl<'a, 'b, 'c> Binder<'a, 'b, 'c> {
 
     /// Finish binding the vertex attributes.
     ///
-    /// If `base_vertex` was set to true, returns the base vertex to use when drawing.
-    pub fn bind(mut self) -> Option<gl::types::GLint> {
+    /// If `base_vertex` was set to true, returns the base vertex to use when drawing. Returns an
+    /// error if the vertex format doesn't match the attributes of the program.
+    pub fn bind(mut self) -> Result<Option<gl::types::GLint>, DrawError> {
         let ctxt = self.context;
 
         // VAOs are core in OpenGL 3.0 and OpenGL ES 3.0
@@ -209,14 +216,16 @@ impl<'a, 'b, 'c> Binder<'a, 'b, 'c> {
         let program_id = self.program.get_id();
 
         // trying to find an existing VAO in the cache
+        let now = ctxt.state.next_draw_call_id;
         if let Some(value) = ctxt
             .vertex_array_objects
             .vaos
             .borrow_mut()
             .get(&(buffers_list.clone(), program_id))
         {
+            value.last_used.set(now);
             value.bind(ctxt);
-            return base_vertex.map(|v| v as gl::types::GLint);
+            return Ok(base_vertex.map(|v| v as gl::types::GLint));
         }
 
         // if not found, building a new one
@@ -226,8 +235,33 @@ impl<'a, 'b, 'c> Binder<'a, 'b, 'c> {
                 &self.vertex_buffers,
                 self.element_array_buffer,
                 self.program,
-            )
+            )?
         };
+        new_vao.last_used.set(now);
+
+        // destroying the least recently used VAO of the same buffers and program bound at other
+        // offsets, if there are too many
+        let least_recently_used = {
+            let vaos = ctxt.vertex_array_objects.vaos.borrow();
+            let same_buffers = vaos.iter().filter(|((buffers, program), _)| {
+                *program == program_id
+                    && buffers.len() == buffers_list.len()
+                    && buffers.iter().zip(&buffers_list).all(|(a, b)| a.0 == b.0)
+            });
+            if same_buffers.clone().count() >= MAX_VAOS_PER_BUFFERS {
+                same_buffers
+                    .min_by_key(|(_, vao)| vao.last_used.get())
+                    .map(|(key, _)| key.clone())
+            } else {
+                None
+            }
+        };
+        if let Some(key) = least_recently_used {
+            let vao = ctxt.vertex_array_objects.vaos.borrow_mut().remove(&key);
+            if let Some(vao) = vao {
+                vao.destroy(ctxt);
+            }
+        }
 
         new_vao.bind(ctxt);
         ctxt.vertex_array_objects
@@ -235,7 +269,7 @@ impl<'a, 'b, 'c> Binder<'a, 'b, 'c> {
             .borrow_mut()
             .insert((buffers_list, program_id), new_vao);
 
-        base_vertex.map(|v| v as gl::types::GLint)
+        Ok(base_vertex.map(|v| v as gl::types::GLint))
     }
 }
 
@@ -245,6 +279,8 @@ struct VertexArrayObject {
     destroyed: bool,
     element_array_buffer: Option<glow::Buffer>,
     element_array_buffer_hijacked: Cell<bool>,
+    // the draw call that used it last
+    last_used: Cell<u64>,
 }
 
 impl VertexArrayObject {
@@ -257,7 +293,7 @@ impl VertexArrayObject {
         vertex_buffers: &[(glow::Buffer, VertexFormat, usize, usize, Option<u32>)],
         index_buffer: Option<BufferAnySlice<'_>>,
         program: &Program,
-    ) -> VertexArrayObject {
+    ) -> Result<VertexArrayObject, DrawError> {
         // checking the attributes types
         for &(_, ref bindings, _, _, _) in vertex_buffers {
             for &(ref name, _, location, ty, _) in bindings.iter() {
@@ -287,11 +323,7 @@ impl VertexArrayObject {
                 if ty.get_num_components() != attribute.ty.get_num_components()
                     || attribute.size != 1
                 {
-                    panic!(
-                        "The program attribute `{}` does not match the vertex format. \
-                            Program expected {:?}, got {:?}.",
-                        name, attribute.ty, ty
-                    );
+                    return Err(DrawError::AttributeTypeMismatch);
                 }
             }
         }
@@ -320,10 +352,7 @@ impl VertexArrayObject {
                 }
             }
             if !found {
-                panic!(
-                    "The program attribute `{}` is missing in the vertex bindings",
-                    name
-                );
+                return Err(DrawError::AttributeMissing);
             }
         }
 
@@ -356,12 +385,13 @@ impl VertexArrayObject {
             );
         }
 
-        VertexArrayObject {
+        Ok(VertexArrayObject {
             id,
             destroyed: false,
             element_array_buffer: index_buffer.map(|b| b.get_id()),
             element_array_buffer_hijacked: Cell::new(false),
-        }
+            last_used: Cell::new(0),
+        })
     }
 
     /// Sets this VAO as the current VAO.

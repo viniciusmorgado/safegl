@@ -171,7 +171,7 @@ where
             }
         }
 
-        (vertices_count, instances_count, binder.bind().unwrap_or(0))
+        (vertices_count, instances_count, binder.bind()?.unwrap_or(0))
     };
 
     // binding the FBO to draw upon
