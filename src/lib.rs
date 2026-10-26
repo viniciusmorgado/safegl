@@ -1037,6 +1037,24 @@ pub trait Surface {
         )
     }
 
+    /// Copies a rectangle of pixels from a framebuffer created outside SafeGL to this surface.
+    #[inline]
+    fn blit_from_external_framebuffer(
+        &self,
+        source: &framebuffer::ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+    ) {
+        self.blit_buffers_from_external_framebuffer(
+            source,
+            source_rect,
+            target_rect,
+            filter,
+            BlitMask::color(),
+        )
+    }
+
     /// Blits from the default framebuffer.
     fn blit_buffers_from_frame(
         &self,
@@ -1065,6 +1083,22 @@ pub trait Surface {
         filter: uniforms::MagnifySamplerFilter,
         mask: BlitMask,
     );
+
+    /// Blits from a framebuffer created outside SafeGL.
+    ///
+    /// Every surface of SafeGL implements it; the default implementation, for other surfaces,
+    /// panics.
+    fn blit_buffers_from_external_framebuffer(
+        &self,
+        source: &framebuffer::ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+        mask: BlitMask,
+    ) {
+        let _ = (source, source_rect, target_rect, filter, mask);
+        unimplemented!("this surface can't be the target of a blit from an external framebuffer")
+    }
 
     /// Copies a rectangle of pixels from this surface to another surface.
     ///
@@ -1133,8 +1167,8 @@ pub trait Surface {
 
 /// Private trait for framebuffer-like objects that provide attachments.
 trait FboAttachments {
-    /// Returns the list of attachments of this FBO, or `None` if it is the default framebuffer.
-    fn get_attachments(&self) -> Option<&fbo::ValidatedAttachments<'_>>;
+    /// Returns the attachments of this framebuffer, or the raw framebuffer it is.
+    fn get_attachments(&self) -> fbo::FramebufferTarget<'_>;
 }
 
 /// Error that can happen while drawing.
@@ -1476,13 +1510,22 @@ impl Frame {
     /// `GL_ARB_invalidate_subdata`.
     pub fn invalidate(&self, which: framebuffer::InvalidateAttachments) {
         let mut ctxt = self.context.make_current();
-        unsafe { fbo::FramebuffersContainer::invalidate(&mut ctxt, None, which, None) }
+        unsafe {
+            fbo::FramebuffersContainer::invalidate(&mut ctxt, self.get_attachments(), which, None)
+        }
     }
 
     /// Like `invalidate`, but only inside `rect` (`glInvalidateSubFramebuffer`).
     pub fn invalidate_rect(&self, which: framebuffer::InvalidateAttachments, rect: &Rect) {
         let mut ctxt = self.context.make_current();
-        unsafe { fbo::FramebuffersContainer::invalidate(&mut ctxt, None, which, Some(rect)) }
+        unsafe {
+            fbo::FramebuffersContainer::invalidate(
+                &mut ctxt,
+                self.get_attachments(),
+                which,
+                Some(rect),
+            )
+        }
     }
 
     /// Builds a new `Frame`. Use the `draw` function on `Display` instead of this function.
@@ -1528,7 +1571,7 @@ impl Surface for Frame {
         depth: Option<f32>,
         stencil: Option<i32>,
     ) {
-        ops::clear(&self.context, None, rect, color, color_srgb, depth, stencil);
+        ops::clear(&self.context, self.get_attachments(), rect, color, color_srgb, depth, stencil);
     }
 
     fn get_dimensions(&self) -> (u32, u32) {
@@ -1573,7 +1616,7 @@ impl Surface for Frame {
 
         ops::draw(
             &self.context,
-            None,
+            fbo::FramebufferTarget::Raw(None),
             vertex_buffer,
             index_buffer.into(),
             program,
@@ -1605,7 +1648,7 @@ impl Surface for Frame {
     ) {
         ops::blit(
             &self.context,
-            None,
+            fbo::FramebufferTarget::Raw(None),
             self.get_attachments(),
             mask.to_glenum(),
             source_rect,
@@ -1651,12 +1694,31 @@ impl Surface for Frame {
             filter.to_glenum(),
         )
     }
+
+    fn blit_buffers_from_external_framebuffer(
+        &self,
+        source: &framebuffer::ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+        mask: BlitMask,
+    ) {
+        ops::blit(
+            &self.context,
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
 }
 
 impl FboAttachments for Frame {
     #[inline]
-    fn get_attachments(&self) -> Option<&fbo::ValidatedAttachments<'_>> {
-        None
+    fn get_attachments(&self) -> fbo::FramebufferTarget<'_> {
+        fbo::FramebufferTarget::Raw(None)
     }
 }
 

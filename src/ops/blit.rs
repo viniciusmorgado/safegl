@@ -6,8 +6,8 @@ use crate::Rect;
 use crate::context::Context;
 use crate::ContextExt;
 
+use crate::fbo::FramebufferTarget;
 use crate::fbo::FramebuffersContainer;
-use crate::fbo::ValidatedAttachments;
 
 use crate::gl;
 use crate::version::Api;
@@ -15,8 +15,8 @@ use crate::version::Version;
 
 pub fn blit(
     context: &Context,
-    source: Option<&ValidatedAttachments<'_>>,
-    target: Option<&ValidatedAttachments<'_>>,
+    source: FramebufferTarget<'_>,
+    target: FramebufferTarget<'_>,
     mask: gl::types::GLbitfield,
     src_rect: &Rect,
     target_rect: &BlitTarget,

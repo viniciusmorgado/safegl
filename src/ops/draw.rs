@@ -12,7 +12,7 @@ use crate::context::Context;
 use crate::ContextExt;
 use crate::TransformFeedbackSessionExt;
 
-use crate::fbo::{self, ValidatedAttachments};
+use crate::fbo::{self, FramebufferTarget};
 
 use crate::index::{self, IndicesSource};
 use crate::uniforms::Uniforms;
@@ -29,7 +29,7 @@ use crate::{context, draw_parameters, gl};
 /// Draws everything.
 pub fn draw<'a, U, V>(
     context: &Context,
-    framebuffer: Option<&ValidatedAttachments<'_>>,
+    framebuffer: FramebufferTarget<'_>,
     vertex_buffers: V,
     indices: IndicesSource<'_>,
     program: &Program,

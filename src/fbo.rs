@@ -586,6 +586,15 @@ impl<'a> FramebufferAttachments<'a> {
     }
 }
 
+/// The framebuffer that an operation draws to, reads from or invalidates.
+#[derive(Copy, Clone)]
+pub enum FramebufferTarget<'a> {
+    /// The default framebuffer (`None`), or a framebuffer object created outside SafeGL.
+    Raw(Option<glow::Framebuffer>),
+    /// A framebuffer object with these attachments, which SafeGL creates when needed.
+    Attachments(&'a ValidatedAttachments<'a>),
+}
+
 /// Represents attachments that have been validated and are usable.
 #[derive(Clone)]
 pub struct ValidatedAttachments<'a> {
@@ -871,9 +880,14 @@ impl FramebuffersContainer {
     #[inline]
     pub fn get_framebuffer_for_drawing(
         ctxt: &mut CommandContext<'_>,
-        attachments: Option<&ValidatedAttachments<'_>>,
+        target: FramebufferTarget<'_>,
     ) -> Option<glow::Framebuffer> {
-        attachments.map(|attachments| FramebuffersContainer::get_framebuffer(ctxt, attachments))
+        match target {
+            FramebufferTarget::Raw(framebuffer) => framebuffer,
+            FramebufferTarget::Attachments(attachments) => {
+                Some(FramebuffersContainer::get_framebuffer(ctxt, attachments))
+            }
+        }
     }
 
     /// Binds the default framebuffer to `GL_READ_FRAMEBUFFER` or `GL_FRAMEBUFFER` so that it
@@ -926,8 +940,10 @@ impl FramebuffersContainer {
         .validate(ctxt)
         .unwrap();
 
-        let framebuffer =
-            FramebuffersContainer::get_framebuffer_for_drawing(ctxt, Some(&attachments));
+        let framebuffer = FramebuffersContainer::get_framebuffer_for_drawing(
+            ctxt,
+            FramebufferTarget::Attachments(&attachments),
+        );
         bind_framebuffer(ctxt, framebuffer, false, true);
         ctxt.glow.read_buffer(glow::COLOR_ATTACHMENT0); // TODO: cache
     }
@@ -963,7 +979,10 @@ impl FramebuffersContainer {
         })
         .validate(ctxt)
         .unwrap();
-        let fb = FramebuffersContainer::get_framebuffer_for_drawing(ctxt, Some(&fb));
+        let fb = FramebuffersContainer::get_framebuffer_for_drawing(
+            ctxt,
+            FramebufferTarget::Attachments(&fb),
+        );
 
         // TODO: use DSA if supported
         // TODO: what if glClearBuffer is not supported?
@@ -1003,9 +1022,9 @@ impl FramebuffersContainer {
         }
     }
 
-    /// Discards the content of some attachments of a framebuffer, or of the default framebuffer
-    /// if `attachments` is `None` (`glInvalidateFramebuffer`), in the whole framebuffer or in
-    /// `rect`. Does nothing if the backend doesn't support it, since this is only a hint.
+    /// Discards the content of some attachments of a framebuffer (`glInvalidateFramebuffer`), in
+    /// the whole framebuffer or in `rect`. Does nothing if the backend doesn't support it, since
+    /// this is only a hint.
     ///
     /// # Unsafety
     ///
@@ -1013,7 +1032,7 @@ impl FramebuffersContainer {
     /// and/or `purge_renderbuffer` when one of the attachment is destroyed.
     pub unsafe fn invalidate(
         ctxt: &mut CommandContext<'_>,
-        attachments: Option<&ValidatedAttachments<'_>>,
+        target: FramebufferTarget<'_>,
         which: InvalidateAttachments,
         rect: Option<&crate::Rect>,
     ) {
@@ -1026,8 +1045,8 @@ impl FramebuffersContainer {
         }
 
         let mut list = SmallVec::<[gl::types::GLenum; 8]>::new();
-        match attachments {
-            Some(attachments) => {
+        match target {
+            FramebufferTarget::Attachments(attachments) => {
                 let raw = &attachments.raw;
                 if which.color {
                     // `FrameBufferObject::new` attaches the n-th color at `COLOR_ATTACHMENTn`
@@ -1049,7 +1068,20 @@ impl FramebuffersContainer {
                     }
                 }
             }
-            None => {
+            // the attachments of a framebuffer object created outside SafeGL are unknown, but
+            // invalidating an attachment point that is empty does nothing
+            FramebufferTarget::Raw(Some(_)) => {
+                if which.color {
+                    list.push(gl::COLOR_ATTACHMENT0);
+                }
+                if which.depth {
+                    list.push(gl::DEPTH_ATTACHMENT);
+                }
+                if which.stencil {
+                    list.push(gl::STENCIL_ATTACHMENT);
+                }
+            }
+            FramebufferTarget::Raw(None) => {
                 if which.color {
                     list.push(gl::COLOR);
                 }
@@ -1065,7 +1097,7 @@ impl FramebuffersContainer {
             return;
         }
 
-        let framebuffer = FramebuffersContainer::get_framebuffer_for_drawing(ctxt, attachments);
+        let framebuffer = FramebuffersContainer::get_framebuffer_for_drawing(ctxt, target);
         bind_framebuffer(ctxt, framebuffer, true, false);
         // `bind_framebuffer` binds `GL_FRAMEBUFFER` on OpenGL ES and WebGL
         let target = if ctxt.version.0 == Api::Gl {

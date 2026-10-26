@@ -1,6 +1,6 @@
 use glow::HasContext;
 
-use crate::fbo::{self, ValidatedAttachments};
+use crate::fbo::{self, FramebufferTarget};
 
 use crate::context::Context;
 use crate::ContextExt;
@@ -14,7 +14,7 @@ use crate::Api;
 
 pub fn clear(
     context: &Context,
-    framebuffer: Option<&ValidatedAttachments<'_>>,
+    framebuffer: FramebufferTarget<'_>,
     rect: Option<&Rect>,
     color: Option<(f32, f32, f32, f32)>,
     color_srgb: bool,

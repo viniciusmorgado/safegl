@@ -102,6 +102,7 @@ use crate::{Program, Surface};
 use crate::fbo;
 
 pub use self::default_fb::{DefaultFramebuffer, DefaultFramebufferAttachment};
+pub use self::external_fb::ExternalFramebuffer;
 pub use self::render_buffer::CreationError as RenderBufferCreationError;
 pub use self::render_buffer::{DepthRenderBuffer, RenderBuffer, RenderBufferAny};
 pub use self::render_buffer::{DepthStencilRenderBuffer, StencilRenderBuffer};
@@ -110,6 +111,7 @@ pub use crate::fbo::ValidationError;
 use crate::uniforms::MagnifySamplerFilter;
 
 mod default_fb;
+mod external_fb;
 mod render_buffer;
 
 /// The attachments of a framebuffer that `invalidate` and `invalidate_rect` discard.
@@ -161,6 +163,19 @@ pub struct SimpleFrameBuffer<'a> {
 }
 
 impl<'a> SimpleFrameBuffer<'a> {
+    /// Returns the framebuffer object that SafeGL draws to the attachments through, creating it
+    /// if needed, so that code outside SafeGL can draw into them too (a video decoder, for
+    /// example).
+    ///
+    /// The framebuffer object belongs to SafeGL, which deletes it with its attachments. Code
+    /// outside SafeGL must not delete it or change its attachments, and must be followed by
+    /// [`Context::restore_state`](crate::context::Context::restore_state) if it binds it.
+    pub fn get_framebuffer_object(&self) -> glow::Framebuffer {
+        let mut ctxt = self.context.make_current();
+        fbo::FramebuffersContainer::get_framebuffer_for_drawing(&mut ctxt, self.get_attachments())
+            .expect("a framebuffer with attachments always has a framebuffer object")
+    }
+
     /// Discards the content of the attachments selected by `which`
     /// (`glInvalidateFramebuffer`).
     ///
@@ -174,13 +189,22 @@ impl<'a> SimpleFrameBuffer<'a> {
     /// `GL_ARB_invalidate_subdata`.
     pub fn invalidate(&self, which: InvalidateAttachments) {
         let mut ctxt = self.context.make_current();
-        unsafe { fbo::FramebuffersContainer::invalidate(&mut ctxt, Some(&self.attachments), which, None) }
+        unsafe {
+            fbo::FramebuffersContainer::invalidate(&mut ctxt, self.get_attachments(), which, None)
+        }
     }
 
     /// Like `invalidate`, but only inside `rect` (`glInvalidateSubFramebuffer`).
     pub fn invalidate_rect(&self, which: InvalidateAttachments, rect: &Rect) {
         let mut ctxt = self.context.make_current();
-        unsafe { fbo::FramebuffersContainer::invalidate(&mut ctxt, Some(&self.attachments), which, Some(rect)) }
+        unsafe {
+            fbo::FramebuffersContainer::invalidate(
+                &mut ctxt,
+                self.get_attachments(),
+                which,
+                Some(rect),
+            )
+        }
     }
 
     /// Creates a `SimpleFrameBuffer` with a single color attachment and no depth
@@ -433,7 +457,7 @@ impl<'a> Surface for SimpleFrameBuffer<'a> {
     ) {
         ops::clear(
             &self.context,
-            Some(&self.attachments),
+            fbo::FramebufferTarget::Attachments(&self.attachments),
             rect,
             color,
             color_srgb,
@@ -487,7 +511,7 @@ impl<'a> Surface for SimpleFrameBuffer<'a> {
 
         ops::draw(
             &self.context,
-            Some(&self.attachments),
+            fbo::FramebufferTarget::Attachments(&self.attachments),
             vb,
             ib.into(),
             program,
@@ -520,7 +544,7 @@ impl<'a> Surface for SimpleFrameBuffer<'a> {
     ) {
         ops::blit(
             &self.context,
-            None,
+            fbo::FramebufferTarget::Raw(None),
             self.get_attachments(),
             mask.to_glenum(),
             source_rect,
@@ -568,12 +592,32 @@ impl<'a> Surface for SimpleFrameBuffer<'a> {
             filter.to_glenum(),
         )
     }
+
+    #[inline]
+    fn blit_buffers_from_external_framebuffer(
+        &self,
+        source: &ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: MagnifySamplerFilter,
+        mask: BlitMask,
+    ) {
+        ops::blit(
+            &self.context,
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
 }
 
 impl<'a> FboAttachments for SimpleFrameBuffer<'a> {
     #[inline]
-    fn get_attachments(&self) -> Option<&fbo::ValidatedAttachments<'_>> {
-        Some(&self.attachments)
+    fn get_attachments(&self) -> fbo::FramebufferTarget<'_> {
+        fbo::FramebufferTarget::Attachments(&self.attachments)
     }
 }
 
@@ -599,13 +643,22 @@ impl<'a> MultiOutputFrameBuffer<'a> {
     /// `GL_ARB_invalidate_subdata`.
     pub fn invalidate(&self, which: InvalidateAttachments) {
         let mut ctxt = self.context.make_current();
-        unsafe { fbo::FramebuffersContainer::invalidate(&mut ctxt, Some(&self.example_attachments), which, None) }
+        unsafe {
+            fbo::FramebuffersContainer::invalidate(&mut ctxt, self.get_attachments(), which, None)
+        }
     }
 
     /// Like `invalidate`, but only inside `rect` (`glInvalidateSubFramebuffer`).
     pub fn invalidate_rect(&self, which: InvalidateAttachments, rect: &Rect) {
         let mut ctxt = self.context.make_current();
-        unsafe { fbo::FramebuffersContainer::invalidate(&mut ctxt, Some(&self.example_attachments), which, Some(rect)) }
+        unsafe {
+            fbo::FramebuffersContainer::invalidate(
+                &mut ctxt,
+                self.get_attachments(),
+                which,
+                Some(rect),
+            )
+        }
     }
 
     /// Creates a new `MultiOutputFrameBuffer`.
@@ -849,7 +902,7 @@ impl<'a> Surface for MultiOutputFrameBuffer<'a> {
     ) {
         ops::clear(
             &self.context,
-            Some(&self.example_attachments),
+            fbo::FramebufferTarget::Attachments(&self.example_attachments),
             rect,
             color,
             color_srgb,
@@ -903,7 +956,7 @@ impl<'a> Surface for MultiOutputFrameBuffer<'a> {
 
         ops::draw(
             &self.context,
-            Some(&self.build_attachments(program)),
+            fbo::FramebufferTarget::Attachments(&self.build_attachments(program)),
             vb,
             ib.into(),
             program,
@@ -936,7 +989,7 @@ impl<'a> Surface for MultiOutputFrameBuffer<'a> {
     ) {
         ops::blit(
             &self.context,
-            None,
+            fbo::FramebufferTarget::Raw(None),
             self.get_attachments(),
             mask.to_glenum(),
             source_rect,
@@ -984,12 +1037,33 @@ impl<'a> Surface for MultiOutputFrameBuffer<'a> {
             filter.to_glenum(),
         )
     }
+
+    #[inline]
+    fn blit_buffers_from_external_framebuffer(
+        &self,
+        source: &ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: MagnifySamplerFilter,
+        mask: BlitMask,
+    ) {
+        ops::blit(
+            &self.context,
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
 }
 
 impl<'a> FboAttachments for MultiOutputFrameBuffer<'a> {
     #[inline]
-    fn get_attachments(&self) -> Option<&fbo::ValidatedAttachments<'_>> {
-        unimplemented!();
+    fn get_attachments(&self) -> fbo::FramebufferTarget<'_> {
+        // blits read from the first output
+        fbo::FramebufferTarget::Attachments(&self.example_attachments)
     }
 }
 
@@ -1123,7 +1197,7 @@ impl Surface for EmptyFrameBuffer {
     ) {
         ops::clear(
             &self.context,
-            Some(&self.attachments),
+            fbo::FramebufferTarget::Attachments(&self.attachments),
             rect,
             color,
             color_srgb,
@@ -1177,7 +1251,7 @@ impl Surface for EmptyFrameBuffer {
 
         ops::draw(
             &self.context,
-            Some(&self.attachments),
+            fbo::FramebufferTarget::Attachments(&self.attachments),
             vb,
             ib.into(),
             program,
@@ -1210,7 +1284,7 @@ impl Surface for EmptyFrameBuffer {
     ) {
         ops::blit(
             &self.context,
-            None,
+            fbo::FramebufferTarget::Raw(None),
             self.get_attachments(),
             mask.to_glenum(),
             source_rect,
@@ -1258,13 +1332,33 @@ impl Surface for EmptyFrameBuffer {
             filter.to_glenum(),
         )
     }
+
+    #[inline]
+    fn blit_buffers_from_external_framebuffer(
+        &self,
+        source: &ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+        mask: BlitMask,
+    ) {
+        ops::blit(
+            &self.context,
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
 }
 
 #[cfg(feature = "gl46")]
 impl FboAttachments for EmptyFrameBuffer {
     #[inline]
-    fn get_attachments(&self) -> Option<&fbo::ValidatedAttachments<'_>> {
-        Some(&self.attachments)
+    fn get_attachments(&self) -> fbo::FramebufferTarget<'_> {
+        fbo::FramebufferTarget::Attachments(&self.attachments)
     }
 }
 
