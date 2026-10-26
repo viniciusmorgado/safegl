@@ -135,6 +135,11 @@ name = "screenshot-asynchronous"
 path = "examples/standalone/screenshot-asynchronous.rs"
 
 [[example]]
+name = "programmable_blending"
+path = "examples/standalone/programmable_blending.rs"
+required-features = ["gl46"]
+
+[[example]]
 name = "screenshot"
 path = "examples/standalone/screenshot.rs"
 
