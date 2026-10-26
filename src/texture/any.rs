@@ -439,10 +439,12 @@ where
             }
         };
 
+        // multisample textures have no sampler state
         match ty {
             Dimensions::Texture1d { .. } => (),
             Dimensions::Texture2d { .. } => (),
             Dimensions::Texture2dMultisample { .. } => (),
+            Dimensions::Texture2dMultisampleArray { .. } => (),
             _ => {
                 ctxt.glow
                     .tex_parameter_i32(bind_point, glow::TEXTURE_WRAP_R, gl::REPEAT as i32);
