@@ -970,6 +970,14 @@ impl FramebuffersContainer {
 
         bind_framebuffer(ctxt, fb, true, false);
 
+        // `glClearBuffer` obeys the color mask, including the per-draw-buffer masks of
+        // `DrawParameters::outputs`
+        if ctxt.state.color_mask != (1, 1, 1, 1) || ctxt.state.indexed_color_mask {
+            ctxt.state.color_mask = (1, 1, 1, 1);
+            ctxt.state.indexed_color_mask = false;
+            ctxt.glow.color_mask(true, true, true, true);
+        }
+
         match (attachment.kind(), data) {
             (TextureKind::Float, ClearBufferData::Float(data)) => {
                 ctxt.glow.clear_buffer_f32_slice(glow::COLOR, 0, &data);

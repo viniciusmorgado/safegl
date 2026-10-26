@@ -116,6 +116,14 @@ pub struct GlState {
         gl::types::GLboolean,
     ),
 
+    /// Whether `glColorMaski` may have given some draw buffers a mask other than `color_mask`.
+    pub indexed_color_mask: bool,
+
+    /// Whether `glEnablei`, `glBlendEquationSeparatei` or `glBlendFuncSeparatei` may have given
+    /// some draw buffers a blending state other than `enabled_blend`, `blend_equation` and
+    /// `blend_func`.
+    pub indexed_blend: bool,
+
     /// The latest buffer bound to `GL_ARRAY_BUFFER`.
     pub array_buffer_binding: Option<glow::Buffer>,
 
@@ -456,6 +464,8 @@ impl Default for GlState {
             clear_depth: 1.0,
             clear_stencil: 0,
             color_mask: (1, 1, 1, 1),
+            indexed_color_mask: false,
+            indexed_blend: false,
             array_buffer_binding: None,
             pixel_pack_buffer_binding: None,
             pixel_unpack_buffer_binding: None,

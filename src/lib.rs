@@ -134,7 +134,7 @@ pub use crate::draw_parameters::{
     BackfaceCullingMode, Blend, BlendingFunction, LinearBlendingFactor,
 };
 pub use crate::draw_parameters::{
-    Depth, DepthTest, DrawParameters, PolygonMode, StencilOperation, StencilTest,
+    Depth, DepthTest, DrawParameters, OutputState, PolygonMode, StencilOperation, StencilTest,
 };
 pub use crate::index::IndexBuffer;
 pub use crate::ops::ReadError;
@@ -1268,6 +1268,13 @@ pub enum DrawError {
 
     /// Masking samples (`DrawParameters::sample_mask`) isn't supported by the backend.
     SampleMaskNotSupported,
+
+    /// Giving outputs their own blending or color mask (`DrawParameters::outputs`) isn't
+    /// supported by the backend.
+    PerOutputStateNotSupported,
+
+    /// `DrawParameters::outputs` has more entries than the backend has draw buffers.
+    OutputStateIndexOutOfBounds,
 }
 
 impl Error for DrawError {
@@ -1356,6 +1363,10 @@ impl fmt::Display for DrawError {
                 "Per-sample shading is not supported by the backend",
             SampleMaskNotSupported =>
                 "Masking samples is not supported by the backend",
+            PerOutputStateNotSupported =>
+                "Giving outputs their own blending or color mask is not supported by the backend",
+            OutputStateIndexOutOfBounds =>
+                "There are more output states than draw buffers",
         };
         match self {
             UniformTypeMismatch {

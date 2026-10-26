@@ -272,6 +272,27 @@ pub struct DrawParameters<'a> {
     /// is `(true, true, true, true)`.
     pub color_mask: (bool, bool, bool, bool),
 
+    /// Blending and color mask of each output of the fragment shader, overriding `blend` and
+    /// `color_mask` for it. The default value is an empty slice, where every output uses
+    /// `blend` and `color_mask`.
+    ///
+    /// Entry `i` applies to the output at location `i`, which is draw buffer `i` of the
+    /// framebuffer: the location that the program gives to an output's name with a
+    /// `MultiOutputFrameBuffer`, and location 0 with a `SimpleFrameBuffer`. Outputs past the
+    /// end of the slice use `blend` and `color_mask`. Typical uses are a G-buffer where one
+    /// attachment blends and the others don't, and weighted blended order-independent
+    /// transparency, whose two outputs blend differently.
+    ///
+    /// OpenGL has a single blend constant: the entries whose factors use it must have the same
+    /// `Blend::constant_value` as each other and as `blend`, if it uses one, or
+    /// `DrawError::BlendingParameterNotSupported` is returned.
+    ///
+    /// More entries than `Capabilities::max_draw_buffers` return
+    /// `DrawError::OutputStateIndexOutOfBounds`. Needs OpenGL 4.0 or OpenGL ES 3.2. Elsewhere,
+    /// WebGL included, an entry that differs from `blend` and `color_mask` returns
+    /// `DrawError::PerOutputStateNotSupported`.
+    pub outputs: &'a [OutputState],
+
     /// Width in pixels of the lines to draw when drawing lines.
     ///
     /// `None` means "don't care". Use this when you don't draw lines.
@@ -466,6 +487,58 @@ pub struct DrawParameters<'a> {
     pub clip_control_depth: ClipControlDepth,
 }
 
+/// Blending and color mask of one output of the fragment shader. See `DrawParameters::outputs`.
+///
+/// Example: the two outputs of weighted blended order-independent transparency, where the
+/// first one adds up colors and the second one multiplies the transparencies.
+///
+/// ```
+/// use safegl::draw_parameters::OutputState;
+/// use safegl::{Blend, BlendingFunction, LinearBlendingFactor};
+///
+/// let add = BlendingFunction::Addition {
+///     source: LinearBlendingFactor::One,
+///     destination: LinearBlendingFactor::One,
+/// };
+/// let multiply = BlendingFunction::Addition {
+///     source: LinearBlendingFactor::Zero,
+///     destination: LinearBlendingFactor::OneMinusSourceColor,
+/// };
+/// let outputs = [
+///     OutputState {
+///         blend: Blend { color: add, alpha: add, ..Default::default() },
+///         ..Default::default()
+///     },
+///     OutputState {
+///         blend: Blend { color: multiply, alpha: multiply, ..Default::default() },
+///         ..Default::default()
+///     },
+/// ];
+/// let params = safegl::DrawParameters {
+///     outputs: &outputs,
+///     ..Default::default()
+/// };
+/// ```
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct OutputState {
+    /// How the output is merged with the existing pixel. See `DrawParameters::blend`.
+    pub blend: Blend,
+
+    /// Which components of the output are written: red, green, blue, alpha. See
+    /// `DrawParameters::color_mask`.
+    pub color_mask: (bool, bool, bool, bool),
+}
+
+impl Default for OutputState {
+    /// No blending and all components written, like the defaults of `DrawParameters`.
+    fn default() -> OutputState {
+        OutputState {
+            blend: Default::default(),
+            color_mask: (true, true, true, true),
+        }
+    }
+}
+
 /// Condition whether to render or not.
 #[derive(Debug, Copy, Clone)]
 pub struct ConditionalRendering<'a> {
@@ -562,6 +635,7 @@ impl<'a> Default for DrawParameters<'a> {
             stencil: Default::default(),
             blend: Default::default(),
             color_mask: (true, true, true, true),
+            outputs: &[],
             line_width: None,
             point_size: None,
             backface_culling: BackfaceCullingMode::CullingDisabled,
@@ -614,10 +688,11 @@ pub fn sync(
     dimensions: (u32, u32),
     primitives_types: PrimitiveType,
 ) -> Result<(), DrawError> {
+    validate_outputs(ctxt, draw_parameters)?;
     depth::sync_depth(ctxt, &draw_parameters.depth)?;
     stencil::sync_stencil(ctxt, &draw_parameters.stencil);
-    blend::sync_blending(ctxt, draw_parameters.blend)?;
-    sync_color_mask(ctxt, draw_parameters.color_mask);
+    blend::sync_blending(ctxt, draw_parameters.blend, draw_parameters.outputs)?;
+    sync_color_mask(ctxt, draw_parameters.color_mask, draw_parameters.outputs);
     sync_line_width(ctxt, draw_parameters.line_width);
     sync_point_size(ctxt, draw_parameters.point_size);
     sync_polygon_mode(
@@ -661,22 +736,71 @@ pub fn sync(
     Ok(())
 }
 
-fn sync_color_mask(ctxt: &mut context::CommandContext<'_>, mask: (bool, bool, bool, bool)) {
-    let mask = (
+/// Checks that `DrawParameters::outputs` fits in the draw buffers, and that the backend can
+/// give draw buffers their own state if an entry needs it.
+fn validate_outputs(
+    ctxt: &context::CommandContext<'_>,
+    draw_parameters: &DrawParameters<'_>,
+) -> Result<(), DrawError> {
+    let outputs = draw_parameters.outputs;
+    if outputs.is_empty() {
+        return Ok(());
+    }
+
+    if outputs.len() > ctxt.capabilities.max_draw_buffers.max(0) as usize {
+        return Err(DrawError::OutputStateIndexOutOfBounds);
+    }
+
+    let global_blend = blend::BlendState::new(draw_parameters.blend);
+    let overrides = outputs.iter().any(|output| {
+        output.color_mask != draw_parameters.color_mask
+            || blend::BlendState::new(output.blend) != global_blend
+    });
+    // `glColorMaski`, `glEnablei` and `glBlend*i` are core in OpenGL 4.0 and OpenGL ES 3.2
+    let supported = ctxt.version.0 == Api::Gl
+        || (ctxt.version >= &Version(Api::GlEs, 3, 2) && !crate::version::is_webgl());
+    if overrides && !supported {
+        return Err(DrawError::PerOutputStateNotSupported);
+    }
+
+    Ok(())
+}
+
+/// Sets the color mask of all draw buffers to `mask`, then overrides it for the draw buffers
+/// whose entry in `outputs` differs.
+fn sync_color_mask(
+    ctxt: &mut context::CommandContext<'_>,
+    mask: (bool, bool, bool, bool),
+    outputs: &[OutputState],
+) {
+    let gl_mask = (
         if mask.0 { 1 } else { 0 },
         if mask.1 { 1 } else { 0 },
         if mask.2 { 1 } else { 0 },
         if mask.3 { 1 } else { 0 },
     );
 
-    if ctxt.state.color_mask != mask {
+    // `glColorMask` sets every draw buffer, which also undoes the masks of a previous draw
+    // call that had overrides
+    if ctxt.state.indexed_color_mask || ctxt.state.color_mask != gl_mask {
         unsafe {
-            ctxt.glow
-                .color_mask(mask.0 != 0, mask.1 != 0, mask.2 != 0, mask.3 != 0);
+            ctxt.glow.color_mask(mask.0, mask.1, mask.2, mask.3);
         }
 
-        ctxt.state.color_mask = mask;
+        ctxt.state.color_mask = gl_mask;
     }
+
+    let mut indexed = false;
+    for (index, output) in outputs.iter().enumerate() {
+        if output.color_mask != mask {
+            let m = output.color_mask;
+            unsafe {
+                ctxt.glow.color_mask_draw_buffer(index as u32, m.0, m.1, m.2, m.3);
+            }
+            indexed = true;
+        }
+    }
+    ctxt.state.indexed_color_mask = indexed;
 }
 
 fn sync_line_width(ctxt: &mut context::CommandContext<'_>, line_width: Option<f32>) {
