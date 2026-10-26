@@ -121,6 +121,9 @@ Additions:
 - A basic type or an array matches a uniform block that has it as single member, like slices do.
 - `raw_upload_from_pixel_buffer` uploads to cubemaps and cubemap arrays, whose faces are layers,
   instead of panicking.
+- `implement_vertex!` works on tuple structs, whose fields are given by index with the name of
+  their attribute: `implement_vertex!(Vertex, 0 => position, 1 => color normalize(true))`
+  (glium#1523).
 - `uniform!` accepts strings as names, for the members of structs and the elements of arrays:
   `uniform! { "lights[0].color": color }` (glium#941).
 

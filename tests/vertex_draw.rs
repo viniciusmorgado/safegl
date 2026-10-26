@@ -367,3 +367,50 @@ fn indexed_vertex_buffers_of_different_lengths() {
 
     display.assert_no_error(None);
 }
+
+#[test]
+fn tuple_struct_vertices() {
+    use safegl::vertex::Vertex as _;
+
+    #[derive(Copy, Clone)]
+    struct TupleVertex([f32; 2], [u8; 4]);
+    implement_vertex!(TupleVertex, 0 => position, 1 => color normalize(true));
+
+    // the attributes have the names given, the offsets of the fields and their types
+    let bindings = TupleVertex::build_bindings();
+    assert_eq!(bindings[0].0, "position");
+    assert_eq!(bindings[0].1, 0);
+    assert_eq!(bindings[0].3, AttributeType::F32F32);
+    assert_eq!(bindings[1].0, "color");
+    assert_eq!(bindings[1].1, 8);
+    assert_eq!(bindings[1].3, AttributeType::U8U8U8U8);
+    assert!(bindings[1].4);
+
+    let display = support::build_display();
+    let vertices = VertexBuffer::new(
+        &display,
+        &QUAD.map(|v| TupleVertex(v.position, [0, 0, 255, 255])),
+    )
+    .unwrap();
+    let program = build_program(
+        &display,
+        "in vec2 position;\nin vec4 color;\nout vec4 v_color;\nvoid main() { v_color = color; gl_Position = vec4(position, 0.0, 1.0); }",
+        "in vec4 v_color;\nvoid main() { f_color = v_color; }",
+    );
+    let texture = support::build_renderable_texture(&display);
+    texture
+        .as_surface()
+        .draw(
+            &vertices,
+            NoIndices(PrimitiveType::TrianglesList),
+            &program,
+            &uniform! {},
+            &Default::default(),
+        )
+        .unwrap();
+
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
+    assert_eq!(data[0][0], (0, 0, 255, 255));
+
+    display.assert_no_error(None);
+}

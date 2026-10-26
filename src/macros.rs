@@ -156,7 +156,21 @@ macro_rules! dynamic_uniform{
 ///
 /// If not using the location option, when it comes to using to using your vertex array in a shader you must make sure that all your attribute variables *match* the field names in the struct you are calling calling this macro for.
 ///
-/// So, if you have a `vertex_position` attribute/input in your shader, a field named `vertex_position` must be present in the struct. Otherwise the drawing functions will panic.
+/// So, if you have a `vertex_position` attribute/input in your shader, a field named `vertex_position` must be present in the struct. Otherwise the drawing functions return `DrawError::AttributeMissing`.
+///
+/// ## Tuple structs
+///
+/// The fields of a tuple struct are given by their index, with the name of their attribute:
+///
+/// ```
+/// # use safegl::implement_vertex;
+/// #[derive(Clone, Copy)]
+/// struct Vertex([f32; 3], [f32; 2]);
+///
+/// implement_vertex!(Vertex, 0 => position, 1 => tex_coords);
+/// ```
+///
+/// The normalize and location options follow the name: `0 => position location(0)`.
 ///
 /// ## Normalize option
 ///
@@ -188,6 +202,14 @@ macro_rules! dynamic_uniform{
 /// ```
 #[macro_export]
 macro_rules! implement_vertex {
+    (@or [$default:expr]) => {
+        $default
+    };
+
+    (@or [$default:expr] $value:expr) => {
+        $value
+    };
+
     ($struct_name:ty, $($field_name:ident),+) => (
         impl $struct_name {
             const BINDINGS: $crate::vertex::VertexFormat = &[
@@ -296,6 +318,42 @@ macro_rules! implement_vertex {
     ($struct_name:ty, $($field_name:ident),+,) => (
         $crate::implement_vertex!($struct_name, $($field_name),+);
     );
+
+    // tuple structs, whose fields have an index and are given the name of their attribute
+    ($struct_name:ty, $($index:tt => $name:ident $(normalize($normalize:expr))?
+                         $(location($location:expr))?),+ $(,)?) => {
+        impl $struct_name {
+            const BINDINGS: $crate::vertex::VertexFormat = &[
+                $(
+                    (
+                        std::borrow::Cow::Borrowed(stringify!($name)),
+                        ::core::mem::offset_of!($struct_name, $index),
+                        $crate::implement_vertex!(@or [-1] $($location)?),
+                        {
+                            const fn attr_type_of_val<T: $crate::vertex::Attribute>(_: Option<&T>)
+                                -> $crate::vertex::AttributeType
+                            {
+                                <T as $crate::vertex::Attribute>::TYPE
+                            }
+                            let field_option = match None::<&$struct_name> {
+                                Some(v) => Some(&v.$index),
+                                None => None
+                            };
+                            attr_type_of_val(field_option)
+                        },
+                        $crate::implement_vertex!(@or [false] $($normalize)?)
+                    )
+                ),+
+            ];
+        }
+
+        unsafe impl $crate::vertex::Vertex for $struct_name {
+            #[inline]
+            fn build_bindings() -> $crate::vertex::VertexFormat {
+                Self::BINDINGS
+            }
+        }
+    };
 }
 
 /// Implements the `safegl::buffer::AnyBitPattern` trait for the given struct.
