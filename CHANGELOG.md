@@ -41,7 +41,10 @@ Additions:
   `Surface::blit_from_external_framebuffer` and `blit_buffers_from_external_framebuffer` methods
   (glium#2153, glium#2108). `SimpleFrameBuffer::get_framebuffer_object` returns the framebuffer
   object SafeGL draws through (glium#1613).
-- `ReadError::AttachmentMissing`.
+- `ReadError::AttachmentMissing` and `ReadError::ContextLost`.
+- `framebuffer::ValidationError::Incomplete`, `DrawError::NoStencilBuffer`,
+  `DrawError::GeometryShaderInputMismatch` and `Stencil::requires_stencil_buffer`.
+- `implement_vertex!` accepts instances of generic structs, like `Vertex<f32>` (glium#1509).
 - Texture writes beyond 2D textures (glium#2138, glium#2058, glium#1284, glium#644, based on glium
   PR #1198): `TextureAnyImage::raw_write` writes a rectangle of one image (a layer of an array
   texture, a face of a cubemap or a slice of a 3D texture); 1D and 3D textures and their mipmaps get
@@ -135,6 +138,26 @@ Fixes:
 - Transform feedback captures the triangles of tessellated quads instead of panicking (glium#935).
 - Reading a persistent mapping after shader writes issues `GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT`
   (glium#1028).
+- Framebuffers check `glCheckFramebufferStatus` when their framebuffer object is created, and
+  `SimpleFrameBuffer`, `MultiOutputFrameBuffer` and `EmptyFrameBuffer` return
+  `ValidationError::Incomplete` for attachments OpenGL doesn't support, like non-color-renderable
+  formats, instead of raising OpenGL errors when drawing (glium#44, glium#1396).
+- Stencil tests and operations on a surface without a stencil buffer return
+  `DrawError::NoStencilBuffer` (glium#718).
+- Blits copy the pixels without sRGB conversion, instead of depending on the `GL_FRAMEBUFFER_SRGB`
+  state left by the previous clear or draw call (glium#1671).
+- Reading pixels after the context was lost returns `ReadError::ContextLost` (glium#1014).
+- The members of uniform and shader storage blocks declared with an instance name match the fields
+  of the Rust struct (glium#2125).
+- Drawing primitives that the geometry shader doesn't take returns
+  `DrawError::GeometryShaderInputMismatch` instead of raising an OpenGL error (glium#850,
+  glium#1460, glium#1575).
+- Integer and unsigned textures are sampled with the nearest filters, since linear filters, like
+  those of the default sampler, make them read as zero (glium#1515, glium#1420).
+- The message of `DrawError::UniformTypeMismatch` names the expected type correctly (glium#1600).
+- `GL_MAX_CLIP_DISTANCES` is only queried when the clip planes change.
+- `SimpleWindowBuilder::build` no longer panics when the driver refuses the swap interval
+  (glium#1929).
 
 ## [0.1.0]
 
