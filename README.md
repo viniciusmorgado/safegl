@@ -101,6 +101,7 @@ shaders on OpenGL ES 3.0, for example) are checked at runtime in the same way. A
 |---------------------|-----------------------------------------------|------------------------------------------------------------------------------------------|
 | Sample shading      | OpenGL 4.0, OpenGL ES 3.2; not WebGL          | `DrawParameters::sample_shading`, `DrawError::SampleShadingNotSupported`                 |
 | Sample mask         | OpenGL 3.2, OpenGL ES 3.1; not WebGL          | `DrawParameters::sample_mask`, `DrawError::SampleMaskNotSupported`                       |
+| Per-output state    | OpenGL 4.0, OpenGL ES 3.2; not WebGL          | `DrawParameters::outputs`, `OutputState`, `DrawError::PerOutputStateNotSupported`        |
 
 `DrawParameters::alpha_to_coverage` is core everywhere, WebGL 2 included.
 

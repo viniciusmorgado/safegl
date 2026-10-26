@@ -10,6 +10,10 @@ Additions:
 - `DrawParameters::alpha_to_coverage`, `sample_shading` (`glMinSampleShading`) and `sample_mask`
   (`glSampleMaski`), with the `DrawError::SampleShadingNotSupported` and `SampleMaskNotSupported`
   errors.
+- `DrawParameters::outputs` and `OutputState`: blending and color mask per fragment shader output
+  (`glBlendFuncSeparatei`, `glColorMaski`), with the `DrawError::PerOutputStateNotSupported` and
+  `OutputStateIndexOutOfBounds` errors. Clearing a framebuffer, or a texture with
+  `raw_clear_buffer`, now ignores any color mask left by a previous draw.
 - `alpha_to_coverage` example, which uses the CC0 "Fern 02" model from Poly Haven.
 
 Fixes:
