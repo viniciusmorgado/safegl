@@ -995,6 +995,13 @@ fn check_gl_compatibility(version: &Version) -> Result<(), IncompatibleOpenGl> {
 }
 
 /// Describes the behavior that the debug output should have.
+///
+/// The synchronous behaviors (`DebugMessageOnError`, the default in debug builds, and `Custom`
+/// with `synchronous: true`) make the driver report each message during the call that caused
+/// it, which disables the threaded optimizations of some drivers and costs some speed. Without
+/// them, the NVIDIA driver runs OpenGL commands on a worker thread, which waits for the vertical
+/// synchronization by spinning: a program that does little else shows a CPU core busy. Set the
+/// `__GL_THREADED_OPTIMIZATIONS=0` environment variable, or `__GL_YIELD=USLEEP`, to avoid it.
 pub enum DebugCallbackBehavior {
     /// Don't do anything. This is the default behavior in release.
     Ignore,

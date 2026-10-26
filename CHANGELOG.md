@@ -180,6 +180,16 @@ Fixes:
   works for compressed formats instead of panicking.
 - Reading a texture into a pixel buffer that is too small returns `ReadError::BufferTooSmall`
   instead of panicking.
+- Writing to a range of a buffer waits for all the fences of the GPU commands that use it: a
+  fence that covered the whole range, like the one of a draw command that used the whole buffer,
+  was missed, so a write to a persistent-mapped buffer could race with the GPU (glium#1789).
+- `restore_state` also forgets the vertex array objects of SafeGL, whose element array buffer or
+  attributes the other code may have changed while one was bound, and the uniform values and
+  block bindings that the programs cached, which the other code may have changed too (glium#1696,
+  glium#1867, glium#1417).
+- The documentation explains the stalls caused by writing to buffers that the GPU still reads
+  (glium#1789), and the CPU use of the NVIDIA driver without synchronous debug output
+  (glium#1927).
 - Blits check the rules that made OpenGL raise `GL_INVALID_OPERATION` and copy nothing
   (glium#653, glium#1748): they return `BlitError::ScaledMultisample`, `SampleCountMismatch`,
   `MultisampleTarget` (OpenGL ES), `FormatMismatch`, `LinearFilterOnIntegers` or

@@ -127,6 +127,11 @@ where
     ///   `glCopyBufferSubData` to copy from the temporary buffer to the real one.
     /// - For other types, calls `glBufferSubData`.
     ///
+    /// Writing to a buffer that the GPU still reads for previous draw commands makes the driver
+    /// wait for them, or copy the buffer. To update a buffer several times per frame, write to
+    /// different slices of a larger buffer, or call `invalidate` before writing it whole, which
+    /// tells the driver that the previous content isn't needed anymore.
+    ///
     /// # Panic
     ///
     /// Panics if the length of `data` is different from the length of this buffer. To write a
