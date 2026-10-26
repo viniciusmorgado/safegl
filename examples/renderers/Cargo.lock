@@ -1485,6 +1485,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "safegl-clustered-visibility-many-lights-hybrid-aa4"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "glam",
+ "gltf",
+ "image",
+ "safegl",
+]
+
+[[package]]
 name = "safegl-clustered-visibility-many-lights-msaa4"
 version = "0.1.0"
 dependencies = [

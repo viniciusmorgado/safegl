@@ -9,6 +9,7 @@ members = [
     "safegl-clustered-forward-many-lights-msaa4",
     "safegl-clustered-forward-many-lights-taa",
     "safegl-clustered-visibility-many-lights",
+    "safegl-clustered-visibility-many-lights-hybrid-aa4",
     "safegl-clustered-visibility-many-lights-msaa4",
     "safegl-clustered-visibility-many-lights-ssaa4",
     "safegl-clustered-visibility-many-lights-taa",

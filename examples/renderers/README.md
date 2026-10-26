@@ -1,6 +1,6 @@
 # SafeGL renderer collection
 
-Nineteen independent Rust rendering experiments using the published SafeGL crate
+Twenty independent Rust rendering experiments using the published SafeGL crate
 and the same Ferris model, camera, and material coverage rules. Each package keeps
 its renderer implementation and shaders separate for inspection and comparison.
 
@@ -30,6 +30,7 @@ Cargo workspace. Keep `assets/`, `ATTRIBUTION.md`, `LICENSE`, and `Cargo.lock` w
 | [safegl-clustered-forward-many-lights-msaa4](safegl-clustered-forward-many-lights-msaa4/) | Clustered forward | MSAA 4× | 256 point lights + directional fill |
 | [safegl-clustered-forward-many-lights-taa](safegl-clustered-forward-many-lights-taa/) | Clustered forward | TAA | 256 point lights + directional fill |
 | [safegl-clustered-visibility-many-lights](safegl-clustered-visibility-many-lights/) | Clustered visibility | None | 256 point lights + directional fill |
+| [safegl-clustered-visibility-many-lights-hybrid-aa4](safegl-clustered-visibility-many-lights-hybrid-aa4/) | Clustered visibility | Hybrid: MSAA 4× + selective SSAA 4× | 256 point lights + directional fill |
 | [safegl-clustered-visibility-many-lights-msaa4](safegl-clustered-visibility-many-lights-msaa4/) | Clustered visibility | MSAA 4× | 256 point lights + directional fill |
 | [safegl-clustered-visibility-many-lights-ssaa4](safegl-clustered-visibility-many-lights-ssaa4/) | Clustered visibility | SSAA 4× | 256 point lights + directional fill |
 | [safegl-clustered-visibility-many-lights-taa](safegl-clustered-visibility-many-lights-taa/) | Clustered visibility | TAA | 256 point lights + directional fill |
@@ -47,6 +48,9 @@ attenuation and shading. Compare those with one another; the single-light viewer
 have a different lighting workload. SSAA 4× means twice the width and height,
 followed by a linear-color 2×2 resolve. TAA is temporal accumulation. MSAA variants
 use the sample counts shown; visibility MSAA reconstructs and shades each sample.
+Hybrid AA keeps MSAA 4× coverage but shades per sample only where MSAA cannot help:
+edges, alpha-coverage materials, and optionally specular-aliasing pixels. `M`
+switches its modes at runtime and `C` shows which pixels are supersampled.
 
 All renderers request OpenGL 4.6 Core, disable VSync, render without an FPS cap,
 and show an FPS counter. Drag/arrows orbit, wheel/+/− zoom, R resets, Esc exits.

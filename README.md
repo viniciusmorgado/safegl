@@ -169,7 +169,7 @@ Learn to draw with SafeGL, from your first window and triangle to textures,
 
 ## Renderer examples
 
-The [renderer collection](examples/renderers/README.md) contains 19 standalone
+The [renderer collection](examples/renderers/README.md) contains 20 standalone
 experiments covering forward, Forward+, deferred, and visibility rendering with
 single or many lights and several anti-aliasing methods. All use OpenGL 4.6 and
 share a Ferris model. The collection can be copied and run independently
