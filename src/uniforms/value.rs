@@ -156,6 +156,10 @@ pub enum UniformValue<'a> {
         fn(&program::UniformBlock) -> Result<(), LayoutMismatchError>,
     ),
     Subroutine(ShaderStage, &'a str),
+    /// Keeps the value that the uniform has in the program: the value of the previous draw
+    /// command, or the initializer of the uniform in the shader. Only for uniforms that hold
+    /// data: samplers, images and blocks are bound again by every draw command.
+    Keep,
     SignedInt(i32),
     UnsignedInt(u32),
     Float(f32),
@@ -229,6 +233,30 @@ pub enum UniformValue<'a> {
     Image(&'a texture::TextureAny, ImageUnitBehavior),
 }
 
+/// Keeps the value that a uniform has in the program, instead of giving it a new one: the value
+/// of the previous draw command, or the initializer of the uniform in the shader.
+///
+/// Every active uniform of a program must be given a value before drawing with it, or the draw
+/// returns `DrawError::UniformMissing`. Pass `Keep` for the uniforms that already have the right
+/// value:
+///
+/// ```no_run
+/// # #[macro_use] extern crate safegl;
+/// # fn example(program: &safegl::Program) {
+/// // `uniform float scale = 2.0;` in the shader
+/// let uniforms = uniform! { scale: safegl::uniforms::Keep, color: [1.0f32, 0.0, 0.0] };
+/// # }
+/// ```
+#[derive(Debug, Copy, Clone)]
+pub struct Keep;
+
+impl AsUniformValue for Keep {
+    #[inline]
+    fn as_uniform_value(&self) -> UniformValue<'_> {
+        UniformValue::Keep
+    }
+}
+
 /// A value that was already built, for example from a `Sampler`, can be passed as it is.
 impl<'a> AsUniformValue for UniformValue<'a> {
     #[inline]
@@ -281,6 +309,7 @@ impl<'a> UniformValue<'a> {
     /// Returns true if this value can be used with a uniform of the given type.
     pub fn is_usable_with(&self, ty: &UniformType) -> bool {
         match (self, *ty) {
+            (&UniformValue::Keep, ty) => !is_opaque(ty),
             (&UniformValue::Bool(_), UniformType::Bool) => true,
             (&UniformValue::SignedInt(_), UniformType::Int) => true,
             (&UniformValue::UnsignedInt(_), UniformType::UnsignedInt) => true,
@@ -403,6 +432,61 @@ fn sampler_types(texture: &texture::TextureAny) -> &'static [UniformType] {
             &[SamplerCubeArray, SamplerCubeArrayShadow]
         }
     }
+}
+
+/// Returns true if the type is a sampler, an image or an atomic counter: the value of the uniform
+/// refers to a texture unit, an image unit or a buffer binding point.
+pub(crate) fn is_opaque(ty: UniformType) -> bool {
+    use UniformType::*;
+    !matches!(
+        ty,
+        Float
+            | FloatVec2
+            | FloatVec3
+            | FloatVec4
+            | Double
+            | DoubleVec2
+            | DoubleVec3
+            | DoubleVec4
+            | Int
+            | IntVec2
+            | IntVec3
+            | IntVec4
+            | UnsignedInt
+            | UnsignedIntVec2
+            | UnsignedIntVec3
+            | UnsignedIntVec4
+            | Int64
+            | Int64Vec2
+            | Int64Vec3
+            | Int64Vec4
+            | UnsignedInt64
+            | UnsignedInt64Vec2
+            | UnsignedInt64Vec3
+            | UnsignedInt64Vec4
+            | Bool
+            | BoolVec2
+            | BoolVec3
+            | BoolVec4
+            | FloatMat2
+            | FloatMat3
+            | FloatMat4
+            | FloatMat2x3
+            | FloatMat2x4
+            | FloatMat3x2
+            | FloatMat3x4
+            | FloatMat4x2
+            | FloatMat4x3
+            | DoubleMat2
+            | DoubleMat3
+            | DoubleMat4
+            | DoubleMat2x3
+            | DoubleMat2x4
+            | DoubleMat3x2
+            | DoubleMat3x4
+            | DoubleMat4x2
+            | DoubleMat4x3
+    )
 }
 
 /// Returns true if the sampler type compares the depth of the texture with a reference value.

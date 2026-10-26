@@ -553,6 +553,16 @@ impl ProgramExt for Program {
     }
 
     #[inline]
+    fn get_uniforms(&self) -> &HashMap<String, Uniform, BuildHasherDefault<FnvHasher>> {
+        self.raw.get_uniforms()
+    }
+
+    #[inline]
+    fn is_uniform_set(&self, location: gl::types::GLint) -> bool {
+        self.raw.is_uniform_set(location)
+    }
+
+    #[inline]
     fn get_uniform_blocks(&self) -> &HashMap<String, UniformBlock, BuildHasherDefault<FnvHasher>> {
         self.raw.get_uniform_blocks()
     }

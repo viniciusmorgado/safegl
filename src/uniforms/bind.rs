@@ -16,7 +16,6 @@ use crate::DrawError;
 use crate::ProgramExt;
 use crate::RawUniformValue;
 use crate::TextureExt;
-use crate::UniformsExt;
 
 #[cfg(feature = "gl46")]
 use crate::uniforms::ImageUnitBehavior;
@@ -34,13 +33,32 @@ use crate::utils::bitsfield::Bitsfield;
 use crate::context;
 use crate::program;
 
-impl<U> UniformsExt for U
-where
-    U: Uniforms,
-{
-    fn bind_uniforms<'a, P>(
-        &'a self,
-        mut ctxt: &mut CommandContext<'_>,
+/// The uniforms of a draw command or a compute dispatch.
+///
+/// They are collected before SafeGL starts to issue OpenGL commands, so that the implementations
+/// of `Uniforms` and `AsUniformValue` can use SafeGL.
+pub(crate) struct CollectedUniforms<'a> {
+    values: smallvec::SmallVec<[(&'a str, UniformValue<'a>); 16]>,
+}
+
+impl<'a> CollectedUniforms<'a> {
+    /// Collects the values of `uniforms`.
+    pub fn new<U>(uniforms: &'a U) -> CollectedUniforms<'a>
+    where
+        U: Uniforms,
+    {
+        let mut values = smallvec::SmallVec::new();
+        uniforms.visit_values(|name, value| values.push((name, value)));
+        CollectedUniforms { values }
+    }
+
+    /// Binds the uniforms to the program, which must be current, and checks that every uniform
+    /// of the program has a value.
+    ///
+    /// Will replace texture and buffer bind points.
+    pub fn bind<P>(
+        &self,
+        ctxt: &mut CommandContext<'_>,
         program: &P,
         fences: &mut FenceInserters<'a>,
     ) -> Result<(), DrawError>
@@ -62,22 +80,25 @@ where
             _,
         > = HashMap::with_hasher(Default::default());
 
-        let mut visiting_result = Ok(());
-        self.visit_values(|name, value| {
-            if visiting_result.is_err() {
-                return;
-            }
+        // the locations of the uniforms given in this draw command, and the blocks bound
+        let mut given_locations: smallvec::SmallVec<[gl::types::GLint; 16]> =
+            smallvec::SmallVec::new();
+        let mut bound_blocks: smallvec::SmallVec<[&str; 8]> = smallvec::SmallVec::new();
 
+        for &(name, value) in self.values.iter() {
             if let Some(uniform) = program.get_uniform(name) {
-                // TODO: remove the size member
-                debug_assert!(uniform.size.is_none());
+                // members of blocks are reflected with the location -1
+                if uniform.location == -1 {
+                    return Err(DrawError::UniformBlockMember {
+                        name: name.to_owned(),
+                    });
+                }
 
                 if !value.is_usable_with(&uniform.ty) {
-                    visiting_result = Err(DrawError::UniformTypeMismatch {
+                    return Err(DrawError::UniformTypeMismatch {
                         name: name.to_owned(),
                         expected: uniform.ty,
                     });
-                    return;
                 }
 
                 // shadow samplers return undefined values without a depth comparison, and
@@ -85,66 +106,54 @@ where
                 if let UniformValue::Texture(_, sampler) = value {
                     let compares = sampler.is_some_and(|s| s.depth_texture_comparison.is_some());
                     if compares != crate::uniforms::is_shadow_sampler(uniform.ty) {
-                        visiting_result = Err(DrawError::DepthComparisonMismatch {
+                        return Err(DrawError::DepthComparisonMismatch {
                             name: name.to_owned(),
                         });
-                        return;
                     }
                 }
 
-                match bind_uniform(
-                    &mut ctxt,
+                given_locations.push(uniform.location);
+                if let UniformValue::Keep = value {
+                    continue;
+                }
+
+                bind_uniform(
+                    ctxt,
                     &value,
                     program,
                     uniform.location,
                     &mut texture_bind_points,
                     &mut image_unit_bind_points,
                     name,
-                ) {
-                    Ok(_) => (),
-                    Err(e) => {
-                        visiting_result = Err(e);
-                    }
-                };
+                )?;
             } else if let Some(block) = program.get_uniform_blocks().get(name) {
-                let fence = match bind_uniform_block(
-                    &mut ctxt,
+                let fence = bind_uniform_block(
+                    ctxt,
                     &value,
                     block,
                     program,
                     &mut uniform_buffer_bind_points,
                     name,
-                ) {
-                    Ok(f) => f,
-                    Err(e) => {
-                        visiting_result = Err(e);
-                        return;
-                    }
-                };
+                )?;
+                bound_blocks.push(name);
 
                 if let Some(fence) = fence {
                     fences.push(fence);
                 }
             } else {
                 #[cfg(feature = "gl46")]
-                match bind_storage_uniform(
-                    &mut ctxt,
+                if let Some(fence) = bind_storage_uniform(
+                    ctxt,
                     &value,
                     program,
                     &mut shared_storage_buffer_bind_points,
                     name,
-                ) {
-                    Ok(None) => (),
-                    Ok(Some(fence)) => {
-                        if let Some(fence) = fence {
-                            fences.push(fence);
-                        }
-                        return;
+                )? {
+                    bound_blocks.push(name);
+                    if let Some(fence) = fence {
+                        fences.push(fence);
                     }
-                    Err(e) => {
-                        visiting_result = Err(e);
-                        return;
-                    }
+                    continue;
                 }
 
                 if let UniformValue::Subroutine(stage, sr_name) = value {
@@ -153,26 +162,75 @@ where
                         .subroutine_uniforms
                         .get(&(name.into(), stage))
                     {
-                        subroutine_bindings.entry(stage).or_insert(Vec::new());
-                        let vec = subroutine_bindings.get_mut(&stage).unwrap();
-                        vec.push((subroutine_uniform, sr_name));
+                        subroutine_bindings
+                            .entry(stage)
+                            .or_default()
+                            .push((subroutine_uniform, sr_name));
                     }
                 }
-            }
-        });
 
-        // Process all subroutine uniforms in one batch.
-        if !subroutine_bindings.is_empty() {
-            match bind_subroutine_uniforms(&mut ctxt, program, &subroutine_bindings) {
-                Ok(_) => (),
-                Err(e) => {
-                    visiting_result = Err(e);
-                }
+                // values for uniforms that the program doesn't have, like the ones that the
+                // compiler removed because they aren't used, are ignored
             }
         }
 
-        visiting_result
+        check_missing_uniforms(program, &given_locations, &bound_blocks)?;
+
+        // Process all subroutine uniforms in one batch.
+        bind_subroutine_uniforms(ctxt, program, &subroutine_bindings)
     }
+}
+
+/// Checks that the samplers, images and blocks of the program were given a value, and that its
+/// other uniforms have one.
+fn check_missing_uniforms<P>(
+    program: &P,
+    given_locations: &[gl::types::GLint],
+    bound_blocks: &[&str],
+) -> Result<(), DrawError>
+where
+    P: ProgramExt,
+{
+    // an array has the location of its first element under its own name too: the shortest name
+    // of a location is reported
+    let mut missing: Option<(&str, bool)> = None;
+    for (name, uniform) in program.get_uniforms() {
+        if uniform.location == -1 || given_locations.contains(&uniform.location) {
+            continue;
+        }
+
+        // the bindings of samplers and images are shared between programs, so they must be given
+        // for every draw command, while the values of the other uniforms stay in the program
+        let opaque = crate::uniforms::is_opaque(uniform.ty);
+        if !opaque && program.is_uniform_set(uniform.location) {
+            continue;
+        }
+
+        if missing.is_none_or(|(missing, _)| name.len() < missing.len()) {
+            missing = Some((name, opaque));
+        }
+    }
+    if let Some((name, opaque)) = missing {
+        let name = name.to_owned();
+        return Err(if opaque {
+            DrawError::UniformBindingMissing { name }
+        } else {
+            DrawError::UniformMissing { name }
+        });
+    }
+
+    let blocks = program.get_uniform_blocks().keys();
+    #[cfg(feature = "gl46")]
+    let blocks = blocks
+        .chain(program.get_shader_storage_blocks().keys())
+        .chain(program.get_atomic_counters().keys());
+    for name in blocks {
+        if !bound_blocks.contains(&name.as_str()) {
+            return Err(DrawError::UniformBindingMissing { name: name.clone() });
+        }
+    }
+
+    Ok(())
 }
 
 fn bind_subroutine_uniforms<P>(
@@ -188,6 +246,23 @@ where
     P: ProgramExt,
 {
     let subroutine_data = program.get_subroutine_data();
+
+    // the subroutine uniforms of a stage are reset when the program is bound, so every stage
+    // that has some needs all of them
+    for &(_, stage) in subroutine_data.subroutine_uniforms.keys() {
+        if !subroutine_bindings.contains_key(&stage) {
+            return Err(DrawError::SubroutineUniformMissing {
+                stage,
+                real_count: 0,
+                expected_count: subroutine_data
+                    .subroutine_uniforms
+                    .keys()
+                    .filter(|&&(_, uni_stage)| uni_stage == stage)
+                    .count(),
+            });
+        }
+    }
+
     for (stage, bindings) in subroutine_bindings {
         // Validate that all subroutine uniforms of this stage are set, otherwise OpenGL will throw an error.
         let set_cnt = bindings.len();
@@ -481,6 +556,8 @@ where
     }
 
     match *value {
+        // the uniform keeps its value
+        UniformValue::Keep => Ok(()),
         UniformValue::Block(_, _) => Err(DrawError::UniformBufferToValue {
             name: name.to_owned(),
         }),

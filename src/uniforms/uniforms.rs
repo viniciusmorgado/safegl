@@ -7,7 +7,7 @@ pub struct EmptyUniforms;
 
 impl Uniforms for EmptyUniforms {
     #[inline]
-    fn visit_values<'a, F: FnMut(&str, UniformValue<'a>)>(&'a self, _: F) {}
+    fn visit_values<'a, F: FnMut(&'a str, UniformValue<'a>)>(&'a self, _: F) {}
 }
 
 /// Stores uniforms.
@@ -66,7 +66,7 @@ where
     R: Uniforms,
 {
     #[inline]
-    fn visit_values<'a, F: FnMut(&str, UniformValue<'a>)>(&'a self, mut output: F) {
+    fn visit_values<'a, F: FnMut(&'a str, UniformValue<'a>)>(&'a self, mut output: F) {
         output(self.name, self.value.as_uniform_value());
         self.rest.visit_values(output);
     }
@@ -94,7 +94,7 @@ impl<'a, 's> DynamicUniforms<'a, 's> {
 }
 
 impl Uniforms for DynamicUniforms<'_, '_> {
-    fn visit_values<'a, F: FnMut(&str, UniformValue<'a>)>(&'a self, mut output: F) {
+    fn visit_values<'a, F: FnMut(&'a str, UniformValue<'a>)>(&'a self, mut output: F) {
         for (key, value) in self.map.iter() {
             output(key, *value);
         }

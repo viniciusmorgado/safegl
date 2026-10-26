@@ -35,6 +35,12 @@ impl UniformsStorage {
         }
     }
 
+    /// Returns true if a value was given to the uniform at `location`.
+    #[inline]
+    pub fn is_set(&self, location: gl::types::GLint) -> bool {
+        self.values.borrow().contains_key(&location)
+    }
+
     /// Compares `value` with the value stored in this object. If the values differ, updates
     /// the storage and calls `glUniform`.
     pub fn set_uniform_value(

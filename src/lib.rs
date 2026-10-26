@@ -368,6 +368,13 @@ trait ProgramExt {
 
     fn get_uniform(&self, name: &str) -> Option<&program::Uniform>;
 
+    /// Returns the active uniforms of the program, which aren't in blocks.
+    fn get_uniforms(&self) -> &HashMap<String, program::Uniform, BuildHasherDefault<FnvHasher>>;
+
+    /// Returns true if a value was given to the uniform at `location` since the program was
+    /// created. OpenGL keeps the values of the uniforms of a program between draw commands.
+    fn is_uniform_set(&self, location: gl::types::GLint) -> bool;
+
     fn get_uniform_blocks(
         &self,
     ) -> &HashMap<String, program::UniformBlock, BuildHasherDefault<FnvHasher>>;
@@ -494,20 +501,6 @@ trait TransformFeedbackSessionExt {
     fn ensure_buffer_out_of_transform_feedback(_: &mut CommandContext<'_>, _: glow::Buffer);
 }
 
-/// Internal trait for uniforms handling.
-trait UniformsExt {
-    /// Binds the uniforms to a given program.
-    ///
-    /// Will replace texture and buffer bind points.
-    fn bind_uniforms<'a, P>(
-        &'a self,
-        _: &mut CommandContext<'_>,
-        _: &P,
-        _: &mut buffer::FenceInserters<'a>,
-    ) -> Result<(), DrawError>
-    where
-        P: ProgramExt;
-}
 
 /// A raw value of a uniform. "Raw" means that it's passed directly with `glUniform`. Textures
 /// for example are just passed as integers.
@@ -1436,6 +1429,28 @@ pub enum DrawError {
     /// would capture the outputs of that program with the layout of the other.
     TransformFeedbackProgramMismatch,
 
+    /// An active uniform of the program has never been given a value. Give it one, or pass
+    /// `uniforms::Keep` to keep the initializer of the shader.
+    UniformMissing {
+        /// Name of the uniform.
+        name: String,
+    },
+
+    /// A sampler, an image, a uniform block, a shader storage block or an atomic counter buffer
+    /// of the program wasn't given a value. They must be given one for every draw command, since
+    /// their bindings are shared between programs.
+    UniformBindingMissing {
+        /// Name of the uniform or block.
+        name: String,
+    },
+
+    /// A value was given to a member of a uniform block or shader storage block by name. The
+    /// members of blocks are in buffers, which are bound to the whole block.
+    UniformBlockMember {
+        /// Name of the member.
+        name: String,
+    },
+
     /// A texture is bound to a shadow sampler (`sampler2DShadow`, ...) without a depth comparison
     /// in its sampler, or to another sampler with one. Sampling it would return undefined values.
     /// Set the comparison with `depth_texture_comparison` on the sampler of shadow maps.
@@ -1569,6 +1584,12 @@ impl fmt::Display for DrawError {
                 "A compute shader was executed with more work groups than the backend supports",
             TransformFeedbackProgramMismatch =>
                 "The transform feedback session was built for another program",
+            UniformMissing { .. } =>
+                "An active uniform of the program has never been given a value",
+            UniformBindingMissing { .. } =>
+                "A sampler, image or block of the program wasn't given a value",
+            UniformBlockMember { .. } =>
+                "A value was given to a member of a block by name",
             DepthComparisonMismatch { .. } =>
                 "A shadow sampler without a depth comparison, or another sampler with one",
             ContextMismatch { .. } =>
@@ -1586,6 +1607,9 @@ impl fmt::Display for DrawError {
             BufferBindingOutOfRange { name } => write!(fmt, "{}: {}", desc, name,),
             ContextMismatch { object } => write!(fmt, "{}: {}", desc, object),
             DepthComparisonMismatch { name } => write!(fmt, "{}: {}", desc, name),
+            UniformMissing { name } => write!(fmt, "{}: `{}`", desc, name),
+            UniformBindingMissing { name } => write!(fmt, "{}: `{}`", desc, name),
+            UniformBlockMember { name } => write!(fmt, "{}: `{}`", desc, name),
             WorkGroupCountTooLarge { requested, maximum } => write!(
                 fmt,
                 "{}: {:?} requested, {:?} at most",

@@ -7,7 +7,7 @@ use crate::BufferSliceExt;
 use crate::DrawError;
 use crate::GlObject;
 use crate::ProgramExt;
-use crate::UniformsExt;
+use crate::uniforms::CollectedUniforms;
 
 use crate::context::Context;
 use crate::ContextExt;
@@ -98,6 +98,10 @@ where
     if !draw_parameters::check_queries(draw_parameters)? {
         return Ok(());
     }
+
+    // the values of the uniforms are collected before the context is borrowed, so that the code
+    // that gives them can use SafeGL
+    let uniforms = CollectedUniforms::new(uniforms);
 
     // starting the state changes
     let mut ctxt = context.make_current();
@@ -227,7 +231,7 @@ where
 
     // binding the program and uniforms
     program.use_program(&mut ctxt);
-    uniforms.bind_uniforms(&mut ctxt, program, &mut fences)?;
+    uniforms.bind(&mut ctxt, program, &mut fences)?;
 
     // sync-ing draw_parameters
     unsafe {

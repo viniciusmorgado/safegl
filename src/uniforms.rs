@@ -141,7 +141,8 @@ pub use self::sampler::{
 };
 pub use self::sampler::{BorderColor, Sampler, SamplerBehavior};
 pub use self::uniforms::{DynamicUniforms, EmptyUniforms, UniformsStorage};
-pub(crate) use self::value::is_shadow_sampler;
+pub(crate) use self::value::{is_opaque, is_shadow_sampler};
+pub use self::value::Keep;
 pub use self::value::{UniformType, UniformValue};
 
 use std::error::Error;
@@ -153,6 +154,7 @@ use crate::program;
 use crate::program::BlockLayout;
 
 mod bind;
+pub(crate) use self::bind::CollectedUniforms;
 mod buffer;
 #[cfg(feature = "gl46")]
 mod image_unit;
@@ -165,7 +167,11 @@ mod value;
 /// Objects of this type can be passed to the `draw()` function.
 pub trait Uniforms {
     /// Calls the parameter once with the name and value of each uniform.
-    fn visit_values<'a, F: FnMut(&str, UniformValue<'a>)>(&'a self, _: F);
+    ///
+    /// The names live as long as `self`, so that SafeGL can collect the values before it starts
+    /// to issue OpenGL commands: the implementations of this trait and of `AsUniformValue` can
+    /// create or read SafeGL objects.
+    fn visit_values<'a, F: FnMut(&'a str, UniformValue<'a>)>(&'a self, _: F);
 }
 
 /// Error about a block layout mismatch.

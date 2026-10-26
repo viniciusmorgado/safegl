@@ -14,7 +14,7 @@ use crate::vertex::TransformFeedbackSession;
 use crate::TransformFeedbackSessionExt;
 use crate::ContextExt;
 #[cfg(feature = "gl46")]
-use crate::UniformsExt;
+use crate::uniforms::CollectedUniforms;
 
 use std::cell::RefCell;
 use std::collections::hash_map::{self, HashMap};
@@ -563,6 +563,9 @@ impl RawProgram {
     where
         U: Uniforms,
     {
+        // the values of the uniforms are collected before the context is borrowed, so that the
+        // code that gives them can use SafeGL
+        let uniforms = CollectedUniforms::new(&uniforms);
         let mut ctxt = self.context.make_current();
 
         if !is_compute_supported(&ctxt) {
@@ -585,7 +588,7 @@ impl RawProgram {
         let mut fences = crate::buffer::FenceInserters::new();
 
         self.use_program(&mut ctxt);
-        uniforms.bind_uniforms(&mut ctxt, self, &mut fences)?;
+        uniforms.bind(&mut ctxt, self, &mut fences)?;
         ctxt.glow.dispatch_compute(x, y, z);
 
         for fence in fences {
@@ -612,6 +615,9 @@ impl RawProgram {
     where
         U: Uniforms,
     {
+        // the values of the uniforms are collected before the context is borrowed, so that the
+        // code that gives them can use SafeGL
+        let uniforms = CollectedUniforms::new(&uniforms);
         let mut ctxt = self.context.make_current();
 
         if !is_compute_supported(&ctxt) {
@@ -647,7 +653,7 @@ impl RawProgram {
         self.use_program(&mut ctxt);
 
         let mut fences = crate::buffer::FenceInserters::new();
-        uniforms.bind_uniforms(&mut ctxt, self, &mut fences)?;
+        uniforms.bind(&mut ctxt, self, &mut fences)?;
 
         ctxt.glow.dispatch_compute_indirect(offset as i32);
 
@@ -742,6 +748,16 @@ impl ProgramExt for RawProgram {
     #[inline]
     fn get_uniform(&self, name: &str) -> Option<&Uniform> {
         self.uniforms.get(name)
+    }
+
+    #[inline]
+    fn get_uniforms(&self) -> &HashMap<String, Uniform, BuildHasherDefault<FnvHasher>> {
+        &self.uniforms
+    }
+
+    #[inline]
+    fn is_uniform_set(&self, location: gl::types::GLint) -> bool {
+        self.uniform_values.is_set(location)
     }
 
     #[inline]
