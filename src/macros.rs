@@ -166,13 +166,13 @@ macro_rules! dynamic_uniform{
 /// ```
 #[macro_export]
 macro_rules! implement_vertex {
-    ($struct_name:ident, $($field_name:ident),+) => (
+    ($struct_name:ty, $($field_name:ident),+) => (
         impl $struct_name {
             const BINDINGS: $crate::vertex::VertexFormat = &[
                 $(
                     (
                         std::borrow::Cow::Borrowed(stringify!($field_name)),
-                        $crate::__safegl_offset_of!($struct_name, $field_name),
+                        ::core::mem::offset_of!($struct_name, $field_name),
                         -1,
                         {
                             const fn attr_type_of_val<T: $crate::vertex::Attribute>(_: Option<&T>)
@@ -200,13 +200,13 @@ macro_rules! implement_vertex {
         }
     );
 
-    ($struct_name:ident, $($field_name:ident normalize($should_normalize:expr)),+) => {
+    ($struct_name:ty, $($field_name:ident normalize($should_normalize:expr)),+) => {
         impl $struct_name {
             const BINDINGS: $crate::vertex::VertexFormat = &[
                 $(
                     (
                         std::borrow::Cow::Borrowed(stringify!($field_name)),
-                        $crate::__safegl_offset_of!($struct_name, $field_name),
+                        ::core::mem::offset_of!($struct_name, $field_name),
                         -1,
                         {
                             const fn attr_type_of_val<T: $crate::vertex::Attribute>(_: Option<&T>)
@@ -235,13 +235,13 @@ macro_rules! implement_vertex {
         }
     };
 
-    ($struct_name:ident, $($field_name:ident location($location:expr)),+) => {
+    ($struct_name:ty, $($field_name:ident location($location:expr)),+) => {
         impl $struct_name {
             const BINDINGS: $crate::vertex::VertexFormat = &[
                 $(
                     (
                         std::borrow::Cow::Borrowed(stringify!($field_name)),
-                        $crate::__safegl_offset_of!($struct_name, $field_name),
+                        ::core::mem::offset_of!($struct_name, $field_name),
                         {
                             $location
                         },
@@ -271,7 +271,7 @@ macro_rules! implement_vertex {
         }
     };
 
-    ($struct_name:ident, $($field_name:ident),+,) => (
+    ($struct_name:ty, $($field_name:ident),+,) => (
         $crate::implement_vertex!($struct_name, $($field_name),+);
     );
 }
