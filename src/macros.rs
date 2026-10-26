@@ -192,7 +192,7 @@ macro_rules! implement_vertex {
             ];
         }
 
-        impl $crate::vertex::Vertex for $struct_name {
+        unsafe impl $crate::vertex::Vertex for $struct_name {
             #[inline]
             fn build_bindings() -> $crate::vertex::VertexFormat {
                 Self::BINDINGS
@@ -227,7 +227,7 @@ macro_rules! implement_vertex {
                 ),+
             ];
         }
-        impl $crate::vertex::Vertex for $struct_name {
+        unsafe impl $crate::vertex::Vertex for $struct_name {
             #[inline]
             fn build_bindings() -> $crate::vertex::VertexFormat {
                 Self::BINDINGS
@@ -263,7 +263,7 @@ macro_rules! implement_vertex {
             ];
         }
 
-        impl $crate::vertex::Vertex for $struct_name {
+        unsafe impl $crate::vertex::Vertex for $struct_name {
             #[inline]
             fn build_bindings() -> $crate::vertex::VertexFormat {
                 Self::BINDINGS

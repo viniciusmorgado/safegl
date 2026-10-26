@@ -39,7 +39,7 @@ upload it to the video memory by creating a `VertexBuffer`.
 #     position: [f32; 3],
 #     texcoords: [f32; 2],
 # }
-# impl safegl::vertex::Vertex for MyVertex {
+# unsafe impl safegl::vertex::Vertex for MyVertex {
 #     fn build_bindings() -> safegl::vertex::VertexFormat { unimplemented!() }
 # }
 let data = &[
@@ -291,8 +291,13 @@ impl_for_tuple!(A, B, C, D, E, F, G);
 ///
 /// Instead of implementing this trait yourself, it is recommended to use the `implement_vertex!`
 /// macro instead.
-// TODO: this should be `unsafe`, but that would break the syntax extension
-pub trait Vertex: Copy + Sized {
+///
+/// # Safety
+///
+/// The `VertexFormat` returned by `build_bindings` must describe the layout of the type: the
+/// offset and type of each attribute must match a field, so that the GPU doesn't read outside of
+/// the vertices.
+pub unsafe trait Vertex: Copy + Sized {
     /// Builds the `VertexFormat` representing the layout of this element.
     fn build_bindings() -> VertexFormat;
 
