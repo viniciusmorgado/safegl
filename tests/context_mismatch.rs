@@ -179,15 +179,18 @@ fn copies_between_contexts() {
         Err(safegl::buffer::CopyError::ContextMismatch)
     ));
 
-    // images
+    // images, which only the `gl46` tier copies
     let texture_a = safegl::Texture2d::empty(&a, 4, 4).unwrap();
-    let texture_b = safegl::Texture2d::empty(&b, 4, 4).unwrap();
-    let result = texture_a.main_level().copy_to(&texture_b.main_level());
-    assert!(matches!(
-        result,
-        Err(safegl::texture::CopyImageError::ContextMismatch)
-            | Err(safegl::texture::CopyImageError::NotSupported)
-    ));
+    #[cfg(feature = "gl46")]
+    {
+        let texture_b = safegl::Texture2d::empty(&b, 4, 4).unwrap();
+        let result = texture_a.main_level().copy_to(&texture_b.main_level());
+        assert!(matches!(
+            result,
+            Err(safegl::texture::CopyImageError::ContextMismatch)
+                | Err(safegl::texture::CopyImageError::NotSupported)
+        ));
+    }
 
     // pixel buffers
     let pixels_b = safegl::texture::pixel_buffer::PixelBuffer::<(u8, u8, u8, u8)>::new_empty(&b, 16);
