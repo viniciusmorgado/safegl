@@ -137,7 +137,8 @@ impl ClientFormat {
             ClientFormat::I32I32 => 2 * mem::size_of::<i32>(),
             ClientFormat::I32I32I32 => 3 * mem::size_of::<i32>(),
             ClientFormat::I32I32I32I32 => 4 * mem::size_of::<i32>(),
-            ClientFormat::U3U3U2 => (3 + 3 + 2) / 8,
+            // 3 + 3 + 2 bits
+            ClientFormat::U3U3U2 => 1,
             ClientFormat::U5U6U5 => (5 + 6 + 5) / 8,
             ClientFormat::U4U4U4U4 => (4 + 4 + 4 + 4) / 8,
             ClientFormat::U5U5U5U1 => (5 + 5 + 5 + 1) / 8,
