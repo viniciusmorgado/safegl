@@ -14,7 +14,10 @@ Additions:
   (`glBlendFuncSeparatei`, `glColorMaski`), with the `DrawError::PerOutputStateNotSupported` and
   `OutputStateIndexOutOfBounds` errors. Clearing a framebuffer, or a texture with
   `raw_clear_buffer`, now ignores any color mask left by a previous draw.
-- `alpha_to_coverage` example, which uses the CC0 "Fern 02" model from Poly Haven.
+- `DrawParameters::polygon_offset_clamp` (`gl46`, `glPolygonOffsetClamp`), with the
+  `DrawError::PolygonOffsetClampNotSupported` error.
+- Examples: `alpha_to_coverage`, which uses the CC0 "Fern 02" model from Poly Haven, and
+  `shadow_bias`.
 
 Fixes:
 
