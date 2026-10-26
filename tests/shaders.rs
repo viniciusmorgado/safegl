@@ -76,46 +76,26 @@ fn program_compilation_error() {
     display.assert_no_error(None);
 }
 
-// This test is disabled because some OpenGL drivers don't catch
-// the linking error (even though they are supposed to)
 #[test]
-#[ignore]
 fn program_linking_error() {
     let display = support::build_display();
+    let header = if support::is_gles(&display) {
+        "#version 300 es\nprecision highp float;\n"
+    } else {
+        "#version 330\n"
+    };
 
-    // compiling shaders and linking them together
-    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::Gl, 1, 3)) {
-        return;
-    }
+    // `position` is declared but defined in no shader, which only the linker can find out
     let program = safegl::Program::from_source(
         &display,
-        // vertex shader
-        "
-            #version 110
-
-            varying vec3 output1;
-
-            void main() {
-                gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
-                output1 = vec3(0.0, 0.0, 0.0);
-            }
-        ",
-        // fragment shader
-        "
-            #version 110
-            varying vec3 output2;
-
-            void main() {
-                gl_FragColor = vec4(output2, 1.0);
-            }
-        ",
-        // geometry shader
+        &format!("{header}vec4 position();\nvoid main() {{ gl_Position = position(); }}"),
+        &format!("{header}out vec4 color;\nvoid main() {{ color = vec4(1.0); }}"),
         None,
     );
 
     match program {
         Err(safegl::LinkingError(_)) => (),
-        _ => panic!(),
+        other => panic!("{:?}", other.err()),
     };
 
     display.assert_no_error(None);

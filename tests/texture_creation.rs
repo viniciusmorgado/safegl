@@ -186,14 +186,15 @@ fn depth_texture_2d_creation() {
 }
 
 #[test]
-#[ignore] // `thread 'empty_depth_texture2d_f32' panicked at 'assertion failed: version >= &GlVersion(3, 0)'`
 fn empty_depth_texture2d_f32() {
     let display = support::build_display();
 
-    let _texture = safegl::texture::DepthTexture2d::empty(&display, 128, 128);
+    let texture = safegl::texture::DepthTexture2d::empty(&display, 128, 128).unwrap();
+    assert_eq!(texture.get_width(), 128);
+    assert_eq!(texture.get_height(), Some(128));
 
     display.assert_no_error(None);
-    drop(_texture);
+    drop(texture);
     display.assert_no_error(None);
 }
 
