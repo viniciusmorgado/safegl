@@ -29,6 +29,11 @@ pub struct Uniform {
 
     /// If it is an array, the number of elements.
     pub size: Option<usize>,
+
+    /// For an image uniform, the image unit that the shader gives it with `layout(binding = N)`,
+    /// 0 without one. OpenGL ES can't change it, so SafeGL binds the image to this unit there;
+    /// desktop OpenGL can, and SafeGL picks a unit itself. `None` for other uniforms.
+    pub binding: Option<i32>,
 }
 
 /// Information about a uniform block (except its name).
@@ -217,7 +222,9 @@ pub unsafe fn reflect_uniforms(
             .get_active_uniform(program, uniform_id as gl::types::GLuint)
             .expect("glGetActiveUniform failed");
 
-        let location = locations.register(ctxt.glow.get_uniform_location(program, &uniform_name));
+        let gl_location = ctxt.glow.get_uniform_location(program, &uniform_name);
+        let binding = image_binding(ctxt, program, data_type, gl_location.as_ref());
+        let location = locations.register(gl_location);
 
         if data_type == gl::UNSIGNED_INT_ATOMIC_COUNTER {
             assert!(query_atomic_counters);
@@ -273,6 +280,7 @@ pub unsafe fn reflect_uniforms(
                     } else {
                         Some(data_size as usize)
                     },
+                    binding,
                 },
             );
         }
@@ -300,14 +308,40 @@ pub unsafe fn reflect_uniforms(
         // are objects that must be queried one by one
         for i in 1..uniform.size.unwrap_or(1) {
             let element = format!("{}[{}]", name_base, i);
-            let location = locations.register(ctxt.glow.get_uniform_location(program, &element));
+            let gl_location = ctxt.glow.get_uniform_location(program, &element);
+            let binding = first.binding.and_then(|_| {
+                image_binding(ctxt, program, gl::IMAGE_2D, gl_location.as_ref())
+            });
+            let location = locations.register(gl_location);
             if location != -1 {
-                uniforms_flattened.insert(element, Uniform { location, ..first });
+                uniforms_flattened.insert(
+                    element,
+                    Uniform {
+                        location,
+                        binding,
+                        ..first
+                    },
+                );
             }
         }
     }
 
     (uniforms_flattened, atomic_counters, locations)
+}
+
+/// Returns the image unit of a uniform of type `data_type`, if it is an image.
+unsafe fn image_binding(
+    ctxt: &CommandContext<'_>,
+    program: glow::Program,
+    data_type: gl::types::GLenum,
+    location: Option<&glow::UniformLocation>,
+) -> Option<i32> {
+    if !(gl::IMAGE_1D..=gl::UNSIGNED_INT_IMAGE_2D_MULTISAMPLE_ARRAY).contains(&data_type) {
+        return None;
+    }
+    let mut unit = [0];
+    ctxt.glow.get_uniform_i32(program, location?, &mut unit);
+    Some(unit[0])
 }
 
 pub unsafe fn reflect_attributes(

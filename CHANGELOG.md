@@ -112,6 +112,11 @@ Breaking changes:
   `GL_INVALID_OPERATION` on drivers that follow the specification. Two storage blocks with the same
   `layout(binding = N)` that get a buffer each return the new `DrawError::SharedBindingPoint`
   there; give them different binding points.
+- On OpenGL ES, which can't change the unit of an image uniform, an image is bound to the unit
+  that the shader gives it with `layout(binding = N)` instead of one chosen by SafeGL with
+  `glUniform1i`, which raised `GL_INVALID_OPERATION` and left the image unbound. Two image
+  uniforms with the same binding return `DrawError::SharedBindingPoint` there. The reflected
+  `Uniform` gets the `binding` field, the unit of the shader for images.
 
 Additions:
 

@@ -70,7 +70,11 @@ impl<'a> CollectedUniforms<'a> {
         #[cfg(feature = "gl46")]
         let mut shared_storage_buffer_bind_points = Bitsfield::new();
         let mut image_unit_bind_points = Bitsfield::new();
-        image_unit_bind_points.set_used(0); // Trying to attach data to image unit 0 would not go well
+        // image uniforms that aren't set use unit 0, so SafeGL doesn't give it to other images;
+        // OpenGL ES uses the units of the shader instead
+        if ctxt.version.0 != crate::version::Api::GlEs {
+            image_unit_bind_points.set_used(0);
+        }
 
         // Subroutine uniforms must be bound all at once, so we collect them first and process them at the end.
         // The vec contains the uniform we want to set and the value we want to set it to.
@@ -121,7 +125,7 @@ impl<'a> CollectedUniforms<'a> {
                     ctxt,
                     &value,
                     program,
-                    uniform.location,
+                    uniform,
                     &mut texture_bind_points,
                     &mut image_unit_bind_points,
                     name,
@@ -544,7 +548,7 @@ fn bind_uniform<P>(
     ctxt: &mut context::CommandContext,
     value: &UniformValue,
     program: &P,
-    location: gl::types::GLint,
+    uniform: &program::Uniform,
     texture_bind_points: &mut Bitsfield,
     image_unit_bind_points: &mut Bitsfield,
     name: &str,
@@ -552,6 +556,8 @@ fn bind_uniform<P>(
 where
     P: ProgramExt,
 {
+    let location = uniform.location;
+
     // The spec only states that a negative location is an error.
     // This fact is abused by some implementations (e.g. vitaGL)
     // which actually use negative values for uniform locations.
@@ -788,9 +794,10 @@ where
             ctxt,
             texture,
             unit,
-            location,
+            uniform,
             program,
             image_unit_bind_points,
+            name,
         ),
     }
 }
@@ -904,9 +911,10 @@ fn bind_image_uniform<P, T>(
     ctxt: &mut context::CommandContext,
     texture: &T,
     unit_behavior: ImageUnitBehavior,
-    location: gl::types::GLint,
+    uniform: &program::Uniform,
     program: &P,
     image_unit_bind_points: &mut Bitsfield,
+    name: &str,
 ) -> Result<(), DrawError>
 where
     P: ProgramExt,
@@ -914,18 +922,35 @@ where
 {
     use crate::ToGlEnum;
 
-    let image_unit = match image_unit_bind_points.get_unused() {
-        Some(unit) => unit,
-        None => return Err(DrawError::InsufficientImageUnits),
-    };
-    image_unit_bind_points.set_used(image_unit);
+    // OpenGL ES can't change the unit of an image uniform: the image goes to the unit that the
+    // shader gives it
+    let image_unit = if ctxt.version.0 == crate::version::Api::GlEs {
+        let unit = uniform.binding.unwrap_or(0);
+        if !(0..=u16::MAX as i32).contains(&unit) {
+            return Err(DrawError::InsufficientImageUnits);
+        }
+        if image_unit_bind_points.is_used(unit as u16) {
+            return Err(DrawError::SharedBindingPoint {
+                name: name.to_owned(),
+            });
+        }
+        image_unit_bind_points.set_used(unit as u16);
+        unit as u16
+    } else {
+        let image_unit = match image_unit_bind_points.get_unused() {
+            Some(unit) => unit,
+            None => return Err(DrawError::InsufficientImageUnits),
+        };
+        image_unit_bind_points.set_used(image_unit);
 
-    // Update the program to use the right unit
-    program.set_uniform(
-        ctxt,
-        location,
-        &RawUniformValue::SignedInt(image_unit as gl::types::GLint),
-    );
+        // Update the program to use the right unit
+        program.set_uniform(
+            ctxt,
+            uniform.location,
+            &RawUniformValue::SignedInt(image_unit as gl::types::GLint),
+        );
+        image_unit
+    };
 
     // "If layered is false, then only a single level identified by <layer> will be bound"
     let (layered, layer) = match unit_behavior.layer {

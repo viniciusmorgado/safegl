@@ -1467,10 +1467,10 @@ pub enum DrawError {
         name: String,
     },
 
-    /// Two shader storage blocks have the same `layout(binding = N)` in the shader, which can't
-    /// be changed on OpenGL ES, and were given a buffer each.
+    /// Two shader storage blocks, or two image uniforms, have the same `layout(binding = N)` in
+    /// the shader, which can't be changed on OpenGL ES, and were given a buffer or an image each.
     SharedBindingPoint {
-        /// Name of the second block.
+        /// Name of the second block or image uniform.
         name: String,
     },
 
@@ -1643,7 +1643,7 @@ impl fmt::Display for DrawError {
             BufferBindingOutOfRange { .. } =>
                 "A block needs more buffer binding points than the backend has",
             SharedBindingPoint { .. } =>
-                "Two shader storage blocks have the same binding point in the shader and were given a buffer each",
+                "Two shader storage blocks or image uniforms have the same binding point in the shader and were given a buffer or an image each",
             ComputeShadersNotSupported =>
                 "Compute shaders are not supported by the backend",
             WorkGroupCountTooLarge { .. } =>
