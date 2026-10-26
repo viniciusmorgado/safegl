@@ -119,6 +119,22 @@ Fixes:
 - `get_internal_format` reports the format of stencil textures (glium#1240).
 - `clear_color` clears integer and unsigned color attachments with `glClearBuffer`, since
   `glClearColor` doesn't apply to them (glium#498).
+- Clearing the stencil buffer ignores the stencil write mask of the previous draw call
+  (glium#2148).
+- Drawing instances from a slice of vertices that doesn't start at the first one no longer shifts
+  or underflows the per-instance buffers (glium#1507).
+- `VertexBuffer::new_raw` and `new_raw_dynamic` use the given vertex size as the stride instead of
+  ignoring it, and reject data that isn't a whole number of vertices (glium#2028, glium#1461).
+  `VertexBufferAny::into_vertex_buffer` is implemented instead of reaching `unimplemented!()`
+  (glium#1565).
+- A vertex format that doesn't match the program returns `DrawError::AttributeTypeMismatch` or
+  `DrawError::AttributeMissing` instead of panicking (glium#1434).
+- Drawing from many slices of a buffer no longer creates vertex array objects without bound: only
+  the 16 most recently used ones of each combination of buffers and program are kept (glium#2001).
+- The columns of normalized matrix attributes are offset by the size of their components.
+- Transform feedback captures the triangles of tessellated quads instead of panicking (glium#935).
+- Reading a persistent mapping after shader writes issues `GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT`
+  (glium#1028).
 
 ## [0.1.0]
 
