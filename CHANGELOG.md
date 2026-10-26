@@ -48,6 +48,8 @@ Additions:
 - `UncompressedFloatFormat::U5U6U5`, the RGB565 format (based on glium PR #2152).
 - `SamplerBehavior::border_color`, `Sampler::border_color` and `uniforms::BorderColor`, for
   `SamplerWrapFunction::BorderClamp` (based on glium PR #2120).
+- `From<Sampler<'a, T>> for UniformValue<'a>`, a uniform value that borrows the texture instead
+  of the sampler (glium#1850).
 - Texture writes beyond 2D textures (glium#2138, glium#2058, glium#1284, glium#644, based on glium
   PR #1198): `TextureAnyImage::raw_write` writes a rectangle of one image (a layer of an array
   texture, a face of a cubemap or a slice of a 3D texture); 1D and 3D textures and their mipmaps get

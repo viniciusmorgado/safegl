@@ -645,6 +645,15 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                                 }}
                             }}
 
+                            /// Turns the sampler into a uniform value that borrows the texture
+                            /// rather than the sampler, so that it can outlive the sampler.
+                            impl<'a> From<Sampler<'a, {myname}>> for UniformValue<'a> {{
+                                #[inline]
+                                fn from(sampler: Sampler<'a, {myname}>) -> UniformValue<'a> {{
+                                    UniformValue::{myname}(sampler.0, Some(sampler.1))
+                                }}
+                            }}
+
                             impl {myname} {{
                                 /// Builds a `Sampler` marker object that allows you to indicate
                                 /// how the texture should be sampled from inside a shader.

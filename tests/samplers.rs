@@ -129,3 +129,19 @@ fn border_color() {
     assert_eq!(data[0][0], (0, 255, 0, 255));
     display.assert_no_error(None);
 }
+
+#[test]
+fn sampler_value_outlives_the_sampler() {
+    let display = support::build_display();
+    let texture = support::build_unicolor_texture2d(&display, 1.0, 0.0, 0.0);
+
+    // the value borrows the texture, not the temporary sampler
+    let value: safegl::uniforms::UniformValue<'_> = texture
+        .sampled()
+        .magnify_filter(safegl::uniforms::MagnifySamplerFilter::Nearest)
+        .into();
+    assert!(matches!(
+        value,
+        safegl::uniforms::UniformValue::Texture2d(_, Some(_))
+    ));
+}
