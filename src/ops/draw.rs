@@ -94,6 +94,10 @@ where
         }
     }
 
+    if !draw_parameters::check_queries(draw_parameters)? {
+        return Ok(());
+    }
+
     // starting the state changes
     let mut ctxt = context.make_current();
 

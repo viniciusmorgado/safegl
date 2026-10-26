@@ -31,7 +31,7 @@ fn query_sequence() {
             .unwrap();
     }
 
-    let result = query.get();
+    let result = query.get().unwrap();
     assert!(result == 3 * 1024 * 1024); // 3 * texture dimensions
 
     display.assert_no_error(None);
@@ -63,7 +63,7 @@ fn samples_passed() {
             .unwrap();
     }
 
-    let result = query.get();
+    let result = query.get().unwrap();
     assert!(result == 1024 * 1024); // texture dimensions
 
     display.assert_no_error(None);
@@ -95,10 +95,10 @@ fn any_samples_passed() {
             .unwrap();
     }
 
-    assert!(query.get());
+    assert!(query.get().unwrap());
 
     let query2 = safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false).unwrap();
-    assert!(!query2.get());
+    assert!(!query2.get().unwrap());
 
     display.assert_no_error(None);
 }
@@ -129,10 +129,10 @@ fn any_samples_passed_conservative() {
             .unwrap();
     }
 
-    assert!(query.get());
+    assert!(query.get().unwrap());
 
     let query2 = safegl::draw_parameters::AnySamplesPassedQuery::new(&display, true).unwrap();
-    assert!(!query2.get());
+    assert!(!query2.get().unwrap());
 
     display.assert_no_error(None);
 }
@@ -163,14 +163,13 @@ fn time_elapsed() {
             .unwrap();
     }
 
-    let result = query.get();
+    let result = query.get().unwrap();
     assert!(result >= 1);
 
     display.assert_no_error(None);
 }
 
 #[test]
-#[ignore] // not sure about the interaction between primitives_generated and no geometry shader
 fn primitives_generated() {
     let display = support::build_display();
 
@@ -196,19 +195,17 @@ fn primitives_generated() {
             .unwrap();
     }
 
-    let result = query.get();
+    let result = query.get().unwrap();
     assert_eq!(result, 2);
 
     display.assert_no_error(None);
 }
 
-// FIXME: add test for transform feedback query
-
-// FIXME: add more tests for conditional rendering
+// the transform feedback query is tested with transform feedback, in `vertex_buffer.rs`
 
 #[test]
-#[ignore] // FIXME: problem with query not having a type yet when passed to BeginConditionalRender
 fn conditional_render_nodraw() {
+    //! a query that was never used counts no samples, so nothing is drawn
     let display = support::build_display();
 
     let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false) {
@@ -249,7 +246,6 @@ fn conditional_render_nodraw() {
 }
 
 #[test]
-#[ignore] // FIXME: not implemented yet
 fn conditional_render_simultaneous_query() {
     //! we try to draw with a query and simultaneously use conditional
     //! rendering with the same query
@@ -328,6 +324,121 @@ fn query_to_buffer() {
 
     let mapping = buffer.map();
     assert!(*mapping == 1024 * 1024); // texture dimensions
+
+    display.assert_no_error(None);
+}
+
+#[test]
+fn conditional_render_after_query() {
+    //! drawing is conditioned by what an earlier draw wrote
+    let display = support::build_display();
+
+    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+
+    for (draw_first, expected) in [(true, (255, 0, 0, 255)), (false, (0, 0, 0, 0))] {
+        let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false) {
+            Err(_) => return,
+            Ok(q) => q,
+        };
+
+        let texture = support::build_renderable_texture(&display);
+        texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+
+        // counts the samples of a draw that is entirely clipped away, or of a visible one
+        let counted = safegl::DrawParameters {
+            samples_passed_query: Some((&query).into()),
+            viewport: if draw_first {
+                None
+            } else {
+                Some(safegl::Rect {
+                    left: 0,
+                    bottom: 0,
+                    width: 0,
+                    height: 0,
+                })
+            },
+            color_mask: (false, false, false, false),
+            ..Default::default()
+        };
+        texture
+            .as_surface()
+            .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &counted)
+            .unwrap();
+
+        let conditioned = safegl::DrawParameters {
+            condition: Some(safegl::draw_parameters::ConditionalRendering {
+                query: (&query).into(),
+                wait: true,
+                per_region: false,
+            }),
+            ..Default::default()
+        };
+        match texture.as_surface().draw(
+            &vb,
+            &ib,
+            &program,
+            &safegl::uniforms::EmptyUniforms,
+            &conditioned,
+        ) {
+            Err(safegl::DrawError::ConditionalRenderingNotSupported) => return,
+            result => result.unwrap(),
+        }
+
+        let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+        assert!(data.iter().flatten().all(|&p| p == expected));
+    }
+
+    display.assert_no_error(None);
+}
+
+#[test]
+fn time_elapsed_is_64_bits() {
+    let display = support::build_display();
+
+    let query = match safegl::draw_parameters::TimeElapsedQuery::new(&display) {
+        Err(_) => return,
+        Ok(q) => q,
+    };
+    // never used: its result is 0
+    let elapsed: u64 = query.get().unwrap();
+    assert_eq!(elapsed, 0);
+
+    display.assert_no_error(None);
+}
+
+#[test]
+fn timestamp_query_dropped_without_reading() {
+    let display = support::build_display();
+
+    for _ in 0..16 {
+        drop(safegl::debug::TimestampQuery::new(&display));
+    }
+
+    display.assert_no_error(None);
+}
+
+#[cfg(feature = "gl46")]
+#[test]
+fn unused_query_to_buffer() {
+    let display = support::build_display();
+
+    let query = match safegl::draw_parameters::SamplesPassedQuery::new(&display) {
+        Err(_) => return,
+        Ok(q) => q,
+    };
+
+    let mut buffer = safegl::buffer::Buffer::new(
+        &display,
+        &7u32,
+        safegl::buffer::BufferType::ArrayBuffer,
+        safegl::buffer::BufferMode::Default,
+    )
+    .unwrap();
+    if query.to_buffer_u32(buffer.as_slice()).is_err() {
+        return;
+    }
+
+    assert_eq!(*buffer.map(), 0);
 
     display.assert_no_error(None);
 }

@@ -76,10 +76,10 @@ fn timestamp_query() {
     let display = support::build_display();
 
     let query1 = safegl::debug::TimestampQuery::new(&display);
-    let query1 = query1.map(|q| q.get());
+    let query1 = query1.map(|q| q.get().unwrap());
 
     let query2 = safegl::debug::TimestampQuery::new(&display);
-    let query2 = query2.map(|q| q.get());
+    let query2 = query2.map(|q| q.get().unwrap());
 
     match (query1, query2) {
         (Some(q1), Some(q2)) => assert!(q2 >= q1 && q1 != 0),

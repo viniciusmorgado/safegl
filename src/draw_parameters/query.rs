@@ -106,6 +106,26 @@ impl fmt::Display for ToBufferError {
 #[cfg(feature = "gl46")]
 impl Error for ToBufferError {}
 
+/// Error that can happen when getting the result of a query.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum QueryResultError {
+    /// The OpenGL context has been lost, so the result of the query is lost too.
+    ContextLost,
+}
+
+impl fmt::Display for QueryResultError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = match *self {
+            QueryResultError::ContextLost => {
+                "The OpenGL context has been lost, so the result of the query is lost too"
+            }
+        };
+        fmt.write_str(desc)
+    }
+}
+
+impl Error for QueryResultError {}
+
 impl RawQuery {
     /// Builds a new query. Returns `None` if the backend doesn't support this type.
     pub fn new<F: ?Sized>(facade: &F, ty: QueryType) -> Result<RawQuery, QueryCreationError>
@@ -157,7 +177,13 @@ impl RawQuery {
     }
 
     /// Queries the counter to see if the result is already available.
+    ///
+    /// Returns `false` if the context has been lost: the result will never be available.
     pub fn is_ready(&self) -> bool {
+        if self.context.is_context_lost() {
+            return false;
+        }
+
         let mut ctxt = self.context.make_current();
         self.deactivate(&mut ctxt);
 
@@ -180,20 +206,25 @@ impl RawQuery {
     /// Returns the value of the query. Blocks until it is available.
     ///
     /// This function doesn't block if `is_ready` returns true.
-    pub fn get_u32(&self) -> u32 {
+    pub fn get_u32(&self) -> Result<u32, QueryResultError> {
+        if self.context.is_context_lost() {
+            return Err(QueryResultError::ContextLost);
+        }
+
         let mut ctxt = self.context.make_current();
         self.deactivate(&mut ctxt);
 
         if !self.has_been_used.get() {
-            return 0;
+            return Ok(0);
         }
 
         #[cfg(feature = "gl46")]
         Buffer::<u8>::unbind_query(&mut ctxt);
 
         unsafe {
-            ctxt.glow
-                .get_query_parameter_u32(self.id, glow::QUERY_RESULT)
+            Ok(ctxt
+                .glow
+                .get_query_parameter_u32(self.id, glow::QUERY_RESULT))
         }
     }
 
@@ -212,7 +243,11 @@ impl RawQuery {
         self.deactivate(&mut ctxt);
 
         if !self.has_been_used.get() {
-            panic!();
+            // the result of a query that was never used is 0, like `get` returns, but OpenGL
+            // refuses to write the result of a query object that never started
+            drop(ctxt);
+            target.write(&0);
+            return Ok(());
         }
 
         assert!(target.get_offset_bytes() % 4 == 0);
@@ -237,12 +272,16 @@ impl RawQuery {
     /// Returns the value of the query. Blocks until it is available.
     ///
     /// This function doesn't block if `is_ready` returns true.
-    pub fn get_u64(&self) -> u64 {
+    pub fn get_u64(&self) -> Result<u64, QueryResultError> {
+        if self.context.is_context_lost() {
+            return Err(QueryResultError::ContextLost);
+        }
+
         let mut ctxt = self.context.make_current();
         self.deactivate(&mut ctxt);
 
         if !self.has_been_used.get() {
-            return 0;
+            return Ok(0);
         }
 
         #[cfg(feature = "gl46")]
@@ -250,18 +289,18 @@ impl RawQuery {
 
         unsafe {
             if let Ok(value) = self.raw_get_u64(&mut ctxt) {
-                return value;
+                return Ok(value);
             }
 
             let value = ctxt
                 .glow
                 .get_query_parameter_u32(self.id, glow::QUERY_RESULT);
-            value as u64
+            Ok(value as u64)
         }
     }
 
     unsafe fn raw_get_u64(&self, ctxt: &mut CommandContext<'_>) -> Result<u64, ()> {
-        if ctxt.version.0 == Api::Gl {
+        if ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_disjoint_timer_query {
             Ok(ctxt
                 .glow
                 .get_query_parameter_u64(self.id, glow::QUERY_RESULT))
@@ -274,8 +313,8 @@ impl RawQuery {
     ///
     /// This function doesn't block if `is_ready` returns true.
     #[inline]
-    pub fn get_bool(&self) -> bool {
-        self.get_u32() != 0
+    pub fn get_bool(&self) -> Result<bool, QueryResultError> {
+        self.get_u32().map(|value| value != 0)
     }
 
     /// If the query is active, unactivates it.
@@ -674,6 +713,8 @@ macro_rules! impl_helper {
     ($name:ident, $ret:ty, $get_fn:ident) => {
         impl $name {
             /// Queries the counter to see if the result is already available.
+            ///
+            /// Returns `false` if the context has been lost: the result will never be available.
             #[inline]
             pub fn is_ready(&self) -> bool {
                 self.query.is_ready()
@@ -688,8 +729,11 @@ macro_rules! impl_helper {
             ///
             /// Queries should either have their result written into a buffer, be used for
             /// conditional rendering, or stored and checked during the next frame.
+            ///
+            /// Returns an error if the OpenGL context has been lost, since the result is lost
+            /// with it.
             #[inline]
-            pub fn get(self) -> $ret {
+            pub fn get(self) -> Result<$ret, QueryResultError> {
                 self.query.$get_fn()
             }
 
@@ -786,12 +830,12 @@ impl SamplesPassedQuery {
     }
 }
 
-impl_helper!(SamplesPassedQuery, u32, get_u32);
+impl_helper!(SamplesPassedQuery, u64, get_u64);
 
 /// A query that allows you to know the number of nanoseconds that have elapsed
 /// during the draw operations.
 ///
-/// TODO: not sure that it's nanoseconds
+/// The result is 64 bits wide, since 32 bits of nanoseconds overflow after 4.3 seconds.
 #[derive(Debug)]
 pub struct TimeElapsedQuery {
     query: RawQuery,
@@ -808,7 +852,7 @@ impl TimeElapsedQuery {
     }
 }
 
-impl_helper!(TimeElapsedQuery, u32, get_u32);
+impl_helper!(TimeElapsedQuery, u64, get_u64);
 
 /// A query type that allows you to know whether any sample has been written to the output during
 /// the operations executed with this query.
@@ -856,8 +900,9 @@ impl AnySamplesPassedQuery {
 
 impl_helper!(AnySamplesPassedQuery, bool, get_bool);
 
-/// Query that allows you to know the number of primitives generated by the geometry shader.
-/// Will stay at `0` if you use it without any active geometry shader.
+/// Query that allows you to know the number of primitives generated by the last vertex
+/// processing stage: the geometry shader if there is one, otherwise the tessellation evaluation
+/// shader, otherwise the vertex shader (two triangles for a quad drawn as a triangle list).
 #[derive(Debug)]
 pub struct PrimitivesGeneratedQuery {
     query: RawQuery,
@@ -875,7 +920,7 @@ impl PrimitivesGeneratedQuery {
     }
 }
 
-impl_helper!(PrimitivesGeneratedQuery, u32, get_u32);
+impl_helper!(PrimitivesGeneratedQuery, u64, get_u64);
 
 /// Query that allows you to know the number of primitives generated by transform feedback.
 #[derive(Debug)]
@@ -897,4 +942,4 @@ impl TransformFeedbackPrimitivesWrittenQuery {
     }
 }
 
-impl_helper!(TransformFeedbackPrimitivesWrittenQuery, u32, get_u32);
+impl_helper!(TransformFeedbackPrimitivesWrittenQuery, u64, get_u64);

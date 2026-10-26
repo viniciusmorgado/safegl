@@ -77,6 +77,7 @@ use crate::index::PrimitiveType;
 
 use crate::vertex::TransformFeedbackSession;
 use crate::DrawError;
+use crate::GlObject;
 use crate::QueryExt;
 use crate::Rect;
 use crate::ToGlEnum;
@@ -89,6 +90,7 @@ pub use self::query::QueryCreationError;
 #[cfg(feature = "gl46")]
 #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
 pub use self::query::ToBufferError;
+pub use self::query::QueryResultError;
 pub use self::query::{AnySamplesPassedQuery, TransformFeedbackPrimitivesWrittenQuery};
 pub use self::query::{PrimitivesGeneratedQuery, SamplesPassedQuery, TimeElapsedQuery};
 pub use self::stencil::{Stencil, StencilOperation, StencilTest};
@@ -576,6 +578,41 @@ pub enum SamplesQueryParam<'a> {
     SamplesPassedQuery(&'a SamplesPassedQuery),
     /// A `AnySamplesPassedQuery`.
     AnySamplesPassedQuery(&'a AnySamplesPassedQuery),
+}
+
+impl<'a> SamplesQueryParam<'a> {
+    fn id(&self) -> glow::Query {
+        match *self {
+            SamplesQueryParam::SamplesPassedQuery(q) => q.get_id(),
+            SamplesQueryParam::AnySamplesPassedQuery(q) => q.get_id(),
+        }
+    }
+
+    fn is_unused(&self) -> bool {
+        match *self {
+            SamplesQueryParam::SamplesPassedQuery(q) => q.is_unused(),
+            SamplesQueryParam::AnySamplesPassedQuery(q) => q.is_unused(),
+        }
+    }
+}
+
+/// Checks the queries of the draw parameters. Returns `Ok(false)` if the draw command must not
+/// draw anything: its condition is a query that was never used, whose result counts as no
+/// samples, and on which OpenGL refuses to begin conditional rendering.
+pub(crate) fn check_queries(draw_parameters: &DrawParameters<'_>) -> Result<bool, DrawError> {
+    let condition = match draw_parameters.condition {
+        Some(ref condition) => condition,
+        None => return Ok(true),
+    };
+
+    // a query can't count the samples of the draw that it conditions
+    if let Some(ref samples) = draw_parameters.samples_passed_query {
+        if samples.id() == condition.query.id() {
+            return Err(DrawError::WrongQueryOperation);
+        }
+    }
+
+    Ok(!condition.query.is_unused())
 }
 
 impl<'a> From<&'a SamplesPassedQuery> for SamplesQueryParam<'a> {
