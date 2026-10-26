@@ -207,9 +207,9 @@ fn clear_format(
 
 /// Returns true if textures can be cleared with `TextureAnyMipmap::clear`: OpenGL 4.4,
 /// `GL_ARB_clear_texture`, or `GL_EXT_clear_texture` on OpenGL ES.
-pub fn is_clear_texture_supported<C: ?Sized>(context: &C) -> bool
+pub fn is_clear_texture_supported<C>(context: &C) -> bool
 where
-    C: CapabilitiesSource,
+    C: ?Sized + CapabilitiesSource,
 {
     context.get_version() >= &Version(Api::Gl, 4, 4)
         || context.get_extensions().gl_arb_clear_texture
@@ -218,9 +218,9 @@ where
 
 /// Returns true if images can be copied with `copy_image`: OpenGL 4.3, OpenGL ES 3.2 or
 /// `GL_ARB_copy_image`.
-pub fn is_copy_image_supported<C: ?Sized>(context: &C) -> bool
+pub fn is_copy_image_supported<C>(context: &C) -> bool
 where
-    C: CapabilitiesSource,
+    C: ?Sized + CapabilitiesSource,
 {
     context.get_version() >= &Version(Api::Gl, 4, 3)
         || context.get_version() >= &Version(Api::GlEs, 3, 2)
@@ -571,7 +571,7 @@ impl CopyImage {
             return true;
         }
         let aligned = |offset: u32, size: u32, extent: u32| {
-            offset % 4 == 0 && (size % 4 == 0 || offset + size == extent)
+            offset.is_multiple_of(4) && (size.is_multiple_of(4) || offset + size == extent)
         };
         aligned(offset.0, size.0, self.extent.0) && aligned(offset.1, size.1, self.extent.1)
     }
@@ -723,9 +723,9 @@ pub fn copy_image<'a, 'b>(
 
 /// Returns true if `texture_barrier` is supported: OpenGL 4.5, `GL_ARB_texture_barrier` or
 /// `GL_NV_texture_barrier`.
-pub fn is_texture_barrier_supported<C: ?Sized>(context: &C) -> bool
+pub fn is_texture_barrier_supported<C>(context: &C) -> bool
 where
-    C: CapabilitiesSource,
+    C: ?Sized + CapabilitiesSource,
 {
     context.get_version() >= &Version(Api::Gl, 4, 5)
         || context.get_extensions().gl_arb_texture_barrier
@@ -747,9 +747,9 @@ where
 /// undefined.
 ///
 /// Needs OpenGL 4.5, `GL_ARB_texture_barrier` or `GL_NV_texture_barrier`.
-pub fn texture_barrier<F: ?Sized>(facade: &F) -> Result<(), TextureBarrierNotSupportedError>
+pub fn texture_barrier<F>(facade: &F) -> Result<(), TextureBarrierNotSupportedError>
 where
-    F: Facade,
+    F: ?Sized + Facade,
 {
     let ctxt = facade.get_context().make_current();
     unsafe {
