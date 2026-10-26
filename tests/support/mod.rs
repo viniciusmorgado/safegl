@@ -55,6 +55,7 @@ impl ApplicationHandler<DisplayRequest> for Tests {
         let window_attributes = Window::default_attributes().with_visible(false);
         let config_template_builder = ConfigTemplateBuilder::new();
         let (window, gl_config) = DisplayBuilder::new()
+            .with_preference(parse_display_api())
             .with_window_attributes(Some(window_attributes))
             .build(event_loop, config_template_builder, |mut configs| {
                 // Just use the first configuration since we don't have any special preferences here
@@ -197,6 +198,16 @@ pub fn rebuild_display(_display: &safegl::Display<WindowSurface>) {
         .with_gl(version);
     display.rebuild(wb, cb, &event_loop).unwrap();
      */
+}
+
+/// The display API to try first: EGL with `SAFEGL_GL_DISPLAY=egl`, otherwise the one of the
+/// platform (GLX or WGL), as glutin does by default.
+fn parse_display_api() -> glutin_winit::ApiPreference {
+    match env::var("SAFEGL_GL_DISPLAY").as_deref() {
+        Ok("egl") => glutin_winit::ApiPreference::PreferEgl,
+        Ok("glx") | Ok("wgl") | Err(_) => glutin_winit::ApiPreference::FallbackEgl,
+        Ok(other) => panic!("SAFEGL_GL_DISPLAY must be `egl`, `glx` or `wgl`, not `{other}`"),
+    }
 }
 
 fn parse_version() -> Vec<glutin::context::ContextApi> {
