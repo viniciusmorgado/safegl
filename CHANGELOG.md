@@ -17,6 +17,8 @@ Breaking changes:
 - `Vertex` is an unsafe trait, since SafeGL trusts its layout to read the vertices (glium#1684).
   `implement_vertex!` is unchanged; manual implementations become `unsafe impl Vertex for ...`.
 
+## [0.2.0]
+
 Additions:
 
 - `DrawParameters::alpha_to_coverage`, `sample_shading` (`glMinSampleShading`) and `sample_mask`
