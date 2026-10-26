@@ -311,7 +311,7 @@ impl Alloc {
     }
 
     /// Makes sure that the buffer is bound to the `GL_QUERY_BUFFER` and calls
-    /// `glMemoryBarrier(GL_PIXEL_BUFFER_BARRIER_BIT)` if necessary.
+    /// `glMemoryBarrier(GL_QUERY_BUFFER_BARRIER_BIT)` if necessary.
     #[cfg(feature = "gl46")]
     pub fn prepare_and_bind_for_query(&self, ctxt: &mut CommandContext<'_>) {
         assert!(
@@ -323,7 +323,7 @@ impl Alloc {
         self.assert_unmapped(ctxt);
         self.assert_not_transform_feedback(ctxt);
 
-        if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_pixel_buffer {
+        if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_query_buffer {
             unsafe {
                 ctxt.glow.memory_barrier(glow::QUERY_BUFFER_BARRIER_BIT);
             }

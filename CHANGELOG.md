@@ -217,6 +217,9 @@ Fixes:
   whatever their `layout(binding = N)`.
 - Faces that are counter-clockwise on the target used the stencil write mask of the clockwise
   faces when the two masks differ.
+- Writing a query result into a buffer that a shader wrote to issues
+  `glMemoryBarrier(GL_QUERY_BUFFER_BARRIER_BIT)` according to the previous query-buffer barrier,
+  instead of the previous pixel-buffer barrier, which skipped or repeated it.
 
 ## [0.2.0]
 
