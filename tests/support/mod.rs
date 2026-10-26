@@ -176,6 +176,11 @@ pub fn build_display() -> WindowDisplay {
 ///
 /// In real applications this is used for things such as switching to fullscreen. Some things are
 /// invalidated during a rebuild, and this has to be handled by SafeGL.
+/// Returns true if the display uses OpenGL ES, for the few tests of features it doesn't have.
+pub fn is_gles(display: &safegl::Display<WindowSurface>) -> bool {
+    display.get_opengl_version().0 == safegl::Api::GlEs
+}
+
 pub fn rebuild_display(_display: &safegl::Display<WindowSurface>) {
     todo!();
     /*
