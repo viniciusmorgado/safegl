@@ -26,6 +26,10 @@ pub struct Blend {
 
 impl Blend {
     /// Returns a blend effect to add transparent objects over others.
+    ///
+    /// The colors are blended with `source × source alpha + destination × (1 - source alpha)`,
+    /// and the alphas with `source + destination × (1 - source alpha)`, so that the alpha of the
+    /// target is the coverage of everything drawn over it.
     pub fn alpha_blending() -> Blend {
         Blend {
             color: BlendingFunction::Addition {
@@ -33,7 +37,7 @@ impl Blend {
                 destination: LinearBlendingFactor::OneMinusSourceAlpha,
             },
             alpha: BlendingFunction::Addition {
-                source: LinearBlendingFactor::SourceAlpha,
+                source: LinearBlendingFactor::One,
                 destination: LinearBlendingFactor::OneMinusSourceAlpha,
             },
             constant_value: (0.0, 0.0, 0.0, 0.0),
