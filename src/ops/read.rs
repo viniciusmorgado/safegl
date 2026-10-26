@@ -265,15 +265,26 @@ where
         TextureKind::Float | TextureKind::Integral | TextureKind::Unsigned => ReadSourceType::Color,
     };
 
+    // the format read from OpenGL, when it isn't the output format: the pixels are then converted
+    let mut read_format = None;
+
     // OpenGL ES doesn't support reading from depth, stencil or depth-stencil attachments by default
     if ctxt.version.0 == Api::GlEs {
         match read_src_type {
             // OpenGL supports every output format, while OpenGL ES only supports one per kind of
             // attachment, plus an implementation-defined format queried with
-            // GL_IMPLEMENTATION_COLOR_READ_FORMAT that we don't handle
+            // GL_IMPLEMENTATION_COLOR_READ_FORMAT: the guaranteed one is read and converted
             ReadSourceType::Color => {
-                if output_pixel_format != es_read_format(&source) {
-                    return Err(ReadError::OutputFormatNotSupported);
+                let es_format = es_read_format(&source);
+                if output_pixel_format != es_format {
+                    // integers are only converted to integers
+                    if integer && component_type(output_pixel_format) == Some(Component::F32) {
+                        return Err(ReadError::OutputFormatNotSupported);
+                    }
+                    if component_type(output_pixel_format).is_none() {
+                        return Err(ReadError::OutputFormatNotSupported);
+                    }
+                    read_format = Some(es_format);
                 }
             }
             ReadSourceType::Depth => {
@@ -295,7 +306,9 @@ where
     }
     // obtaining the client format and client type to be passed to `glReadPixels`
     let (format, gltype) = match read_src_type {
-        ReadSourceType::Color => client_format_to_gl_enum(&output_pixel_format, integer),
+        ReadSourceType::Color => {
+            client_format_to_gl_enum(&read_format.unwrap_or(output_pixel_format), integer)
+        }
         ReadSourceType::Depth => match output_pixel_format {
             ClientFormat::F32 => (gl::DEPTH_COMPONENT, gl::FLOAT),
             ClientFormat::U16 => (gl::DEPTH_COMPONENT, gl::UNSIGNED_SHORT),
@@ -312,6 +325,57 @@ where
             _ => return Err(ReadError::OutputFormatNotSupported),
         },
     };
+
+    // reading in another format, and converting
+    if let Some(read_format) = read_format {
+        let pixels = pixels_to_read as usize;
+        let mut bytes = vec![0u8; pixels * read_format.get_size()];
+        unsafe {
+            BufferAny::unbind_pixel_unpack(ctxt);
+            BufferAny::unbind_pixel_pack(ctxt);
+            set_pack_alignment(ctxt, rect.width as usize * read_format.get_size());
+            ctxt.glow.read_pixels(
+                rect.left as gl::types::GLint,
+                rect.bottom as gl::types::GLint,
+                rect.width as gl::types::GLsizei,
+                rect.height as gl::types::GLsizei,
+                format,
+                gltype,
+                glow::PixelPackData::Slice(Some(&mut bytes)),
+            );
+        }
+        let converted = convert_pixels(&bytes, read_format, output_pixel_format);
+        debug_assert_eq!(converted.len(), pixels * mem::size_of::<T>());
+
+        match dest {
+            Destination::Memory(dest) => {
+                let mut buf: Vec<T> = Vec::with_capacity(pixels);
+                unsafe {
+                    // every bit pattern is a valid pixel
+                    std::ptr::copy_nonoverlapping(
+                        converted.as_ptr(),
+                        buf.as_mut_ptr() as *mut u8,
+                        converted.len(),
+                    );
+                    buf.set_len(pixels);
+                }
+                *dest = buf;
+            }
+            Destination::PixelBuffer(pixel_buffer) => {
+                if pixel_buffer.len() < pixels {
+                    return Err(ReadError::BufferTooSmall);
+                }
+                unsafe {
+                    pixel_buffer.prepare_and_bind_for_pixel_unpack(ctxt);
+                    ctxt.glow
+                        .buffer_sub_data_u8_slice(glow::PIXEL_UNPACK_BUFFER, 0, &converted);
+                }
+                crate::pixel_buffer::store_infos(pixel_buffer, (rect.width, rect.height));
+            }
+        }
+
+        return Ok(());
+    }
 
     // reading
     unsafe {
@@ -345,7 +409,9 @@ where
             }
 
             Destination::PixelBuffer(pixel_buffer) => {
-                assert!(pixel_buffer.len() >= pixels_to_read as usize);
+                if pixel_buffer.len() < pixels_to_read as usize {
+                    return Err(ReadError::BufferTooSmall);
+                }
 
                 pixel_buffer.prepare_and_bind_for_pixel_pack(&mut ctxt);
                 set_pack_alignment(ctxt, rect.width as usize * mem::size_of::<T>());
@@ -441,4 +507,100 @@ fn client_format_to_gl_enum(
     };
 
     (format, ty)
+}
+
+/// The type of the components of a client format.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum Component {
+    U8,
+    I8,
+    U16,
+    I16,
+    U32,
+    I32,
+    F32,
+}
+
+/// Returns the type of the components of a format whose components are all of the same type.
+fn component_type(format: ClientFormat) -> Option<Component> {
+    use ClientFormat::*;
+    Some(match format {
+        U8 | U8U8 | U8U8U8 | U8U8U8U8 => Component::U8,
+        I8 | I8I8 | I8I8I8 | I8I8I8I8 => Component::I8,
+        U16 | U16U16 | U16U16U16 | U16U16U16U16 => Component::U16,
+        I16 | I16I16 | I16I16I16 | I16I16I16I16 => Component::I16,
+        U32 | U32U32 | U32U32U32 | U32U32U32U32 => Component::U32,
+        I32 | I32I32 | I32I32I32 | I32I32I32I32 => Component::I32,
+        F32 | F32F32 | F32F32F32 | F32F32F32F32 => Component::F32,
+        _ => return None,
+    })
+}
+
+/// Converts pixels read in one of the formats that OpenGL ES guarantees (`U8U8U8U8`,
+/// `F32F32F32F32`, `I32I32I32I32` or `U32U32U32U32`) to `output`, as `glReadPixels` would have.
+///
+/// Normalized values become floats between 0 and 1 (or -1 and 1), floats are clamped to the range
+/// of the normalized output type, and integers are saturated.
+fn convert_pixels(bytes: &[u8], read: ClientFormat, output: ClientFormat) -> Vec<u8> {
+    let read_type = component_type(read).unwrap();
+    let output_type = component_type(output).unwrap();
+    let components = output.get_num_components() as usize;
+
+    // the four components of each pixel, as floats for normalized and float formats
+    let read_size = read.get_size() / 4;
+    let pixels = bytes.len() / read.get_size();
+    let mut out = Vec::with_capacity(pixels * output.get_size());
+    for pixel in bytes.chunks_exact(read.get_size()) {
+        for component in pixel.chunks_exact(read_size).take(components) {
+            enum Value {
+                Float(f64),
+                Integer(i64),
+            }
+            let value = match read_type {
+                Component::U8 => Value::Float(component[0] as f64 / 255.0),
+                Component::F32 => {
+                    Value::Float(f32::from_ne_bytes(component.try_into().unwrap()) as f64)
+                }
+                Component::I32 => {
+                    Value::Integer(i32::from_ne_bytes(component.try_into().unwrap()) as i64)
+                }
+                Component::U32 => {
+                    Value::Integer(u32::from_ne_bytes(component.try_into().unwrap()) as i64)
+                }
+                _ => unreachable!(),
+            };
+
+            macro_rules! normalized {
+                ($ty:ty, $min:expr) => {{
+                    let float = match value {
+                        Value::Float(float) => float.clamp($min, 1.0),
+                        Value::Integer(integer) => {
+                            out.extend_from_slice(
+                                &(integer.clamp(<$ty>::MIN as i64, <$ty>::MAX as i64) as $ty)
+                                    .to_ne_bytes(),
+                            );
+                            continue;
+                        }
+                    };
+                    out.extend_from_slice(&((float * <$ty>::MAX as f64).round() as $ty).to_ne_bytes());
+                }};
+            }
+            match output_type {
+                Component::U8 => normalized!(u8, 0.0),
+                Component::I8 => normalized!(i8, -1.0),
+                Component::U16 => normalized!(u16, 0.0),
+                Component::I16 => normalized!(i16, -1.0),
+                Component::U32 => normalized!(u32, 0.0),
+                Component::I32 => normalized!(i32, -1.0),
+                Component::F32 => {
+                    let float = match value {
+                        Value::Float(float) => float,
+                        Value::Integer(integer) => integer as f64,
+                    };
+                    out.extend_from_slice(&(float as f32).to_ne_bytes());
+                }
+            }
+        }
+    }
+    out
 }

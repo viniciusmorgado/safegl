@@ -288,7 +288,9 @@ where
     let (is_client_compressed, data_bufsize) = match data {
         Some((client_format, _)) => (
             client_format.is_compressed(),
-            client_format.get_buffer_size(width, height, depth, array_size),
+            client_format
+                .get_buffer_size(width, height, depth, array_size)
+                .ok_or(TextureCreationError::FormatNotSupported)?,
         ),
         None => (false, 0),
     };
@@ -1645,7 +1647,9 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
 
         let (is_client_compressed, data_bufsize) = (
             format.is_compressed(),
-            format.get_buffer_size(width, height, depth, None),
+            format
+                .get_buffer_size(width, height, depth, None)
+                .ok_or(UploadError::FormatNotSupported)?,
         );
         let regen_mipmaps = regen_mipmaps
             && self.texture.levels >= 2
@@ -2036,8 +2040,9 @@ impl<'a> TextureAnyImage<'a> {
         .map_err(|_| UploadError::FormatNotSupported)?;
 
         let data_size = data.len() * mem::size_of::<D::Data>();
-        let expected =
-            ClientFormatAny::ClientFormat(format).get_buffer_size(width, Some(height), None, None);
+        let expected = ClientFormatAny::ClientFormat(format)
+            .get_buffer_size(width, Some(height), None, None)
+            .ok_or(UploadError::FormatNotSupported)?;
         if data_size != expected {
             return Err(UploadError::DataSizeMismatch {
                 expected,

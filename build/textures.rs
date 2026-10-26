@@ -1224,7 +1224,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                 /// Returns `ReadError::ContextLost` if the context has been lost.
                 #[inline]
                 pub fn read<T>(&self) -> Result<T, ReadError> where T: Texture2dDataSink<(u8, u8, u8, u8)> {{
-                    unsafe {{ self.unchecked_read() }}
+                    self.read_as()
                 }}
             "#
         ))
@@ -1242,22 +1242,26 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                 /// done asynchronously and doesn't need a synchronization.
                 #[inline]
                 pub fn read_to_pixel_buffer(&self) -> Result<PixelBuffer<(u8, u8, u8, u8)>, ReadError> {{
-                    unsafe {{ self.unchecked_read_to_pixel_buffer() }}
+                    self.read_to_pixel_buffer_as()
                 }}
             "#
         ))
         .unwrap();
 
         (write!(dest, r#"
-                /// Unsafely reads the content of the texture to RAM in the specified pixel format.
-                /// It is possible that the current OpenGL context does not support the given
-                /// format, in which case the returned data will be invalid.
+                /// Reads the content of the texture to RAM in the pixel format `P`, for example
+                /// `(f32, f32, f32, f32)` to read the values of a floating-point texture exactly.
                 ///
                 /// You should avoid doing this at all cost during performance-critical
                 /// operations (for example, while you're drawing).
-                /// Use `read_to_pixel_buffer` instead.
+                /// Use `read_to_pixel_buffer_as` instead.
+                ///
+                /// On OpenGL ES, which can only read one pixel format for each kind of texture,
+                /// the pixels are converted on the CPU. Returns
+                /// `ReadError::OutputFormatNotSupported` if `P` can't hold the values of the
+                /// texture, like floats for an integral texture on OpenGL ES.
                 #[inline]
-                pub unsafe fn unchecked_read<T, P>(&self) -> Result<T, ReadError> where T: Texture2dDataSink<P>, P: PixelValue {{
+                pub fn read_as<T, P>(&self) -> Result<T, ReadError> where T: Texture2dDataSink<P>, P: PixelValue {{
                     let rect = Rect {{ left: 0, bottom: 0, width: self.get_width(),
                                        height: self.get_height().unwrap_or(1) }};
                     self.0.main_level().first_layer().into_image(None).unwrap().raw_read(&rect)
@@ -1265,15 +1269,16 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
             "#)).unwrap();
 
         (write!(dest, r#"
-                /// Unsafely reads the content of the texture into a buffer in video memory. It is
-                /// possible that the current OpenGL context does not support the given format, in
-                /// which case the returned data will be invalid.
+                /// Reads the content of the texture into a buffer in video memory, in the pixel
+                /// format `P`.
                 ///
                 /// This operation copies the texture's data into a buffer in video memory
                 /// (a pixel buffer). Contrary to the `read` function, this operation is
-                /// done asynchronously and doesn't need a synchronization.
+                /// done asynchronously and doesn't need a synchronization, except on OpenGL ES
+                /// when `P` isn't the format that it reads: the pixels are then converted on the
+                /// CPU.
                 #[inline]
-                pub unsafe fn unchecked_read_to_pixel_buffer<P>(&self) -> Result<PixelBuffer<P>, ReadError> where P: PixelValue {{
+                pub fn read_to_pixel_buffer_as<P>(&self) -> Result<PixelBuffer<P>, ReadError> where P: PixelValue {{
                     let rect = Rect {{ left: 0, bottom: 0, width: self.get_width(),
                                        height: self.get_height().unwrap_or(1) }};
                     let pb = PixelBuffer::new_empty(self.0.get_context(),

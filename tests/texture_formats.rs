@@ -92,7 +92,7 @@ fn unsigned_texture_from_bytes() {
 
     // OpenGL ES only accepts bytes for an 8-bit integer format
     let texture = UnsignedTexture2d::new(&display, vec![vec![(1u8, 2u8, 3u8, 4u8); 2]; 2]).unwrap();
-    let data: Vec<Vec<(u32, u32, u32, u32)>> = unsafe { texture.unchecked_read().unwrap() };
+    let data: Vec<Vec<(u32, u32, u32, u32)>> = texture.read_as().unwrap();
     assert_eq!(data[0][0], (1, 2, 3, 4));
 
     display.assert_no_error(None);

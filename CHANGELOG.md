@@ -96,6 +96,10 @@ Breaking changes:
   returns `DrawError::TessellationWithoutPatches`, instead of raising `GL_INVALID_OPERATION`: the
   checks were disabled. Drawing to a `MultiOutputFrameBuffer` whose program has no output for one
   of its attachments returns `DrawError::FragmentOutputMissing` instead of panicking.
+- The unsafe `unchecked_read` and `unchecked_read_to_pixel_buffer` of textures are replaced by the
+  safe `read_as` and `read_to_pixel_buffer_as`: an unsupported pixel format returns
+  `ReadError::OutputFormatNotSupported` instead of invalid data. Read floating-point textures
+  exactly with `read_as::<_, (f32, f32, f32, f32)>()` (glium#1502).
 - There can only be one `Frame` of a context at a time (glium#1005): `Frame::new` returns
   `Result<Frame, FrameError>`, `draw()` panics with a message while the previous frame isn't
   finished, and the new `try_draw()` returns `FrameError::AlreadyDrawing` instead. A second frame
@@ -167,6 +171,15 @@ Fixes:
 - On desktop OpenGL, the fragment outputs that have no `layout(location = N)` get locations in
   their declaration order, so that the first one is written to targets with a single color buffer
   on every driver instead of one chosen by the linker (glium#285).
+- Reading a texture on OpenGL ES in another pixel format than the one it guarantees for the kind
+  of texture, like the `(u8, u8, u8, u8)` of `read()` for a floating-point texture, converts the
+  pixels on the CPU instead of failing (glium#1502).
+- Compressed data whose width or height isn't a multiple of 4 is sized by whole 4x4 blocks
+  instead of panicking (glium#410), and compressed data for one-dimensional or three-dimensional
+  textures returns `FormatNotSupported` instead of panicking. `ClientFormatAny::get_num_components`
+  works for compressed formats instead of panicking.
+- Reading a texture into a pixel buffer that is too small returns `ReadError::BufferTooSmall`
+  instead of panicking.
 - Blits check the rules that made OpenGL raise `GL_INVALID_OPERATION` and copy nothing
   (glium#653, glium#1748): they return `BlitError::ScaledMultisample`, `SampleCountMismatch`,
   `MultisampleTarget` (OpenGL ES), `FormatMismatch`, `LinearFilterOnIntegers` or

@@ -124,14 +124,14 @@ fn write_and_clear_unsigned_texture() {
     .unwrap();
 
     texture.write(rect(0, 0, 1, 1), vec![vec![(1u8, 2u8, 3u8, 4u8)]]).unwrap();
-    let data: Vec<Vec<(u32, u32, u32, u32)>> = unsafe { texture.unchecked_read().unwrap() };
+    let data: Vec<Vec<(u32, u32, u32, u32)>> = texture.read_as().unwrap();
     assert_eq!(data[0][0], (1, 2, 3, 4));
 
     // `glClearColor` doesn't apply to integer color buffers
     SimpleFrameBuffer::new(&display, &texture)
         .unwrap()
         .clear_color(5.0, 6.0, 7.0, 8.0);
-    let data: Vec<Vec<(u32, u32, u32, u32)>> = unsafe { texture.unchecked_read().unwrap() };
+    let data: Vec<Vec<(u32, u32, u32, u32)>> = texture.read_as().unwrap();
     assert_eq!(data[1][1], (5, 6, 7, 8));
     display.assert_no_error(None);
 }

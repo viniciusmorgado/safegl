@@ -718,3 +718,70 @@ fn upload_from_pixel_buffer_inverted() {
 
     display.assert_no_error(None);
 }
+
+#[test]
+fn compressed_texture_with_partial_blocks() {
+    use safegl::texture::{CompressedFormat, CompressedMipmapsOption, CompressedTexture2d};
+
+    let display = support::build_display();
+
+    // a 6x6 image takes 2x2 blocks of 8 bytes in DXT1, the blocks at the edges being partial
+    let data = vec![0u8; 2 * 2 * 8];
+    let texture = CompressedTexture2d::with_compressed_data(
+        &display,
+        &data,
+        6,
+        6,
+        CompressedFormat::S3tcDxt1NoAlpha,
+        CompressedMipmapsOption::NoMipmap,
+    );
+    match texture {
+        Ok(texture) => assert_eq!(texture.get_width(), 6),
+        // without S3TC
+        Err(safegl::texture::TextureCreationError::FormatNotSupported) => (),
+        Err(e) => panic!("{:?}", e),
+    }
+
+    // data whose size doesn't fit the blocks is an error, not a panic
+    let result = CompressedTexture2d::with_compressed_data(
+        &display,
+        &data[..10],
+        6,
+        6,
+        CompressedFormat::S3tcDxt1NoAlpha,
+        CompressedMipmapsOption::NoMipmap,
+    );
+    assert!(result.is_err());
+
+    display.assert_no_error(None);
+}
+
+#[test]
+fn data_of_the_wrong_size() {
+    let display = support::build_display();
+
+    // RGB bytes given as RGBA
+    let image = safegl::texture::RawImage2d::from_raw_rgba(vec![0u8; 3 * 4 * 4], (4, 4));
+    assert!(matches!(
+        safegl::Texture2d::new(&display, image),
+        Err(safegl::texture::TextureCreationError::DataSizeMismatch)
+    ));
+
+    let texture = safegl::Texture2d::empty(&display, 4, 4).unwrap();
+    let image = safegl::texture::RawImage2d::from_raw_rgba(vec![0u8; 3 * 4 * 4], (4, 4));
+    let result = texture.write(
+        safegl::Rect {
+            left: 0,
+            bottom: 0,
+            width: 4,
+            height: 4,
+        },
+        image,
+    );
+    assert!(matches!(
+        result,
+        Err(safegl::texture::UploadError::DataSizeMismatch { expected: 64, obtained: 48 })
+    ));
+
+    display.assert_no_error(None);
+}
