@@ -1457,7 +1457,7 @@ impl fmt::Display for DrawError {
             UniformTypeMismatch {
                 ref name,
                 ref expected,
-            } => write!(fmt, "{}, got: {:?}, expected: {:?}", desc, name, expected,),
+            } => write!(fmt, "{}: `{}` is a {:?}", desc, name, expected),
             UniformBufferToValue { name } => write!(fmt, "{}: {}", desc, name,),
             UniformValueToBlock { name } => write!(fmt, "{}: {}", desc, name,),
             BufferBindingOutOfRange { name } => write!(fmt, "{}: {}", desc, name,),
