@@ -36,7 +36,14 @@ use safegl::winit::platform::windows::EventLoopBuilderExtWindows;
 #[cfg(unix)]
 use safegl::winit::platform::x11::EventLoopBuilderExtX11;
 
-type DisplayRequest = Sender<(Window, NotCurrentContext, Surface<WindowSurface>)>;
+/// What the event loop thread creates for the tests.
+#[derive(Debug)]
+enum DisplayRequest {
+    /// A hidden window, with a context and a surface for it.
+    Display(Sender<(Window, NotCurrentContext, Surface<WindowSurface>)>),
+    /// A hidden window, with a surface and the configuration of the contexts that can use it.
+    Window(Sender<(Window, glutin::config::Config, Surface<WindowSurface>)>),
+}
 
 struct Tests {}
 
@@ -52,6 +59,26 @@ impl ApplicationHandler<DisplayRequest> for Tests {
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, request: DisplayRequest) {
+        let (window, gl_config, surface) = create_window(event_loop);
+        match request {
+            DisplayRequest::Display(sender) => {
+                let raw_window_handle = window.window_handle().unwrap().as_raw();
+                let context = create_context(&gl_config, raw_window_handle, None, parse_version())
+                    .expect("failed to create context");
+                sender.send((window, context, surface)).unwrap();
+            }
+            DisplayRequest::Window(sender) => {
+                sender.send((window, gl_config, surface)).unwrap();
+            }
+        }
+    }
+}
+
+/// Creates a hidden window, its surface, and the configuration of the contexts that can use it.
+fn create_window(
+    event_loop: &ActiveEventLoop,
+) -> (Window, glutin::config::Config, Surface<WindowSurface>) {
+    {
         let window_attributes = Window::default_attributes().with_visible(false);
         let config_template_builder = ConfigTemplateBuilder::new();
         let (window, gl_config) = DisplayBuilder::new()
@@ -64,24 +91,6 @@ impl ApplicationHandler<DisplayRequest> for Tests {
             .unwrap();
         let window = window.unwrap();
         let raw_window_handle = window.window_handle().unwrap().as_raw();
-
-        // Then the configuration which decides which OpenGL version we'll end up using. Unless
-        // SAFEGL_GL_VERSION is set, we try the context versions of SafeGL's tier in order, because
-        // glutin's default (3.3 core) is below SafeGL's minimum.
-        let not_current_gl_context = parse_version()
-            .into_iter()
-            .find_map(|version| {
-                let context_attributes = ContextAttributesBuilder::new()
-                    .with_context_api(version)
-                    .build(Some(raw_window_handle));
-                unsafe {
-                    gl_config
-                        .display()
-                        .create_context(&gl_config, &context_attributes)
-                        .ok()
-                }
-            })
-            .expect("failed to create context");
 
         let attrs = SurfaceAttributesBuilder::<WindowSurface>::new().build(
             raw_window_handle,
@@ -96,10 +105,31 @@ impl ApplicationHandler<DisplayRequest> for Tests {
                 .unwrap()
         };
 
-        request
-            .send((window, not_current_gl_context, surface))
-            .unwrap();
+        (window, gl_config, surface)
     }
+}
+
+/// Creates a context for the windows of `gl_config`, of the first of `apis` that works, which
+/// shares its objects with `shared`.
+fn create_context(
+    gl_config: &glutin::config::Config,
+    raw_window_handle: raw_window_handle::RawWindowHandle,
+    shared: Option<&glutin::context::PossiblyCurrentContext>,
+    apis: Vec<glutin::context::ContextApi>,
+) -> Option<NotCurrentContext> {
+    apis.into_iter().find_map(|version| {
+        let mut context_attributes = ContextAttributesBuilder::new().with_context_api(version);
+        if let Some(shared) = shared {
+            context_attributes = context_attributes.with_sharing(shared);
+        }
+        let context_attributes = context_attributes.build(Some(raw_window_handle));
+        unsafe {
+            gl_config
+                .display()
+                .create_context(gl_config, &context_attributes)
+                .ok()
+        }
+    })
 }
 
 pub struct WindowDisplay {
@@ -126,8 +156,8 @@ pub fn build_display() -> WindowDisplay {
     build_display_with_debug(Default::default())
 }
 
-/// Builds a display for tests, with the given debug callback.
-pub fn build_display_with_debug(debug: safegl::debug::DebugCallbackBehavior) -> WindowDisplay {
+/// Returns a proxy of the event loop, which runs on its own thread, started on the first call.
+fn event_loop_proxy() -> EventLoopProxy<DisplayRequest> {
     static EVENT_LOOP_PROXY: RwLock<Option<EventLoopProxy<DisplayRequest>>> = RwLock::new(None);
     static INIT_EVENT_LOOP: Once = Once::new();
 
@@ -155,15 +185,16 @@ pub fn build_display_with_debug(debug: safegl::debug::DebugCallbackBehavior) -> 
         *EVENT_LOOP_PROXY.write().unwrap() = Some(receiver.recv().unwrap());
     });
 
+    EVENT_LOOP_PROXY.read().unwrap().as_ref().unwrap().clone()
+}
+
+/// Builds a display for tests, with the given debug callback.
+pub fn build_display_with_debug(debug: safegl::debug::DebugCallbackBehavior) -> WindowDisplay {
     let (sender, receiver) = std::sync::mpsc::channel();
 
     // Request event loop create display building pieces and send them back
-    EVENT_LOOP_PROXY
-        .read()
-        .unwrap()
-        .as_ref()
-        .unwrap()
-        .send_event(sender)
+    event_loop_proxy()
+        .send_event(DisplayRequest::Display(sender))
         .unwrap();
 
     // Block until required display building pieces are received
@@ -178,26 +209,48 @@ pub fn build_display_with_debug(debug: safegl::debug::DebugCallbackBehavior) -> 
     }
 }
 
-/// Rebuilds an existing display.
-///
-/// In real applications this is used for things such as switching to fullscreen. Some things are
-/// invalidated during a rebuild, and this has to be handled by SafeGL.
 /// Returns true if the display uses OpenGL ES, for the few tests of features it doesn't have.
 pub fn is_gles(display: &safegl::Display<WindowSurface>) -> bool {
     display.get_opengl_version().0 == safegl::Api::GlEs
 }
 
-pub fn rebuild_display(_display: &safegl::Display<WindowSurface>) {
-    todo!();
-    /*
-    let version = parse_version();
-    let event_loop = safegl::winit::event_loop::EventLoop::new();
-    let wb = safegl::winit::window::WindowBuilder::new().with_visible(false);
-    let cb = glutin::ContextBuilder::new()
-        .with_gl_debug_flag(true)
-        .with_gl(version);
-    display.rebuild(wb, cb, &event_loop).unwrap();
-     */
+/// Moves an existing display to a new window, with a new context that shares its objects.
+///
+/// In real applications this is used for things such as switching to fullscreen. Some things are
+/// invalidated during a rebuild, and this has to be handled by SafeGL.
+pub fn rebuild_display(display: &mut WindowDisplay) {
+    try_rebuild_display(display, parse_version())
+        .expect("failed to create context")
+        .unwrap();
+}
+
+/// Same as `rebuild_display`, with a context of the first of `apis` that the driver creates.
+/// Returns `None` if it creates none, otherwise the result of `Display::rebuild`.
+pub fn try_rebuild_display(
+    display: &mut WindowDisplay,
+    apis: Vec<glutin::context::ContextApi>,
+) -> Option<Result<(), safegl::IncompatibleOpenGl>> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    event_loop_proxy()
+        .send_event(DisplayRequest::Window(sender))
+        .unwrap();
+    let (window, gl_config, surface) = receiver.recv().unwrap();
+
+    let raw_window_handle = window.window_handle().unwrap().as_raw();
+    let context = create_context(
+        &gl_config,
+        raw_window_handle,
+        Some(&display.display.gl_context()),
+        apis,
+    )?;
+    let context = context.make_current(&surface).unwrap();
+    let result = unsafe { display.display.rebuild(context, surface) };
+
+    // the old window is closed once the display stopped using it
+    if result.is_ok() {
+        display.window = window;
+    }
+    Some(result)
 }
 
 /// The display API to try first: EGL with `SAFEGL_GL_DISPLAY=egl`, otherwise the one of the

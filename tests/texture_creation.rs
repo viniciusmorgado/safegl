@@ -595,7 +595,7 @@ fn zero_sized_texture_3d_creation() {
 #[cfg(feature = "gl46")]
 #[test]
 fn bindless_texture_residency_context_rebuild() {
-    let display = support::build_display();
+    let mut display = support::build_display();
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
     let texture = safegl::texture::Texture2d::new(
@@ -614,7 +614,7 @@ fn bindless_texture_residency_context_rebuild() {
 
     // here is the trick: we rebuild the display, meaning that texture residency has to be updated
     // by SafeGL
-    support::rebuild_display(&display);
+    support::rebuild_display(&mut display);
 
     // if bindless textures are supported, we can call .unwrap() and expect that everything
     // else is supported here as well
@@ -622,9 +622,9 @@ fn bindless_texture_residency_context_rebuild() {
     let program = safegl::Program::from_source(
         &display,
         "
-            #version 100
+            #version 400
 
-            attribute lowp vec2 position;
+            in vec2 position;
 
             void main() {
                 gl_Position = vec4(position, 0.0, 1.0);
