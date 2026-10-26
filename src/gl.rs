@@ -147,7 +147,12 @@ extra_functions! {
     fn BeginConditionalRenderNV(id: GLuint, mode: GLenum) -> ();
     fn ClampColor(target: GLenum, clamp: GLenum) -> ();
     fn ClientWaitSync(sync: GLsync, flags: GLbitfield, timeout: GLuint64) -> GLenum;
+    fn ClearTexImage(texture: GLuint, level: GLint, format: GLenum, type_: GLenum, data: *const c_void) -> ();
+    fn ClearTexSubImage(texture: GLuint, level: GLint, xoffset: GLint, yoffset: GLint, zoffset: GLint, width: GLsizei, height: GLsizei, depth: GLsizei, format: GLenum, type_: GLenum, data: *const c_void) -> ();
+    fn ClearTexImageEXT(texture: GLuint, level: GLint, format: GLenum, type_: GLenum, data: *const c_void) -> ();
+    fn ClearTexSubImageEXT(texture: GLuint, level: GLint, xoffset: GLint, yoffset: GLint, zoffset: GLint, width: GLsizei, height: GLsizei, depth: GLsizei, format: GLenum, type_: GLenum, data: *const c_void) -> ();
     fn ClipControl(origin: GLenum, depth: GLenum) -> ();
+    fn CopyImageSubData(srcName: GLuint, srcTarget: GLenum, srcLevel: GLint, srcX: GLint, srcY: GLint, srcZ: GLint, dstName: GLuint, dstTarget: GLenum, dstLevel: GLint, dstX: GLint, dstY: GLint, dstZ: GLint, srcWidth: GLsizei, srcHeight: GLsizei, srcDepth: GLsizei) -> ();
     fn CompressedTexSubImage1D(target: GLenum, level: GLint, xoffset: GLint, width: GLsizei, format: GLenum, imageSize: GLsizei, data: *const c_void) -> ();
     fn DebugMessageCallback(callback: GLDEBUGPROC, userParam: *const c_void) -> ();
     fn DebugMessageCallbackARB(callback: GLDEBUGPROCARB, userParam: *const c_void) -> ();
@@ -205,6 +210,8 @@ extra_functions! {
     fn TexImage3DMultisample(target: GLenum, samples: GLsizei, internalformat: GLenum, width: GLsizei, height: GLsizei, depth: GLsizei, fixedsamplelocations: GLboolean) -> ();
     fn TexStorage3DMultisample(target: GLenum, samples: GLsizei, internalformat: GLenum, width: GLsizei, height: GLsizei, depth: GLsizei, fixedsamplelocations: GLboolean) -> ();
     fn TexSubImage1D(target: GLenum, level: GLint, xoffset: GLint, width: GLsizei, format: GLenum, type_: GLenum, pixels: *const c_void) -> ();
+    fn TextureBarrier() -> ();
+    fn TextureBarrierNV() -> ();
     fn Uniform1d(location: GLint, x: GLdouble) -> ();
     fn Uniform1i64ARB(location: GLint, x: GLint64) -> ();
     fn Uniform1ui64ARB(location: GLint, x: GLuint64) -> ();

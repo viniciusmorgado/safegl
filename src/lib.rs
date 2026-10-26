@@ -433,6 +433,9 @@ enum TextureAccess {
     ImageUnit { will_write: bool },
     /// Texture being used as a framebuffer object
     Framebuffer,
+    /// Texture being cleared or copied with `glClearTexImage` or `glCopyImageSubData`
+    #[cfg(feature = "gl46")]
+    Update,
 }
 
 /// Internal trait for textures.

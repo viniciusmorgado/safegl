@@ -1028,6 +1028,18 @@ impl TextureExt for TextureAny {
                     ctxt.state.latest_memory_barrier_framebuffer = ctxt.state.next_draw_call_id;
                 }
             }
+            #[cfg(feature = "gl46")]
+            crate::TextureAccess::Update => {
+                if self.latest_shader_write.get()
+                    >= ctxt.state.latest_memory_barrier_texture_update
+                {
+                    unsafe {
+                        ctxt.glow.memory_barrier(glow::TEXTURE_UPDATE_BARRIER_BIT);
+                    }
+                    ctxt.state.latest_memory_barrier_texture_update =
+                        ctxt.state.next_draw_call_id;
+                }
+            }
         }
     }
 }
