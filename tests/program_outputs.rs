@@ -4,7 +4,7 @@
 #[macro_use]
 extern crate safegl;
 
-use safegl::framebuffer::SimpleFrameBuffer;
+use safegl::framebuffer::{MultiOutputFrameBuffer, SimpleFrameBuffer};
 use safegl::Surface;
 
 mod support;
@@ -57,6 +57,37 @@ fn explicit_locations_are_kept() {
     .unwrap();
     assert_eq!(program.get_frag_data_location("second"), Some(0));
     assert_eq!(program.get_frag_data_location("first"), Some(1));
+
+    display.assert_no_error(None);
+}
+
+#[test]
+fn missing_output_of_multi_output_framebuffer() {
+    let display = support::build_display();
+    let (vb, ib) = support::build_rectangle_vb_ib(&display);
+    let program = program!(&display,
+        330 => {
+            vertex: "#version 330\nin vec2 position;\nvoid main() { gl_Position = vec4(position, 0.0, 1.0); }",
+            fragment: "#version 330\nout vec4 color;\nvoid main() { color = vec4(1.0); }",
+        },
+        300 es => {
+            vertex: "#version 300 es\nin vec2 position;\nvoid main() { gl_Position = vec4(position, 0.0, 1.0); }",
+            fragment: "#version 300 es\nprecision highp float;\nout vec4 color;\nvoid main() { color = vec4(1.0); }",
+        },
+    )
+    .unwrap();
+
+    // the program has no `normal` output
+    let color = support::build_renderable_texture(&display);
+    let normal = support::build_renderable_texture(&display);
+    let mut framebuffer =
+        MultiOutputFrameBuffer::new(&display, [("color", &color), ("normal", &normal)]).unwrap();
+
+    let result = framebuffer.draw(&vb, &ib, &program, &uniform! {}, &Default::default());
+    assert!(matches!(
+        result,
+        Err(safegl::DrawError::FragmentOutputMissing { ref name }) if name == "normal"
+    ));
 
     display.assert_no_error(None);
 }

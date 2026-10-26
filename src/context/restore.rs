@@ -252,13 +252,13 @@ unsafe fn restore_fixed_function(ctxt: &mut CommandContext<'_>) {
             .PolygonOffsetClampEXT(factor, units, state.polygon_offset_clamp);
     }
 
-    if ctxt.version >= &Version(Api::Gl, 4, 0)
-        || ctxt.version >= &Version(Api::GlEs, 3, 2)
-        || ctxt.extensions.gl_arb_tessellation_shader
-        || ctxt.extensions.gl_oes_tessellation_shader
-    {
-        ctxt.glow
-            .patch_parameter_i32(gl::PATCH_VERTICES, state.patch_patch_vertices);
+    if ctxt.capabilities.max_patch_vertices.is_some() {
+        super::set_patch_vertices(
+            (ctxt.glow, ctxt.extra),
+            ctxt.version,
+            ctxt.extensions,
+            state.patch_patch_vertices,
+        );
     }
 
     let bb = state.primitive_bounding_box;

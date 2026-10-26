@@ -454,8 +454,12 @@ pub unsafe fn get_capabilities(
             }
         },
 
+        // tessellation is core in OpenGL 4.0 and OpenGL ES 3.2
         max_patch_vertices: if version >= &Version(Api::Gl, 4, 0)
+            || version >= &Version(Api::GlEs, 3, 2)
             || extensions.gl_arb_tessellation_shader
+            || extensions.gl_ext_tessellation_shader
+            || extensions.gl_oes_tessellation_shader
         {
             Some(gl.get_parameter_i32(glow::MAX_PATCH_VERTICES))
         } else {

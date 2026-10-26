@@ -177,6 +177,26 @@ pub struct CommandContext<'a> {
     marker: PhantomData<*mut u8>,
 }
 
+/// Calls `glPatchParameteri(GL_PATCH_VERTICES, ...)`, under the name of the version or the
+/// extension that has it. Tessellation must be supported.
+pub(crate) unsafe fn set_patch_vertices(
+    gl: (&glow::Context, &gl::Extra),
+    version: &Version,
+    extensions: &ExtensionsList,
+    value: gl::types::GLint,
+) {
+    if version >= &Version(Api::Gl, 4, 0)
+        || version >= &Version(Api::GlEs, 3, 2)
+        || extensions.gl_arb_tessellation_shader
+    {
+        gl.0.patch_parameter_i32(glow::PATCH_VERTICES, value);
+    } else if extensions.gl_oes_tessellation_shader {
+        gl.1.PatchParameteriOES(gl::PATCH_VERTICES, value);
+    } else {
+        gl.1.PatchParameteriEXT(gl::PATCH_VERTICES, value);
+    }
+}
+
 impl Context {
     /// Marks the start of a `Frame`. Returns false if another one is in progress.
     pub(crate) fn begin_frame(&self) -> bool {

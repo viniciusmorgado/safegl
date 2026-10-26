@@ -1327,6 +1327,17 @@ pub enum DrawError {
     /// Using a program which contains tessellation shaders, but without submitting patches.
     TessellationWithoutPatches,
 
+    /// Drawing patches with a program that has no tessellation evaluation shader.
+    PatchesWithoutTessellation,
+
+    /// The program has no active fragment output with the name of an attachment of the
+    /// `MultiOutputFrameBuffer` drawn upon. Outputs that the shader never writes are removed by
+    /// the compiler.
+    FragmentOutputMissing {
+        /// Name of the output.
+        name: String,
+    },
+
     /// The geometry shader of the program takes another kind of primitives than the ones drawn.
     GeometryShaderInputMismatch,
 
@@ -1525,6 +1536,10 @@ impl fmt::Display for DrawError {
                 "Trying to use tessellation, but this is not supported by the underlying hardware",
             TessellationWithoutPatches =>
                 "Using a program which contains tessellation shaders, but without submitting patches",
+            FragmentOutputMissing { .. } =>
+                "The program has no active fragment output with the name of an attachment",
+            PatchesWithoutTessellation =>
+                "Drawing patches with a program that has no tessellation evaluation shader",
             GeometryShaderInputMismatch =>
                 "The geometry shader of the program takes another kind of primitives than the ones drawn",
             SamplersNotSupported => "
@@ -1608,6 +1623,7 @@ impl fmt::Display for DrawError {
             ContextMismatch { object } => write!(fmt, "{}: {}", desc, object),
             DepthComparisonMismatch { name } => write!(fmt, "{}: {}", desc, name),
             UniformMissing { name } => write!(fmt, "{}: `{}`", desc, name),
+            FragmentOutputMissing { name } => write!(fmt, "{}: `{}`", desc, name),
             UniformBindingMissing { name } => write!(fmt, "{}: `{}`", desc, name),
             UniformBlockMember { name } => write!(fmt, "{}: `{}`", desc, name),
             WorkGroupCountTooLarge { requested, maximum } => write!(

@@ -208,6 +208,8 @@ extra_functions! {
     fn PointSize(size: GLfloat) -> ();
     fn PolygonOffsetClamp(factor: GLfloat, units: GLfloat, clamp: GLfloat) -> ();
     fn PolygonOffsetClampEXT(factor: GLfloat, units: GLfloat, clamp: GLfloat) -> ();
+    fn PatchParameteriEXT(pname: GLenum, value: GLint) -> ();
+    fn PatchParameteriOES(pname: GLenum, value: GLint) -> ();
     fn PrimitiveBoundingBox(minX: GLfloat, minY: GLfloat, minZ: GLfloat, minW: GLfloat, maxX: GLfloat, maxY: GLfloat, maxZ: GLfloat, maxW: GLfloat) -> ();
     fn PrimitiveBoundingBoxARB(minX: GLfloat, minY: GLfloat, minZ: GLfloat, minW: GLfloat, maxX: GLfloat, maxY: GLfloat, maxZ: GLfloat, maxW: GLfloat) -> ();
     fn PrimitiveBoundingBoxEXT(minX: GLfloat, minY: GLfloat, minZ: GLfloat, minW: GLfloat, maxX: GLfloat, maxY: GLfloat, maxZ: GLfloat, maxW: GLfloat) -> ();

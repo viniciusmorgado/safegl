@@ -57,20 +57,18 @@ where
                 return Err(DrawError::TessellationNotSupported);
             }
 
-            // TODO: programs created from binaries have the wrong value
-            // for `has_tessellation_shaders`
-            /*if !program.has_tessellation_shaders() {    // TODO:
-                panic!("Default tessellation level is not supported yet");
-            }*/
+            // patches are only drawn through a tessellation evaluation shader
+            if !program.has_tessellation_evaluation_shader() {
+                return Err(DrawError::PatchesWithoutTessellation);
+            }
 
             Some(vertices_per_patch)
         }
         _ => {
-            // TODO: programs created from binaries have the wrong value
-            // for `has_tessellation_shaders`
-            /*if program.has_tessellation_shaders() {
+            // a tessellation evaluation shader only takes patches
+            if program.has_tessellation_evaluation_shader() {
                 return Err(DrawError::TessellationWithoutPatches);
-            }*/
+            }
 
             None
         }
@@ -430,8 +428,12 @@ unsafe fn sync_vertices_per_patch(
     if let Some(vertices_per_patch) = vertices_per_patch {
         let vertices_per_patch = vertices_per_patch as gl::types::GLint;
         if ctxt.state.patch_patch_vertices != vertices_per_patch {
-            ctxt.glow
-                .patch_parameter_i32(glow::PATCH_VERTICES, vertices_per_patch);
+            context::set_patch_vertices(
+                (ctxt.glow, ctxt.extra),
+                ctxt.version,
+                ctxt.extensions,
+                vertices_per_patch,
+            );
             ctxt.state.patch_patch_vertices = vertices_per_patch;
         }
     }

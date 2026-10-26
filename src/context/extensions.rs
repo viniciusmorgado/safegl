@@ -131,6 +131,7 @@ extensions! {
     "GL_EXT_blend_minmax" => gl_ext_blend_minmax,
     "GL_EXT_buffer_storage" => gl_ext_buffer_storage,
     "GL_EXT_clear_texture" => gl_ext_clear_texture,
+    "GL_EXT_tessellation_shader" => gl_ext_tessellation_shader,
     "GL_EXT_color_buffer_float" => gl_ext_color_buffer_float,
     "GL_EXT_color_buffer_half_float" => gl_ext_color_buffer_half_float,
     "GL_EXT_debug_marker" => gl_ext_debug_marker,

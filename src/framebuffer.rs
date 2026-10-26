@@ -888,27 +888,34 @@ impl<'a> MultiOutputFrameBuffer<'a> {
         })
     }
 
-    fn build_attachments(&self, program: &Program) -> fbo::ValidatedAttachments<'_> {
+    fn build_attachments(
+        &self,
+        program: &Program,
+    ) -> Result<fbo::ValidatedAttachments<'_>, DrawError> {
         let mut colors = SmallVec::new();
 
         for &(ref name, attachment) in self.color_attachments.iter() {
-            let location = match program.get_frag_data_location(&name) {
+            let location = match program.get_frag_data_location(name) {
                 Some(l) => l,
-                None => panic!(
-                    "The fragment output `{}` was not found in the program",
-                    name
-                ),
+                None => {
+                    return Err(DrawError::FragmentOutputMissing {
+                        name: name.to_owned(),
+                    })
+                }
             };
 
             colors.push((location, attachment));
         }
 
-        fbo::FramebufferAttachments::Regular(fbo::FramebufferSpecificAttachments {
-            colors,
-            depth_stencil: self.depth_stencil_attachments,
-        })
-        .validate(&mut self.context.make_current())
-        .unwrap()
+        // the same attachments were validated when the framebuffer was created
+        Ok(
+            fbo::FramebufferAttachments::Regular(fbo::FramebufferSpecificAttachments {
+                colors,
+                depth_stencil: self.depth_stencil_attachments,
+            })
+            .validate(&mut self.context.make_current())
+            .expect("the attachments of the framebuffer were validated when it was created"),
+        )
     }
 }
 
@@ -982,7 +989,7 @@ impl<'a> Surface for MultiOutputFrameBuffer<'a> {
 
         ops::draw(
             &self.context,
-            fbo::FramebufferTarget::Attachments(&self.build_attachments(program)),
+            fbo::FramebufferTarget::Attachments(&self.build_attachments(program)?),
             vb,
             ib.into(),
             program,
