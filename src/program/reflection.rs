@@ -462,9 +462,10 @@ pub unsafe fn reflect_uniform_blocks(
                 });
 
         // now computing the list of members
-        let members = member_names.enumerate().map(|(index, name)| {
+        let block_name = name.clone();
+        let members = member_names.enumerate().map(|(index, member_name)| {
             (
-                name,
+                strip_block_prefix(&block_name, member_name),
                 member_offsets[index] as usize,
                 glenum_to_uniform_type(member_types[index] as gl::types::GLenum),
                 member_size[index] as usize,
@@ -700,6 +701,7 @@ pub unsafe fn reflect_shader_storage_blocks(
         };
 
         // iterator over variables
+        let block_name = name.clone();
         let members = active_variables.into_iter().map(|variable| {
             let (ty, array_size, offset, _array_stride, name_len, top_level_array_size) = {
                 let mut output: [gl::types::GLint; 6] = [0; 6];
@@ -747,7 +749,13 @@ pub unsafe fn reflect_shader_storage_blocks(
                 String::from_utf8(name_tmp).unwrap()
             };
 
-            (name, offset, ty, array_size, Some(top_level_array_size))
+            (
+                strip_block_prefix(&block_name, name),
+                offset,
+                ty,
+                array_size,
+                Some(top_level_array_size),
+            )
         });
 
         // finally inserting into the blocks list
@@ -763,6 +771,20 @@ pub unsafe fn reflect_shader_storage_blocks(
     }
 
     blocks
+}
+
+/// Removes the `Block.` prefix that OpenGL puts before the names of the members of a block with an
+/// instance name, like `uniform Light { vec3 position; } light;`, so that they match the fields of
+/// the Rust struct.
+fn strip_block_prefix(block_name: &str, member: String) -> String {
+    let block_name = block_name.split('[').next().unwrap_or(block_name);
+    match member
+        .strip_prefix(block_name)
+        .and_then(|rest| rest.strip_prefix('.'))
+    {
+        Some(rest) => rest.to_owned(),
+        None => member,
+    }
 }
 
 /// Takes a list of elements produced by OpenGL's introspection API and turns them into
