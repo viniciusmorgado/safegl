@@ -914,6 +914,10 @@ fn sync_clip_planes_bitmask(
     if ctxt.version.0 != Api::Gl {
         return Ok(());
     }
+    // the limit is only queried when the planes change
+    if clip_planes_bitmask == ctxt.state.enabled_clip_planes {
+        return Ok(());
+    }
     unsafe {
         let max_clip_planes: gl::types::GLint =
             ctxt.glow.get_parameter_i32(glow::MAX_CLIP_DISTANCES);
