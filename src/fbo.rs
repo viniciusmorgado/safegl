@@ -678,6 +678,14 @@ pub enum ValidationError {
         /// Number of attachments that were given.
         obtained: usize,
     },
+
+    /// OpenGL doesn't support this combination of attachments: `glCheckFramebufferStatus`
+    /// didn't return `GL_FRAMEBUFFER_COMPLETE`.
+    Incomplete {
+        /// The value that `glCheckFramebufferStatus` returned, such as
+        /// `GL_FRAMEBUFFER_UNSUPPORTED`.
+        status: u32,
+    },
 }
 
 impl fmt::Display for ValidationError {
@@ -697,12 +705,14 @@ impl fmt::Display for ValidationError {
             TooManyColorAttachments { .. } => {
                 "Backends only support a certain number of color attachments"
             }
+            Incomplete { .. } => "OpenGL doesn't support this combination of attachments",
         };
         match self {
             TooManyColorAttachments {
                 ref maximum,
                 ref obtained,
             } => write!(fmt, "{}: found {}, maximum: {}", desc, obtained, maximum),
+            Incomplete { status } => write!(fmt, "{} (status {:#06x})", desc, status),
             _ => fmt.write_str(desc),
         }
     }
@@ -1198,6 +1208,26 @@ impl FramebuffersContainer {
     ///
     /// After calling this function, you **must** make sure to call `purge_texture`
     /// and/or `purge_renderbuffer` when one of the attachment is destroyed.
+    /// Creates the framebuffer object of `attachments` if needed, and returns an error if OpenGL
+    /// considers it incomplete.
+    ///
+    /// # Unsafety
+    ///
+    /// After calling this function, you **must** make sure to call `purge_texture`
+    /// and/or `purge_renderbuffer` when one of the attachment is destroyed.
+    pub fn check_complete(
+        ctxt: &mut CommandContext<'_>,
+        attachments: &ValidatedAttachments<'_>,
+    ) -> Result<(), ValidationError> {
+        FramebuffersContainer::get_framebuffer(ctxt, attachments);
+        let status = ctxt.framebuffer_objects.framebuffers.borrow()[&attachments.raw].status;
+        if status == gl::FRAMEBUFFER_COMPLETE {
+            Ok(())
+        } else {
+            Err(ValidationError::Incomplete { status })
+        }
+    }
+
     fn get_framebuffer(
         ctxt: &mut CommandContext<'_>,
         attachments: &ValidatedAttachments<'_>,
@@ -1228,6 +1258,8 @@ impl Drop for FramebuffersContainer {
 struct FrameBufferObject {
     id: glow::Framebuffer,
     current_read_buffer: gl::types::GLenum,
+    // what `glCheckFramebufferStatus` returned once the attachments were attached
+    status: gl::types::GLenum,
 }
 
 impl FrameBufferObject {
@@ -1400,9 +1432,27 @@ impl FrameBufferObject {
             }
         }
 
+        let status = unsafe {
+            if ctxt.version >= &Version(Api::Gl, 4, 5) || ctxt.extensions.gl_arb_direct_state_access
+            {
+                ctxt.glow
+                    .check_named_framebuffer_status(Some(id), gl::DRAW_FRAMEBUFFER)
+            } else {
+                bind_framebuffer(ctxt, Some(id), true, false);
+                // `bind_framebuffer` binds `GL_FRAMEBUFFER` on OpenGL ES and WebGL
+                ctxt.glow
+                    .check_framebuffer_status(if ctxt.version.0 == Api::Gl {
+                        gl::DRAW_FRAMEBUFFER
+                    } else {
+                        gl::FRAMEBUFFER
+                    })
+            }
+        };
+
         FrameBufferObject {
             id,
             current_read_buffer: gl::BACK,
+            status,
         }
     }
 

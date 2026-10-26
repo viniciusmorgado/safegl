@@ -437,6 +437,10 @@ impl<'a> SimpleFrameBuffer<'a> {
             });
 
         let attachments = attachments.validate(facade)?;
+        fbo::FramebuffersContainer::check_complete(
+            &mut facade.get_context().make_current(),
+            &attachments,
+        )?;
 
         Ok(SimpleFrameBuffer {
             context: facade.get_context().clone(),
@@ -857,6 +861,10 @@ impl<'a> MultiOutputFrameBuffer<'a> {
                 depth_stencil: depth_stencil_attachments,
             })
             .validate(facade)?;
+        fbo::FramebuffersContainer::check_complete(
+            &mut facade.get_context().make_current(),
+            &example_attachments,
+        )?;
 
         Ok(MultiOutputFrameBuffer {
             context: facade.get_context().clone(),
@@ -1176,6 +1184,7 @@ impl<'a> EmptyFrameBuffer {
         };
 
         let attachments = attachments.validate(context)?;
+        fbo::FramebuffersContainer::check_complete(&mut context.make_current(), &attachments)?;
 
         Ok(EmptyFrameBuffer {
             context: context.clone(),
