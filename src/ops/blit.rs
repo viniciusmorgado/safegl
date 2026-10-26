@@ -39,6 +39,15 @@ pub fn blit(
             ctxt.state.enabled_scissor_test = false;
         }
 
+        // blitting copies the pixels as they are, while `GL_FRAMEBUFFER_SRGB` would convert them
+        // between sRGB and linear values depending on the previous clear or draw call
+        if (ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_srgb_write_control)
+            && ctxt.state.enabled_framebuffer_srgb
+        {
+            ctxt.glow.disable(glow::FRAMEBUFFER_SRGB);
+            ctxt.state.enabled_framebuffer_srgb = false;
+        }
+
         // trying to do a named blit if possible
         if ctxt.version >= &Version(Api::Gl, 4, 5) {
             ctxt.glow.blit_named_framebuffer(
