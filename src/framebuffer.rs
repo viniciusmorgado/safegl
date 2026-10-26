@@ -112,6 +112,48 @@ use crate::uniforms::MagnifySamplerFilter;
 mod default_fb;
 mod render_buffer;
 
+/// The attachments of a framebuffer that `invalidate` and `invalidate_rect` discard.
+///
+/// ```
+/// use safegl::framebuffer::InvalidateAttachments;
+///
+/// // only the depth and stencil buffers
+/// let which = InvalidateAttachments { depth: true, stencil: true, ..Default::default() };
+/// assert_eq!(which, InvalidateAttachments::DEPTH_STENCIL);
+/// ```
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct InvalidateAttachments {
+    /// All the color attachments.
+    pub color: bool,
+    /// The depth attachment, or the depth of a depth-stencil attachment.
+    pub depth: bool,
+    /// The stencil attachment, or the stencil of a depth-stencil attachment.
+    pub stencil: bool,
+}
+
+impl InvalidateAttachments {
+    /// Every attachment.
+    pub const ALL: InvalidateAttachments = InvalidateAttachments {
+        color: true,
+        depth: true,
+        stencil: true,
+    };
+
+    /// The color attachments.
+    pub const COLOR: InvalidateAttachments = InvalidateAttachments {
+        color: true,
+        depth: false,
+        stencil: false,
+    };
+
+    /// The depth and stencil attachments.
+    pub const DEPTH_STENCIL: InvalidateAttachments = InvalidateAttachments {
+        color: false,
+        depth: true,
+        stencil: true,
+    };
+}
+
 /// A framebuffer which has only one color attachment.
 pub struct SimpleFrameBuffer<'a> {
     context: Rc<Context>,
@@ -119,6 +161,28 @@ pub struct SimpleFrameBuffer<'a> {
 }
 
 impl<'a> SimpleFrameBuffer<'a> {
+    /// Discards the content of the attachments selected by `which`
+    /// (`glInvalidateFramebuffer`).
+    ///
+    /// This tells the GPU that their content isn't needed any more, so that it doesn't have
+    /// to keep it or write it back to memory, which saves bandwidth, especially on the
+    /// tile-based GPUs of mobile devices. Their content is undefined afterwards, until they
+    /// are drawn to or cleared. Typical uses are the depth buffer at the end of a frame, and
+    /// intermediate targets once they have been read.
+    ///
+    /// This is only a hint: it does nothing without OpenGL 4.3, OpenGL ES 3.0 or
+    /// `GL_ARB_invalidate_subdata`.
+    pub fn invalidate(&self, which: InvalidateAttachments) {
+        let mut ctxt = self.context.make_current();
+        unsafe { fbo::FramebuffersContainer::invalidate(&mut ctxt, Some(&self.attachments), which, None) }
+    }
+
+    /// Like `invalidate`, but only inside `rect` (`glInvalidateSubFramebuffer`).
+    pub fn invalidate_rect(&self, which: InvalidateAttachments, rect: &Rect) {
+        let mut ctxt = self.context.make_current();
+        unsafe { fbo::FramebuffersContainer::invalidate(&mut ctxt, Some(&self.attachments), which, Some(rect)) }
+    }
+
     /// Creates a `SimpleFrameBuffer` with a single color attachment and no depth
     /// nor stencil buffer.
     #[inline]
@@ -522,6 +586,28 @@ pub struct MultiOutputFrameBuffer<'a> {
 }
 
 impl<'a> MultiOutputFrameBuffer<'a> {
+    /// Discards the content of the attachments selected by `which`
+    /// (`glInvalidateFramebuffer`).
+    ///
+    /// This tells the GPU that their content isn't needed any more, so that it doesn't have
+    /// to keep it or write it back to memory, which saves bandwidth, especially on the
+    /// tile-based GPUs of mobile devices. Their content is undefined afterwards, until they
+    /// are drawn to or cleared. Typical uses are the depth buffer at the end of a frame, and
+    /// intermediate targets once they have been read.
+    ///
+    /// This is only a hint: it does nothing without OpenGL 4.3, OpenGL ES 3.0 or
+    /// `GL_ARB_invalidate_subdata`.
+    pub fn invalidate(&self, which: InvalidateAttachments) {
+        let mut ctxt = self.context.make_current();
+        unsafe { fbo::FramebuffersContainer::invalidate(&mut ctxt, Some(&self.example_attachments), which, None) }
+    }
+
+    /// Like `invalidate`, but only inside `rect` (`glInvalidateSubFramebuffer`).
+    pub fn invalidate_rect(&self, which: InvalidateAttachments, rect: &Rect) {
+        let mut ctxt = self.context.make_current();
+        unsafe { fbo::FramebuffersContainer::invalidate(&mut ctxt, Some(&self.example_attachments), which, Some(rect)) }
+    }
+
     /// Creates a new `MultiOutputFrameBuffer`.
     ///
     /// # Panic
