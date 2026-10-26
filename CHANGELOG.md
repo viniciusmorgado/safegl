@@ -34,6 +34,14 @@ Additions:
   reported as errors (glium#1707, based on glium PR #2155).
 - `DrawError::BufferBindingOutOfRange`, returned when a block needs a buffer binding point beyond
   the backend's limit.
+- `Context::restore_state`, which makes the OpenGL state match SafeGL's cache after code sharing
+  the context changed it (glium#2106, glium#1505, glium#1443).
+- `framebuffer::ExternalFramebuffer`, a framebuffer object created outside SafeGL (by a GUI
+  toolkit, for example) that SafeGL can draw to, clear, blit to and from, and invalidate, with the
+  `Surface::blit_from_external_framebuffer` and `blit_buffers_from_external_framebuffer` methods
+  (glium#2153, glium#2108). `SimpleFrameBuffer::get_framebuffer_object` returns the framebuffer
+  object SafeGL draws through (glium#1613).
+- `ReadError::AttachmentMissing`.
 - Examples: `alpha_to_coverage`, which uses the CC0 "Fern 02" model from Poly Haven, `shadow_bias`,
   `programmable_blending` and `weighted_oit`.
 
@@ -89,6 +97,12 @@ Fixes:
   fails on some drivers such as macOS 10.14+ (based on glium PR #1724).
 - The backtrace of OpenGL debug messages goes to the standard error, like the message
   (glium#1397).
+- `Context::rebuild` returns an error, and keeps the old context, if the new context has another
+  version or other extensions, instead of keeping stale ones (glium#563).
+- `read_front_buffer` returns `ReadError::AttachmentMissing` where the default framebuffer has no
+  front buffer, like most EGL window surfaces, instead of raising an OpenGL error (glium#2151).
+- Blitting from a `MultiOutputFrameBuffer` reads from its first output instead of reaching
+  `unimplemented!()`.
 
 ## [0.1.0]
 
