@@ -32,6 +32,9 @@ fn display_with(robustness: Robustness) -> Option<support::WindowDisplay> {
 #[test]
 fn context_is_not_lost() {
     let display = support::build_display();
+    // out-of-bounds accesses are only defined in robust contexts
+    let capabilities = display.get_capabilities();
+    assert!(!capabilities.robust_buffer_access || capabilities.robustness);
 
     assert!(!display.is_context_lost());
     #[cfg(any(safegl_gl45, safegl_gles32))]
@@ -70,6 +73,14 @@ fn robust_context_without_reset_notification() {
     let capabilities = display.get_capabilities();
 
     assert!(capabilities.robustness);
+    // the behavior of out-of-bounds accesses is defined from OpenGL 4.3 or its extensions
+    let extensions = support::extensions(&display);
+    if support::gl_at_least(&display, 4, 3)
+        || extensions.gl_arb_robust_buffer_access_behavior
+        || extensions.gl_khr_robust_buffer_access_behavior
+    {
+        assert!(capabilities.robust_buffer_access);
+    }
     assert_eq!(
         capabilities.reset_notification,
         ResetNotificationStrategy::NoResetNotification

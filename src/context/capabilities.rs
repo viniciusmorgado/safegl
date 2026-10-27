@@ -50,6 +50,12 @@ pub struct Capabilities {
     /// True if out-of-bound access on the GPU side can't result in crashes.
     pub robustness: bool,
 
+    /// True if the out-of-bounds accesses of shaders and draws to buffers are well defined: they
+    /// read values within the buffer or zeros, and their writes are discarded or stay within
+    /// the buffer. A robust context (`robustness`) has it with OpenGL 4.3, OpenGL ES 3.2,
+    /// `GL_ARB_robust_buffer_access_behavior` or `GL_KHR_robust_buffer_access_behavior`.
+    pub robust_buffer_access: bool,
+
     /// What the context does when the GPU is reset (`GL_RESET_NOTIFICATION_STRATEGY`):
     /// `LoseContextOnReset` means that the context can be lost.
     pub reset_notification: ResetNotificationStrategy,
@@ -268,6 +274,20 @@ pub unsafe fn get_capabilities(
             || version >= &Version(Api::GlEs, 3, 1)
             || extensions.gl_arb_vertex_attrib_binding);
 
+    // desktop OpenGL reports robust access in the context flags, with the extensions too;
+    // OpenGL ES below 3.2 has its own query
+    let robustness = if version >= &Version(Api::Gl, 4, 5)
+        || version >= &Version(Api::GlEs, 3, 2)
+        || (version.0 == Api::Gl && (extensions.gl_arb_robustness || extensions.gl_khr_robustness))
+    {
+        let val = gl.get_parameter_i32(glow::CONTEXT_FLAGS) as gl::types::GLenum;
+        (val & glow::CONTEXT_FLAG_ROBUST_ACCESS_BIT) != 0
+    } else if extensions.gl_khr_robustness || extensions.gl_ext_robustness {
+        gl.get_parameter_bool(gl::CONTEXT_ROBUST_ACCESS)
+    } else {
+        false
+    };
+
     Capabilities {
         supported_glsl_versions: { get_supported_glsl(gl, version, extensions) },
 
@@ -279,20 +299,13 @@ pub unsafe fn get_capabilities(
 
         forward_compatible,
 
-        // desktop OpenGL reports robust access in the context flags, with the extensions too;
-        // OpenGL ES below 3.2 has its own query
-        robustness: if version >= &Version(Api::Gl, 4, 5)
-            || version >= &Version(Api::GlEs, 3, 2)
-            || (version.0 == Api::Gl
-                && (extensions.gl_arb_robustness || extensions.gl_khr_robustness))
-        {
-            let val = gl.get_parameter_i32(glow::CONTEXT_FLAGS) as gl::types::GLenum;
-            (val & glow::CONTEXT_FLAG_ROBUST_ACCESS_BIT) != 0
-        } else if extensions.gl_khr_robustness || extensions.gl_ext_robustness {
-            gl.get_parameter_bool(gl::CONTEXT_ROBUST_ACCESS)
-        } else {
-            false
-        },
+        robustness,
+
+        robust_buffer_access: robustness
+            && (version >= &Version(Api::Gl, 4, 3)
+                || version >= &Version(Api::GlEs, 3, 2)
+                || extensions.gl_arb_robust_buffer_access_behavior
+                || extensions.gl_khr_robust_buffer_access_behavior),
 
         reset_notification: if version >= &Version(Api::Gl, 4, 5)
             || version >= &Version(Api::GlEs, 3, 2)
