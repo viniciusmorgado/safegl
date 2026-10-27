@@ -219,22 +219,96 @@ impl<'t, T: 't> Sampler<'t, T> {
         self.1.border_color = Some(color.into());
         self
     }
+
+    /// Sets the border color of a signed integer texture. See `border_color`.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    pub fn border_color_int(mut self, color: [i32; 4]) -> Sampler<'t, T> {
+        self.1.border_color = Some(color.into());
+        self
+    }
+
+    /// Sets the border color of an unsigned integer or stencil texture. See `border_color`.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    pub fn border_color_uint(mut self, color: [u32; 4]) -> Sampler<'t, T> {
+        self.1.border_color = Some(color.into());
+        self
+    }
 }
 
 /// The color that a sampler returns outside the texture with `SamplerWrapFunction::BorderClamp`.
+///
+/// A border color of floats is for float, normalized, depth and sRGB textures; the border color
+/// of an integer texture is made of integers of the same signedness, and that of a stencil
+/// texture of unsigned integers. Sampling a texture with a border color of another kind returns
+/// `DrawError::BorderColorMismatch`.
 ///
 /// The components are stored as bits, so that `SamplerBehavior` can be hashed and compared.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 #[cfg(any(safegl_desktop, safegl_gles32))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
-pub struct BorderColor([u32; 4]);
+pub struct BorderColor {
+    bits: [u32; 4],
+    kind: BorderColorKind,
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[cfg(any(safegl_desktop, safegl_gles32))]
+enum BorderColorKind {
+    Float,
+    Int,
+    UnsignedInt,
+}
+
+/// The components of a `BorderColor`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg(any(safegl_desktop, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+pub enum BorderColorValue {
+    /// Floats, for float, normalized, depth and sRGB textures.
+    Float([f32; 4]),
+    /// Signed integers, for signed integer textures.
+    Int([i32; 4]),
+    /// Unsigned integers, for unsigned integer and stencil textures.
+    UnsignedInt([u32; 4]),
+}
 
 #[cfg(any(safegl_desktop, safegl_gles32))]
 impl BorderColor {
-    /// Returns the red, green, blue and alpha components.
+    /// Returns the red, green, blue and alpha components, converted to floats if they are
+    /// integers.
     #[inline]
     pub fn to_f32(self) -> [f32; 4] {
-        self.0.map(f32::from_bits)
+        match self.value() {
+            BorderColorValue::Float(color) => color,
+            BorderColorValue::Int(color) => color.map(|c| c as f32),
+            BorderColorValue::UnsignedInt(color) => color.map(|c| c as f32),
+        }
+    }
+
+    /// Returns the red, green, blue and alpha components.
+    #[inline]
+    pub fn value(self) -> BorderColorValue {
+        match self.kind {
+            BorderColorKind::Float => BorderColorValue::Float(self.bits.map(f32::from_bits)),
+            BorderColorKind::Int => BorderColorValue::Int(self.bits.map(|c| c as i32)),
+            BorderColorKind::UnsignedInt => BorderColorValue::UnsignedInt(self.bits),
+        }
+    }
+
+    /// Returns true if the border color can be used with `texture`, whose components are of the
+    /// same kind.
+    pub(crate) fn fits(self, texture: &crate::texture::TextureAny) -> bool {
+        use crate::texture::TextureKind;
+
+        let kind = match texture.kind() {
+            TextureKind::Integral => BorderColorKind::Int,
+            TextureKind::Unsigned | TextureKind::Stencil => BorderColorKind::UnsignedInt,
+            TextureKind::DepthStencil if texture.samples_stencil() => BorderColorKind::UnsignedInt,
+            _ => BorderColorKind::Float,
+        };
+        self.kind == kind
     }
 }
 
@@ -242,7 +316,32 @@ impl BorderColor {
 impl From<[f32; 4]> for BorderColor {
     #[inline]
     fn from(color: [f32; 4]) -> BorderColor {
-        BorderColor(color.map(f32::to_bits))
+        BorderColor {
+            bits: color.map(f32::to_bits),
+            kind: BorderColorKind::Float,
+        }
+    }
+}
+
+#[cfg(any(safegl_desktop, safegl_gles32))]
+impl From<[i32; 4]> for BorderColor {
+    #[inline]
+    fn from(color: [i32; 4]) -> BorderColor {
+        BorderColor {
+            bits: color.map(|c| c as u32),
+            kind: BorderColorKind::Int,
+        }
+    }
+}
+
+#[cfg(any(safegl_desktop, safegl_gles32))]
+impl From<[u32; 4]> for BorderColor {
+    #[inline]
+    fn from(color: [u32; 4]) -> BorderColor {
+        BorderColor {
+            bits: color,
+            kind: BorderColorKind::UnsignedInt,
+        }
     }
 }
 

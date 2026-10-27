@@ -242,6 +242,12 @@ extra_functions! {
     fn ProvokingVertexEXT(mode: GLenum) -> ();
     fn ReleaseShaderCompiler() -> ();
     fn SampleMaski(maskNumber: GLuint, mask: GLbitfield) -> ();
+    fn SamplerParameterIiv(sampler: GLuint, pname: GLenum, param: *const GLint) -> ();
+    fn SamplerParameterIivEXT(sampler: GLuint, pname: GLenum, param: *const GLint) -> ();
+    fn SamplerParameterIivOES(sampler: GLuint, pname: GLenum, param: *const GLint) -> ();
+    fn SamplerParameterIuiv(sampler: GLuint, pname: GLenum, param: *const GLuint) -> ();
+    fn SamplerParameterIuivEXT(sampler: GLuint, pname: GLenum, param: *const GLuint) -> ();
+    fn SamplerParameterIuivOES(sampler: GLuint, pname: GLenum, param: *const GLuint) -> ();
     fn ShaderBinary(count: GLsizei, shaders: *const GLuint, binaryformat: GLenum, binary: *const c_void, length: GLsizei) -> ();
     fn SpecializeShader(shader: GLuint, pEntryPoint: *const GLchar, numSpecializationConstants: GLuint, pConstantIndex: *const GLuint, pConstantValue: *const GLuint) -> ();
     fn TexBufferEXT(target: GLenum, internalformat: GLenum, buffer: GLuint) -> ();

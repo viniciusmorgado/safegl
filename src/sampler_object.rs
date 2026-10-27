@@ -65,11 +65,7 @@ impl SamplerObject {
             #[cfg(any(safegl_desktop, safegl_gles32))]
             if let Some(color) = behavior.border_color {
                 if is_border_clamp_supported(ctxt) {
-                    ctxt.glow.sampler_parameter_f32_slice(
-                        sampler,
-                        glow::TEXTURE_BORDER_COLOR,
-                        &color.to_f32(),
-                    );
+                    set_border_color(ctxt, sampler, color);
                 }
             }
 
@@ -137,6 +133,52 @@ impl Drop for SamplerObject {
 /// Like the anisotropy, which is clamped to the maximum the backend supports, a wrap function
 /// that OpenGL ES (or WebGL) doesn't support falls back to the closest supported one,
 /// `GL_CLAMP_TO_EDGE`, instead of failing.
+/// Sets the border color of `sampler`, with the entry point of its kind: integer border colors
+/// are given with `glSamplerParameterIiv` and `glSamplerParameterIuiv`, core in OpenGL 3.3 and
+/// OpenGL ES 3.2, and suffixed by the border clamp extensions of OpenGL ES.
+#[cfg(any(safegl_desktop, safegl_gles32))]
+unsafe fn set_border_color(
+    ctxt: &mut CommandContext<'_>,
+    sampler: glow::Sampler,
+    color: crate::uniforms::BorderColor,
+) {
+    use crate::handles::RawName;
+    use crate::uniforms::BorderColorValue;
+
+    let core = ctxt.version.0 == Api::Gl || ctxt.version >= &Version(Api::GlEs, 3, 2);
+    let name = sampler.raw_name();
+    match color.value() {
+        BorderColorValue::Float(color) => {
+            ctxt.glow
+                .sampler_parameter_f32_slice(sampler, glow::TEXTURE_BORDER_COLOR, &color);
+        }
+        BorderColorValue::Int(color) => {
+            if core {
+                ctxt.extra
+                    .SamplerParameterIiv(name, gl::TEXTURE_BORDER_COLOR, color.as_ptr());
+            } else if ctxt.extensions.gl_ext_texture_border_clamp {
+                ctxt.extra
+                    .SamplerParameterIivEXT(name, gl::TEXTURE_BORDER_COLOR, color.as_ptr());
+            } else {
+                ctxt.extra
+                    .SamplerParameterIivOES(name, gl::TEXTURE_BORDER_COLOR, color.as_ptr());
+            }
+        }
+        BorderColorValue::UnsignedInt(color) => {
+            if core {
+                ctxt.extra
+                    .SamplerParameterIuiv(name, gl::TEXTURE_BORDER_COLOR, color.as_ptr());
+            } else if ctxt.extensions.gl_ext_texture_border_clamp {
+                ctxt.extra
+                    .SamplerParameterIuivEXT(name, gl::TEXTURE_BORDER_COLOR, color.as_ptr());
+            } else {
+                ctxt.extra
+                    .SamplerParameterIuivOES(name, gl::TEXTURE_BORDER_COLOR, color.as_ptr());
+            }
+        }
+    }
+}
+
 /// Returns true if `GL_CLAMP_TO_BORDER` and border colors are supported.
 #[cfg(any(safegl_desktop, safegl_gles32))]
 fn is_border_clamp_supported(ctxt: &CommandContext<'_>) -> bool {

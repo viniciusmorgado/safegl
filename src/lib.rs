@@ -1675,6 +1675,16 @@ pub enum DrawError {
     #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     AlphaToOneNotSupported,
 
+    /// The border color of the sampler of a texture uniform isn't of the kind of the texture:
+    /// floats for float, normalized and depth textures, integers of the same signedness for
+    /// integer textures. See `uniforms::BorderColor`.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    BorderColorMismatch {
+        /// Name of the uniform.
+        name: String,
+    },
+
     /// Viewport arrays (`DrawParameters::viewports`) aren't supported by the backend.
     #[cfg(safegl_gl41)]
     #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
@@ -1979,6 +1989,9 @@ impl fmt::Display for DrawError {
                 "Dual-source blending is not supported by the backend",
             DualSourceBlendingTooManyDrawBuffers =>
                 "Dual-source blending is used with too many draw buffers",
+            #[cfg(any(safegl_desktop, safegl_gles32))]
+            BorderColorMismatch { .. } =>
+                "The border color of a sampler isn't of the kind of its texture",
             #[cfg(safegl_gl41)]
             ViewportArrayNotSupported => "Viewport arrays are not supported by the backend",
             #[cfg(safegl_gl41)]

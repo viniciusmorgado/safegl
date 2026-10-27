@@ -318,6 +318,16 @@ local cases = {
   { "gles30_has_no_sample_positions", { "gles30" }, "sample_positions", [[
     pub fn f(f: &safegl::Frame) { let _ = f.sample_positions(); }
   ]] },
+  { "gles32_has_integer_border_colors", { "gles32" }, nil, [[
+    pub fn f(t: &safegl::texture::UnsignedTexture2d) -> safegl::uniforms::Sampler<'_, safegl::texture::UnsignedTexture2d> {
+        t.sampled().border_color_uint([1; 4])
+    }
+  ]] },
+  { "gles31_has_no_integer_border_colors", { "gles31" }, "border_color_uint", [[
+    pub fn f(t: &safegl::texture::UnsignedTexture2d) -> safegl::uniforms::Sampler<'_, safegl::texture::UnsignedTexture2d> {
+        t.sampled().border_color_uint([1; 4])
+    }
+  ]] },
   { "gles30_has_swizzle", { "gles30" }, nil, [[
     pub fn f(t: &safegl::texture::Texture2d) { t.set_swizzle(Default::default()); }
   ]] },

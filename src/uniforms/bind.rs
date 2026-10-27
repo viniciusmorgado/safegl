@@ -111,13 +111,23 @@ impl<'a> CollectedUniforms<'a> {
 
                 // shadow samplers return undefined values without a depth comparison, and
                 // other samplers with one
-                if let UniformValue::Texture(_, sampler) = value {
+                if let UniformValue::Texture(texture, sampler) = value {
                     let compares = sampler.is_some_and(|s| s.depth_texture_comparison.is_some());
                     if compares != crate::uniforms::is_shadow_sampler(uniform.ty) {
                         return Err(DrawError::DepthComparisonMismatch {
                             name: name.to_owned(),
                         });
                     }
+                    #[cfg(any(safegl_desktop, safegl_gles32))]
+                    if sampler
+                        .and_then(|s| s.border_color)
+                        .is_some_and(|color| !color.fits(texture))
+                    {
+                        return Err(DrawError::BorderColorMismatch {
+                            name: name.to_owned(),
+                        });
+                    }
+                    let _ = texture;
                 }
 
                 given_locations.push(uniform.location);

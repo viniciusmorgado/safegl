@@ -212,7 +212,6 @@ fn level_of_detail() {
     display.assert_no_error(None);
 }
 
-
 /// Sampling a depth-stencil texture returns its depth or its stencil index.
 #[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
@@ -298,6 +297,84 @@ fn depth_stencil_texture_mode() {
         not_depth_stencil.set_depth_stencil_mode(DepthStencilTextureMode::Stencil),
         Err(DepthStencilTextureModeError::NotDepthStencil)
     );
+
+    display.assert_no_error(None);
+}
+
+/// Border colors of integers, for integer textures.
+#[cfg(any(safegl_desktop, safegl_gles32))]
+#[test]
+fn integer_border_colors() {
+    use safegl::texture::{IntegralTexture2d, UnsignedTexture2d};
+    use safegl::uniforms::SamplerWrapFunction;
+
+    let display = support::build_display();
+    // border colors need OpenGL ES 3.2 or an extension on OpenGL ES
+    if support::is_gles(&display) && !support::glsl_supported(&display, 0, 320) {
+        return;
+    }
+    let unsigned =
+        UnsignedTexture2d::new(&display, vec![vec![(1u8, 1u8, 1u8, 1u8); 2]; 2]).unwrap();
+    let signed = IntegralTexture2d::new(&display, vec![vec![(1i8, 1i8, 1i8, 1i8); 2]; 2]).unwrap();
+    let unsigned_program = program(
+        &display,
+        330,
+        320,
+        "uniform usampler2D tex;",
+        "color = vec4(texture(tex, vec2(4.0))) / 255.0;",
+    );
+    let signed_program = program(
+        &display,
+        330,
+        320,
+        "uniform isampler2D tex;",
+        "color = vec4(-texture(tex, vec2(4.0))) / 255.0;",
+    );
+
+    let sampler = unsigned
+        .sampled()
+        .wrap_function(SamplerWrapFunction::BorderClamp)
+        .border_color_uint([5, 6, 7, 8]);
+    assert_eq!(
+        draw(&display, &unsigned_program, &uniform! { tex: sampler }).unwrap(),
+        (5, 6, 7, 8)
+    );
+    let sampler = signed
+        .sampled()
+        .wrap_function(SamplerWrapFunction::BorderClamp)
+        .border_color_int([-5, -6, -7, -8]);
+    assert_eq!(
+        draw(&display, &signed_program, &uniform! { tex: sampler }).unwrap(),
+        (5, 6, 7, 8)
+    );
+
+    // a border color of another kind than the texture
+    let mismatches = [
+        unsigned.sampled().border_color([1.0; 4]),
+        unsigned.sampled().border_color_int([1; 4]),
+    ];
+    for sampler in mismatches {
+        assert!(matches!(
+            draw(&display, &unsigned_program, &uniform! { tex: sampler }),
+            Err(DrawError::BorderColorMismatch { .. })
+        ));
+    }
+    let float = Texture2d::empty(&display, 1, 1).unwrap();
+    let float_program = program(
+        &display,
+        330,
+        320,
+        "uniform sampler2D tex;",
+        "color = texture(tex, uv);",
+    );
+    assert!(matches!(
+        draw(
+            &display,
+            &float_program,
+            &uniform! { tex: float.sampled().border_color_uint([1; 4]) }
+        ),
+        Err(DrawError::BorderColorMismatch { .. })
+    ));
 
     display.assert_no_error(None);
 }

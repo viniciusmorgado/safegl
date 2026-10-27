@@ -416,6 +416,10 @@ Additions:
   `DrawError::PointCoordOriginNotSupported` in an OpenGL ES context), and
   `DrawParameters::point_fade_threshold` the size under which multisampled points fade
   (`GL_POINT_FADE_THRESHOLD_SIZE`).
+- Border colors of integers, for integer and stencil textures (`Sampler::border_color_int` and
+  `border_color_uint`, `glSamplerParameterIiv` and `glSamplerParameterIuiv`;
+  `any(desktop, gles32)`), and `BorderColor::value` with `uniforms::BorderColorValue`. A border
+  color of another kind than its texture returns `DrawError::BorderColorMismatch`.
 - Textures have a swizzle, which chooses the component or the constant that sampling returns in
   each channel (`TextureAny::set_swizzle`, `texture::Swizzle`; `any(desktop, gles30)`), a mipmap
   range, which limits the levels that sampling and mipmap generation use
