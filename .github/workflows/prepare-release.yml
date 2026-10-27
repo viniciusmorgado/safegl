@@ -152,11 +152,14 @@ jobs:
         run: |
           cargo test --lib
           cargo test --all --all-targets --no-run
+          # both chains at their highest levels compile the whole API
+          cargo test --all --all-targets --no-run --features gl46,gles32
 
       - name: Build documentation and WebGL
         if: steps.guard.outputs.skip != 'true'
         run: |
-          cargo doc --all --all-features --no-deps
+          # every feature together would select several levels of a chain, which doesn't compile
+          cargo doc --all --no-deps --features gl46,gles32
           cargo check --target wasm32-unknown-unknown --no-default-features --features webgl
           cargo build --manifest-path examples/web/Cargo.toml --target wasm32-unknown-unknown
 
