@@ -248,6 +248,8 @@ Breaking changes:
   `enabled` (formerly `multisampling`), `alpha_to_coverage`, `sample_shading` and `sample_mask`:
   write `multisample: MultisampleState { alpha_to_coverage: true, ..Default::default() }`.
   `DrawError` has an `AlphaToOneNotSupported` variant at the desktop levels.
+- `BlitError` is `#[non_exhaustive]`, and blitting the color of an `EmptyFrameBuffer` returns
+  its new `NoColorBuffer` variant instead of reaching `unimplemented!()`.
 - `TextureAnyImage::raw_clear_buffer` returns `Result<(), framebuffer::ClearBufferError>`
   instead of panicking when the value doesn't match the kind of the texture, and clears depth,
   stencil and depth-stencil textures too (`ClearBufferData::{Depth, Stencil, DepthStencil}`, and

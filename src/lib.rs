@@ -1330,7 +1330,10 @@ trait FboAttachments {
 }
 
 /// Error that can happen while blitting.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum BlitError {
     /// The source belongs to another context than the target. OpenGL objects can only be used
     /// with the context that created them.
@@ -1363,6 +1366,9 @@ pub enum BlitError {
 
     /// OpenGL ES can't blit a buffer to itself.
     SameSourceAndTarget,
+
+    /// The source has no color buffer to copy, like an empty framebuffer.
+    NoColorBuffer,
 }
 
 impl fmt::Display for BlitError {
@@ -1389,6 +1395,7 @@ impl fmt::Display for BlitError {
                 "Integer color buffers can only be blitted with the `Nearest` filter"
             }
             BlitError::SameSourceAndTarget => "OpenGL ES can't blit a buffer to itself",
+            BlitError::NoColorBuffer => "The source has no color buffer to copy",
         };
         fmt.write_str(desc)
     }

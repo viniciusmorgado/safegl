@@ -1452,7 +1452,9 @@ impl Surface for EmptyFrameBuffer {
     where
         S: Surface,
     {
-        unimplemented!() // TODO:
+        // an empty framebuffer has no color to copy
+        let _ = (source_rect, target, target_rect, filter);
+        Err(BlitError::NoColorBuffer)
     }
 
     #[inline]
