@@ -537,6 +537,12 @@ Additions:
 
 Fixes:
 
+- `TextureHandle::new` makes the handle of the texture with the sampler given
+  (`glGetTextureSamplerHandleARB`), resident as long as the `ResidentTexture`, where it ignored
+  the sampler, and a `TextureHandle` can be the value of a `sampler*` uniform declared with
+  `layout(bindless_sampler)` (`UniformValue::TextureHandle`, checked against the type of the
+  texture and its depth comparison), where it reached `unimplemented!()`. Integer textures are
+  sampled through handles without filtering, and rectangle textures without repetition.
 - Programs are linked with `GL_PROGRAM_BINARY_RETRIEVABLE_HINT` where program binaries exist,
   without which some drivers return no binary from `Program::get_binary`.
 - Pixels are read with the robust `glReadnPixels` and compressed images with

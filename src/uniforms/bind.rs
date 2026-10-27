@@ -111,6 +111,14 @@ impl<'a> CollectedUniforms<'a> {
 
                 // shadow samplers return undefined values without a depth comparison, and
                 // other samplers with one
+                #[cfg(safegl_desktop)]
+                if let UniformValue::TextureHandle(handle) = value {
+                    if handle.compares() != crate::uniforms::is_shadow_sampler(uniform.ty) {
+                        return Err(DrawError::DepthComparisonMismatch {
+                            name: name.to_owned(),
+                        });
+                    }
+                }
                 if let UniformValue::Texture(texture, sampler) = value {
                     let compares = sampler.is_some_and(|s| s.depth_texture_comparison.is_some());
                     if compares != crate::uniforms::is_shadow_sampler(uniform.ty) {
@@ -595,6 +603,8 @@ where
     // textures can only be used with the context that created them
     let texture_context = match *value {
         UniformValue::Texture(texture, _) => Some(TextureExt::get_context(texture)),
+        #[cfg(safegl_desktop)]
+        UniformValue::TextureHandle(handle) => Some(TextureExt::get_context(handle.texture())),
         #[cfg(any(safegl_desktop, safegl_gles32))]
         UniformValue::BufferTexture(ref texture) => Some(TextureExt::get_context(texture)),
         #[cfg(any(safegl_gl42, safegl_gles32))]
@@ -619,6 +629,15 @@ where
         UniformValue::Subroutine(_, _) => Err(DrawError::SubroutineUniformToValue {
             name: name.to_owned(),
         }),
+        #[cfg(safegl_desktop)]
+        UniformValue::TextureHandle(handle) => {
+            // shader writes made through image units must be done before the texture is sampled
+            handle
+                .texture()
+                .prepare_for_access(ctxt, crate::TextureAccess::TextureFetch);
+            program.set_uniform(ctxt, location, &RawUniformValue::TextureHandle(handle.value()));
+            Ok(())
+        }
         UniformValue::Bool(val) => {
             // Booleans get passed as integers.
             program.set_uniform(ctxt, location, &RawUniformValue::SignedInt(val as i32));

@@ -633,6 +633,10 @@ pub enum RawUniformValue {
     Int64Vec4([gl::types::GLint64; 4]),
     #[cfg(safegl_desktop)]
     UnsignedInt64(gl::types::GLuint64),
+    /// A bindless texture handle, for a `sampler*` uniform declared with
+    /// `layout(bindless_sampler)`.
+    #[cfg(safegl_desktop)]
+    TextureHandle(gl::types::GLuint64),
     #[cfg(safegl_desktop)]
     UnsignedInt64Vec2([gl::types::GLuint64; 2]),
     #[cfg(safegl_desktop)]

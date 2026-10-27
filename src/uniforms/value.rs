@@ -281,6 +281,11 @@ pub enum UniformValue<'a> {
     #[cfg(any(safegl_gl42, safegl_gles31))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_gles31))))]
     Image(&'a texture::TextureAny, ImageUnitBehavior),
+    /// A bindless handle of a texture, for a `sampler*` uniform declared with
+    /// `layout(bindless_sampler)`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    TextureHandle(texture::TextureHandle<'a>),
     /// A buffer texture bound to an image unit, with how to bind it. See
     /// `BufferTexture::image_unit`.
     #[cfg(any(safegl_gl42, safegl_gles32))]
@@ -433,6 +438,10 @@ impl<'a> UniformValue<'a> {
             #[cfg(safegl_desktop)]
             (&UniformValue::DoubleMat4x3(_), UniformType::DoubleMat4x3) => true,
             (&UniformValue::Texture(texture, _), ty) => sampler_types(texture).contains(&ty),
+            #[cfg(safegl_desktop)]
+            (&UniformValue::TextureHandle(handle), ty) => {
+                sampler_types(handle.texture()).contains(&ty)
+            }
             #[cfg(any(safegl_desktop, safegl_gles32))]
             (&UniformValue::BufferTexture(tex), UniformType::SamplerBuffer) => {
                 tex.get_texture_type() == texture::buffer_texture::BufferTextureType::Float

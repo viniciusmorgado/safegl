@@ -252,6 +252,12 @@ impl UniformsStorage {
                 ()
             }
             #[cfg(safegl_desktop)]
+            (&RawUniformValue::TextureHandle(a), &mut Some(RawUniformValue::TextureHandle(b)))
+                if a == b =>
+            {
+                ()
+            }
+            #[cfg(safegl_desktop)]
             (
                 &RawUniformValue::UnsignedInt64Vec2(a),
                 &mut Some(RawUniformValue::UnsignedInt64Vec2(b)),
@@ -572,6 +578,11 @@ impl UniformsStorage {
             (&RawUniformValue::UnsignedInt64(v), target) => {
                 *target = Some(RawUniformValue::UnsignedInt64(v));
                 uniform_i64!(ctxt, Uniform1ui64ARB, location, v);
+            }
+            #[cfg(safegl_desktop)]
+            (&RawUniformValue::TextureHandle(v), target) => {
+                *target = Some(RawUniformValue::TextureHandle(v));
+                unsafe { ctxt.extra.UniformHandleui64ARB(location, v) };
             }
             #[cfg(safegl_desktop)]
             (&RawUniformValue::UnsignedInt64Vec2(v), target) => {

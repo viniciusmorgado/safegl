@@ -69,13 +69,15 @@ use crate::gl;
 use crate::handles::RawName;
 use crate::ContextExt;
 
-use std::marker::PhantomData;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 
 use crate::program::BlockLayout;
 use crate::uniforms::AsUniformValue;
 use crate::uniforms::LayoutMismatchError;
 use crate::uniforms::SamplerBehavior;
+use crate::uniforms::{MagnifySamplerFilter, MinifySamplerFilter, SamplerWrapFunction};
 use crate::uniforms::UniformBlock;
 use crate::uniforms::UniformType;
 use crate::uniforms::UniformValue;
@@ -85,6 +87,8 @@ use crate::uniforms::UniformValue;
 pub struct ResidentTexture {
     texture: Option<TextureAny>,
     handle: gl::types::GLuint64,
+    // the handles of the texture with the samplers of `TextureHandle`s, resident with it
+    sampler_handles: RefCell<HashMap<SamplerBehavior, gl::types::GLuint64>>,
 }
 
 impl ResidentTexture {
@@ -108,7 +112,62 @@ impl ResidentTexture {
         Ok(ResidentTexture {
             texture: Some(texture),
             handle,
+            sampler_handles: RefCell::new(HashMap::new()),
         })
+    }
+
+    /// Returns the resident handle of the texture sampled with `sampler`
+    /// (`glGetTextureSamplerHandleARB`), made the first time it is asked for.
+    fn sampler_handle(&self, sampler: &SamplerBehavior) -> gl::types::GLuint64 {
+        if let Some(&handle) = self.sampler_handles.borrow().get(sampler) {
+            return handle;
+        }
+        let texture = self.texture.as_ref().unwrap();
+        let key = *sampler;
+        // like the samplers of texture uniforms, integer textures are sampled without filtering,
+        // and rectangle textures without repetition or mipmaps, which they can't have
+        let mut sampler = *sampler;
+        if texture.is_integer() {
+            sampler.magnify_filter = MagnifySamplerFilter::Nearest;
+            sampler.minify_filter = match sampler.minify_filter {
+                MinifySamplerFilter::Nearest | MinifySamplerFilter::Linear => {
+                    MinifySamplerFilter::Nearest
+                }
+                _ => MinifySamplerFilter::NearestMipmapNearest,
+            };
+            sampler.max_anisotropy = 1;
+        }
+        if let crate::texture::Dimensions::TextureRectangle { .. } = texture.dimensions() {
+            let clamp = |wrap| match wrap {
+                SamplerWrapFunction::Repeat | SamplerWrapFunction::Mirror => {
+                    SamplerWrapFunction::Clamp
+                }
+                #[cfg(safegl_gl44)]
+                SamplerWrapFunction::MirrorClamp => SamplerWrapFunction::Clamp,
+                wrap => wrap,
+            };
+            let (s, t, r) = sampler.wrap_function;
+            sampler.wrap_function = (clamp(s), clamp(t), clamp(r));
+            sampler.minify_filter = match sampler.minify_filter {
+                MinifySamplerFilter::Nearest | MinifySamplerFilter::NearestMipmapNearest => {
+                    MinifySamplerFilter::Nearest
+                }
+                _ => MinifySamplerFilter::Linear,
+            };
+        }
+        let mut ctxt = texture.get_context().make_current();
+        let sampler_object = crate::sampler_object::get_sampler(&mut ctxt, &sampler)
+            .expect("sampler objects exist where bindless textures do");
+        let handle = unsafe {
+            let handle = ctxt
+                .extra
+                .GetTextureSamplerHandleARB(texture.get_id().raw_name(), sampler_object.raw_name());
+            ctxt.extra.MakeTextureHandleResidentARB(handle);
+            handle
+        };
+        ctxt.resident_texture_handles.push(handle);
+        self.sampler_handles.borrow_mut().insert(key, handle);
+        handle
     }
 
     /// Unwraps the texture and restores it.
@@ -123,8 +182,11 @@ impl ResidentTexture {
 
         {
             let mut ctxt = texture.get_context().make_current();
-            unsafe { ctxt.extra.MakeTextureHandleNonResidentARB(self.handle) };
-            ctxt.resident_texture_handles.retain(|&t| t != self.handle);
+            let sampler_handles = std::mem::take(&mut *self.sampler_handles.borrow_mut());
+            for handle in std::iter::once(self.handle).chain(sampler_handles.into_values()) {
+                unsafe { ctxt.extra.MakeTextureHandleNonResidentARB(handle) };
+                ctxt.resident_texture_handles.retain(|&t| t != handle);
+            }
         }
 
         texture
@@ -155,36 +217,54 @@ impl Drop for ResidentTexture {
 }
 
 /// Represents a handle to a texture. Contains a raw pointer to a texture that is hidden from you.
+///
+/// It is given to `sampler*` uniforms declared with `layout(bindless_sampler)` as a uniform
+/// value, whose type is checked against the texture, or put in uniform and storage buffers.
 #[derive(Copy, Clone)]
 pub struct TextureHandle<'a> {
     value: gl::types::GLuint64,
-    marker: PhantomData<&'a ResidentTexture>,
+    texture: &'a TextureAny,
+    compares: bool,
 }
 
 impl<'a> TextureHandle<'a> {
-    /// Builds a new handle.
+    /// Builds a handle of `texture` sampled with `sampler`
+    /// (`glGetTextureSamplerHandleARB`). The handle stays resident as long as the texture.
     #[inline]
-    pub fn new(texture: &'a ResidentTexture, _: &SamplerBehavior) -> TextureHandle<'a> {
-        // FIXME: take sampler into account
+    pub fn new(texture: &'a ResidentTexture, sampler: &SamplerBehavior) -> TextureHandle<'a> {
         TextureHandle {
-            value: texture.handle,
-            marker: PhantomData,
+            value: texture.sampler_handle(sampler),
+            texture,
+            compares: sampler.depth_texture_comparison.is_some(),
         }
     }
 
     /// Sets the value to the given texture.
     #[inline]
-    pub fn set(&mut self, texture: &'a ResidentTexture, _: &SamplerBehavior) {
-        // FIXME: take sampler into account
-        self.value = texture.handle;
+    pub fn set(&mut self, texture: &'a ResidentTexture, sampler: &SamplerBehavior) {
+        *self = TextureHandle::new(texture, sampler);
+    }
+
+    /// Returns the raw handle.
+    pub(crate) fn value(&self) -> gl::types::GLuint64 {
+        self.value
+    }
+
+    /// Returns the texture of the handle.
+    pub(crate) fn texture(&self) -> &'a TextureAny {
+        self.texture
+    }
+
+    /// Returns true if the sampler of the handle compares depths.
+    pub(crate) fn compares(&self) -> bool {
+        self.compares
     }
 }
 
 impl<'a> AsUniformValue for TextureHandle<'a> {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
-        // TODO: u64
-        unimplemented!();
+        UniformValue::TextureHandle(*self)
     }
 }
 

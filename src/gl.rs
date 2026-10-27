@@ -202,6 +202,8 @@ extra_functions! {
     fn GetQueryiv(target: GLenum, pname: GLenum, params: *mut GLint) -> ();
     fn GetSubroutineUniformLocation(program: GLuint, shadertype: GLenum, name: *const GLchar) -> GLint;
     fn GetTextureHandleARB(texture: GLuint) -> GLuint64;
+    fn GetTextureSamplerHandleARB(texture: GLuint, sampler: GLuint) -> GLuint64;
+    fn UniformHandleui64ARB(location: GLint, value: GLuint64) -> ();
     fn InsertEventMarkerEXT(length: GLsizei, marker: *const GLchar) -> ();
     fn InvalidateBufferData(buffer: GLuint) -> ();
     fn InvalidateBufferSubData(buffer: GLuint, offset: GLintptr, length: GLsizeiptr) -> ();
