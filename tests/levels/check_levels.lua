@@ -479,6 +479,53 @@ local cases = {
     pub fn f(l: &safegl::Limits) -> Option<i32> { l.num_program_binary_formats }
   ]], WASM },
 
+
+  -- programs: pipelines, SPIR-V specialization, locations given before linking
+  { "gl41_has_program_pipelines", { "gl41" }, nil, [[
+    pub use safegl::program::{ProgramPipeline, SeparableProgram, SeparableSource};
+  ]] },
+  { "gles31_has_program_pipelines", { "gles31" }, nil, [[
+    pub use safegl::program::{ProgramPipeline, SeparableProgram, SeparableSource};
+  ]] },
+  { "gl40_has_no_program_pipelines", { "gl40" }, "ProgramPipeline", [[
+    pub use safegl::program::ProgramPipeline;
+  ]] },
+  { "gles30_has_no_program_pipelines", { "gles30" }, "SeparableProgram", [[
+    pub use safegl::program::SeparableProgram;
+  ]] },
+  { "webgl_has_no_program_pipelines", { "webgl" }, "ProgramPipeline", [[
+    pub use safegl::program::ProgramPipeline;
+  ]], WASM },
+  { "webgl_draws_programs", { "webgl" }, nil, [[
+    pub fn f(p: &safegl::Program) -> safegl::program::DrawProgram<'_> { p.into() }
+  ]], WASM },
+  { "gl46_has_specialization", { "gl46" }, nil, [[
+    pub fn f(b: &[u8]) -> safegl::program::SpirvEntryPoint<'_> {
+        safegl::program::SpirvEntryPoint::new(b, "main")
+            .specialized(&[(0, safegl::program::SpecializationConstant::Float(1.0))])
+    }
+  ]] },
+  { "gl45_has_no_specialization", { "gl45" }, "SpecializationConstant", [[
+    pub use safegl::program::SpecializationConstant;
+  ]] },
+  { "gl46_has_spirv_extensions", { "gl46" }, nil, [[
+    pub fn f(c: &safegl::Capabilities) -> &[String] { &c.spirv_extensions }
+  ]] },
+  { "gl45_has_no_spirv_extensions", { "gl45" }, "no field `spirv_extensions`", [[
+    pub fn f(c: &safegl::Capabilities) -> &[String] { &c.spirv_extensions }
+  ]] },
+  { "gles30_has_link_locations", { "gles30" }, nil, [[
+    pub const L: safegl::program::LinkLocations<'static> = safegl::program::LinkLocations {
+        attributes: &[("position", 0)],
+        fragment_outputs: &[],
+    };
+  ]] },
+  { "webgl_has_uniform_arrays", { "webgl" }, nil, [[
+    pub fn f<'a>(v: &'a &'a [f32]) -> safegl::uniforms::UniformValue<'a> {
+        safegl::uniforms::AsUniformValue::as_uniform_value(v)
+    }
+  ]], WASM },
+
   -- the combinations of levels
   { "two_desktop_levels", { "gl41", "gl43" },
     "SafeGL levels `gl41` and `gl43` are both selected: select a single desktop OpenGL level", "" },
