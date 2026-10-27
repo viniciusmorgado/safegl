@@ -213,6 +213,11 @@ Breaking changes:
   it at these levels.
 - `ConditionalRendering` has an `inverted` field at the `gl45` level, and `ToBufferError` has a
   `ContextMismatch` variant: a query refuses to write to a buffer of another context.
+- `DrawParameters::primitive_restart_index: bool` is replaced by `primitive_restart`, a
+  `PrimitiveRestart` (`Disabled`, `FixedIndex`, or `Index(u32)` on desktop OpenGL), and
+  `DrawError::FixedIndexRestartingNotSupported` is replaced by
+  `PrimitiveRestartIndexNotSupported`, for `Index` on OpenGL ES: restarting at the largest index
+  works on every desktop driver now.
 
 Additions:
 
@@ -314,6 +319,10 @@ Additions:
 - `SyncFence::wait_timeout` waits for a fence with a timeout and tells whether it was signaled,
   `SyncFence::wait_on_gpu` makes the GPU wait for it (`glWaitSync`), and
   `Context::gpu_timestamp` (`desktop`) reads the clock of the GPU (`GL_TIMESTAMP`).
+- `PrimitiveRestart::Index` (`desktop`) restarts primitives at any index value
+  (`glPrimitiveRestartIndex`), and `PrimitiveRestart::FixedIndex` works on OpenGL 4.0 to 4.2
+  without `GL_ARB_ES3_compatibility`, with `GL_PRIMITIVE_RESTART` at the largest value of the
+  index type.
 
 Fixes:
 
@@ -463,6 +472,8 @@ Fixes:
   framebuffers, uploaded, downloaded or given mipmaps after image stores (also at the `gl42` and
   `gles31` levels, where only clears and copies had the barrier), and persistent mappings, which
   now wait for their barrier before the CPU reads them.
+- `restore_state` restores `GL_PRIMITIVE_RESTART_FIXED_INDEX` on OpenGL 4.0 to 4.2 with
+  `GL_ARB_ES3_compatibility`, where SafeGL uses it.
 
 ## [0.2.0]
 

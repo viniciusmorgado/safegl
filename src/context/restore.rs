@@ -110,7 +110,9 @@ unsafe fn restore_capabilities(ctxt: &mut CommandContext<'_>) {
     }
 
     // always enabled on WebGL
-    if (ctxt.version >= &Version(Api::Gl, 4, 3) || ctxt.version >= &Version(Api::GlEs, 3, 0))
+    if (ctxt.version >= &Version(Api::Gl, 4, 3)
+        || ctxt.version >= &Version(Api::GlEs, 3, 0)
+        || ctxt.extensions.gl_arb_es3_compatibility)
         && !is_webgl()
     {
         set(
@@ -118,6 +120,11 @@ unsafe fn restore_capabilities(ctxt: &mut CommandContext<'_>) {
             gl::PRIMITIVE_RESTART_FIXED_INDEX,
             state.enabled_primitive_fixed_restart,
         );
+    }
+
+    if desktop {
+        set(ctxt, gl::PRIMITIVE_RESTART, state.enabled_primitive_restart);
+        ctxt.extra.PrimitiveRestartIndex(state.primitive_restart_index);
     }
 
     if (desktop || ctxt.version >= &Version(Api::GlEs, 3, 1)) && !is_webgl() {

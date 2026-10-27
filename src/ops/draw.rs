@@ -223,11 +223,18 @@ where
 
     // sync-ing draw_parameters
     unsafe {
+        let index_type = match indices {
+            IndicesSource::IndexBuffer { data_type, .. } => Some(data_type),
+            #[cfg(safegl_gl43)]
+            IndicesSource::MultidrawElement { data_type, .. } => Some(data_type),
+            _ => None,
+        };
         draw_parameters::sync(
             &mut ctxt,
             draw_parameters,
             dimensions,
             indices.get_primitives_type(),
+            index_type,
         )?;
         sync_vertices_per_patch(&mut ctxt, vertices_per_patch);
 

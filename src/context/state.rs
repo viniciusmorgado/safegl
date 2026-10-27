@@ -59,6 +59,12 @@ pub struct GlState {
     /// Always true on WebGL 2, which can't disable it.
     pub enabled_primitive_fixed_restart: bool,
 
+    /// Whether GL_PRIMITIVE_RESTART is enabled.
+    pub enabled_primitive_restart: bool,
+
+    /// The value of `glPrimitiveRestartIndex`.
+    pub primitive_restart_index: u32,
+
     /// Whether GL_RASTERIZER_DISCARD is enabled
     pub enabled_rasterizer_discard: bool,
 
@@ -474,6 +480,8 @@ impl Default for GlState {
             enabled_line_smooth: false,
             enabled_polygon_smooth: false,
             enabled_primitive_fixed_restart: crate::version::is_webgl(),
+            enabled_primitive_restart: false,
+            primitive_restart_index: 0,
             enabled_program_point_size: false,
             enabled_clip_planes: 0,
 

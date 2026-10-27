@@ -536,14 +536,11 @@ pub struct DrawParameters<'a> {
     #[cfg_attr(docsrs, doc(cfg(safegl_gles32)))]
     pub primitive_bounding_box: (Range<f32>, Range<f32>, Range<f32>, Range<f32>),
 
-    /// If enabled, will split the index buffer (if any is used in the draw call)
-    /// at the MAX value of the IndexType (u8::MAX, u16::MAX or u32::MAX) and start a new primitive
-    /// of the same type ("primitive restarting"). Supported on > OpenGL 3.1 or OpenGL ES 3.0.
-    /// If the backend does not support GL_PRIMITIVE_RESTART_FIXED_INDEX, an Error
-    /// of type `FixedIndexRestartingNotSupported` will be returned.
+    /// Whether indexed draws start a new primitive at an index value ("primitive restart"),
+    /// to draw several strips or fans in one draw.
     ///
     /// WebGL 2 always restarts primitives at the maximum index value, whatever this field is.
-    pub primitive_restart_index: bool,
+    pub primitive_restart: PrimitiveRestart,
 
     /// If enabled, shifts the depth value of towards of away from the camera. This is useful for
     /// drawing decals and wireframes, for example.
@@ -988,7 +985,7 @@ impl<'a> Default for DrawParameters<'a> {
             provoking_vertex: ProvokingVertex::LastVertex,
             #[cfg(safegl_gles32)]
             primitive_bounding_box: (-1.0..1.0, -1.0..1.0, -1.0..1.0, -1.0..1.0),
-            primitive_restart_index: false,
+            primitive_restart: PrimitiveRestart::Disabled,
             polygon_offset: Default::default(),
             #[cfg(safegl_gl46)]
             polygon_offset_clamp: 0.0,
@@ -1016,11 +1013,14 @@ pub fn validate(context: &Context, params: &DrawParameters<'_>) -> Result<(), Dr
 }
 
 #[doc(hidden)]
+///
+/// `index_type` is the type of the indices of an indexed draw.
 pub fn sync(
     ctxt: &mut context::CommandContext<'_>,
     draw_parameters: &DrawParameters<'_>,
     dimensions: (u32, u32),
     primitives_types: PrimitiveType,
+    index_type: Option<crate::index::IndexType>,
 ) -> Result<(), DrawError> {
     #[cfg(any(safegl_desktop, safegl_gles32))]
     validate_outputs(ctxt, draw_parameters)?;
@@ -1070,7 +1070,7 @@ pub fn sync(
     sync_provoking_vertex(ctxt, draw_parameters.provoking_vertex)?;
     #[cfg(safegl_gles32)]
     sync_primitive_bounding_box(ctxt, &draw_parameters.primitive_bounding_box);
-    sync_primitive_restart_index(ctxt, draw_parameters.primitive_restart_index)?;
+    sync_primitive_restart(ctxt, draw_parameters.primitive_restart, index_type)?;
     sync_polygon_offset(
         ctxt,
         draw_parameters.polygon_offset,
@@ -1772,9 +1772,10 @@ fn sync_primitive_bounding_box(
     }
 }
 
-fn sync_primitive_restart_index(
+fn sync_primitive_restart(
     ctxt: &mut context::CommandContext<'_>,
-    enabled: bool,
+    restart: PrimitiveRestart,
+    index_type: Option<crate::index::IndexType>,
 ) -> Result<(), DrawError> {
     // WebGL 2 always restarts primitives at the maximum index value and rejects
     // GL_PRIMITIVE_RESTART_FIXED_INDEX, so there is nothing to change
@@ -1782,35 +1783,81 @@ fn sync_primitive_restart_index(
         return Ok(());
     }
 
-    // GL_PRIMITIVE_RESTART_FIXED_INDEX is core in OpenGL ES 3.0 but only in OpenGL 4.3
-    // TODO: use GL_PRIMITIVE_RESTART (if possible) if
-    // GL_PRIMITIVE_RESTART_FIXED_INDEX is not supported
-    if ctxt.version.0 == Api::Gl
-        && !(ctxt.version >= &Version(Api::Gl, 4, 3))
-        && !ctxt.extensions.gl_arb_es3_compatibility
-    {
-        return if enabled {
-            Err(DrawError::FixedIndexRestartingNotSupported)
-        } else {
-            Ok(())
-        };
-    }
-
-    if ctxt.state.enabled_primitive_fixed_restart != enabled {
-        if enabled {
-            unsafe {
-                ctxt.glow.enable(glow::PRIMITIVE_RESTART_FIXED_INDEX);
+    // `GL_PRIMITIVE_RESTART_FIXED_INDEX` is core in OpenGL ES 3.0 but only in OpenGL 4.3; below,
+    // desktop OpenGL restarts at the maximum value of the index type with `GL_PRIMITIVE_RESTART`
+    let fixed_index = ctxt.version.0 == Api::GlEs
+        || ctxt.version >= &Version(Api::Gl, 4, 3)
+        || ctxt.extensions.gl_arb_es3_compatibility;
+    let (fixed, index) = match restart {
+        PrimitiveRestart::Disabled => (false, None),
+        PrimitiveRestart::FixedIndex if fixed_index => (true, None),
+        PrimitiveRestart::FixedIndex => (
+            false,
+            Some(match index_type {
+                Some(crate::index::IndexType::U8) => u8::MAX as u32,
+                Some(crate::index::IndexType::U16) => u16::MAX as u32,
+                Some(crate::index::IndexType::U32) | None => u32::MAX,
+            }),
+        ),
+        #[cfg(safegl_desktop)]
+        PrimitiveRestart::Index(index) => {
+            if ctxt.version.0 != Api::Gl {
+                return Err(DrawError::PrimitiveRestartIndexNotSupported);
             }
-            ctxt.state.enabled_primitive_fixed_restart = true;
-        } else {
-            unsafe {
+            (false, Some(index))
+        }
+    };
+
+    if fixed_index && ctxt.state.enabled_primitive_fixed_restart != fixed {
+        unsafe {
+            if fixed {
+                ctxt.glow.enable(glow::PRIMITIVE_RESTART_FIXED_INDEX);
+            } else {
                 ctxt.glow.disable(glow::PRIMITIVE_RESTART_FIXED_INDEX);
             }
-            ctxt.state.enabled_primitive_fixed_restart = false;
+        }
+        ctxt.state.enabled_primitive_fixed_restart = fixed;
+    }
+
+    // `GL_PRIMITIVE_RESTART` only exists on desktop OpenGL
+    if ctxt.version.0 == Api::Gl {
+        if ctxt.state.enabled_primitive_restart != index.is_some() {
+            unsafe {
+                if index.is_some() {
+                    ctxt.glow.enable(glow::PRIMITIVE_RESTART);
+                } else {
+                    ctxt.glow.disable(glow::PRIMITIVE_RESTART);
+                }
+            }
+            ctxt.state.enabled_primitive_restart = index.is_some();
+        }
+        if let Some(index) = index {
+            if ctxt.state.primitive_restart_index != index {
+                unsafe { ctxt.extra.PrimitiveRestartIndex(index) };
+                ctxt.state.primitive_restart_index = index;
+            }
         }
     }
 
     Ok(())
+}
+
+/// Whether and where indexed draws start a new primitive ("primitive restart").
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub enum PrimitiveRestart {
+    /// Indices are never special.
+    #[default]
+    Disabled,
+
+    /// A new primitive starts at the largest value of the index type: `u8::MAX`, `u16::MAX` or
+    /// `u32::MAX` (`GL_PRIMITIVE_RESTART_FIXED_INDEX`).
+    FixedIndex,
+
+    /// A new primitive starts at this index value (`glPrimitiveRestartIndex`). Only desktop
+    /// OpenGL has it: OpenGL ES returns `DrawError::PrimitiveRestartIndexNotSupported`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    Index(u32),
 }
 
 fn set_flag_enabled(ctxt: &mut context::CommandContext<'_>, cap: gl::types::GLenum, enabled: bool) {

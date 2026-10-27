@@ -1505,8 +1505,11 @@ pub enum DrawError {
     /// One of the blending parameters is not supported by the backend.
     BlendingParameterNotSupported,
 
-    /// Restarting indices (multiple objects per draw call) is not supported by the backend.
-    FixedIndexRestartingNotSupported,
+    /// Restarting primitives at a chosen index (`PrimitiveRestart::Index`) isn't supported by
+    /// the backend: OpenGL ES only restarts them at the largest index value.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    PrimitiveRestartIndexNotSupported,
 
     /// Changing the clip volume definition (origin and depth mode) is not supported by the backend.
     #[cfg(safegl_gl45)]
@@ -1748,8 +1751,9 @@ impl fmt::Display for DrawError {
                 "The depth clamp mode is not supported by the backend",
             BlendingParameterNotSupported =>
                 "One the blending parameters is not supported by the backend",
-            FixedIndexRestartingNotSupported =>
-                "Restarting indices (multiple objects per draw call) is not supported by the backend",
+            #[cfg(safegl_desktop)]
+            PrimitiveRestartIndexNotSupported =>
+                "Restarting primitives at a chosen index is not supported by the backend",
             #[cfg(safegl_gl45)]
             ClipControlNotSupported =>
                 "Changing the clip volume definition (origin and depth mode) is not supported by the backend",
