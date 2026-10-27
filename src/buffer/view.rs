@@ -1667,6 +1667,13 @@ impl<'a> BufferAnySlice<'a> {
         self.elements_size = elements_size;
         self
     }
+
+    /// Calls `glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT)` if a shader wrote the buffer since
+    /// the last barrier, before a buffer texture of it is sampled.
+    #[inline]
+    pub(crate) fn prepare_for_texture_fetch(&self, ctxt: &mut CommandContext<'_>) {
+        self.alloc.prepare_for_texture_fetch(ctxt);
+    }
 }
 
 #[cfg(any(safegl_gl43, safegl_gles32))]
@@ -1688,7 +1695,10 @@ impl crate::debug::sealed::Labeled for BufferAny {
     ) -> (&crate::context::Context, crate::debug::sealed::LabeledObject) {
         (
             self.alloc.get_context(),
-            crate::debug::sealed::LabeledObject::Object(crate::gl::BUFFER, self.alloc.get_id().0.get()),
+            crate::debug::sealed::LabeledObject::Object(
+                crate::gl::BUFFER,
+                self.alloc.get_id().0.get(),
+            ),
         )
     }
 }

@@ -469,8 +469,9 @@ impl Alloc {
         self.latest_shader_write.set(ctxt.state.next_draw_call_id); // TODO: put this somewhere else
     }
 
-    /// Binds the buffer to `GL_TRANSFORM_FEEDBACk_BUFFER` regardless of the current transform
-    /// feedback object.
+    /// Binds the buffer to `GL_TRANSFORM_FEEDBACK_BUFFER` regardless of the current transform
+    /// feedback object, and calls `glMemoryBarrier(GL_TRANSFORM_FEEDBACK_BARRIER_BIT)` if
+    /// necessary.
     #[inline]
     pub fn bind_to_transform_feedback(
         &self,
@@ -478,7 +479,26 @@ impl Alloc {
         index: gl::types::GLuint,
         range: Range<usize>,
     ) {
+        if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_transform_feedback {
+            unsafe {
+                ctxt.glow
+                    .memory_barrier(glow::TRANSFORM_FEEDBACK_BARRIER_BIT);
+            }
+            ctxt.state.latest_memory_barrier_transform_feedback = ctxt.state.next_draw_call_id;
+        }
         self.indexed_bind(ctxt, BufferType::TransformFeedbackBuffer, index, range);
+    }
+
+    /// Calls `glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT)` if necessary, before a buffer
+    /// texture of the buffer is sampled.
+    pub fn prepare_for_texture_fetch(&self, ctxt: &mut CommandContext<'_>) {
+        self.assert_unmapped(ctxt);
+        if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_texture_fetch {
+            unsafe {
+                ctxt.glow.memory_barrier(glow::TEXTURE_FETCH_BARRIER_BIT);
+            }
+            ctxt.state.latest_memory_barrier_texture_fetch = ctxt.state.next_draw_call_id;
+        }
     }
 
     /// Makes sure that the buffer is bound to a specific bind point.
@@ -695,12 +715,15 @@ impl Alloc {
         if let Some(existing_mapping) = self.persistent_mapping {
             // TODO: optimize so that it's not always necessary to make the context current
             let mut ctxt = self.context.make_current();
-            // shader writes must also be made visible to the persistent mapping that the CPU reads
+            // shader writes must also be made visible to the persistent mapping that the CPU reads,
+            // which only sees them once the barrier has completed
             if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_buffer_update {
                 ctxt.glow.memory_barrier(
                     glow::BUFFER_UPDATE_BARRIER_BIT | glow::CLIENT_MAPPED_BUFFER_BARRIER_BIT,
                 );
                 ctxt.state.latest_memory_barrier_buffer_update = ctxt.state.next_draw_call_id;
+                let fence = crate::sync::new_linear_sync_fence(&mut ctxt);
+                crate::sync::wait_linear_sync_fence_and_drop(fence, &mut ctxt);
             }
 
             let data = (existing_mapping as *mut u8).add(bytes_range.start);
@@ -1122,6 +1145,14 @@ impl Alloc {
         }
 
         let mut ctxt = self.context.make_current();
+
+        // shader writes to either buffer must be done before the copy, and the buffers must be
+        // out of mappings and transform feedback
+        for alloc in [self, target] {
+            alloc.barrier_for_buffer_update(&mut ctxt);
+            alloc.assert_unmapped(&mut ctxt);
+            alloc.assert_not_transform_feedback(&mut ctxt);
+        }
 
         unsafe {
             copy_buffer(

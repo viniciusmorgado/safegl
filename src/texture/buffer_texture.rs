@@ -72,6 +72,7 @@ use crate::GlObject;
 use crate::TextureExt;
 
 use crate::buffer::Buffer;
+use crate::buffer::BufferAnySlice;
 use crate::buffer::BufferCreationError;
 use crate::buffer::BufferMode;
 use crate::buffer::BufferType;
@@ -544,7 +545,7 @@ where
         BufferTextureRef {
             texture: self.texture,
             ty: self.ty,
-            context: self.buffer.get_context(),
+            buffer: self.buffer.as_slice_any(),
         }
     }
 }
@@ -555,7 +556,6 @@ where
 {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
-        // FIXME: handle `glMemoryBarrier` for the buffer
         UniformValue::BufferTexture(self.as_buffer_texture_ref())
     }
 }
@@ -566,7 +566,6 @@ where
 {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
-        // FIXME: handle `glMemoryBarrier` for the buffer
         UniformValue::BufferTexture(self.as_buffer_texture_ref())
     }
 }
@@ -576,7 +575,8 @@ where
 pub struct BufferTextureRef<'a> {
     texture: glow::Texture,
     ty: BufferTextureType,
-    context: &'a Rc<Context>,
+    // the buffer that the texture reads, whose shader writes must be visible to it
+    buffer: BufferAnySlice<'a>,
 }
 
 impl<'a> BufferTextureRef<'a> {
@@ -595,7 +595,7 @@ impl<'a> TextureExt for BufferTextureRef<'a> {
 
     #[inline]
     fn get_context(&self) -> &Rc<Context> {
-        self.context
+        self.buffer.get_context()
     }
 
     #[inline]
@@ -617,8 +617,11 @@ impl<'a> TextureExt for BufferTextureRef<'a> {
         gl::TEXTURE_BUFFER
     }
 
-    fn prepare_for_access(&self, _: &mut CommandContext<'_>, access_type: crate::TextureAccess) {
-        // TODO: Right now this type of texture cannot be used in an image unit
+    fn prepare_for_access(&self, ctxt: &mut CommandContext<'_>, access_type: crate::TextureAccess) {
+        // buffer textures can only be sampled, not used as images or attachments
+        if let crate::TextureAccess::TextureFetch = access_type {
+            self.buffer.prepare_for_texture_fetch(ctxt);
+        }
     }
 }
 
