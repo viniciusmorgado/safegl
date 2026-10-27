@@ -305,6 +305,79 @@ unsafe fn generate_mipmaps(ctxt: &CommandContext<'_>, bind_point: gl::types::GLe
     ctxt.glow.generate_mipmap(bind_point);
 }
 
+/// Returns `DimensionsNotSupported` if a multisample texture of `internal_format` can't have
+/// `samples` samples: more than the largest count of the format, which OpenGL 4.2,
+/// `GL_ARB_internalformat_query` and OpenGL ES 3.1 list, or than the limit of the kind of the
+/// format (color, depth and stencil, or integer) otherwise. The driver would raise an error.
+#[cfg(any(safegl_desktop, safegl_gles31))]
+fn check_samples(
+    context: &Context,
+    target: gl::types::GLenum,
+    internal_format: gl::types::GLenum,
+    format: TextureFormatRequest,
+    samples: u32,
+) -> Result<(), TextureCreationError> {
+    let version = context.get_opengl_version();
+    let extensions = context.get_extensions();
+    // OpenGL ES lists the samples of multisample arrays from 3.2 or with their extension
+    let listed = !crate::version::is_webgl()
+        && (version >= &Version(Api::Gl, 4, 2)
+            || extensions.gl_arb_internalformat_query
+            || version >= &Version(Api::GlEs, 3, 1))
+        && (target == gl::TEXTURE_2D_MULTISAMPLE
+            || version.0 == Api::Gl
+            || version >= &Version(Api::GlEs, 3, 2)
+            || extensions.gl_oes_texture_storage_multisample_2d_array);
+
+    let max = if listed {
+        let ctxt = context.make_current();
+        unsafe {
+            let mut count = [0];
+            ctxt.glow.get_internal_format_i32_slice(
+                target,
+                internal_format,
+                glow::NUM_SAMPLE_COUNTS,
+                &mut count,
+            );
+            if count[0] > 0 {
+                let mut counts = vec![0; count[0] as usize];
+                ctxt.glow.get_internal_format_i32_slice(
+                    target,
+                    internal_format,
+                    glow::SAMPLES,
+                    &mut counts,
+                );
+                counts.into_iter().max().unwrap_or(0)
+            } else {
+                0
+            }
+        }
+    } else {
+        use crate::texture::TextureFormat as F;
+        let limits = &context.get_capabilities().limits;
+        let limit = match format {
+            TextureFormatRequest::AnyDepth
+            | TextureFormatRequest::AnyStencil
+            | TextureFormatRequest::AnyDepthStencil
+            | TextureFormatRequest::Specific(
+                F::DepthFormat(_) | F::StencilFormat(_) | F::DepthStencilFormat(_),
+            ) => limits.max_depth_texture_samples,
+            TextureFormatRequest::AnyIntegral
+            | TextureFormatRequest::AnyUnsigned
+            | TextureFormatRequest::Specific(
+                F::UncompressedIntegral(_) | F::UncompressedUnsigned(_),
+            ) => limits.max_integer_samples,
+            _ => limits.max_color_texture_samples,
+        };
+        limit.unwrap_or(0)
+    };
+
+    if samples == 0 || samples as gl::types::GLint > max {
+        return Err(TextureCreationError::DimensionsNotSupported);
+    }
+    Ok(())
+}
+
 /// The targets of the images of a level of a texture bound at `bind_point`: the six faces of a
 /// cube map, and the bind point itself otherwise.
 pub(crate) fn image_targets(bind_point: gl::types::GLenum) -> Vec<gl::types::GLenum> {
@@ -559,6 +632,18 @@ where
             ));
     if should_generate_mipmaps && !can_generate_mipmaps {
         return Err(TextureCreationError::MipmapsNotSupported);
+    }
+
+    // the sample count must be one that the format has
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    if let Some(samples) = samples {
+        check_samples(
+            facade.get_context(),
+            bind_point,
+            storage_internal_format.unwrap_or(teximg_internal_format),
+            format,
+            samples,
+        )?;
     }
 
     // OpenGL ES can only create multisample textures with `glTexStorage*Multisample`

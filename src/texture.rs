@@ -930,7 +930,8 @@ pub enum TextureCreationError {
     /// The requested format is not supported by the backend.
     FormatNotSupported,
 
-    /// The requested texture dimensions are not supported.
+    /// The requested texture dimensions are not supported, or the number of samples of a
+    /// multisample texture isn't one that its format has.
     DimensionsNotSupported,
 
     /// The type of texture (1D, multisample array, cubemap array, ...) is not supported by the

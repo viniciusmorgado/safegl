@@ -181,9 +181,15 @@ pub struct Capabilities {
 
 /// Information about an internal format.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct FormatInfos {
-    /// Possible values for multisampling. `None` if unknown.
+    /// Possible values for multisampling: of render buffers, or of 2D multisample textures.
+    /// `None` if unknown.
     pub multisamples: Option<Vec<gl::types::GLint>>,
+
+    /// Possible values for multisampling of 2D multisample array textures. `None` for render
+    /// buffers, and if unknown.
+    pub array_multisamples: Option<Vec<gl::types::GLint>>,
 }
 
 /// What a context does when the GPU is reset (`GL_RESET_NOTIFICATION_STRATEGY`), which a context
@@ -770,47 +776,47 @@ pub fn get_internal_format(
         DummyCaps(version, extensions)
     };
 
-    unsafe {
-        let target = if renderbuffer {
-            glow::RENDERBUFFER
-        } else {
-            glow::TEXTURE_2D_MULTISAMPLE
-        };
+    // the sample counts of a format for a target, which OpenGL 4.2 and
+    // `GL_ARB_internalformat_query` list for render buffers and multisample textures, and
+    // OpenGL ES for render buffers from 3.0, 2D multisample textures from 3.1 and arrays from 3.2;
+    // WebGL only accepts `SAMPLES`, not `NUM_SAMPLE_COUNTS`, so the list can't be sized
+    let samples = |target: gl::types::GLenum, listed: bool| unsafe {
+        if !(listed && format.is_renderable(&dummy) && !is_webgl()) {
+            return None;
+        }
+        let mut num = [0];
+        let internal_format = format.to_glenum();
+        let count = glow::NUM_SAMPLE_COUNTS;
+        gl.get_internal_format_i32_slice(target, internal_format, count, &mut num);
+        let mut formats = vec![0; num[0].max(0) as usize];
+        if !formats.is_empty() {
+            gl.get_internal_format_i32_slice(target, internal_format, glow::SAMPLES, &mut formats);
+        }
+        Some(formats)
+    };
+    let desktop = version >= &Version(Api::Gl, 4, 2) || extensions.gl_arb_internalformat_query;
 
-        // WebGL only accepts `SAMPLES`, not `NUM_SAMPLE_COUNTS`, so the list can't be sized
-        let samples = if format.is_renderable(&dummy)
-            && !is_webgl()
-            && ((version >= &Version(Api::GlEs, 3, 0) && renderbuffer)
-                || version >= &Version(Api::Gl, 4, 2)
-                || extensions.gl_arb_internalformat_query)
-        {
-            let mut num = [0];
-            gl.get_internal_format_i32_slice(
-                target,
-                format.to_glenum(),
-                glow::NUM_SAMPLE_COUNTS,
-                &mut num,
-            );
-            let num = num[0];
-
-            if num >= 1 {
-                let mut formats = vec![0; num as usize];
-                gl.get_internal_format_i32_slice(
-                    target,
-                    format.to_glenum(),
-                    glow::SAMPLES,
-                    &mut formats,
-                );
-                Some(formats)
-            } else {
-                Some(Vec::new())
-            }
-        } else {
-            None
-        };
-
+    if renderbuffer {
         FormatInfos {
-            multisamples: samples,
+            multisamples: samples(
+                glow::RENDERBUFFER,
+                desktop || version >= &Version(Api::GlEs, 3, 0),
+            ),
+            array_multisamples: None,
+        }
+    } else {
+        FormatInfos {
+            multisamples: samples(
+                glow::TEXTURE_2D_MULTISAMPLE,
+                desktop || version >= &Version(Api::GlEs, 3, 1),
+            ),
+            array_multisamples: samples(
+                glow::TEXTURE_2D_MULTISAMPLE_ARRAY,
+                desktop
+                    || version >= &Version(Api::GlEs, 3, 2)
+                    || (version >= &Version(Api::GlEs, 3, 1)
+                        && extensions.gl_oes_texture_storage_multisample_2d_array),
+            ),
         }
     }
 }
