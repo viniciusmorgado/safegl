@@ -333,6 +333,13 @@ fn parse_robustness() -> Option<glutin::context::Robustness> {
     }
 }
 
+/// Returns true if the contexts of the tests check errors: they don't with
+/// `SAFEGL_ROBUSTNESS=no_error`, where an invalid OpenGL call is undefined behavior, so the tests
+/// that make one on purpose can't run.
+pub fn contexts_check_errors() -> bool {
+    !matches!(parse_robustness(), Some(glutin::context::Robustness::NoError))
+}
+
 fn parse_version() -> Vec<glutin::context::ContextApi> {
     match env::var("SAFEGL_GL_VERSION") {
         Ok(version) => {
