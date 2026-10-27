@@ -459,6 +459,8 @@ where
                     // `GL_EXT_multi_draw_indirect`
                     if counted.is_some() {
                         // drawn with the number of commands of the buffer
+                    } else if count == 0 {
+                        // an empty buffer draws nothing, without multidraw
                     } else if count == 1 {
                         ctxt.glow
                             .draw_arrays_indirect_offset(primitives.to_glenum(), offset as i32);
@@ -538,6 +540,8 @@ where
                     // `GL_EXT_multi_draw_indirect`
                     if counted.is_some() {
                         // drawn with the number of commands of the buffer
+                    } else if count == 0 {
+                        // an empty buffer draws nothing, without multidraw
                     } else if count == 1 {
                         ctxt.glow.draw_elements_indirect_offset(
                             primitives.to_glenum(),
@@ -834,7 +838,8 @@ fn check_indirect(
     if !(ctxt.version.0 == Api::Gl || ctxt.version >= &Version(Api::GlEs, 3, 1)) {
         return Err(DrawError::IndirectDrawsNotSupported);
     }
-    if (commands != 1 || counted)
+    // an empty buffer draws nothing and a single command is drawn without multidraw
+    if (commands > 1 || counted)
         && !(ctxt.version >= &Version(Api::Gl, 4, 3)
             || (ctxt.version.0 == Api::Gl && ctxt.extensions.gl_arb_multi_draw_indirect)
             || (ctxt.version.0 == Api::GlEs && ctxt.extensions.gl_ext_multi_draw_indirect))
