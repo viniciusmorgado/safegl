@@ -109,6 +109,10 @@ SafeGL reports as errors; leave it out to avoid compiling the `backtrace` crate.
 
 ### What each level compiles
 
+Every command of the OpenGL 4.6 core profile, and every functionality of GLSL 4.60, is mapped to
+the SafeGL API that gives it, or to the command that SafeGL calls instead, in the chapter
+[OpenGL 4.6 coverage](book/opengl-4.6.md) of the book.
+
 Everything that isn't listed here compiles at every level: buffers, textures and framebuffers of
 the OpenGL ES 3.0 set, vertex and index buffers, programs with vertex and fragment shaders,
 transform feedback, uniform blocks, instancing, samplers, sync fences, `AnySamplesPassedQuery`

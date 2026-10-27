@@ -778,6 +778,9 @@ Fixes:
   shader objects of SPIR-V modules that fail to compile are deleted.
 - Subroutine uniforms are reflected for programs with a single shader when it isn't a compute
   shader.
+- Fragment shaders that redeclare a built-in output, like `layout(depth_greater) out float
+  gl_FragDepth`, link: SafeGL gave the built-in output a location like the other outputs, which
+  OpenGL refuses.
 
 ## [0.2.0]
 
