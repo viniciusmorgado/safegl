@@ -285,6 +285,8 @@ fn overflow_as_condition() {
                 query: query.into(),
                 wait: true,
                 per_region: false,
+                #[cfg(safegl_gl45)]
+                inverted: false,
             }),
             ..Default::default()
         };

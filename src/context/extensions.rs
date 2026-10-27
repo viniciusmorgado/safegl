@@ -54,6 +54,7 @@ extensions! {
     "GL_ARB_clip_control" => gl_arb_clip_control,
     "GL_ARB_cull_distance" => gl_arb_cull_distance,
     "GL_ARB_compute_shader" => gl_arb_compute_shader,
+    "GL_ARB_conditional_render_inverted" => gl_arb_conditional_render_inverted,
     "GL_ARB_copy_image" => gl_arb_copy_image,
     "GL_ARB_debug_output" => gl_arb_debug_output,
     "GL_ARB_clear_buffer_object" => gl_arb_clear_buffer_object,

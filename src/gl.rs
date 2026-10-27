@@ -182,7 +182,10 @@ extra_functions! {
     fn GetProgramResourceName(program: GLuint, programInterface: GLenum, index: GLuint, bufSize: GLsizei, length: *mut GLsizei, name: *mut GLchar) -> ();
     fn GetProgramResourceiv(program: GLuint, programInterface: GLenum, index: GLuint, propCount: GLsizei, props: *const GLenum, bufSize: GLsizei, length: *mut GLsizei, params: *mut GLint) -> ();
     fn GetProgramStageiv(program: GLuint, shadertype: GLenum, pname: GLenum, values: *mut GLint) -> ();
+    fn GetQueryObjectiv(id: GLuint, pname: GLenum, params: *mut GLint) -> ();
+    fn GetQueryObjecti64v(id: GLuint, pname: GLenum, params: *mut GLint64) -> ();
     fn GetQueryObjectuiv(id: GLuint, pname: GLenum, params: *mut GLuint) -> ();
+    fn GetQueryObjectui64v(id: GLuint, pname: GLenum, params: *mut GLuint64) -> ();
     fn GetQueryiv(target: GLenum, pname: GLenum, params: *mut GLint) -> ();
     fn GetSubroutineUniformLocation(program: GLuint, shadertype: GLenum, name: *const GLchar) -> GLint;
     fn GetTextureHandleARB(texture: GLuint) -> GLuint64;

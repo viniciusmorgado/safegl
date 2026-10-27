@@ -211,6 +211,8 @@ Breaking changes:
   `Context::is_context_loss_possible()` is unchanged.
 - `DebugCallbackBehavior` has a `Log` variant (`gl43`, `gles32`), so matches on it need an arm for
   it at these levels.
+- `ConditionalRendering` has an `inverted` field at the `gl45` level, and `ToBufferError` has a
+  `ContextMismatch` variant: a query refuses to write to a buffer of another context.
 
 Additions:
 
@@ -302,6 +304,13 @@ Additions:
 - `Context::shader_precision_format` (`gl41`, `gles30`, `webgl`) gives the range and the precision
   of a `PrecisionQualifier` (`lowp`, `mediump` or `highp` floats and integers) in the vertex or
   fragment shader.
+- Queries write their result or its availability to buffers of `u32`, `i32`, `u64` or `i64`
+  with `to_buffer(target, mode)` (`gl44`), where `QueryBufferMode` is the result, the result if
+  it is available without waiting, or the availability. `debug::TimestampQuery::to_buffer` writes
+  timestamps, and `BufferSlice::get` gives the slice of one element of an array, to write several
+  results to one buffer.
+- `ConditionalRendering::inverted` (`gl45`; OpenGL 4.5 or `GL_ARB_conditional_render_inverted`)
+  draws when the query found no samples, or no overflow, instead.
 
 Fixes:
 

@@ -26,6 +26,7 @@ use crate::BufferExt;
 use crate::BufferSliceExt;
 
 use crate::gl;
+#[cfg(safegl_desktop)]
 use crate::handles::RawName;
 use crate::version::Api;
 use crate::version::Version;
@@ -178,10 +179,14 @@ impl Error for QueryCreationError {}
 /// Error that can happen when writing the value of a query to a buffer.
 #[cfg(safegl_gl44)]
 #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ToBufferError {
-    /// Writing the result to a buffer is not supported.
+    /// Writing the result to a buffer is not supported: it needs OpenGL 4.4,
+    /// `GL_ARB_query_buffer_object` or `GL_AMD_query_buffer_object`.
     NotSupported,
+
+    /// The buffer belongs to another context than the query.
+    ContextMismatch,
 }
 
 #[cfg(safegl_gl44)]
@@ -190,6 +195,7 @@ impl fmt::Display for ToBufferError {
         use self::ToBufferError::*;
         let desc = match *self {
             NotSupported => "Writing the result to a buffer is not supported",
+            ContextMismatch => "The buffer belongs to another context than the query",
         };
         fmt.write_str(desc)
     }
@@ -197,6 +203,142 @@ impl fmt::Display for ToBufferError {
 
 #[cfg(safegl_gl44)]
 impl Error for ToBufferError {}
+
+/// What a query writes to a buffer.
+#[cfg(safegl_gl44)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum QueryBufferMode {
+    /// The result, which the GPU waits for before running the next commands
+    /// (`GL_QUERY_RESULT`).
+    Result,
+
+    /// The result if it is available when the GPU runs the command, and nothing otherwise: the
+    /// buffer keeps its value (`GL_QUERY_RESULT_NO_WAIT`).
+    ResultNoWait,
+
+    /// 1 if the result is available when the GPU runs the command, and 0 otherwise
+    /// (`GL_QUERY_RESULT_AVAILABLE`).
+    Availability,
+}
+
+#[cfg(safegl_gl44)]
+impl QueryBufferMode {
+    fn to_glenum(self) -> gl::types::GLenum {
+        match self {
+            QueryBufferMode::Result => gl::QUERY_RESULT,
+            QueryBufferMode::ResultNoWait => gl::QUERY_RESULT_NO_WAIT,
+            QueryBufferMode::Availability => gl::QUERY_RESULT_AVAILABLE,
+        }
+    }
+}
+
+#[cfg(safegl_gl44)]
+mod query_value {
+    use crate::gl;
+
+    pub trait Sealed: Sized {
+        /// The value of a query that was never used: its result is 0 and available.
+        fn unused(mode: super::QueryBufferMode) -> Self;
+
+        /// Calls the `glGetQueryObject*v` of the type, which writes at `offset` in the query
+        /// buffer.
+        unsafe fn write(
+            extra: &gl::Extra,
+            query: gl::types::GLuint,
+            pname: gl::types::GLenum,
+            offset: usize,
+        );
+    }
+
+    macro_rules! value {
+        ($ty:ty, $get:ident) => {
+            impl Sealed for $ty {
+                fn unused(mode: super::QueryBufferMode) -> $ty {
+                    (mode == super::QueryBufferMode::Availability) as $ty
+                }
+
+                unsafe fn write(
+                    extra: &gl::Extra,
+                    query: gl::types::GLuint,
+                    pname: gl::types::GLenum,
+                    offset: usize,
+                ) {
+                    extra.$get(query, pname, offset as *mut _)
+                }
+            }
+        };
+    }
+
+    value!(u32, GetQueryObjectuiv);
+    value!(i32, GetQueryObjectiv);
+    value!(u64, GetQueryObjectui64v);
+    value!(i64, GetQueryObjecti64v);
+}
+
+/// A type that queries can write to buffers: `u32`, `i32`, `u64` or `i64`. A result that doesn't
+/// fit the type is truncated.
+#[cfg(safegl_gl44)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
+pub trait QueryBufferValue: query_value::Sealed + crate::buffer::Content + Copy + 'static {}
+
+#[cfg(safegl_gl44)]
+impl QueryBufferValue for u32 {}
+#[cfg(safegl_gl44)]
+impl QueryBufferValue for i32 {}
+#[cfg(safegl_gl44)]
+impl QueryBufferValue for u64 {}
+#[cfg(safegl_gl44)]
+impl QueryBufferValue for i64 {}
+
+/// Writes the result of the query `query` to `target`, or its availability. `used` is false for
+/// a query that never began, which OpenGL refuses to write.
+#[cfg(safegl_gl44)]
+pub(crate) fn write_query_to_buffer<T: QueryBufferValue>(
+    context: &Context,
+    query: glow::Query,
+    used: bool,
+    target: BufferSlice<'_, T>,
+    mode: QueryBufferMode,
+) -> Result<(), ToBufferError> {
+    let mut ctxt = context.make_current();
+
+    if !(ctxt.version >= &Version(Api::Gl, 4, 4)
+        || ctxt.extensions.gl_arb_query_buffer_object
+        || ctxt.extensions.gl_amd_query_buffer_object)
+    {
+        return Err(ToBufferError::NotSupported);
+    }
+    if !ctxt.owns(target.get_context()) {
+        return Err(ToBufferError::ContextMismatch);
+    }
+
+    if !used {
+        // the result of a query that was never used is 0 and available, like `get` returns,
+        // but OpenGL refuses to write the result of a query object that never started
+        drop(ctxt);
+        target.write(&T::unused(mode));
+        return Ok(());
+    }
+
+    assert!(target.get_offset_bytes() % std::mem::size_of::<T>() == 0);
+
+    target.prepare_and_bind_for_query(&mut ctxt);
+    unsafe {
+        T::write(
+            ctxt.extra,
+            query.raw_name(),
+            mode.to_glenum(),
+            target.get_offset_bytes(),
+        );
+    }
+
+    if let Some(fence) = target.add_fence() {
+        fence.insert(&mut ctxt);
+    }
+
+    Ok(())
+}
 
 /// Error that can happen when getting the result of a query.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -360,43 +502,22 @@ impl RawQuery {
 
     /// Writes the value of the query to a buffer.
     #[cfg(safegl_gl44)]
-    pub fn write_u32_to_buffer(&self, target: BufferSlice<'_, u32>) -> Result<(), ToBufferError> {
-        let mut ctxt = self.context.make_current();
-
-        if !(ctxt.version >= &Version(Api::Gl, 4, 4)
-            || ctxt.extensions.gl_arb_query_buffer_object
-            || ctxt.extensions.gl_amd_query_buffer_object)
+    pub fn write_to_buffer<T: QueryBufferValue>(
+        &self,
+        target: BufferSlice<'_, T>,
+        mode: QueryBufferMode,
+    ) -> Result<(), ToBufferError> {
         {
-            return Err(ToBufferError::NotSupported);
+            let mut ctxt = self.context.make_current();
+            self.deactivate(&mut ctxt);
         }
-
-        self.deactivate(&mut ctxt);
-
-        if !self.has_been_used.get() {
-            // the result of a query that was never used is 0, like `get` returns, but OpenGL
-            // refuses to write the result of a query object that never started
-            drop(ctxt);
-            target.write(&0);
-            return Ok(());
-        }
-
-        assert!(target.get_offset_bytes() % 4 == 0);
-
-        target.prepare_and_bind_for_query(&mut ctxt);
-        unsafe {
-            self.raw_get_u32(&mut ctxt, target.get_offset_bytes() as *mut _);
-        }
-
-        if let Some(fence) = target.add_fence() {
-            fence.insert(&mut ctxt);
-        }
-
-        Ok(())
-    }
-
-    unsafe fn raw_get_u32(&self, ctxt: &mut CommandContext<'_>, target: *mut gl::types::GLuint) {
-        ctxt.extra
-            .GetQueryObjectuiv(self.id.raw_name(), gl::QUERY_RESULT, target);
+        write_query_to_buffer(
+            &self.context,
+            self.id,
+            self.has_been_used.get(),
+            target,
+            mode,
+        )
     }
 
     /// Returns the value of the query. Blocks until it is available.
@@ -837,18 +958,30 @@ impl QueryExt for RawQuery {
         ctxt: &mut CommandContext<'_>,
         wait: bool,
         per_region: bool,
+        inverted: bool,
     ) -> Result<(), DrawError> {
         // conditional rendering is core in OpenGL 3.0, but OpenGL ES and WebGL need
         // GL_NV_conditional_render
         if ctxt.version.0 != Api::Gl && !ctxt.extensions.gl_nv_conditional_render {
             return Err(DrawError::ConditionalRenderingNotSupported);
         }
+        #[cfg(safegl_gl45)]
+        if inverted
+            && !(ctxt.version >= &Version(Api::Gl, 4, 5)
+                || ctxt.extensions.gl_arb_conditional_render_inverted)
+        {
+            return Err(DrawError::ConditionalRenderingInvertedNotSupported);
+        }
 
-        let new_mode = match (wait, per_region) {
-            (true, true) => gl::QUERY_BY_REGION_WAIT,
-            (true, false) => gl::QUERY_WAIT,
-            (false, true) => gl::QUERY_BY_REGION_NO_WAIT,
-            (false, false) => gl::QUERY_NO_WAIT,
+        let new_mode = match (wait, per_region, inverted) {
+            (true, true, false) => gl::QUERY_BY_REGION_WAIT,
+            (true, false, false) => gl::QUERY_WAIT,
+            (false, true, false) => gl::QUERY_BY_REGION_NO_WAIT,
+            (false, false, false) => gl::QUERY_NO_WAIT,
+            (true, true, true) => gl::QUERY_BY_REGION_WAIT_INVERTED,
+            (true, false, true) => gl::QUERY_WAIT_INVERTED,
+            (false, true, true) => gl::QUERY_BY_REGION_NO_WAIT_INVERTED,
+            (false, false, true) => gl::QUERY_NO_WAIT_INVERTED,
         };
 
         // returning if the active conditional rendering is already good
@@ -860,6 +993,10 @@ impl QueryExt for RawQuery {
                     (a, b) if a == b => return Ok(()),
                     (gl::QUERY_NO_WAIT, gl::QUERY_WAIT) => return Ok(()),
                     (gl::QUERY_BY_REGION_NO_WAIT, gl::QUERY_BY_REGION_WAIT) => return Ok(()),
+                    (gl::QUERY_NO_WAIT_INVERTED, gl::QUERY_WAIT_INVERTED) => return Ok(()),
+                    (gl::QUERY_BY_REGION_NO_WAIT_INVERTED, gl::QUERY_BY_REGION_WAIT_INVERTED) => {
+                        return Ok(())
+                    }
                     _ => (),
                 }
             }
@@ -1015,7 +1152,22 @@ macro_rules! impl_helper {
             #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
             #[inline]
             pub fn to_buffer_u32(&self, target: BufferSlice<'_, u32>) -> Result<(), ToBufferError> {
-                self.query.write_u32_to_buffer(target)
+                self.query.write_to_buffer(target, QueryBufferMode::Result)
+            }
+
+            /// Writes the result of the query, or its availability, to a buffer of `u32`, `i32`,
+            /// `u64` or `i64`, without blocking: the GPU writes it when it runs the command.
+            ///
+            /// Needs OpenGL 4.4, `GL_ARB_query_buffer_object` or `GL_AMD_query_buffer_object`.
+            #[cfg(safegl_gl44)]
+            #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
+            #[inline]
+            pub fn to_buffer<T: QueryBufferValue>(
+                &self,
+                target: BufferSlice<'_, T>,
+                mode: QueryBufferMode,
+            ) -> Result<(), ToBufferError> {
+                self.query.write_to_buffer(target, mode)
             }
         }
 
@@ -1074,8 +1226,10 @@ macro_rules! impl_helper {
                 ctxt: &mut CommandContext<'_>,
                 wait: bool,
                 per_region: bool,
+                inverted: bool,
             ) -> Result<(), DrawError> {
-                self.query.begin_conditional_render(ctxt, wait, per_region)
+                self.query
+                    .begin_conditional_render(ctxt, wait, per_region, inverted)
             }
 
             #[inline]

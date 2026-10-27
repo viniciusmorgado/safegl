@@ -433,6 +433,7 @@ trait QueryExt {
         ctxt: &mut CommandContext<'_>,
         wait: bool,
         per_region: bool,
+        inverted: bool,
     ) -> Result<(), DrawError>;
 
     fn end_conditional_render(ctxt: &mut CommandContext<'_>);
@@ -1533,6 +1534,12 @@ pub enum DrawError {
     #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     ConditionalRenderingNotSupported,
 
+    /// Inverted conditional rendering (`ConditionalRendering::inverted`) isn't supported by the
+    /// backend: it needs OpenGL 4.5 or `GL_ARB_conditional_render_inverted`.
+    #[cfg(safegl_gl45)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
+    ConditionalRenderingInvertedNotSupported,
+
     /// Per-sample shading (`DrawParameters::sample_shading`) isn't supported by the backend.
     #[cfg(any(safegl_desktop, safegl_gles32))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
@@ -1754,6 +1761,9 @@ impl fmt::Display for DrawError {
             #[cfg(safegl_desktop)]
             ConditionalRenderingNotSupported =>
                 "Conditional rendering is not supported by the backend",
+            #[cfg(safegl_gl45)]
+            ConditionalRenderingInvertedNotSupported =>
+                "Inverted conditional rendering is not supported by the backend",
             #[cfg(any(safegl_desktop, safegl_gles32))]
             SampleShadingNotSupported =>
                 "Per-sample shading is not supported by the backend",

@@ -50,6 +50,8 @@
 //!         query: (&query).into(),
 //!         wait: true,
 //!         per_region: true,
+//!         # #[cfg(safegl_gl45)]
+//!         # inverted: false,
 //!     }),
 //!     .. Default::default()
 //! };
@@ -100,6 +102,11 @@ pub use self::query::QueryResultError;
 #[cfg(safegl_gl44)]
 #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
 pub use self::query::ToBufferError;
+#[cfg(safegl_gl44)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
+pub use self::query::{QueryBufferMode, QueryBufferValue};
+#[cfg(safegl_gl44)]
+pub(crate) use self::query::write_query_to_buffer;
 pub use self::query::{AnySamplesPassedQuery, TransformFeedbackPrimitivesWrittenQuery};
 #[cfg(safegl_desktop)]
 pub use self::query::{SamplesPassedQuery, TimeElapsedQuery};
@@ -654,6 +661,13 @@ pub struct ConditionalRendering<'a> {
     /// If true, only samples that match those that were written with the query active will
     /// be drawn.
     pub per_region: bool,
+
+    /// If true, the condition is inverted: the draw happens when the query found no samples, or
+    /// no overflow (OpenGL 4.5 or `GL_ARB_conditional_render_inverted`, otherwise
+    /// `DrawError::ConditionalRenderingInvertedNotSupported`).
+    #[cfg(safegl_gl45)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
+    pub inverted: bool,
 }
 
 /// The query whose result conditions a draw.
@@ -847,7 +861,12 @@ pub(crate) fn check_queries(draw_parameters: &DrawParameters<'_>) -> Result<bool
         }
     }
 
-    Ok(!condition.query.is_unused())
+    // a query that never began counts nothing: only an inverted condition draws
+    #[cfg(safegl_gl45)]
+    let inverted = condition.inverted;
+    #[cfg(not(safegl_gl45))]
+    let inverted = false;
+    Ok(!condition.query.is_unused() || inverted)
 }
 
 #[cfg(safegl_desktop)]
@@ -1556,22 +1575,42 @@ fn sync_conditional_render(
     ctxt: &mut context::CommandContext<'_>,
     condition: Option<ConditionalRendering<'_>>,
 ) -> Result<(), DrawError> {
-    if let Some(ConditionalRendering {
-        query,
-        wait,
-        per_region,
-    }) = condition
-    {
+    if let Some(condition) = condition {
+        let ConditionalRendering {
+            query,
+            wait,
+            per_region,
+            ..
+        } = condition;
+        #[cfg(safegl_gl45)]
+        let inverted = condition.inverted;
+        #[cfg(not(safegl_gl45))]
+        let inverted = false;
+
+        // the condition of a query that never began is known: the draw happens unconditionally,
+        // since `check_queries` only lets it through if the condition is inverted
+        if query.is_unused() {
+            #[cfg(safegl_gl45)]
+            if inverted
+                && !(ctxt.version >= &Version(Api::Gl, 4, 5)
+                    || ctxt.extensions.gl_arb_conditional_render_inverted)
+            {
+                return Err(DrawError::ConditionalRenderingInvertedNotSupported);
+            }
+            AnySamplesPassedQuery::end_conditional_render(ctxt);
+            return Ok(());
+        }
+
         match query {
             ConditionQuery::SamplesPassedQuery(q) => {
-                q.begin_conditional_render(ctxt, wait, per_region)
+                q.begin_conditional_render(ctxt, wait, per_region, inverted)
             }
             ConditionQuery::AnySamplesPassedQuery(q) => {
-                q.begin_conditional_render(ctxt, wait, per_region)
+                q.begin_conditional_render(ctxt, wait, per_region, inverted)
             }
             #[cfg(safegl_gl46)]
             ConditionQuery::TransformFeedbackOverflowQuery(q) => {
-                q.begin_conditional_render(ctxt, wait, per_region)
+                q.begin_conditional_render(ctxt, wait, per_region, inverted)
             }
         }
     } else {

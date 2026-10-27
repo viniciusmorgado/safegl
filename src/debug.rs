@@ -347,6 +347,7 @@ impl TimestampQuery {
         // with a query buffer bound, OpenGL would take the destination as an offset in it
         #[cfg(safegl_gl44)]
         <crate::buffer::Buffer<u8> as crate::BufferExt>::unbind_query(&mut ctxt);
+
         if ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_disjoint_timer_query {
             unsafe {
                 ctxt.glow
@@ -356,6 +357,20 @@ impl TimestampQuery {
         } else {
             unreachable!();
         }
+    }
+
+    /// Writes the timestamp, or its availability, to a buffer of `u32`, `i32`, `u64` or `i64`,
+    /// without blocking: the GPU writes it when it runs the command. A timestamp needs 64 bits.
+    ///
+    /// Needs OpenGL 4.4, `GL_ARB_query_buffer_object` or `GL_AMD_query_buffer_object`.
+    #[cfg(safegl_gl44)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
+    pub fn to_buffer<T: crate::draw_parameters::QueryBufferValue>(
+        &self,
+        target: crate::buffer::BufferSlice<'_, T>,
+        mode: crate::draw_parameters::QueryBufferMode,
+    ) -> Result<(), crate::draw_parameters::ToBufferError> {
+        crate::draw_parameters::write_query_to_buffer(&self.context, self.id, true, target, mode)
     }
 
     /// Returns the value of the timestamp. Blocks until it is available.
@@ -373,6 +388,7 @@ impl TimestampQuery {
         // with a query buffer bound, OpenGL would take the destination as an offset in it
         #[cfg(safegl_gl44)]
         <crate::buffer::Buffer<u8> as crate::BufferExt>::unbind_query(&mut ctxt);
+
         if ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_disjoint_timer_query {
             unsafe {
                 Ok(ctxt
