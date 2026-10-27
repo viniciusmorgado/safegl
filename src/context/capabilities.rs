@@ -143,6 +143,19 @@ pub struct Capabilities {
 
     /// Maximum samples of an empty framebuffer. `None` if not supported.
     pub max_framebuffer_samples: Option<gl::types::GLint>,
+
+    /// Number of vertex buffer binding points of `glBindVertexBuffer`. `None` if separate vertex
+    /// formats and bindings (OpenGL 4.3, OpenGL ES 3.1 or `GL_ARB_vertex_attrib_binding`) are
+    /// not supported.
+    pub max_vertex_attrib_bindings: Option<gl::types::GLint>,
+
+    /// Maximum offset of an attribute in a vertex given to `glVertexAttribFormat`. `None` if
+    /// separate vertex formats and bindings are not supported.
+    pub max_vertex_attrib_relative_offset: Option<gl::types::GLint>,
+
+    /// Maximum stride of the vertices of a buffer. `None` if the backend doesn't give it, which
+    /// it does from OpenGL 4.4 and OpenGL ES 3.1.
+    pub max_vertex_attrib_stride: Option<gl::types::GLint>,
 }
 
 /// Information about an internal format.
@@ -190,6 +203,12 @@ pub unsafe fn get_capabilities(
 
     // getting the value of `GL_RENDERER`
     let renderer = gl.get_parameter_string(glow::RENDERER);
+
+    // separate vertex formats and bindings, which WebGL doesn't have
+    let vertex_attrib_binding = !is_webgl()
+        && (version >= &Version(Api::Gl, 4, 3)
+            || version >= &Version(Api::GlEs, 3, 1)
+            || extensions.gl_arb_vertex_attrib_binding);
 
     Capabilities {
         supported_glsl_versions: { get_supported_glsl(gl, version, extensions) },
@@ -504,6 +523,26 @@ pub unsafe fn get_capabilities(
             } else {
                 None
             }
+        },
+
+        max_vertex_attrib_bindings: if vertex_attrib_binding {
+            Some(gl.get_parameter_i32(glow::MAX_VERTEX_ATTRIB_BINDINGS))
+        } else {
+            None
+        },
+
+        max_vertex_attrib_relative_offset: if vertex_attrib_binding {
+            Some(gl.get_parameter_i32(glow::MAX_VERTEX_ATTRIB_RELATIVE_OFFSET))
+        } else {
+            None
+        },
+
+        max_vertex_attrib_stride: if version >= &Version(Api::Gl, 4, 4)
+            || version >= &Version(Api::GlEs, 3, 1)
+        {
+            Some(gl.get_parameter_i32(glow::MAX_VERTEX_ATTRIB_STRIDE))
+        } else {
+            None
         },
 
         renderer,

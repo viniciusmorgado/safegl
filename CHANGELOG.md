@@ -196,6 +196,12 @@ Breaking changes:
 
 Additions:
 
+- With OpenGL 4.3, OpenGL ES 3.1 or `GL_ARB_vertex_attrib_binding`, vertex array objects set the
+  formats of the attributes once and bind their vertex buffers with `glBindVertexBuffer`, so that
+  drawing from other offsets of the same buffers reuses them and only binds the buffers again,
+  instead of building a VAO per offset. `Capabilities` gives `max_vertex_attrib_bindings`,
+  `max_vertex_attrib_relative_offset` and `max_vertex_attrib_stride`; formats beyond these
+  limits, and WebGL, use attribute pointers as before.
 - `UniformValue::DoubleMat2x3` and the other non-square double-precision matrices, from
   `[[f64; R]; C]` arrays, and 64-bit integer uniform values are bound to their GLSL types.
 - `UniformValue` implements `AsUniformValue`, so a value built in advance, for example from a
@@ -221,6 +227,9 @@ Additions:
 
 Fixes:
 
+- The columns of a matrix attribute whose components aren't 32-bit floats, such as
+  `AttributeType::F16x4x4` fed to a `mat4`, are read at the offsets of their components instead of
+  4 bytes per component.
 - On OpenGL ES, `clip_planes_bitmask` enables clip distances with `GL_EXT_clip_cull_distance`,
   and enabling a plane without it returns `DrawError::ClipPlaneIndexOutOfBounds` instead of being
   ignored.
