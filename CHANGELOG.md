@@ -143,6 +143,10 @@ Breaking changes:
 
   `Context::insert_debug_marker` uses `glDebugMessageInsert` (OpenGL 4.3, OpenGL ES 3.2 or
   `GL_KHR_debug`) instead of `GL_GREMEDY_string_marker`.
+- Before OpenGL ES 3.2, without `GL_EXT_geometry_shader` or `GL_OES_geometry_shader`, a draw
+  with a transform feedback session must be a draw without indices of points, lines or
+  triangles lists, or it returns the new `DrawError::TransformFeedbackDrawNotSupported`:
+  OpenGL ES raised `GL_INVALID_OPERATION` and captured nothing.
 
 Additions:
 

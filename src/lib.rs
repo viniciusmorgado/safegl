@@ -1490,6 +1490,11 @@ pub enum DrawError {
     /// would capture the outputs of that program with the layout of the other.
     TransformFeedbackProgramMismatch,
 
+    /// Before OpenGL ES 3.2, without `GL_EXT_geometry_shader` or `GL_OES_geometry_shader`,
+    /// transform feedback only captures draws without indices of points, lines or triangles
+    /// lists: indexed draws, strips, fans and loops aren't.
+    TransformFeedbackDrawNotSupported,
+
     /// An active uniform of the program has never been given a value. Give it one, or pass
     /// `uniforms::Keep` to keep the initializer of the shader.
     UniformMissing {
@@ -1649,6 +1654,8 @@ impl fmt::Display for DrawError {
                 "A compute shader was executed with more work groups than the backend supports",
             TransformFeedbackProgramMismatch =>
                 "The transform feedback session was built for another program",
+            TransformFeedbackDrawNotSupported =>
+                "Transform feedback only captures draws of lists without indices on this context",
             UniformMissing { .. } =>
                 "An active uniform of the program has never been given a value",
             UniformBindingMissing { .. } =>

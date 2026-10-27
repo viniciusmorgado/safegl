@@ -520,6 +520,24 @@ fn check_contexts(
         if session.get_program_id() != program.get_id() {
             return Err(DrawError::TransformFeedbackProgramMismatch);
         }
+
+        // without geometry shaders, OpenGL ES only captures the primitives of `glDrawArrays`,
+        // exactly as they are drawn, which must be lists
+        let arrays_of_lists_only = ctxt.version.0 == Api::GlEs
+            && ctxt.version < &Version(Api::GlEs, 3, 2)
+            && !ctxt.extensions.gl_ext_geometry_shader
+            && !ctxt.extensions.gl_oes_geometry_shader;
+        let is_array_of_list = matches!(
+            indices,
+            IndicesSource::NoIndices {
+                primitives: index::PrimitiveType::Points
+                    | index::PrimitiveType::LinesList
+                    | index::PrimitiveType::TrianglesList
+            }
+        );
+        if arrays_of_lists_only && !is_array_of_list {
+            return Err(DrawError::TransformFeedbackDrawNotSupported);
+        }
     }
 
     draw_parameters::check_query_contexts(ctxt, draw_parameters)
