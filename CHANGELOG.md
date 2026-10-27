@@ -117,6 +117,12 @@ Breaking changes:
   `glUniform1i`, which raised `GL_INVALID_OPERATION` and left the image unbound. Two image
   uniforms with the same binding return `DrawError::SharedBindingPoint` there. The reflected
   `Uniform` gets the `binding` field, the unit of the shader for images.
+- SafeGL only supports the core profile of desktop OpenGL: a compatibility profile context is
+  refused with `IncompatibleOpenGl`. `SimpleWindowBuilder`, and the new
+  `backend::glutin::context_attributes_builder`, request the core profile explicitly. `Profile`,
+  `Capabilities::profile` and `Context::get_opengl_profile` are removed. The minimum desktop
+  version is OpenGL 4.0 instead of 4.1, and `IncompatibleOpenGl` displays why the context was
+  refused.
 
 Additions:
 

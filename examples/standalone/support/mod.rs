@@ -216,8 +216,7 @@ impl<T: ApplicationContext + 'static> State<T> {
             safegl::backend::glutin::tier_context_apis()
                 .into_iter()
                 .find_map(|api| {
-                    let context_attributes = glutin::context::ContextAttributesBuilder::new()
-                        .with_context_api(api)
+                    let context_attributes = safegl::backend::glutin::context_attributes_builder(api)
                         .build(Some(window_handle.into()));
                     unsafe {
                         gl_config

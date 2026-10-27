@@ -51,6 +51,20 @@ pub fn tier_context_apis() -> Vec<glutin::context::ContextApi> {
     apis
 }
 
+/// Returns the context attributes for `api`, which request the core profile for desktop OpenGL:
+/// SafeGL refuses compatibility profile contexts.
+pub fn context_attributes_builder(
+    api: glutin::context::ContextApi,
+) -> glutin::context::ContextAttributesBuilder {
+    use glutin::context::{ContextApi, ContextAttributesBuilder, GlProfile};
+
+    let builder = ContextAttributesBuilder::new().with_context_api(api);
+    match api {
+        ContextApi::OpenGl(_) => builder.with_profile(GlProfile::Core),
+        ContextApi::Gles(_) => builder,
+    }
+}
+
 #[cfg(feature = "simple_window_builder")]
 pub use self::simple_window_builder::SimpleWindowBuilder;
 

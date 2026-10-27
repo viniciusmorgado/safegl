@@ -126,7 +126,8 @@ impl SimpleWindowBuilder {
         self
     }
 
-    /// Can be used to configure OpenGL version and mode (core vs compatibility).
+    /// Can be used to configure the OpenGL version and the other context attributes. Desktop
+    /// OpenGL contexts must use the core profile: SafeGL refuses compatibility profile contexts.
     /// If this is not set, the builder requests the newest context version of the compiled tier.
     pub fn with_context_attributes_builder(
         mut self,
@@ -206,9 +207,7 @@ impl SimpleWindowBuilder {
             None => super::tier_context_apis()
                 .into_iter()
                 .map(|api| {
-                    ContextAttributesBuilder::new()
-                        .with_context_api(api)
-                        .build(Some(window_handle.into()))
+                    super::context_attributes_builder(api).build(Some(window_handle.into()))
                 })
                 .collect(),
         };

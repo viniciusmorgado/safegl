@@ -16,15 +16,6 @@ use crate::ToGlEnum;
 use crate::image_format::TextureFormat;
 use crate::CapabilitiesSource;
 
-/// Describes the OpenGL context profile.
-#[derive(Debug, Copy, Clone)]
-pub enum Profile {
-    /// The context uses only future-compatible functions and definitions.
-    Core,
-    /// The context includes all immediate mode functions and definitions.
-    Compatibility,
-}
-
 /// Represents the capabilities of the context.
 ///
 /// Contrary to the state, these values never change.
@@ -45,11 +36,6 @@ pub struct Capabilities {
     /// The name of the renderer. This name is typically specific to a particular
     /// configuration of a hardware platform.
     pub renderer: String,
-
-    /// The OpenGL context profile if available.
-    ///
-    /// The context profile is available from OpenGL 3.2 onwards. `None` if not supported.
-    pub profile: Option<Profile>,
 
     /// The context is in debug mode, which may have additional error and performance issue
     /// reporting functionality.
@@ -190,8 +176,9 @@ pub unsafe fn get_capabilities(
     version: &Version,
     extensions: &ExtensionsList,
 ) -> Capabilities {
-    // GL_CONTEXT_FLAGS are only available from GL 3.0 onwards
-    let (debug, forward_compatible) = if version >= &Version(Api::Gl, 3, 0) {
+    // OpenGL ES has `GL_CONTEXT_FLAGS` from version 3.2, without the forward-compatible flag
+    let (debug, forward_compatible) =
+        if version.0 == Api::Gl || version >= &Version(Api::GlEs, 3, 2) {
         let val = gl.get_parameter_i32(glow::CONTEXT_FLAGS) as gl::types::GLenum;
         (
             (val & glow::CONTEXT_FLAG_DEBUG_BIT) != 0,
@@ -210,21 +197,6 @@ pub unsafe fn get_capabilities(
         version: gl.get_parameter_string(glow::VERSION),
 
         vendor: gl.get_parameter_string(glow::VENDOR),
-
-        profile: {
-            if version >= &Version(Api::Gl, 3, 2) {
-                let val = gl.get_parameter_i32(glow::CONTEXT_PROFILE_MASK) as gl::types::GLenum;
-                if (val & glow::CONTEXT_COMPATIBILITY_PROFILE_BIT) != 0 {
-                    Some(Profile::Compatibility)
-                } else if (val & glow::CONTEXT_CORE_PROFILE_BIT) != 0 {
-                    Some(Profile::Core)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        },
 
         debug,
 

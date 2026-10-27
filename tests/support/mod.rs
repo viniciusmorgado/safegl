@@ -10,7 +10,7 @@ use safegl::index::PrimitiveType;
 use safegl::Display;
 
 use glutin::config::ConfigTemplateBuilder;
-use glutin::context::{ContextAttributesBuilder, NotCurrentContext};
+use glutin::context::NotCurrentContext;
 use glutin::display::GetGlDisplay;
 use glutin::prelude::*;
 use glutin::surface::{Surface, SurfaceAttributesBuilder, WindowSurface};
@@ -118,7 +118,7 @@ fn create_context(
     apis: Vec<glutin::context::ContextApi>,
 ) -> Option<NotCurrentContext> {
     apis.into_iter().find_map(|version| {
-        let mut context_attributes = ContextAttributesBuilder::new().with_context_api(version);
+        let mut context_attributes = safegl::backend::glutin::context_attributes_builder(version);
         if let Some(shared) = shared {
             context_attributes = context_attributes.with_sharing(shared);
         }
@@ -207,6 +207,31 @@ pub fn build_display_with_debug(debug: safegl::debug::DebugCallbackBehavior) -> 
         display: Display::with_debug(current_context, surface, debug).unwrap(),
         window,
     }
+}
+
+/// Builds a display whose context is created with the given attributes, or returns `None` if
+/// the driver can't create such a context.
+pub fn try_build_display_with(
+    attributes: glutin::context::ContextAttributesBuilder,
+) -> Option<Result<Display<WindowSurface>, safegl::IncompatibleOpenGl>> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    event_loop_proxy()
+        .send_event(DisplayRequest::Window(sender))
+        .unwrap();
+    let (window, gl_config, surface) = receiver.recv().unwrap();
+
+    let raw_window_handle = window.window_handle().unwrap().as_raw();
+    let context = unsafe {
+        gl_config
+            .display()
+            .create_context(&gl_config, &attributes.build(Some(raw_window_handle)))
+            .ok()?
+    };
+    let context = context.make_current(&surface).unwrap();
+    Some(Display::new(context, surface).map_err(|error| match error {
+        safegl::backend::glutin::DisplayCreationError::IncompatibleOpenGl(error) => error,
+        error => panic!("{error}"),
+    }))
 }
 
 /// Returns true if the display uses OpenGL ES, for the few tests of features it doesn't have.

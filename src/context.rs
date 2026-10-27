@@ -39,7 +39,7 @@ use crate::texture;
 use crate::uniforms;
 use crate::vertex_array_object;
 
-pub use self::capabilities::{Capabilities, Profile, ReleaseBehavior};
+pub use self::capabilities::{Capabilities, ReleaseBehavior};
 pub use self::extensions::ExtensionsList;
 pub use self::state::GlState;
 
@@ -269,7 +269,7 @@ impl Context {
 
         let version = version::get_gl_version(&glow);
         let extensions = extensions::get_extensions(&glow);
-        check_gl_compatibility(&version)?;
+        check_gl_compatibility(&glow, &version)?;
 
         let capabilities = capabilities::get_capabilities(&glow, &version, &extensions);
         let report_debug_output_errors = Cell::new(true);
@@ -396,17 +396,24 @@ impl Context {
         let new_glow = self.backend.borrow().create_glow_context();
         let version = version::get_gl_version(&new_glow);
         let extensions = extensions::get_extensions(&new_glow);
-        if version != self.version || extensions != self.extensions {
+        let compatible = check_gl_compatibility(&new_glow, &version).and_then(|()| {
+            if version == self.version && extensions == self.extensions {
+                Ok(())
+            } else {
+                Err(IncompatibleOpenGl(format!(
+                    "the new context provides OpenGL {:?} {}.{} and its extensions, instead of \
+                     {:?} {}.{} and the extensions of the first context",
+                    version.0, version.1, version.2, self.version.0, self.version.1, self.version.2
+                )))
+            }
+        });
+        if let Err(error) = compatible {
             switch_back(self);
             self.backend.borrow().make_current();
             if self.debug_callback.borrow().is_some() {
                 init_debug_callback(self);
             }
-            return Err(IncompatibleOpenGl(format!(
-                "the new context provides OpenGL {:?} {}.{} and its extensions, instead of \
-                 {:?} {}.{} and the extensions of the first context",
-                version.0, version.1, version.2, self.version.0, self.version.1, self.version.2
-            )));
+            return Err(error);
         }
 
         *self.state.borrow_mut() = Default::default();
@@ -525,19 +532,14 @@ impl Context {
         self.capabilities().debug
     }
 
-    /// Returns true if the context is in "forward-compatible" mode.
+    /// Returns true if the context has the "forward-compatible" flag, which removes the
+    /// deprecated functionality of desktop OpenGL.
     ///
-    /// Forward-compatible mode means that no deprecated functionality will be supported.
+    /// SafeGL behaves as if every desktop context were forward-compatible, whatever this flag:
+    /// it never uses deprecated functionality, and refuses lines wider than 1 pixel.
     #[inline]
     pub fn is_forward_compatible(&self) -> bool {
         self.capabilities().forward_compatible
-    }
-
-    /// Returns this context's OpenGL profile if available.
-    ///
-    /// The context profile is available from OpenGL 3.2 onwards. Returns `None` if not supported.
-    pub fn get_opengl_profile(&self) -> Option<Profile> {
-        self.capabilities().profile
     }
 
     /// Returns true if out-of-bound buffer access from the GPU side (inside a program) cannot
@@ -1016,24 +1018,37 @@ impl<'a> CapabilitiesSource for CommandContext<'a> {
 
 /// Checks whether the backend supports SafeGL. Returns an `Err` if it doesn't.
 /// Minimum desktop OpenGL version supported by SafeGL (the `gl41` tier).
-const MIN_GL_VERSION: Version = Version(Api::Gl, 4, 1);
+const MIN_GL_VERSION: Version = Version(Api::Gl, 4, 0);
 /// Minimum OpenGL ES version supported by SafeGL (the `gles30` tier, also WebGL 2).
 const MIN_GLES_VERSION: Version = Version(Api::GlEs, 3, 0);
 
-fn check_gl_compatibility(version: &Version) -> Result<(), IncompatibleOpenGl> {
+fn check_gl_compatibility(gl: &glow::Context, version: &Version) -> Result<(), IncompatibleOpenGl> {
     let minimum = match version.0 {
         Api::Gl => MIN_GL_VERSION,
         Api::GlEs => MIN_GLES_VERSION,
     };
 
-    if version >= &minimum {
-        Ok(())
-    } else {
-        Err(IncompatibleOpenGl(format!(
+    if version < &minimum {
+        return Err(IncompatibleOpenGl(format!(
             "SafeGL requires {:?} {}.{} or newer, but the driver provides {}.{}",
             minimum.0, minimum.1, minimum.2, version.1, version.2
-        )))
+        )));
     }
+
+    // only the core profile of desktop OpenGL is supported
+    if version.0 == Api::Gl {
+        let mask = unsafe { gl.get_parameter_i32(glow::CONTEXT_PROFILE_MASK) } as u32;
+        if mask & glow::CONTEXT_COMPATIBILITY_PROFILE_BIT != 0 {
+            return Err(IncompatibleOpenGl(
+                "SafeGL requires a core profile context, but the driver provides a \
+                 compatibility profile context: request the core profile, for example with \
+                 `ContextAttributesBuilder::with_profile(GlProfile::Core)`"
+                    .to_owned(),
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 /// Describes the behavior that the debug output should have.

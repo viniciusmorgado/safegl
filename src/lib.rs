@@ -128,7 +128,7 @@ compile_error!("SafeGL: building for the browser requires the `webgl` feature.")
 pub use crate::backend::glutin::glutin;
 #[cfg(feature = "simple_window_builder")]
 pub use crate::backend::winit;
-pub use crate::context::{Capabilities, ExtensionsList, Profile};
+pub use crate::context::{Capabilities, ExtensionsList};
 pub use crate::draw_parameters::Smooth;
 pub use crate::draw_parameters::{
     BackfaceCullingMode, Blend, BlendingFunction, LinearBlendingFactor,
@@ -2034,13 +2034,14 @@ impl Drop for Frame {
     }
 }
 
-/// Returned during Context creation if the OpenGL implementation is too old.
+/// Returned during Context creation if the OpenGL implementation is too old, or isn't a core
+/// profile context of desktop OpenGL.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IncompatibleOpenGl(pub String);
 
 impl fmt::Display for IncompatibleOpenGl {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.write_str("The OpenGL implementation is too old to work with SafeGL")
+        write!(fmt, "The OpenGL implementation can't be used by SafeGL: {}", self.0)
     }
 }
 
