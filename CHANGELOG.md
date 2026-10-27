@@ -311,6 +311,9 @@ Additions:
   results to one buffer.
 - `ConditionalRendering::inverted` (`gl45`; OpenGL 4.5 or `GL_ARB_conditional_render_inverted`)
   draws when the query found no samples, or no overflow, instead.
+- `SyncFence::wait_timeout` waits for a fence with a timeout and tells whether it was signaled,
+  `SyncFence::wait_on_gpu` makes the GPU wait for it (`glWaitSync`), and
+  `Context::gpu_timestamp` (`desktop`) reads the clock of the GPU (`GL_TIMESTAMP`).
 
 Fixes:
 

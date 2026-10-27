@@ -61,6 +61,8 @@ pub const DEPTH_CLAMP_FAR_AMD: GLenum = 0x901F;
 pub const DEPTH_CLAMP_NEAR_AMD: GLenum = 0x901E;
 pub const GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX: GLenum = 0x9049;
 pub const INT64_NV: GLenum = 0x140E;
+// WebGL 2
+pub const MAX_CLIENT_WAIT_TIMEOUT_WEBGL: GLenum = 0x9247;
 pub const TEXTURE_FREE_MEMORY_ATI: GLenum = 0x87FC;
 pub const UNSIGNED_INT64_NV: GLenum = 0x140F;
 // GL_ARB_gpu_shader_int64

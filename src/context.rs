@@ -706,6 +706,20 @@ impl Context {
         })
     }
 
+    /// Returns the time of the GPU in nanoseconds, when it has received every previous command
+    /// but not necessarily run them (`GL_TIMESTAMP`), or `None` on OpenGL ES without
+    /// `GL_EXT_disjoint_timer_query`. `debug::TimestampQuery` gives the time when the commands
+    /// have run, and the two use the same clock.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    pub fn gpu_timestamp(&self) -> Option<u64> {
+        let ctxt = self.make_current();
+        if ctxt.version.0 != Api::Gl && !ctxt.extensions.gl_ext_disjoint_timer_query {
+            return None;
+        }
+        Some(unsafe { ctxt.glow.get_parameter_i64(gl::TIMESTAMP) } as u64)
+    }
+
     /// Returns the maximum value that can be used for anisotropic filtering, or `None`
     /// if the hardware doesn't support it.
     #[inline]

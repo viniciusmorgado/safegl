@@ -162,7 +162,7 @@ pub use crate::program::ProgramCreationError::{
     CompilationError, LinkingError, ShaderTypeNotSupported,
 };
 pub use crate::program::{Program, ProgramCreationError};
-pub use crate::sync::{LinearSyncFence, SyncFence};
+pub use crate::sync::{LinearSyncFence, SyncFence, SyncWaitResult};
 pub use crate::texture::Texture2d;
 pub use crate::version::{get_supported_glsl_version, Api, Version};
 pub use crate::vertex::{Vertex, VertexBuffer, VertexFormat};
