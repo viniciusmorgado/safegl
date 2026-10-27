@@ -206,10 +206,11 @@ pub unsafe fn reflect_uniforms(
         .glow
         .get_program_parameter_i32(program, glow::ACTIVE_UNIFORMS);
 
+    // the buffers of atomic counters are queried through the program interface where it exists,
+    // and through `glGetActiveAtomicCounterBufferiv` of the extension otherwise
     let query_atomic_counters = ctxt.version >= &Version(Api::Gl, 4, 2)
         || ctxt.version >= &Version(Api::GlEs, 3, 1)
-        || (ctxt.extensions.gl_arb_program_interface_query
-            && ctxt.extensions.gl_arb_shader_atomic_counters);
+        || ctxt.extensions.gl_arb_shader_atomic_counters;
     let mut active_atomic_counters: gl::types::GLint = 0;
     if query_atomic_counters {
         active_atomic_counters = ctxt
