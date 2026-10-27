@@ -134,6 +134,7 @@ each chain that compiles a functionality; — means that the chain doesn't have 
 | Bindless textures (`GL_ARB_bindless_texture`)    | `gl40`  | —         | —     | `texture::bindless`, `texture::{ResidentTexture, TextureHandle, BindlessTexturesNotSupportedError}`, `resident()` on textures                 |
 | Double-precision vertex attributes               | `gl41`  | —         | —     | the `Attribute` impls of `f64`, its arrays and its tuples                                                                                   |
 | Program binaries                                 | `gl41`  | `gles30`  | —     | `Program::get_binary`, `ComputeShader::{get_binary, from_binary}`, `ProgramCreationInput::Binary`, `program::{Binary, GetBinaryError, is_binary_supported}` |
+| Shader precision formats                         | `gl41`  | `gles30`  | `webgl` | `Context::shader_precision_format`, `program::{PrecisionQualifier, ShaderPrecision}`                                                          |
 | Base instances                                   | `gl42`  | —         | —     | `DrawParameters::base_instance`, `DrawError::BaseInstanceNotSupported`                                                                     |
 | Image load/store and atomic counters             | `gl42`  | `gles31`  | —     | `uniforms::{ImageUnit, ImageUnitBehavior, ImageUnitAccess, ImageUnitFormat, ImageUnitError}`, `image_unit()` on textures, `UniformValue::Image`, `BufferType::AtomicCounterBuffer`, `Program::get_atomic_counters` |
 | Compute shaders, shader storage and empty framebuffers | `gl43` | `gles31` | — | `program::{ComputeShader, ComputeCommand}`, `BufferType::{ShaderStorageBuffer, DispatchIndirectBuffer}`, `Program::get_shader_storage_blocks`, `framebuffer::EmptyFrameBuffer` |
@@ -141,13 +142,16 @@ each chain that compiles a functionality; — means that the chain doesn't have 
 | Clearing buffers                                 | `gl43`  | —         | —     | `clear()` on buffers and their slices, `buffer::{ClearValue, ClearContent, ClearBufferError}`                                                |
 | Multidraw indirect                               | `gl43`  | —         | —     | `index::{DrawCommandsNoIndicesBuffer, DrawCommandsIndicesBuffer, DrawCommandNoIndices, DrawCommandIndices}`, `IndicesSource::Multidraw*`     |
 | Framebuffer invalidation                         | `gl43`  | `gles30`  | `webgl` | `invalidate()` and `invalidate_rect()` on framebuffers, `framebuffer::InvalidateAttachments`                                              |
+| Debug groups, object labels and debug messages   | `gl43`  | `gles32`  | —     | `Context::{push_debug_group, set_debug_messages_enabled, insert_debug_message, debug_message_log, is_debug_output_supported}`, `debug::{DebugGroup, ObjectLabel, DebugMessage, DebugMessageFilter, DebugError}`, `DebugCallbackBehavior::Log`, the debug fields of `Limits` |
 | Stencil textures                                 | `gl44`  | `gles32`  | —     | `texture::{StencilTexture2d, ...}`                                                                                                           |
 | Clearing textures and query buffers              | `gl44`  | —         | —     | `texture::{is_clear_texture_supported, ClearTextureError}`, `clear()`, `clear_region()` and `clear_depth_stencil()` on mipmaps, `to_buffer_u32()` on queries, `draw_parameters::ToBufferError`, `BufferType::QueryBuffer` |
 | Mirror-clamp wrapping                            | `gl44`  | —         | —     | `SamplerWrapFunction::MirrorClamp`                                                                                                           |
 | Texture barrier and clip control                 | `gl45`  | —         | —     | `texture::{texture_barrier, is_texture_barrier_supported, TextureBarrierNotSupportedError}`, `DrawParameters::{clip_control_origin, clip_control_depth}`, `ClipControlOrigin`, `ClipControlDepth`, `DrawError::ClipControlNotSupported` |
+| Graphics reset status                            | `gl45`  | `gles32`  | —     | `Context::graphics_reset_status`, `GraphicsResetStatus`                                                                                      |
 | Draws with a number of commands from a buffer    | `gl46`  | —         | —     | `DrawCommandsNoIndicesBuffer::with_draw_count`, `DrawCommandsIndicesBuffer::with_index_buffer_and_draw_count`, `index::DrawCount`, `BufferType::ParameterBuffer`, `DrawError::DrawCountNotSupported` |
 | Pipeline statistics and transform feedback overflow queries | `gl46` | — | — | `draw_parameters::{PipelineStatisticsQuery, PipelineStatistic, TransformFeedbackOverflowQuery}`, `DrawParameters::{pipeline_statistics_queries, transform_feedback_overflow_query}`, `ComputeShader::execute_with_statistics`, `ConditionQuery::TransformFeedbackOverflowQuery` |
 | Polygon offset clamp and SPIR-V shaders          | `gl46`  | —         | —     | `DrawParameters::polygon_offset_clamp`, `DrawError::PolygonOffsetClampNotSupported`, `ProgramCreationInput::SpirV`, `program::{SpirvProgram, SpirvEntryPoint}` |
+| Contexts without error checking                  | `gl46`  | —         | —     | `Capabilities::no_error`, `Context::is_no_error`                                                                                              |
 | Primitive bounding boxes                         | —       | `gles32`  | —     | `DrawParameters::primitive_bounding_box`                                                                                                     |
 
 At the levels without geometry and tessellation shaders, their sources have the type
@@ -246,6 +250,9 @@ Environment variables select the context that the tests use:
   Without it, the tests use the versions of the selected levels.
 - `SAFEGL_GL_DISPLAY=egl`: create the context with EGL instead of GLX or WGL. Under Wayland, the
   tests use EGL anyway; unset `WAYLAND_DISPLAY` to use GLX through XWayland.
+- `SAFEGL_ROBUSTNESS`: create the contexts with robust buffer access (`robust`), with robust
+  buffer access and lost on GPU resets (`lose`), or without error checking (`no_error`), to run
+  the suite in these contexts.
 
 Tests of features that the context lacks return early, while every other error fails them. Mesa's
 software renderer runs the whole suite (`LIBGL_ALWAYS_SOFTWARE=1`, plus

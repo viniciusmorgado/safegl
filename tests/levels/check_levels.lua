@@ -62,6 +62,24 @@ local cases = {
         l.compute.as_ref().map(|stage| stage.max_uniform_blocks)
     }
   ]] },
+  { "gl41_has_shader_precision", { "gl41" }, nil, [[
+    pub use safegl::program::{PrecisionQualifier, ShaderPrecision};
+  ]] },
+  { "gl43_has_debug_groups", { "gl43" }, nil, [[
+    pub fn f(c: &safegl::backend::Context) { let _group = c.push_debug_group(0, "group"); }
+  ]] },
+  { "gl45_has_reset_status", { "gl45" }, nil, [[
+    pub fn f(c: &safegl::backend::Context) -> Option<safegl::GraphicsResetStatus> { c.graphics_reset_status() }
+  ]] },
+  { "gl46_has_no_error_contexts", { "gl46" }, nil, [[
+    pub fn f(c: &safegl::backend::Context) -> bool { c.is_no_error() }
+  ]] },
+  { "gles30_has_shader_precision", { "gles30" }, nil, [[
+    pub use safegl::program::PrecisionQualifier;
+  ]] },
+  { "gles32_has_object_labels", { "gles32" }, nil, [[
+    pub use safegl::debug::{DebugMessage, ObjectLabel};
+  ]] },
   { "gles30_has_framebuffer_invalidation", { "gles30" }, nil, [[
     pub use safegl::framebuffer::InvalidateAttachments;
   ]] },
@@ -131,6 +149,24 @@ local cases = {
   { "gles32_has_no_vertex_streams_limit", { "gles32" }, "no field `max_vertex_streams`", [[
     pub fn f(l: &safegl::Limits) -> Option<i32> { l.max_vertex_streams }
   ]] },
+  { "gl40_has_no_shader_precision", { "gl40" }, "PrecisionQualifier", [[
+    pub use safegl::program::PrecisionQualifier;
+  ]] },
+  { "gl42_has_no_debug_groups", { "gl42" }, "no method named `push_debug_group`", [[
+    pub fn f(c: &safegl::backend::Context) { let _group = c.push_debug_group(0, "group"); }
+  ]] },
+  { "gl44_has_no_reset_status", { "gl44" }, "no method named `graphics_reset_status`", [[
+    pub fn f(c: &safegl::backend::Context) { let _ = c.graphics_reset_status(); }
+  ]] },
+  { "gl45_has_no_error_contexts", { "gl45" }, "no method named `is_no_error`", [[
+    pub fn f(c: &safegl::backend::Context) -> bool { c.is_no_error() }
+  ]] },
+  { "gles31_has_no_object_labels", { "gles31" }, "ObjectLabel", [[
+    pub use safegl::debug::ObjectLabel;
+  ]] },
+  { "gles31_has_no_debug_log", { "gles31" }, "no variant", [[
+    pub const B: fn() -> safegl::debug::DebugCallbackBehavior = || safegl::debug::DebugCallbackBehavior::Log;
+  ]] },
   { "gles30_has_no_compute_shaders", { "gles30" }, "ComputeShader", [[
     pub use safegl::program::ComputeShader;
   ]] },
@@ -177,6 +213,12 @@ local cases = {
     pub fn f(p: &safegl::Program) { let _ = p.get_binary(); }
   ]], WASM },
 
+  { "webgl_has_shader_precision", { "webgl" }, nil, [[
+    pub use safegl::program::{PrecisionQualifier, ShaderPrecision};
+  ]], WASM },
+  { "webgl_has_no_debug_groups", { "webgl" }, "no method named `push_debug_group`", [[
+    pub fn f(c: &safegl::backend::Context) { let _group = c.push_debug_group(0, "group"); }
+  ]], WASM },
   { "webgl_has_no_binary_format_limits", { "webgl" }, "no field `num_program_binary_formats`", [[
     pub fn f(l: &safegl::Limits) -> Option<i32> { l.num_program_binary_formats }
   ]], WASM },
