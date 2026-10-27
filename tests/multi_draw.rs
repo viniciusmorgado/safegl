@@ -8,7 +8,6 @@ extern crate safegl;
 
 use safegl::index::{NoIndicesRanges, PrimitiveType};
 use safegl::{Api, CapabilitiesSource, DrawError, IndexBuffer, Program, Surface, Version};
-use safegl::vertex::VertexBufferAny;
 use safegl::VertexBuffer;
 
 mod support;
@@ -245,6 +244,7 @@ fn draw_ids_of_ranges() {
 #[test]
 fn draw_parameters_of_indirect_commands() {
     use safegl::index::{DrawCommandIndices, DrawCommandsIndicesBuffer};
+    use safegl::vertex::VertexBufferAny;
 
     let display = support::build_display();
     let (header, suffix) = match draw_parameters_header(&display) {
