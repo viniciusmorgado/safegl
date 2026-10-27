@@ -287,6 +287,11 @@ trait BufferExt {
     /// `glMemoryBarrier(GL_COMMAND_BARRIER_BIT)` if necessary.
     fn prepare_and_bind_for_draw_indirect(&self, _: &mut CommandContext<'_>);
 
+    /// Makes sure that the buffer is bound to the `GL_PARAMETER_BUFFER` and calls
+    /// `glMemoryBarrier(GL_COMMAND_BARRIER_BIT)` if necessary.
+    #[cfg(safegl_gl46)]
+    fn prepare_and_bind_for_parameter(&self, _: &mut CommandContext<'_>);
+
     /// Makes sure that the buffer is bound to the `GL_DISPATCH_INDIRECT_BUFFER` and calls
     /// `glMemoryBarrier(GL_COMMAND_BARRIER_BIT)` if necessary.
     #[cfg(any(safegl_gl43, safegl_gles31))]
@@ -1357,6 +1362,12 @@ pub enum DrawError {
     #[cfg_attr(docsrs, doc(cfg(safegl_gl42)))]
     BaseInstanceNotSupported,
 
+    /// A multidraw reads its number of commands from a buffer, and the backend doesn't support it
+    /// (OpenGL 4.6 or `GL_ARB_indirect_parameters`).
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    DrawCountNotSupported,
+
     /// The type of a uniform doesn't match what the program requires.
     UniformTypeMismatch {
         /// Name of the uniform you are trying to bind.
@@ -1658,6 +1669,9 @@ impl fmt::Display for DrawError {
             #[cfg(safegl_gl42)]
             BaseInstanceNotSupported =>
                 "The backend doesn't support drawing from a base instance",
+            #[cfg(safegl_gl46)]
+            DrawCountNotSupported =>
+                "The backend doesn't support reading the number of draw commands from a buffer",
             UniformTypeMismatch { .. } =>
                 "The type of a uniform doesn't match what the program requires",
             UniformBufferToValue { .. } =>

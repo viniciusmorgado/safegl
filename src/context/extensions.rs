@@ -69,6 +69,7 @@ extensions! {
     "GL_ARB_polygon_offset_clamp" => gl_arb_polygon_offset_clamp,
     "GL_ARB_program_interface_query" => gl_arb_program_interface_query,
     "GL_ARB_query_buffer_object" => gl_arb_query_buffer_object,
+    "GL_ARB_indirect_parameters" => gl_arb_indirect_parameters,
     "GL_ARB_multi_draw_indirect" => gl_arb_multi_draw_indirect,
     "GL_ARB_robustness" => gl_arb_robustness,
     "GL_ARB_robust_buffer_access_behavior" => gl_arb_robust_buffer_access_behavior,

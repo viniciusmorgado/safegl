@@ -190,6 +190,10 @@ extra_functions! {
     fn MultiDrawElementsIndirect(mode: GLenum, type_: GLenum, indirect: *const c_void, drawcount: GLsizei, stride: GLsizei) -> ();
     fn MultiDrawArraysIndirectEXT(mode: GLenum, indirect: *const c_void, drawcount: GLsizei, stride: GLsizei) -> ();
     fn MultiDrawElementsIndirectEXT(mode: GLenum, type_: GLenum, indirect: *const c_void, drawcount: GLsizei, stride: GLsizei) -> ();
+    fn MultiDrawArraysIndirectCount(mode: GLenum, indirect: *const c_void, drawcount: GLintptr, maxdrawcount: GLsizei, stride: GLsizei) -> ();
+    fn MultiDrawElementsIndirectCount(mode: GLenum, type_: GLenum, indirect: *const c_void, drawcount: GLintptr, maxdrawcount: GLsizei, stride: GLsizei) -> ();
+    fn MultiDrawArraysIndirectCountARB(mode: GLenum, indirect: *const c_void, drawcount: GLintptr, maxdrawcount: GLsizei, stride: GLsizei) -> ();
+    fn MultiDrawElementsIndirectCountARB(mode: GLenum, type_: GLenum, indirect: *const c_void, drawcount: GLintptr, maxdrawcount: GLsizei, stride: GLsizei) -> ();
     fn PointSize(size: GLfloat) -> ();
     fn PolygonOffsetClamp(factor: GLfloat, units: GLfloat, clamp: GLfloat) -> ();
     fn PolygonOffsetClampEXT(factor: GLfloat, units: GLfloat, clamp: GLfloat) -> ();

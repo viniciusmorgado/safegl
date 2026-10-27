@@ -49,6 +49,9 @@ pub use self::multidraw::{DrawCommandIndices, DrawCommandsIndicesBuffer};
 #[cfg(safegl_gl43)]
 #[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
 pub use self::multidraw::{DrawCommandNoIndices, DrawCommandsNoIndicesBuffer};
+#[cfg(safegl_gl46)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+pub use self::multidraw::DrawCount;
 
 mod buffer;
 #[cfg(safegl_gl43)]
@@ -75,6 +78,10 @@ pub enum IndicesSource<'a> {
         buffer: BufferAnySlice<'a>,
         /// Type of primitives contained in the vertex source.
         primitives: PrimitiveType,
+        /// The buffer that the GPU reads the number of commands to draw from, if any.
+        #[cfg(safegl_gl46)]
+        #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+        draw_count: Option<DrawCount<'a>>,
     },
 
     /// Use a multidraw indirect buffer with indices.
@@ -89,6 +96,10 @@ pub enum IndicesSource<'a> {
         data_type: IndexType,
         /// Type of primitives contained in the vertex source.
         primitives: PrimitiveType,
+        /// The buffer that the GPU reads the number of commands to draw from, if any.
+        #[cfg(safegl_gl46)]
+        #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+        draw_count: Option<DrawCount<'a>>,
     },
 
     /// Don't use indices. Assemble primitives by using the order in which the vertices are in

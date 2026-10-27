@@ -420,6 +420,9 @@ pub enum BufferType {
     #[cfg(safegl_gl44)]
     #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
     QueryBuffer,
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    ParameterBuffer,
     #[cfg(any(safegl_gl43, safegl_gles31))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
     ShaderStorageBuffer,
@@ -444,6 +447,8 @@ impl BufferType {
             BufferType::DrawIndirectBuffer => gl::DRAW_INDIRECT_BUFFER,
             #[cfg(safegl_gl44)]
             BufferType::QueryBuffer => gl::QUERY_BUFFER,
+            #[cfg(safegl_gl46)]
+            BufferType::ParameterBuffer => gl::PARAMETER_BUFFER,
             #[cfg(any(safegl_gl43, safegl_gles31))]
             BufferType::ShaderStorageBuffer => gl::SHADER_STORAGE_BUFFER,
             BufferType::TextureBuffer => gl::TEXTURE_BUFFER,

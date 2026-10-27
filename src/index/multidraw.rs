@@ -6,8 +6,40 @@ use std::os::raw;
 
 use crate::backend::Facade;
 use crate::buffer::{Buffer, BufferCreationError, BufferMode, BufferType};
+#[cfg(safegl_gl46)]
+use crate::buffer::BufferAnySlice;
 use crate::buffer::{BufferMutSlice, BufferSlice};
 use crate::index::{Index, IndexBuffer, IndicesSource, PrimitiveType};
+
+/// The number of commands that a multidraw draws, which the GPU reads from a `u32` of a buffer
+/// when it draws, up to a maximum (`glMultiDraw*IndirectCount`). A compute shader can write it,
+/// for example after culling.
+///
+/// Built by `DrawCommandsNoIndicesBuffer::with_draw_count` and
+/// `DrawCommandsIndicesBuffer::with_index_buffer_and_draw_count`. Drawing with it needs OpenGL
+/// 4.6 or `GL_ARB_indirect_parameters`, otherwise the draw returns
+/// `DrawError::DrawCountNotSupported`.
+#[cfg(safegl_gl46)]
+#[derive(Copy, Clone)]
+pub struct DrawCount<'a> {
+    buffer: BufferAnySlice<'a>,
+    max_draw_count: usize,
+}
+
+#[cfg(safegl_gl46)]
+impl<'a> DrawCount<'a> {
+    /// The buffer of the number of commands.
+    #[inline]
+    pub fn buffer(&self) -> BufferAnySlice<'a> {
+        self.buffer
+    }
+
+    /// The most commands that the draw draws, whatever the number in the buffer.
+    #[inline]
+    pub fn max_draw_count(&self) -> usize {
+        self.max_draw_count
+    }
+}
 
 /// Represents an element in a list of draw commands.
 #[repr(C)]
@@ -164,6 +196,30 @@ impl DrawCommandsNoIndicesBuffer {
         IndicesSource::MultidrawArray {
             buffer: self.buffer.as_slice_any(),
             primitives,
+            #[cfg(safegl_gl46)]
+            draw_count: None,
+        }
+    }
+
+    /// Like `with_primitive_type`, but the GPU reads the number of commands to draw from
+    /// `draw_count` when it draws, and draws at most `max_draw_count` of them, which is at most
+    /// the number of commands of this buffer. See [`DrawCount`].
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    #[inline]
+    pub fn with_draw_count<'a>(
+        &'a self,
+        primitives: PrimitiveType,
+        draw_count: BufferSlice<'a, u32>,
+        max_draw_count: usize,
+    ) -> IndicesSource<'a> {
+        IndicesSource::MultidrawArray {
+            buffer: self.buffer.as_slice_any(),
+            primitives,
+            draw_count: Some(DrawCount {
+                buffer: draw_count.as_slice_any(),
+                max_draw_count: max_draw_count.min(self.buffer.len()),
+            }),
         }
     }
 }
@@ -298,6 +354,35 @@ impl DrawCommandsIndicesBuffer {
             indices: index_buffer.as_slice_any(),
             data_type: index_buffer.get_indices_type(),
             primitives: index_buffer.get_primitives_type(),
+            #[cfg(safegl_gl46)]
+            draw_count: None,
+        }
+    }
+
+    /// Like `with_index_buffer`, but the GPU reads the number of commands to draw from
+    /// `draw_count` when it draws, and draws at most `max_draw_count` of them, which is at most
+    /// the number of commands of this buffer. See [`DrawCount`].
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    #[inline]
+    pub fn with_index_buffer_and_draw_count<'a, T>(
+        &'a self,
+        index_buffer: &'a IndexBuffer<T>,
+        draw_count: BufferSlice<'a, u32>,
+        max_draw_count: usize,
+    ) -> IndicesSource<'a>
+    where
+        T: Index,
+    {
+        IndicesSource::MultidrawElement {
+            commands: self.buffer.as_slice_any(),
+            indices: index_buffer.as_slice_any(),
+            data_type: index_buffer.get_indices_type(),
+            primitives: index_buffer.get_primitives_type(),
+            draw_count: Some(DrawCount {
+                buffer: draw_count.as_slice_any(),
+                max_draw_count: max_draw_count.min(self.buffer.len()),
+            }),
         }
     }
 }

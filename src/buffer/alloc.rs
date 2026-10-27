@@ -362,6 +362,25 @@ impl Alloc {
         }
     }
 
+    /// Makes sure that the buffer is bound to the `GL_PARAMETER_BUFFER` and calls
+    /// `glMemoryBarrier(GL_COMMAND_BARRIER_BIT)` if necessary.
+    #[cfg(safegl_gl46)]
+    pub fn prepare_and_bind_for_parameter(&self, ctxt: &mut CommandContext<'_>) {
+        self.assert_unmapped(ctxt);
+        self.assert_not_transform_feedback(ctxt);
+
+        if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_command {
+            unsafe {
+                ctxt.glow.memory_barrier(glow::COMMAND_BARRIER_BIT);
+            }
+            ctxt.state.latest_memory_barrier_command = ctxt.state.next_draw_call_id;
+        }
+
+        unsafe {
+            bind_buffer(ctxt, Some(self.id), BufferType::ParameterBuffer);
+        }
+    }
+
     /// Makes sure that the buffer is bound to the `GL_DISPATCH_INDIRECT_BUFFER` and calls
     /// `glMemoryBarrier(GL_COMMAND_BARRIER_BIT)` if necessary.
     #[cfg(any(safegl_gl43, safegl_gles31))]
@@ -1563,6 +1582,11 @@ fn is_buffer_type_supported(ctxt: &mut CommandContext<'_>, ty: BufferType) -> bo
                 || ctxt.extensions.gl_amd_query_buffer_object
         }
 
+        #[cfg(safegl_gl46)]
+        BufferType::ParameterBuffer => {
+            ctxt.version >= &Version(Api::Gl, 4, 6) || ctxt.extensions.gl_arb_indirect_parameters
+        }
+
         #[cfg(any(safegl_gl43, safegl_gles31))]
         BufferType::ShaderStorageBuffer => {
             ctxt.version >= &Version(Api::Gl, 4, 3)
@@ -1633,6 +1657,8 @@ pub(crate) unsafe fn restore_bindings(ctxt: &mut CommandContext<'_>) {
     ));
     #[cfg(safegl_gl44)]
     bindings.push((BufferType::QueryBuffer, state.query_buffer_binding));
+    #[cfg(safegl_gl46)]
+    bindings.push((BufferType::ParameterBuffer, state.parameter_buffer_binding));
 
     for (ty, buffer) in bindings {
         if is_buffer_type_supported(ctxt, ty) {
@@ -1692,6 +1718,8 @@ unsafe fn bind_buffer(
     );
     #[cfg(safegl_gl44)]
     check!(ctxt, id, ty, QueryBuffer, query_buffer_binding);
+    #[cfg(safegl_gl46)]
+    check!(ctxt, id, ty, ParameterBuffer, parameter_buffer_binding);
     check!(ctxt, id, ty, TextureBuffer, texture_buffer_binding);
     #[cfg(any(safegl_gl42, safegl_gles31))]
     check!(
@@ -1951,6 +1979,10 @@ unsafe fn destroy_buffer(ctxt: &mut CommandContext<'_>, id: glow::Buffer) {
 
     if ctxt.state.query_buffer_binding == Some(id) {
         ctxt.state.query_buffer_binding = None;
+    }
+
+    if ctxt.state.parameter_buffer_binding == Some(id) {
+        ctxt.state.parameter_buffer_binding = None;
     }
 
     if ctxt.state.texture_buffer_binding == Some(id) {

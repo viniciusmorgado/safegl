@@ -154,6 +154,9 @@ pub struct GlState {
     /// The latest buffer bound to `GL_QUERY_BUFFER`.
     pub query_buffer_binding: Option<glow::Buffer>,
 
+    /// The latest buffer bound to `GL_PARAMETER_BUFFER`.
+    pub parameter_buffer_binding: Option<glow::Buffer>,
+
     /// The latest buffer bound to `GL_TEXTURE_BUFFER`.
     pub texture_buffer_binding: Option<glow::Buffer>,
 
@@ -483,6 +486,7 @@ impl Default for GlState {
             dispatch_indirect_buffer_binding: None,
             draw_indirect_buffer_binding: None,
             query_buffer_binding: None,
+            parameter_buffer_binding: None,
             texture_buffer_binding: None,
             atomic_counter_buffer_binding: None,
             indexed_atomic_counter_buffer_bindings: small_vec_one(),

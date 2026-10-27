@@ -195,9 +195,18 @@ Breaking changes:
   values that describe what the driver has stay checked at runtime, and so do the extensions.
 - `DrawCommandIndices::base_vertex` is an `i32`, like the base vertex of OpenGL, so that it can
   be negative.
+- At the `gl46` level, `IndicesSource::MultidrawArray` and `IndicesSource::MultidrawElement` have
+  a `draw_count` field.
 
 Additions:
 
+- Multidraws can read their number of commands from a buffer, which a compute shader can write
+  (`glMultiDraw*IndirectCount`, `gl46`): `DrawCommandsNoIndicesBuffer::with_draw_count` and
+  `DrawCommandsIndicesBuffer::with_index_buffer_and_draw_count` take a `BufferSlice<u32>` and a
+  maximum number of commands, and give an `IndicesSource` whose `draw_count` is the new
+  `index::DrawCount`. They need OpenGL 4.6 or `GL_ARB_indirect_parameters`, otherwise the draw
+  returns the new `DrawError::DrawCountNotSupported`. `BufferType::ParameterBuffer` is the target
+  of these buffers.
 - `DrawParameters::base_instance` (`gl42`) draws from a base instance: the per-instance
   attributes start at this element after the start of their slices, and the shaders read it in
   `gl_BaseInstance`. It needs OpenGL 4.2 or `GL_ARB_base_instance`, or returns the new

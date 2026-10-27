@@ -73,6 +73,8 @@ where
 
     // OpenGL objects can only be used with the context that created them
     check_contexts(&ctxt, program, &indices, draw_parameters)?;
+    #[cfg(safegl_gl46)]
+    check_draw_count(&ctxt, &indices)?;
 
     // handling vertices source
     let (vertices_count, instances_count, base_vertex, base_instance) = {
@@ -355,6 +357,8 @@ where
             IndicesSource::MultidrawArray {
                 ref buffer,
                 primitives,
+                #[cfg(safegl_gl46)]
+                draw_count,
             } => {
                 let ptr: *const u8 = ptr::null_mut();
                 let ptr = unsafe { ptr.add(buffer.get_offset_bytes()) };
@@ -368,8 +372,35 @@ where
                 unsafe {
                     buffer.prepare_and_bind_for_draw_indirect(&mut ctxt);
                     let count = buffer.get_elements_count() as gl::types::GLsizei;
+                    #[cfg(safegl_gl46)]
+                    let counted = draw_count.map(|draw_count| {
+                        let offset = bind_draw_count(&mut ctxt, &draw_count, &mut fences);
+                        let max = draw_count.max_draw_count() as gl::types::GLsizei;
+                        if ctxt.version >= &Version(Api::Gl, 4, 6) {
+                            ctxt.extra.MultiDrawArraysIndirectCount(
+                                primitives.to_glenum(),
+                                ptr as *const _,
+                                offset,
+                                max,
+                                0,
+                            );
+                        } else {
+                            ctxt.extra.MultiDrawArraysIndirectCountARB(
+                                primitives.to_glenum(),
+                                ptr as *const _,
+                                offset,
+                                max,
+                                0,
+                            );
+                        }
+                    });
+                    #[cfg(not(safegl_gl46))]
+                    let counted: Option<()> = None;
+
                     // OpenGL ES only has `GL_EXT_multi_draw_indirect`
-                    if ctxt.version.0 == Api::GlEs {
+                    if counted.is_some() {
+                        // drawn with the number of commands of the buffer
+                    } else if ctxt.version.0 == Api::GlEs {
                         ctxt.extra.MultiDrawArraysIndirectEXT(
                             primitives.to_glenum(),
                             ptr as *const _,
@@ -393,6 +424,8 @@ where
                 ref indices,
                 data_type,
                 primitives,
+                #[cfg(safegl_gl46)]
+                draw_count,
             } => {
                 let cmd_ptr: *const u8 = ptr::null_mut();
                 let cmd_ptr = unsafe { cmd_ptr.add(commands.get_offset_bytes()) };
@@ -409,8 +442,37 @@ where
                     commands.prepare_and_bind_for_draw_indirect(&mut ctxt);
                     debug_assert_eq!(base_vertex, 0); // enforced earlier in this function
                     let count = commands.get_elements_count() as gl::types::GLsizei;
+                    #[cfg(safegl_gl46)]
+                    let counted = draw_count.map(|draw_count| {
+                        let offset = bind_draw_count(&mut ctxt, &draw_count, &mut fences);
+                        let max = draw_count.max_draw_count() as gl::types::GLsizei;
+                        if ctxt.version >= &Version(Api::Gl, 4, 6) {
+                            ctxt.extra.MultiDrawElementsIndirectCount(
+                                primitives.to_glenum(),
+                                data_type.to_glenum(),
+                                cmd_ptr as *const _,
+                                offset,
+                                max,
+                                0,
+                            );
+                        } else {
+                            ctxt.extra.MultiDrawElementsIndirectCountARB(
+                                primitives.to_glenum(),
+                                data_type.to_glenum(),
+                                cmd_ptr as *const _,
+                                offset,
+                                max,
+                                0,
+                            );
+                        }
+                    });
+                    #[cfg(not(safegl_gl46))]
+                    let counted: Option<()> = None;
+
                     // OpenGL ES only has `GL_EXT_multi_draw_indirect`
-                    if ctxt.version.0 == Api::GlEs {
+                    if counted.is_some() {
+                        // drawn with the number of commands of the buffer
+                    } else if ctxt.version.0 == Api::GlEs {
                         ctxt.extra.MultiDrawElementsIndirectEXT(
                             primitives.to_glenum(),
                             data_type.to_glenum(),
@@ -484,6 +546,57 @@ where
     }
 
     Ok(())
+}
+
+/// Returns the draw count of a multidraw, if it has one.
+#[cfg(safegl_gl46)]
+fn draw_count<'a>(indices: &IndicesSource<'a>) -> Option<index::DrawCount<'a>> {
+    match *indices {
+        IndicesSource::MultidrawArray { draw_count, .. }
+        | IndicesSource::MultidrawElement { draw_count, .. } => draw_count,
+        _ => None,
+    }
+}
+
+/// Checks that the backend can read the number of commands of a multidraw from a buffer
+/// (OpenGL 4.6 or `GL_ARB_indirect_parameters`), and that the buffer is of the context.
+#[cfg(safegl_gl46)]
+fn check_draw_count(
+    ctxt: &context::CommandContext<'_>,
+    indices: &IndicesSource<'_>,
+) -> Result<(), DrawError> {
+    let draw_count = match draw_count(indices) {
+        Some(draw_count) => draw_count,
+        None => return Ok(()),
+    };
+    if !ctxt.owns(draw_count.buffer().get_context()) {
+        return Err(DrawError::ContextMismatch {
+            object: "draw count buffer".to_owned(),
+        });
+    }
+    let supported = ctxt.version >= &Version(Api::Gl, 4, 6)
+        || (ctxt.version.0 == Api::Gl && ctxt.extensions.gl_arb_indirect_parameters);
+    if supported {
+        Ok(())
+    } else {
+        Err(DrawError::DrawCountNotSupported)
+    }
+}
+
+/// Binds the buffer of a draw count to `GL_PARAMETER_BUFFER`, and returns the offset of the
+/// number in it.
+#[cfg(safegl_gl46)]
+fn bind_draw_count<'a>(
+    ctxt: &mut context::CommandContext<'_>,
+    draw_count: &index::DrawCount<'a>,
+    fences: &mut crate::buffer::FenceInserters<'a>,
+) -> gl::types::GLintptr {
+    let buffer = draw_count.buffer();
+    if let Some(fence) = buffer.add_fence() {
+        fences.push(fence);
+    }
+    buffer.prepare_and_bind_for_parameter(ctxt);
+    buffer.get_offset_bytes() as gl::types::GLintptr
 }
 
 /// Returns true if draws can start from a base instance: OpenGL 4.2, `GL_ARB_base_instance`, or

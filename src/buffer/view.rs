@@ -549,6 +549,12 @@ where
         alloc.prepare_and_bind_for_draw_indirect(ctxt);
     }
 
+    #[cfg(safegl_gl46)]
+    fn prepare_and_bind_for_parameter(&self, ctxt: &mut CommandContext<'_>) {
+        let alloc = self.alloc.as_ref().unwrap();
+        alloc.prepare_and_bind_for_parameter(ctxt);
+    }
+
     #[cfg(any(safegl_gl43, safegl_gles31))]
     #[inline]
     fn prepare_and_bind_for_dispatch_indirect(&self, ctxt: &mut CommandContext<'_>) {
@@ -928,6 +934,11 @@ where
     #[inline]
     fn prepare_and_bind_for_draw_indirect(&self, ctxt: &mut CommandContext<'_>) {
         self.alloc.prepare_and_bind_for_draw_indirect(ctxt);
+    }
+
+    #[cfg(safegl_gl46)]
+    fn prepare_and_bind_for_parameter(&self, ctxt: &mut CommandContext<'_>) {
+        self.alloc.prepare_and_bind_for_parameter(ctxt);
     }
 
     #[cfg(any(safegl_gl43, safegl_gles31))]
@@ -1502,6 +1513,11 @@ impl BufferExt for BufferAny {
         self.alloc.prepare_and_bind_for_draw_indirect(ctxt);
     }
 
+    #[cfg(safegl_gl46)]
+    fn prepare_and_bind_for_parameter(&self, ctxt: &mut CommandContext<'_>) {
+        self.alloc.prepare_and_bind_for_parameter(ctxt);
+    }
+
     #[cfg(any(safegl_gl43, safegl_gles31))]
     #[inline]
     fn prepare_and_bind_for_dispatch_indirect(&self, ctxt: &mut CommandContext<'_>) {
@@ -1686,6 +1702,11 @@ impl<'a> BufferExt for BufferAnySlice<'a> {
     #[inline]
     fn prepare_and_bind_for_draw_indirect(&self, ctxt: &mut CommandContext<'_>) {
         self.alloc.prepare_and_bind_for_draw_indirect(ctxt);
+    }
+
+    #[cfg(safegl_gl46)]
+    fn prepare_and_bind_for_parameter(&self, ctxt: &mut CommandContext<'_>) {
+        self.alloc.prepare_and_bind_for_parameter(ctxt);
     }
 
     #[cfg(any(safegl_gl43, safegl_gles31))]

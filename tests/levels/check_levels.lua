@@ -38,6 +38,9 @@ local cases = {
   { "gl45_has_texture_barriers", { "gl45" }, nil, [[
     pub use safegl::texture::texture_barrier;
   ]] },
+  { "gl46_has_draw_counts", { "gl46" }, nil, [[
+    pub use safegl::index::DrawCount;
+  ]] },
   { "gl46_has_spirv", { "gl46" }, nil, [[
     pub use safegl::program::SpirvProgram;
   ]] },
@@ -85,6 +88,9 @@ local cases = {
   ]] },
   { "gl44_has_no_texture_barriers", { "gl44" }, "texture_barrier", [[
     pub use safegl::texture::texture_barrier;
+  ]] },
+  { "gl45_has_no_draw_counts", { "gl45" }, "DrawCount", [[
+    pub use safegl::index::DrawCount;
   ]] },
   { "gl45_has_no_spirv", { "gl45" }, "SpirvProgram", [[
     pub use safegl::program::SpirvProgram;
