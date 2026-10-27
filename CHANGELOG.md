@@ -248,6 +248,13 @@ Breaking changes:
   `enabled` (formerly `multisampling`), `alpha_to_coverage`, `sample_shading` and `sample_mask`:
   write `multisample: MultisampleState { alpha_to_coverage: true, ..Default::default() }`.
   `DrawError` has an `AlphaToOneNotSupported` variant at the desktop levels.
+- `texture::buffer_texture::TextureCreationError` is `#[non_exhaustive]`, and
+  `BufferTexture::from_buffer_range` builds a buffer texture that reads a range of its buffer
+  (`any(gl43, gles32)`, `glTexBufferRange`; OpenGL 4.3, OpenGL ES 3.2,
+  `GL_ARB_texture_buffer_range` or the texture buffer extensions of OpenGL ES at runtime), whose
+  offset must be a multiple of `Limits::texture_buffer_offset_alignment`
+  (`TextureCreationError::{RangeNotSupported, RangeOutOfBounds, MisalignedRange}`).
+  `BufferTexture::range` returns it.
 - `texture::CompressedFormat` and `CompressedSrgbFormat` are `#[non_exhaustive]`, and have the
   ETC2 and EAC formats of mobile GPUs: `Etc2Rgb8`, `Etc2Rgb8PunchthroughAlpha1`, `Etc2Rgba8Eac`,
   `EacR11Unsigned`, `EacR11Signed`, `EacRg11Unsigned` and `EacRg11Signed`, and their sRGB

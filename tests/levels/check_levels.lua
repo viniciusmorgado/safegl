@@ -331,6 +331,12 @@ local cases = {
   { "gles30_has_etc2", { "gles30" }, nil, [[
     pub const F: safegl::texture::CompressedFormat = safegl::texture::CompressedFormat::Etc2Rgba8Eac;
   ]] },
+  { "gles32_has_buffer_texture_ranges", { "gles32" }, nil, [[
+    pub use safegl::texture::buffer_texture::TextureCreationError::RangeOutOfBounds;
+  ]] },
+  { "gles31_has_no_buffer_texture_ranges", { "gles31" }, "RangeOutOfBounds", [[
+    pub use safegl::texture::buffer_texture::TextureCreationError::RangeOutOfBounds;
+  ]] },
   { "gl43_has_texture_invalidation", { "gl43" }, nil, [[
     pub fn f(t: &safegl::texture::Texture2d) { t.main_level().invalidate(); }
   ]] },

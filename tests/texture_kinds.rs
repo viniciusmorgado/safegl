@@ -268,3 +268,82 @@ fn texture_invalidation() {
 
     display.assert_no_error(None);
 }
+
+/// A buffer texture of a range of its buffer.
+#[cfg(any(safegl_gl43, safegl_gles32))]
+#[test]
+fn buffer_texture_range() {
+    use safegl::buffer::{Buffer, BufferMode, BufferType};
+    use safegl::texture::buffer_texture::{BufferTexture, BufferTextureType, TextureCreationError};
+    use safegl::CapabilitiesSource;
+
+    let display = support::build_display();
+    let Some(alignment) = display
+        .get_capabilities()
+        .limits
+        .texture_buffer_offset_alignment
+    else {
+        return;
+    };
+    if !support::glsl_supported(&display, 330, 320) {
+        return;
+    }
+    let element = std::mem::size_of::<u32>();
+    let start = (alignment as usize).div_ceil(element).max(1);
+    let data = (0..start as u32 + 64).collect::<Vec<u32>>();
+    let buffer = || {
+        Buffer::new(
+            &display,
+            data.as_slice(),
+            BufferType::TextureBuffer,
+            BufferMode::Default,
+        )
+        .unwrap()
+    };
+
+    let texture = BufferTexture::from_buffer_range(
+        &display,
+        buffer(),
+        start..start + 4,
+        BufferTextureType::Unsigned,
+    )
+    .map_err(|(error, _)| error)
+    .unwrap();
+    assert_eq!(texture.range(), start..start + 4);
+    let precision = if support::is_gles(&display) {
+        "precision highp usamplerBuffer;\n"
+    } else {
+        ""
+    };
+    let program = program(
+        &display,
+        330,
+        320,
+        &format!("{precision}uniform usamplerBuffer tex;"),
+        "color = vec4(float(texelFetch(tex, 0).r % 256u), float(textureSize(tex)), \
+         float(texelFetch(tex, 3).r % 256u), 255.0) / 255.0;",
+    );
+    let pixel = draw(&display, &program, &uniform! { tex: &texture }).unwrap()[0][0];
+    assert_eq!(
+        pixel,
+        ((start % 256) as u8, 4, ((start + 3) % 256) as u8, 255)
+    );
+
+    let error = |range: std::ops::Range<usize>| {
+        BufferTexture::from_buffer_range(&display, buffer(), range, BufferTextureType::Unsigned)
+            .map(|_| ())
+            .map_err(|(error, _)| error)
+    };
+    assert!(matches!(
+        error(start..start + 65),
+        Err(TextureCreationError::RangeOutOfBounds)
+    ));
+    if alignment as usize > element {
+        assert!(matches!(
+            error(1..5),
+            Err(TextureCreationError::MisalignedRange { .. })
+        ));
+    }
+
+    display.assert_no_error(None);
+}

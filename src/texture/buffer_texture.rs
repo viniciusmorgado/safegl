@@ -53,7 +53,7 @@ wrong type will result in an error.
 
 */
 use std::error::Error;
-use std::ops::{Deref, DerefMut};
+use std::ops::{Deref, DerefMut, Range};
 use std::rc::Rc;
 use std::{fmt, mem};
 
@@ -83,7 +83,10 @@ use crate::uniforms::AsUniformValue;
 use crate::uniforms::UniformValue;
 
 /// Error that can happen while building the texture part of a buffer texture.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[derive(Copy, Clone, Debug)]
+#[non_exhaustive]
 pub enum TextureCreationError {
     /// Buffer textures are not supported at all.
     NotSupported,
@@ -97,6 +100,26 @@ pub enum TextureCreationError {
     /// The buffer belongs to another context. OpenGL objects can only be used with the context
     /// that created them.
     ContextMismatch,
+
+    /// Buffer textures of a range of their buffer aren't supported: OpenGL 4.3, OpenGL ES 3.2,
+    /// `GL_ARB_texture_buffer_range` or the texture buffer extensions of OpenGL ES are needed.
+    #[cfg(any(safegl_gl43, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+    RangeNotSupported,
+
+    /// The range isn't inside the buffer.
+    #[cfg(any(safegl_gl43, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+    RangeOutOfBounds,
+
+    /// The offset of the range in bytes isn't a multiple of
+    /// `Limits::texture_buffer_offset_alignment`.
+    #[cfg(any(safegl_gl43, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+    MisalignedRange {
+        /// The alignment of the offsets in bytes.
+        alignment: usize,
+    },
 }
 
 impl fmt::Display for TextureCreationError {
@@ -111,6 +134,14 @@ impl fmt::Display for TextureCreationError {
                 "The size of the buffer that you are trying to bind exceeds `GL_MAX_TEXTURE_BUFFER_SIZE`",
             ContextMismatch =>
                 "The buffer belongs to another context",
+            #[cfg(any(safegl_gl43, safegl_gles32))]
+            RangeNotSupported =>
+                "Buffer textures of a range of their buffer are not supported by the backend",
+            #[cfg(any(safegl_gl43, safegl_gles32))]
+            RangeOutOfBounds => "The range isn't inside the buffer",
+            #[cfg(any(safegl_gl43, safegl_gles32))]
+            MisalignedRange { .. } =>
+                "The offset of the range isn't a multiple of the alignment of buffer texture offsets",
         };
         fmt.write_str(desc)
     }
@@ -191,6 +222,8 @@ where
     buffer: Buffer<[T]>,
     texture: glow::Texture,
     ty: BufferTextureType,
+    // the elements of the buffer that the texture reads
+    range: Range<usize>,
 }
 
 /// Returns `TextureCreationError::NotSupported` without buffer textures, which are core in
@@ -355,6 +388,39 @@ where
     where
         F: Facade,
     {
+        BufferTexture::from_buffer_impl(context, buffer, None, ty)
+    }
+
+    /// Builds a new buffer texture that reads the elements `range` of a buffer, whose ownership
+    /// it takes (`glTexBufferRange`). The other elements stay usable through the buffer, for
+    /// instance by other buffer textures built from slices of copies, or as vertices.
+    ///
+    /// The offset of the range in bytes must be a multiple of
+    /// `Limits::texture_buffer_offset_alignment`, often 16 or 256. Needs OpenGL 4.3, OpenGL ES
+    /// 3.2, `GL_ARB_texture_buffer_range` or the texture buffer extensions of OpenGL ES.
+    #[cfg(any(safegl_gl43, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+    pub fn from_buffer_range<F: ?Sized>(
+        context: &F,
+        buffer: Buffer<[T]>,
+        range: Range<usize>,
+        ty: BufferTextureType,
+    ) -> Result<BufferTexture<T>, (TextureCreationError, Buffer<[T]>)>
+    where
+        F: Facade,
+    {
+        BufferTexture::from_buffer_impl(context, buffer, Some(range), ty)
+    }
+
+    fn from_buffer_impl<F: ?Sized>(
+        context: &F,
+        buffer: Buffer<[T]>,
+        range: Option<Range<usize>>,
+        ty: BufferTextureType,
+    ) -> Result<BufferTexture<T>, (TextureCreationError, Buffer<[T]>)>
+    where
+        F: Facade,
+    {
         let context = context.get_context();
 
         // OpenGL objects can only be used with the context that created them
@@ -369,7 +435,21 @@ where
             Some(max_size) => max_size as usize,
             None => return Err((TextureCreationError::NotSupported, buffer)),
         };
-        if buffer.get_size() / mem::size_of::<T>() > max_size {
+        #[cfg(any(safegl_gl43, safegl_gles32))]
+        if let Some(range) = &range {
+            let alignment = match ctxt.capabilities.limits.texture_buffer_offset_alignment {
+                Some(alignment) => alignment.max(1) as usize,
+                None => return Err((TextureCreationError::RangeNotSupported, buffer)),
+            };
+            if range.start > range.end || range.end > buffer.len() {
+                return Err((TextureCreationError::RangeOutOfBounds, buffer));
+            }
+            if (range.start * mem::size_of::<T>()) % alignment != 0 {
+                return Err((TextureCreationError::MisalignedRange { alignment }, buffer));
+            }
+        }
+        let range = range.unwrap_or(0..buffer.len());
+        if range.len() > max_size {
             return Err((TextureCreationError::TooLarge, buffer));
         }
 
@@ -457,8 +537,37 @@ where
             ctxt.state.texture_units[act].texture = Some(id);
         }
 
-        // binding the buffer
-        if ctxt.version.0 == Api::Gl || ctxt.version >= &Version(Api::GlEs, 3, 2) {
+        // binding the buffer, or the range of it
+        let size = mem::size_of::<T>();
+        let (offset, length) = ((range.start * size) as isize, (range.len() * size) as isize);
+        if range != (0..buffer.len()) {
+            unsafe {
+                let name = buffer.get_id().raw_name();
+                if ctxt.version >= &Version(Api::Gl, 4, 3)
+                    || ctxt.version >= &Version(Api::GlEs, 3, 2)
+                    || ctxt.extensions.gl_arb_texture_buffer_range
+                {
+                    ctxt.extra
+                        .TexBufferRange(gl::TEXTURE_BUFFER, internal_format, name, offset, length);
+                } else if ctxt.extensions.gl_ext_texture_buffer {
+                    ctxt.extra.TexBufferRangeEXT(
+                        gl::TEXTURE_BUFFER,
+                        internal_format,
+                        name,
+                        offset,
+                        length,
+                    );
+                } else {
+                    ctxt.extra.TexBufferRangeOES(
+                        gl::TEXTURE_BUFFER,
+                        internal_format,
+                        name,
+                        offset,
+                        length,
+                    );
+                }
+            }
+        } else if ctxt.version.0 == Api::Gl || ctxt.version >= &Version(Api::GlEs, 3, 2) {
             unsafe {
                 ctxt.glow
                     .tex_buffer(glow::TEXTURE_BUFFER, internal_format, Some(buffer.get_id()));
@@ -489,6 +598,7 @@ where
             buffer,
             ty,
             texture: id,
+            range,
         })
     }
 }
@@ -545,8 +655,16 @@ where
         BufferTextureRef {
             texture: self.texture,
             ty: self.ty,
+            // the whole buffer, a conservative choice for the barriers and fences of a range
             buffer: self.buffer.as_slice_any(),
         }
+    }
+
+    /// Returns the elements of the buffer that the texture reads, all of them unless it was
+    /// built with `from_buffer_range`.
+    #[inline]
+    pub fn range(&self) -> Range<usize> {
+        self.range.clone()
     }
 }
 
