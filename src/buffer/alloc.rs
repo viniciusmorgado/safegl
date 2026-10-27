@@ -940,6 +940,13 @@ impl Alloc {
                         write,
                     )
                     .expect("Buffer mapping is not supported by the backend");
+                    // below OpenGL 4.2 without `GL_ARB_map_buffer_alignment`, the pointer may
+                    // not be aligned for the content: it is then copied to aligned memory
+                    if ptr as usize % D::alignment() != 0 {
+                        unmap_buffer(&mut ctxt, self.id, self.ty);
+                        drop(ctxt);
+                        return self.map_shadow_copy(bytes_range, read, write);
+                    }
                     self.mapped.set(true);
                     ptr
                 };
@@ -1587,10 +1594,19 @@ where
     // whether the buffer was created with `glBufferStorage`
     let created_with_buffer_storage: bool;
 
+    // immutable buffers are only mapped through their pointers (persistently or through a
+    // temporary buffer), so they are only made where the pointers are aligned for any content:
+    // desktop OpenGL 4.2 or `GL_ARB_map_buffer_alignment`
+    let mapping_aligned = ctxt.version.0 != Api::Gl
+        || ctxt.version >= &Version(Api::Gl, 4, 2)
+        || ctxt.extensions.gl_arb_map_buffer_alignment;
+
     // `glNamedBufferStorage` of direct state access also needs buffer storage
-    if ctxt.version >= &Version(Api::Gl, 4, 5)
-        || (ctxt.extensions.gl_arb_direct_state_access
-            && (ctxt.version >= &Version(Api::Gl, 4, 4) || ctxt.extensions.gl_arb_buffer_storage))
+    if mapping_aligned
+        && (ctxt.version >= &Version(Api::Gl, 4, 5)
+            || (ctxt.extensions.gl_arb_direct_state_access
+                && (ctxt.version >= &Version(Api::Gl, 4, 4)
+                    || ctxt.extensions.gl_arb_buffer_storage)))
     {
         ctxt.glow
             .named_buffer_storage(id, size as i32, data_bytes, immutable_storage_flags);
@@ -1598,9 +1614,10 @@ where
         obtained_size = ctxt.glow.get_buffer_parameter_i32(bind, glow::BUFFER_SIZE);
         immutable = could_be_immutable;
         created_with_buffer_storage = true;
-    } else if ctxt.version >= &Version(Api::Gl, 4, 4)
-        || ctxt.extensions.gl_arb_buffer_storage
-        || ctxt.extensions.gl_ext_buffer_storage
+    } else if mapping_aligned
+        && (ctxt.version >= &Version(Api::Gl, 4, 4)
+            || ctxt.extensions.gl_arb_buffer_storage
+            || ctxt.extensions.gl_ext_buffer_storage)
     {
         // glow falls back to glBufferStorageEXT when the core function isn't loaded
         let bind = bind_buffer(&mut ctxt, Some(id), ty);

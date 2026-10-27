@@ -206,6 +206,14 @@ pub unsafe trait Content {
 
     /// Returns true if the size is suitable to store a type like this.
     fn is_size_suitable(_: usize) -> bool;
+
+    /// Returns the alignment that a pointer to this type needs, which the pointers of mapped
+    /// buffers don't always have below OpenGL 4.2. The default, 16, is that of the largest
+    /// scalar and vector types.
+    #[inline]
+    fn alignment() -> usize {
+        16
+    }
 }
 
 unsafe impl<T> Content for T
@@ -235,6 +243,11 @@ where
     #[inline]
     fn to_void_ptr(&self) -> *const () {
         self as *const T as *const ()
+    }
+
+    #[inline]
+    fn alignment() -> usize {
+        mem::align_of::<T>()
     }
 
     #[inline]
@@ -284,6 +297,11 @@ where
     fn to_void_ptr(&self) -> *const () {
         // an empty slice has no first element, but still has a pointer
         self.as_ptr() as *const ()
+    }
+
+    #[inline]
+    fn alignment() -> usize {
+        mem::align_of::<T>()
     }
 
     #[inline]
