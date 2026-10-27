@@ -248,6 +248,12 @@ Breaking changes:
   `enabled` (formerly `multisampling`), `alpha_to_coverage`, `sample_shading` and `sample_mask`:
   write `multisample: MultisampleState { alpha_to_coverage: true, ..Default::default() }`.
   `DrawError` has an `AlphaToOneNotSupported` variant at the desktop levels.
+- `program::BlockLayout::Array` and `DynamicSizedArray` have a `stride` field, the distance
+  between their elements reflected from OpenGL (`GL_UNIFORM_ARRAY_STRIDE`, `GL_ARRAY_STRIDE`,
+  `GL_TOP_LEVEL_ARRAY_STRIDE`). `uniforms::LayoutMismatchError` is `#[non_exhaustive]`, and a
+  Rust array whose elements are closer than the ones of the block, like a `[f32; N]` for the
+  `float` array of a `std140` block, returns its new `StrideMismatch` variant instead of being
+  bound with its data read at the wrong offsets.
 - `texture::UploadError` is `#[non_exhaustive]`, and writing a region of a compressed texture
   that doesn't start on the blocks of its format, or doesn't end on them or on the edge of the
   image, returns its new `MisalignedBlocks` variant instead of an OpenGL error.

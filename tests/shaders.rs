@@ -201,9 +201,11 @@ fn get_uniform_blocks() {
         if let safegl::program::BlockLayout::Array {
             ref content,
             length,
+            stride,
         } = members[0].1
         {
             assert_eq!(length, 12);
+            assert!(stride >= 4);
             if let safegl::program::BlockLayout::BasicType {
                 ty,
                 offset_in_buffer,
@@ -661,9 +663,11 @@ fn ssbos() {
         if let safegl::program::BlockLayout::Array {
             ref content,
             length,
+            stride,
         } = members[0].1
         {
             assert_eq!(length, 12);
+            assert!(stride >= 4);
             if let safegl::program::BlockLayout::BasicType {
                 ty,
                 offset_in_buffer,
@@ -751,9 +755,11 @@ fn complex_layout() {
             if let safegl::program::BlockLayout::Array {
                 ref content,
                 length,
+                stride,
             } = members[0].1
             {
                 assert_eq!(length, 3);
+                assert_eq!(stride, 16);
                 if let safegl::program::BlockLayout::BasicType { ty, .. } = **content {
                     assert_eq!(ty, safegl::uniforms::UniformType::IntVec3);
                     //assert_eq!(offset_in_buffer, 4 * 3);      // TODO: sort offsets out
@@ -777,9 +783,11 @@ fn complex_layout() {
         if let safegl::program::BlockLayout::Array {
             ref content,
             length,
+            stride,
         } = members[1].1
         {
             assert_eq!(length, 12);
+            assert_eq!(stride, 16);
             if let safegl::program::BlockLayout::BasicType { ty, .. } = **content {
                 assert_eq!(ty, safegl::uniforms::UniformType::Float);
                 //assert_eq!(offset_in_buffer, 4 * 3);      // TODO: sort offsets out
@@ -794,9 +802,11 @@ fn complex_layout() {
         if let safegl::program::BlockLayout::Array {
             ref content,
             length,
+            stride,
         } = members[2].1
         {
             assert_eq!(length, 2);
+            assert_eq!(stride, 64);
 
             if let safegl::program::BlockLayout::Struct { ref members } = **content {
                 assert_eq!(members.len(), 2);
@@ -807,9 +817,11 @@ fn complex_layout() {
                 if let safegl::program::BlockLayout::Array {
                     ref content,
                     length,
+                    stride,
                 } = members[0].1
                 {
                     assert_eq!(length, 3);
+                    assert_eq!(stride, 16);
                     if let safegl::program::BlockLayout::BasicType { ty, .. } = **content {
                         assert_eq!(ty, safegl::uniforms::UniformType::IntVec3);
                         //assert!(offset_in_buffer >= 4 * 3);       // TODO: sort offsets out
@@ -917,6 +929,7 @@ fn unsized_array() {
                                             offset_in_buffer: 16,
                                         }),
                                         length: 3,
+                                        stride: 16,
                                     }
                                 ),
                                 (
@@ -929,6 +942,7 @@ fn unsized_array() {
                             ],
                         }),
                         length: 1,
+                        stride: 64,
                     }
                 ),
                 (
@@ -944,6 +958,7 @@ fn unsized_array() {
                                             offset_in_buffer: 80,
                                         }),
                                         length: 3,
+                                        stride: 16,
                                     }
                                 ),
                                 (
@@ -954,7 +969,8 @@ fn unsized_array() {
                                     }
                                 ),
                             ],
-                        })
+                        }),
+                        stride: 64,
                     }
                 ),
             ]
@@ -1042,6 +1058,7 @@ fn array_layout_offsets() {
                         ],
                     }),
                     length: 256,
+                    stride: 32,
                 }
             ),]
         }

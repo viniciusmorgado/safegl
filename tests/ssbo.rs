@@ -136,3 +136,41 @@ fn shared_binding_point() {
 
     display.assert_no_error(None);
 }
+
+/// The elements of an array of a block must be as far apart as in the Rust array: the `float`s
+/// of a `std140` block are 16 bytes apart, the ones of a `std430` block 4 bytes apart.
+#[test]
+fn array_strides() {
+    use safegl::uniforms::LayoutMismatchError;
+
+    let display = support::build_display();
+    let buffer = UniformBuffer::new(&display, [1.0f32, 2.0, 3.0, 4.0, 5.0]).unwrap();
+    let declare = |layout: &str| {
+        storage_program(
+            &display,
+            &format!("layout({layout}) buffer Values {{ float values[5]; }};"),
+            "float sum = values[0] + values[4];",
+        )
+    };
+    let Some(std140) = declare("std140") else {
+        return;
+    };
+    match draw(&display, &std140, &uniform! { Values: &buffer }) {
+        Err(DrawError::UniformBlockLayoutMismatch { err, .. }) => assert!(
+            matches!(
+                err,
+                LayoutMismatchError::StrideMismatch {
+                    expected: 16,
+                    obtained: 4,
+                }
+            ),
+            "{err:?}"
+        ),
+        result => panic!("{:?}", result.err()),
+    }
+
+    let std430 = declare("std430").unwrap();
+    draw(&display, &std430, &uniform! { Values: &buffer }).unwrap();
+
+    display.assert_no_error(None);
+}

@@ -88,6 +88,10 @@ pub enum BlockLayout {
 
         /// Number of elements in the array.
         length: usize,
+
+        /// Distance in bytes between the starts of two elements: 16 for the `float`s of a
+        /// `std140` block, 4 in a `std430` one. 0 if unknown, for arrays of a single struct.
+        stride: usize,
     },
 
     /// An array whose size isn't known at compile-time. Can only be used as the last element of
@@ -105,6 +109,9 @@ pub enum BlockLayout {
     DynamicSizedArray {
         /// Type of data of each element.
         content: Box<BlockLayout>,
+
+        /// Distance in bytes between the starts of two elements. 0 if unknown.
+        stride: usize,
     },
 }
 
@@ -476,10 +483,15 @@ pub unsafe fn reflect_uniform_blocks(
             ctxt.glow
                 .get_active_uniforms_parameter(program, &members_indices, glow::UNIFORM_TYPE);
 
-        // getting the array sizes of the members
+        // getting the array sizes and strides of the members
         let member_size =
             ctxt.glow
                 .get_active_uniforms_parameter(program, &members_indices, glow::UNIFORM_SIZE);
+        let member_stride = ctxt.glow.get_active_uniforms_parameter(
+            program,
+            &members_indices,
+            glow::UNIFORM_ARRAY_STRIDE,
+        );
 
         // getting the length of the names of the members
         let member_name_len = ctxt.glow.get_active_uniforms_parameter(
@@ -520,15 +532,17 @@ pub unsafe fn reflect_uniform_blocks(
 
         // now computing the list of members
         let block_name = name.clone();
-        let members = member_names.enumerate().map(|(index, member_name)| {
-            (
-                strip_block_prefix(&block_name, member_name),
-                member_offsets[index] as usize,
-                glenum_to_uniform_type(member_types[index] as gl::types::GLenum),
-                member_size[index] as usize,
-                None,
-            )
-        });
+        let members = member_names
+            .enumerate()
+            .map(|(index, member_name)| LayoutElement {
+                name: strip_block_prefix(&block_name, member_name),
+                offset: member_offsets[index] as usize,
+                ty: glenum_to_uniform_type(member_types[index] as gl::types::GLenum),
+                array_size: member_size[index] as usize,
+                array_stride: member_stride[index].max(0) as usize,
+                top_level_array_size: None,
+                top_level_array_stride: None,
+            });
 
         // finally inserting into the blocks list
         blocks.insert(
@@ -914,13 +928,21 @@ pub unsafe fn reflect_shader_storage_blocks(
         // iterator over variables
         let block_name = name.clone();
         let members = active_variables.into_iter().map(|variable| {
-            let (ty, array_size, offset, _array_stride, name_len, top_level_array_size) = {
-                let mut output: [gl::types::GLint; 6] = [0; 6];
+            let (
+                ty,
+                array_size,
+                offset,
+                array_stride,
+                name_len,
+                top_level_array_size,
+                top_level_array_stride,
+            ) = {
+                let mut output: [gl::types::GLint; 7] = [0; 7];
                 ctxt.extra.GetProgramResourceiv(
                     program.raw_name(),
                     gl::BUFFER_VARIABLE,
                     variable as gl::types::GLuint,
-                    6,
+                    7,
                     [
                         gl::TYPE,
                         gl::ARRAY_SIZE,
@@ -928,9 +950,10 @@ pub unsafe fn reflect_shader_storage_blocks(
                         gl::ARRAY_STRIDE,
                         gl::NAME_LENGTH,
                         gl::TOP_LEVEL_ARRAY_SIZE,
+                        gl::TOP_LEVEL_ARRAY_STRIDE,
                     ]
                     .as_ptr(),
-                    6,
+                    7,
                     ptr::null_mut(),
                     output.as_mut_ptr() as *mut _,
                 );
@@ -938,9 +961,10 @@ pub unsafe fn reflect_shader_storage_blocks(
                     glenum_to_uniform_type(output[0] as gl::types::GLenum),
                     output[1] as usize,
                     output[2] as usize,
-                    output[3] as usize,
+                    output[3].max(0) as usize,
                     output[4] as usize,
                     output[5] as usize,
+                    output[6].max(0) as usize,
                 )
             };
 
@@ -960,13 +984,15 @@ pub unsafe fn reflect_shader_storage_blocks(
                 String::from_utf8(name_tmp).unwrap()
             };
 
-            (
-                strip_block_prefix(&block_name, name),
+            LayoutElement {
+                name: strip_block_prefix(&block_name, name),
                 offset,
                 ty,
                 array_size,
-                Some(top_level_array_size),
-            )
+                array_stride,
+                top_level_array_size: Some(top_level_array_size),
+                top_level_array_stride: Some(top_level_array_stride),
+            }
         });
 
         // finally inserting into the blocks list
@@ -998,11 +1024,32 @@ fn strip_block_prefix(block_name: &str, member: String) -> String {
     }
 }
 
+/// A member of a block, as OpenGL's introspection API lists it.
+pub(crate) struct LayoutElement {
+    /// The name, like `lights[1].color` or `values[0]`.
+    pub name: String,
+    /// The offset in bytes from the start of the block.
+    pub offset: usize,
+    /// The type of the member, or of the elements of an array.
+    pub ty: UniformType,
+    /// The number of elements of an array of basic types, 1 otherwise, 0 for a runtime-sized one.
+    pub array_size: usize,
+    /// The distance in bytes between the elements of an array of basic types.
+    pub array_stride: usize,
+    /// The number of elements of the outermost array of a storage block member, `None` if
+    /// unknown, 0 for a runtime-sized one.
+    pub top_level_array_size: Option<usize>,
+    /// The distance in bytes between the elements of the outermost array of a storage block
+    /// member, `None` if unknown.
+    pub top_level_array_stride: Option<usize>,
+}
+
 /// Takes a list of elements produced by OpenGL's introspection API and turns them into
 /// a `BlockLayout` object.
 ///
-/// The iterator must produce a list of `(name, offset, ty, array_size, top_level_array_size)`.
-/// The `top_level_array_size` can be `None` if unknown.
+/// The strides of the arrays of basic types are the ones that OpenGL gives. The strides of the
+/// arrays of structs are the top-level strides of storage blocks, or the distance between their
+/// elements 0 and 1, which uniform blocks list. Arrays of a single struct have a stride of 0.
 ///
 /// # Panic
 ///
@@ -1010,99 +1057,115 @@ fn strip_block_prefix(block_name: &str, member: String) -> String {
 ///
 fn introspection_output_to_layout<I>(elements: I) -> BlockLayout
 where
-    I: Iterator<Item = (String, usize, UniformType, usize, Option<usize>)>,
+    I: Iterator<Item = LayoutElement>,
 {
+    /// Splits `component` into its name and its array index, if any.
+    fn split_index(component: &str) -> (&str, Option<usize>) {
+        if component.ends_with(']') {
+            let open_bracket_pos = component.rfind('[').unwrap();
+            let index = component[open_bracket_pos + 1..component.len() - 1]
+                .parse()
+                .unwrap();
+            (&component[..open_bracket_pos], Some(index))
+        } else {
+            (component, None)
+        }
+    }
+
     // `output` must be a BlockLayout::Struct, otherwise this function will panic
+    #[allow(clippy::too_many_arguments)]
     fn process(
         output: &mut BlockLayout,
+        path: &str,
         name: &str,
-        offset: usize,
-        ty: UniformType,
-        array_size: usize,
-        top_level_array_size: Option<usize>,
+        element: &LayoutElement,
+        top_level: bool,
+        struct_offsets: &HashMap<String, [Option<usize>; 2]>,
     ) {
         let mut components = name.splitn(2, '.');
         let current_component = components.next().unwrap();
         let name_rest = components.next();
+        let (current_name, array) = split_index(current_component);
+        let member_path = if path.is_empty() {
+            current_name.to_owned()
+        } else {
+            format!("{path}.{current_name}")
+        };
 
         // finding the appropriate place in `output` to write the element
         let member = if let BlockLayout::Struct { ref mut members } = output {
-            // splitting the name and array size
-            let (current_component, array) = if current_component.ends_with(']') {
-                let open_bracket_pos = current_component.rfind('[').unwrap();
-                let array = current_component[open_bracket_pos + 1..current_component.len() - 1]
-                    .parse()
-                    .unwrap();
-                (&current_component[..open_bracket_pos], Some(array))
-            } else {
-                (current_component, None)
-            };
-
-            // because of a bug in Rust's borrow checker, we have to loop twice instead of just
-            // call `if let Some() { } else { }`
-            let existing = members.iter_mut().any(|m| m.0 == current_component);
-            if existing {
-                let member = &mut members
-                    .iter_mut()
-                    .find(|m| m.0 == current_component)
-                    .unwrap()
-                    .1;
-
-                if let Some(array) = array {
-                    match member {
-                        BlockLayout::Array {
-                            ref mut content,
-                            ref mut length,
-                        } => {
-                            if *length <= array {
-                                *length = array + 1;
-                            }
-                            &mut **content
+            let existing = members.iter().position(|m| m.0 == current_name);
+            match (existing, array) {
+                (Some(position), Some(array)) => match &mut members[position].1 {
+                    BlockLayout::Array {
+                        ref mut content,
+                        ref mut length,
+                        ..
+                    } => {
+                        if *length <= array {
+                            *length = array + 1;
                         }
-                        BlockLayout::DynamicSizedArray { ref mut content } => &mut **content,
-                        _ => unreachable!(),
+                        &mut **content
                     }
-                } else {
-                    member
-                }
-            } else {
-                // member doesn't exist yet in the output, adding it
-                if let Some(array) = array {
-                    if top_level_array_size == Some(0) {
-                        members.push((
-                            current_component.to_owned(),
-                            BlockLayout::DynamicSizedArray {
-                                content: Box::new(BlockLayout::Struct {
-                                    members: Vec::new(),
-                                }),
-                            },
-                        ));
+                    BlockLayout::DynamicSizedArray {
+                        ref mut content, ..
+                    } => &mut **content,
+                    _ => unreachable!(),
+                },
+                (Some(position), None) => &mut members[position].1,
+                (None, Some(array)) => {
+                    let content = Box::new(BlockLayout::Struct {
+                        members: Vec::new(),
+                    });
+                    // the elements of an array of basic types are listed together with their
+                    // stride; arrays of structs are listed member by member
+                    let stride = if name_rest.is_none() {
+                        element.array_stride
+                    } else if let (true, Some(stride)) = (top_level, element.top_level_array_stride)
+                    {
+                        stride
                     } else {
-                        members.push((
-                            current_component.to_owned(),
-                            BlockLayout::Array {
-                                content: Box::new(BlockLayout::Struct {
-                                    members: Vec::new(),
-                                }),
-                                length: if name_rest.is_some() {
-                                    array
-                                } else {
-                                    array_size
-                                },
-                            },
-                        ));
-                    }
-
+                        match struct_offsets.get(&member_path) {
+                            Some([Some(first), Some(second)]) => second - first,
+                            _ => 0,
+                        }
+                    };
+                    let size = if top_level {
+                        element.top_level_array_size
+                    } else {
+                        None
+                    };
+                    let runtime_sized =
+                        size == Some(0) || (name_rest.is_none() && element.array_size == 0);
+                    let layout = if runtime_sized {
+                        BlockLayout::DynamicSizedArray { content, stride }
+                    } else {
+                        // storage blocks only list the element 0 of their top-level arrays
+                        let length = match (name_rest, size) {
+                            (Some(_), Some(size)) => size.max(array + 1),
+                            (Some(_), None) => array + 1,
+                            (None, _) => element.array_size,
+                        };
+                        BlockLayout::Array {
+                            content,
+                            length,
+                            stride,
+                        }
+                    };
+                    members.push((current_name.to_owned(), layout));
                     match &mut members.last_mut().unwrap().1 {
                         BlockLayout::Array {
                             ref mut content, ..
                         } => &mut **content,
-                        BlockLayout::DynamicSizedArray { ref mut content } => &mut **content,
+                        BlockLayout::DynamicSizedArray {
+                            ref mut content, ..
+                        } => &mut **content,
                         _ => unreachable!(),
                     }
-                } else {
+                }
+                (None, None) => {
                     members.push((
-                        current_component.to_owned(),
+                        current_name.to_owned(),
                         BlockLayout::Struct {
                             members: Vec::new(),
                         },
@@ -1116,15 +1179,20 @@ where
 
         // now adding either the other elements or the final element itself
         if let Some(name_rest) = name_rest {
-            process(member, name_rest, offset, ty, array_size, None);
+            let path = match array {
+                // the content of an array is described by its element 0
+                Some(_) => format!("{member_path}[0]"),
+                None => member_path,
+            };
+            process(member, &path, name_rest, element, false, struct_offsets);
         } else {
             // don't write over the offset in buffer
             match *member {
-                BlockLayout::BasicType { ty: ty_ex, .. } if ty_ex == ty => (),
+                BlockLayout::BasicType { ty: ty_ex, .. } if ty_ex == element.ty => (),
                 _ => {
                     *member = BlockLayout::BasicType {
-                        offset_in_buffer: offset,
-                        ty,
+                        offset_in_buffer: element.offset,
+                        ty: element.ty,
                     };
                 }
             }
@@ -1136,20 +1204,40 @@ where
     // drivers list the variables in any order, alphabetical for some of them: sorting them by
     // offset gives the members in the order of their declaration
     let mut elements: Vec<_> = elements.collect();
-    elements.sort_by_key(|element| element.1);
+    elements.sort_by_key(|element| element.offset);
+
+    // the smallest offsets of the members of the elements 0 and 1 of the arrays of structs, keyed
+    // by the path of the array with the indices of the arrays around it set to 0
+    let mut struct_offsets: HashMap<String, [Option<usize>; 2]> = HashMap::new();
+    for element in &elements {
+        let mut path = String::new();
+        let mut components = element.name.split('.').peekable();
+        while let Some(component) = components.next() {
+            let (name, index) = split_index(component);
+            if !path.is_empty() {
+                path.push('.');
+            }
+            path.push_str(name);
+            if let (Some(index), true) = (index, components.peek().is_some()) {
+                if index < 2 {
+                    let offsets = struct_offsets.entry(path.clone()).or_default();
+                    let offset = &mut offsets[index];
+                    *offset = Some(offset.map_or(element.offset, |o| o.min(element.offset)));
+                }
+                if index != 0 {
+                    // the arrays inside this element are described by element 0
+                    break;
+                }
+                path.push_str("[0]");
+            }
+        }
+    }
 
     let mut layout = BlockLayout::Struct {
         members: Vec::new(),
     };
-    for (name, offset, ty, array_size, top_level_array_size) in elements {
-        process(
-            &mut layout,
-            &name,
-            offset,
-            ty,
-            array_size,
-            top_level_array_size,
-        );
+    for element in &elements {
+        process(&mut layout, "", &element.name, element, true, &struct_offsets);
     }
     layout
 }
@@ -1605,34 +1693,119 @@ pub unsafe fn reflect_subroutine_data(
 
 #[cfg(test)]
 mod tests {
-    use super::{introspection_output_to_layout, BlockLayout, UniformType};
+    use super::{introspection_output_to_layout, BlockLayout, LayoutElement, UniformType};
+
+    /// A member of a uniform block, which lists every element of its arrays.
+    fn uniform(
+        name: &str,
+        offset: usize,
+        ty: UniformType,
+        size: usize,
+        stride: usize,
+    ) -> LayoutElement {
+        LayoutElement {
+            name: name.to_owned(),
+            offset,
+            ty,
+            array_size: size,
+            array_stride: stride,
+            top_level_array_size: None,
+            top_level_array_stride: None,
+        }
+    }
+
+    fn basic(ty: UniformType, offset_in_buffer: usize) -> BlockLayout {
+        BlockLayout::BasicType {
+            ty,
+            offset_in_buffer,
+        }
+    }
 
     #[test]
     fn members_in_declaration_order() {
         // the order of NVIDIA's driver
         let elements = vec![
-            ("dir".to_owned(), 8, UniformType::FloatVec2, 1, None),
-            ("pos".to_owned(), 0, UniformType::FloatVec2, 1, None),
-            ("speed".to_owned(), 16, UniformType::Float, 1, None),
+            uniform("dir", 8, UniformType::FloatVec2, 1, 0),
+            uniform("pos", 0, UniformType::FloatVec2, 1, 0),
+            uniform("speed", 16, UniformType::Float, 1, 0),
         ];
-        let member = |name: &str, ty, offset_in_buffer| {
-            (
-                name.to_owned(),
-                BlockLayout::BasicType {
-                    ty,
-                    offset_in_buffer,
-                },
-            )
-        };
 
         assert_eq!(
             introspection_output_to_layout(elements.into_iter()),
             BlockLayout::Struct {
                 members: vec![
-                    member("pos", UniformType::FloatVec2, 0),
-                    member("dir", UniformType::FloatVec2, 8),
-                    member("speed", UniformType::Float, 16),
+                    ("pos".to_owned(), basic(UniformType::FloatVec2, 0)),
+                    ("dir".to_owned(), basic(UniformType::FloatVec2, 8)),
+                    ("speed".to_owned(), basic(UniformType::Float, 16)),
                 ],
+            }
+        );
+    }
+
+    #[test]
+    fn array_strides() {
+        // `float values[4]` and `Light lights[2]` of a `std140` block
+        let elements = vec![
+            uniform("values[0]", 0, UniformType::Float, 4, 16),
+            uniform("lights[0].position", 64, UniformType::FloatVec3, 1, 0),
+            uniform("lights[0].intensity", 76, UniformType::Float, 1, 0),
+            uniform("lights[1].position", 80, UniformType::FloatVec3, 1, 0),
+            uniform("lights[1].intensity", 92, UniformType::Float, 1, 0),
+        ];
+        assert_eq!(
+            introspection_output_to_layout(elements.into_iter()),
+            BlockLayout::Struct {
+                members: vec![
+                    (
+                        "values".to_owned(),
+                        BlockLayout::Array {
+                            content: Box::new(basic(UniformType::Float, 0)),
+                            length: 4,
+                            stride: 16,
+                        }
+                    ),
+                    (
+                        "lights".to_owned(),
+                        BlockLayout::Array {
+                            content: Box::new(BlockLayout::Struct {
+                                members: vec![
+                                    ("position".to_owned(), basic(UniformType::FloatVec3, 64)),
+                                    ("intensity".to_owned(), basic(UniformType::Float, 76)),
+                                ],
+                            }),
+                            length: 2,
+                            stride: 16,
+                        }
+                    ),
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn storage_block_array_strides() {
+        // `Item items[];` of a `std430` storage block, which only lists the element 0
+        let elements = vec![LayoutElement {
+            name: "items[0].value".to_owned(),
+            offset: 0,
+            ty: UniformType::FloatVec2,
+            array_size: 1,
+            array_stride: 0,
+            top_level_array_size: Some(0),
+            top_level_array_stride: Some(24),
+        }];
+        assert_eq!(
+            introspection_output_to_layout(elements.into_iter()),
+            BlockLayout::Struct {
+                members: vec![(
+                    "items".to_owned(),
+                    BlockLayout::DynamicSizedArray {
+                        content: Box::new(BlockLayout::Struct {
+                            members: vec![("value".to_owned(), basic(UniformType::FloatVec2, 0))],
+                        }),
+                        stride: 24,
+                    }
+                )],
             }
         );
     }
