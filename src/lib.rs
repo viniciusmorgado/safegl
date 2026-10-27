@@ -1350,7 +1350,10 @@ impl fmt::Display for BlitError {
 impl Error for BlitError {}
 
 /// Error that can happen while drawing.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum DrawError {
     /// A depth function has been requested but no depth buffer is available.
     NoDepthBuffer,
