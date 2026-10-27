@@ -248,6 +248,10 @@ Breaking changes:
   `enabled` (formerly `multisampling`), `alpha_to_coverage`, `sample_shading` and `sample_mask`:
   write `multisample: MultisampleState { alpha_to_coverage: true, ..Default::default() }`.
   `DrawError` has an `AlphaToOneNotSupported` variant at the desktop levels.
+- `texture::CompressedFormat` and `CompressedSrgbFormat` are `#[non_exhaustive]`, and have the
+  ETC2 and EAC formats of mobile GPUs: `Etc2Rgb8`, `Etc2Rgb8PunchthroughAlpha1`, `Etc2Rgba8Eac`,
+  `EacR11Unsigned`, `EacR11Signed`, `EacRg11Unsigned` and `EacRg11Signed`, and their sRGB
+  variants (`any(gl43, gles30)`; OpenGL 4.3 or `GL_ARB_ES3_compatibility` on desktop OpenGL).
 - `SamplerBehavior` has a `level_of_detail` field, a `uniforms::LevelOfDetail` with the lowest
   and highest levels of detail (`GL_TEXTURE_MIN_LOD` and `GL_TEXTURE_MAX_LOD`) and, on desktop
   OpenGL, the bias added to them (`GL_TEXTURE_LOD_BIAS`), set with `Sampler::lod_range` and

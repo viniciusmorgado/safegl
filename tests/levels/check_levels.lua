@@ -328,6 +328,15 @@ local cases = {
         t.sampled().border_color_uint([1; 4])
     }
   ]] },
+  { "gles30_has_etc2", { "gles30" }, nil, [[
+    pub const F: safegl::texture::CompressedFormat = safegl::texture::CompressedFormat::Etc2Rgba8Eac;
+  ]] },
+  { "gl42_has_no_etc2", { "gl42" }, "Etc2Rgb8", [[
+    pub const F: safegl::texture::CompressedFormat = safegl::texture::CompressedFormat::Etc2Rgb8;
+  ]] },
+  { "gl43_has_etc2", { "gl43" }, nil, [[
+    pub const F: safegl::texture::CompressedSrgbFormat = safegl::texture::CompressedSrgbFormat::Etc2Rgb8;
+  ]] },
   { "gles30_has_swizzle", { "gles30" }, nil, [[
     pub fn f(t: &safegl::texture::Texture2d) { t.set_swizzle(Default::default()); }
   ]] },
