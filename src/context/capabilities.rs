@@ -318,13 +318,16 @@ pub unsafe fn get_capabilities(
             false
         },
 
-        release_behavior: if extensions.gl_khr_context_flush_control {
+        // the behavior is core in OpenGL 4.5; a value that the specification doesn't have is
+        // taken as the default flush instead of trusted
+        release_behavior: if version >= &Version(Api::Gl, 4, 5)
+            || extensions.gl_khr_context_flush_control
+        {
             let val = gl.get_parameter_i32(glow::CONTEXT_RELEASE_BEHAVIOR);
 
             match val as gl::types::GLenum {
                 gl::NONE => ReleaseBehavior::None,
-                gl::CONTEXT_RELEASE_BEHAVIOR_FLUSH => ReleaseBehavior::Flush,
-                _ => unreachable!(),
+                _ => ReleaseBehavior::Flush,
             }
         } else {
             ReleaseBehavior::Flush

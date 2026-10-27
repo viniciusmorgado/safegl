@@ -111,3 +111,15 @@ fn context_without_error_checking_draws() {
         }
     }
 }
+
+/// Contexts flush their commands when another context is made current, unless they are created
+/// to do nothing; the query is core in OpenGL 4.5.
+#[test]
+fn contexts_flush_when_released() {
+    let display = support::build_display();
+    assert_eq!(
+        display.get_capabilities().release_behavior,
+        safegl::ReleaseBehavior::Flush
+    );
+    display.assert_no_error(None);
+}
