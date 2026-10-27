@@ -281,6 +281,9 @@ Fixes:
 - `Capabilities::max_texture_buffer_size` is given on OpenGL ES 3.2, where buffer textures are
   core, and the sRGB encoding of the default framebuffer is read from its attachment on every
   context, instead of `GL_FRAMEBUFFER_SRGB_CAPABLE_EXT`, which the core profile doesn't have.
+- Creating a `BufferTexture` without buffer texture support (OpenGL ES 3.0 and 3.1 without
+  `GL_EXT_texture_buffer`) returns `TextureCreationError::NotSupported`, instead of the
+  `BufferTypeNotSupported` of the buffer it starts with.
 
 ## [0.2.0]
 
