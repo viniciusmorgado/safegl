@@ -716,8 +716,8 @@ impl UniformsStorage {
                 return;
             }
         }
-        // TODO: don't assume that, instead use DSA if the program is not current
-        assert!(ctxt.state.program == Some(program));
+        // the program is current, or active for the stage in the current pipeline
+        assert!(ctxt.state.program == Some(program) || ctxt.state.program.is_none());
         subroutine_uniforms.insert(stage, indices.to_vec());
         unsafe {
             ctxt.extra.UniformSubroutinesuiv(

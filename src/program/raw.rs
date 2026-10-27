@@ -108,6 +108,7 @@ impl RawProgram {
         fragment_source: Option<&str>,
         locations: LinkLocations<'_>,
         spirv: Option<&[Module]>,
+        separable: Option<gl::types::GLbitfield>,
     ) -> Result<RawProgram, ProgramCreationError>
     where
         F: Facade,
@@ -170,6 +171,16 @@ impl RawProgram {
                 );
             }
 
+            // programs used by program pipelines are linked separable, which callers check that
+            // the context supports
+            if separable.is_some() {
+                ctxt.extra.ProgramParameteri(
+                    id.raw_name(),
+                    gl::PROGRAM_SEPARABLE,
+                    gl::TRUE as gl::types::GLint,
+                );
+            }
+
             // linking
             {
                 ctxt.report_debug_output_errors.set(false);
@@ -221,6 +232,7 @@ impl RawProgram {
                 has_geometry_shader,
                 has_tessellation_control_shader,
                 has_tessellation_evaluation_shader,
+                separable,
             )
         };
 
@@ -321,6 +333,7 @@ impl RawProgram {
                     has_geometry_shader,
                     has_tessellation_control_shader,
                     has_tessellation_evaluation_shader,
+                    None,
                 ),
             )
         };
@@ -431,6 +444,13 @@ impl RawProgram {
             .borrow_mut()
             .insert(name.to_owned(), location);
         location
+    }
+
+    /// Forgets the values of the subroutine uniforms, which binding a program or a pipeline
+    /// resets.
+    #[cfg(all(safegl_desktop, safegl_gl41))]
+    pub(crate) fn flush_subroutine_uniforms(&self) {
+        self.uniform_values.flush_subroutine_uniforms();
     }
 
     /// Returns the index of a fragment output: 1 for the second color output of dual-source

@@ -160,6 +160,10 @@ use crate::program;
 use crate::program::BlockLayout;
 
 mod bind;
+#[cfg(safegl_gl41)]
+pub(crate) use self::bind::bind_subroutine_uniforms;
+#[cfg(any(safegl_gl41, safegl_gles31))]
+pub(crate) use self::bind::BindPoints;
 pub(crate) use self::bind::CollectedUniforms;
 mod buffer;
 #[cfg(any(safegl_gl42, safegl_gles31))]

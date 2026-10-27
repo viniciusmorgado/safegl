@@ -45,6 +45,8 @@ pub struct Program {
     raw: RawProgram,
     outputs_srgb: bool,
     uses_point_size: bool,
+    // the stages of a separable program, 0 for the others
+    separable_stages: gl::types::GLbitfield,
 }
 
 impl Program {
@@ -112,6 +114,7 @@ impl Program {
                         transform_feedback_varyings,
                         Some(fragment_shader),
                         locations,
+                        None,
                         None,
                     )?,
                     outputs_srgb,
@@ -186,6 +189,7 @@ impl Program {
                         None,
                         Default::default(),
                         Some(&modules),
+                        None,
                     )?,
                     outputs_srgb,
                     uses_point_size,
@@ -196,7 +200,38 @@ impl Program {
             raw,
             outputs_srgb,
             uses_point_size,
+            separable_stages: 0,
         })
+    }
+
+    /// A program linked to be used in program pipelines, with the stages of its shaders, as
+    /// `glUseProgramStages` names them.
+    #[cfg(any(safegl_gl41, safegl_gles31))]
+    pub(crate) fn separable(
+        raw: RawProgram,
+        outputs_srgb: bool,
+        uses_point_size: bool,
+        stages: gl::types::GLbitfield,
+    ) -> Program {
+        Program {
+            raw,
+            outputs_srgb,
+            uses_point_size,
+            separable_stages: stages,
+        }
+    }
+
+    /// For a program linked to be used in program pipelines, the stages of its shaders, as
+    /// `glUseProgramStages` names them; 0 for the other programs.
+    #[cfg(any(safegl_gl41, safegl_gles31))]
+    pub(crate) fn separable_stages(&self) -> gl::types::GLbitfield {
+        self.separable_stages
+    }
+
+    /// Returns the program, which knows its uniform values.
+    #[cfg(any(safegl_gl41, safegl_gles31))]
+    pub(crate) fn raw(&self) -> &RawProgram {
+        &self.raw
     }
 
     /// Builds a new program from GLSL source code.

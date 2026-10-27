@@ -1836,11 +1836,13 @@ pub unsafe fn reflect_subroutine_data(
     _: bool,
     _: bool,
     _: bool,
+    _: Option<gl::types::GLbitfield>,
 ) -> SubroutineData {
     Default::default()
 }
 
-/// Returns the data associated with a programs subroutines.
+/// Returns the data associated with a programs subroutines. `separable` has the stages of a
+/// separable program, which can have a single shader.
 #[cfg(safegl_desktop)]
 pub unsafe fn reflect_subroutine_data(
     ctxt: &mut CommandContext<'_>,
@@ -1848,24 +1850,42 @@ pub unsafe fn reflect_subroutine_data(
     has_geometry_shader: bool,
     has_tessellation_control_shader: bool,
     has_tessellation_evaluation_shader: bool,
+    separable: Option<gl::types::GLbitfield>,
 ) -> SubroutineData {
     if !program::is_subroutine_supported(ctxt) {
         return Default::default();
     }
 
-    // Compute shader programs are not handled: #1718
-    let shader_count = ctxt
-        .glow
-        .get_program_parameter_i32(program, glow::ATTACHED_SHADERS);
-    if shader_count < 2 {
-        return Default::default();
-    }
-
-    let shader_stages = get_shader_stages(
-        has_geometry_shader,
-        has_tessellation_control_shader,
-        has_tessellation_evaluation_shader,
-    );
+    let shader_stages = match separable {
+        Some(bits) => [
+            (gl::VERTEX_SHADER_BIT, ShaderStage::Vertex),
+            (gl::FRAGMENT_SHADER_BIT, ShaderStage::Fragment),
+            (
+                gl::TESS_EVALUATION_SHADER_BIT,
+                ShaderStage::TessellationEvaluation,
+            ),
+            (gl::TESS_CONTROL_SHADER_BIT, ShaderStage::TessellationControl),
+            (gl::GEOMETRY_SHADER_BIT, ShaderStage::Geometry),
+        ]
+        .into_iter()
+        .filter(|&(bit, _)| bits & bit != 0)
+        .map(|(_, stage)| stage)
+        .collect(),
+        None => {
+            // Compute shader programs are not handled: #1718
+            let shader_count = ctxt
+                .glow
+                .get_program_parameter_i32(program, glow::ATTACHED_SHADERS);
+            if shader_count < 2 {
+                return Default::default();
+            }
+            get_shader_stages(
+                has_geometry_shader,
+                has_tessellation_control_shader,
+                has_tessellation_evaluation_shader,
+            )
+        }
+    };
     let mut subroutine_uniforms = HashMap::with_hasher(Default::default());
     let mut location_counts = HashMap::with_hasher(Default::default());
     for stage in shader_stages.iter() {

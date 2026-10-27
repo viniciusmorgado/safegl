@@ -20,10 +20,11 @@ use crate::TransformFeedbackExt;
 use crate::fbo::{self, FramebufferTarget};
 
 use crate::index::{self, IndicesSource};
+use crate::program::DrawProgram;
 use crate::uniforms::Uniforms;
 use crate::vertex::{InstanceRate, MultiVerticesSource, TransformFeedback, VerticesSource};
 use crate::vertex_array_object::VertexAttributesSystem;
-use crate::{Program, ToGlEnum};
+use crate::ToGlEnum;
 
 use crate::draw_parameters::DrawParameters;
 
@@ -37,7 +38,7 @@ pub fn draw<'a, U, V>(
     framebuffer: FramebufferTarget<'_>,
     vertex_buffers: V,
     indices: IndicesSource<'_>,
-    program: &Program,
+    program: DrawProgram<'_>,
     uniforms: &U,
     draw_parameters: &DrawParameters<'_>,
     dimensions: (u32, u32),
@@ -50,7 +51,7 @@ where
     // has started
     let mut fences = crate::buffer::FenceInserters::new();
 
-    let vertices_per_patch = check_stages(context, program, indices.get_primitives_type())?;
+    let vertices_per_patch = check_stages(context, &program, indices.get_primitives_type())?;
 
     // the base instance given in the draw parameters
     let supports_base_instance = is_base_instance_supported(context);
@@ -75,7 +76,7 @@ where
     let mut ctxt = context.make_current();
 
     // OpenGL objects can only be used with the context that created them
-    check_contexts(&ctxt, program, &indices, draw_parameters)?;
+    check_contexts(&ctxt, &program, &indices, draw_parameters)?;
     #[cfg(safegl_gl46)]
     check_draw_count(&ctxt, &indices)?;
     #[cfg(any(safegl_desktop, safegl_gles31))]
@@ -133,7 +134,7 @@ where
         // object that is used to build the bindings
         let mut binder = VertexAttributesSystem::start(
             &mut ctxt,
-            program,
+            program.vertex(),
             index_buffer,
             use_base_vertex,
             use_base_instance,
@@ -251,8 +252,7 @@ where
     }
 
     // binding the program and uniforms
-    program.use_program(&mut ctxt);
-    uniforms.bind(&mut ctxt, program, &mut fences)?;
+    bind_programs(&mut ctxt, &program, &uniforms, &mut fences)?;
 
     // sync-ing draw_parameters
     unsafe {
@@ -857,14 +857,53 @@ fn is_base_instance_supported(context: &Context) -> bool {
     }
 }
 
+/// Binds the program of a draw command and the values of its uniforms.
+///
+/// The programs of a pipeline get their uniforms one after the other, with bind points that
+/// they share, then the pipeline is bound and their subroutine uniforms set, which binding a
+/// program or a pipeline resets.
+fn bind_programs<'a>(
+    ctxt: &mut context::CommandContext<'_>,
+    program: &DrawProgram<'_>,
+    uniforms: &CollectedUniforms<'a>,
+    fences: &mut crate::buffer::FenceInserters<'a>,
+) -> Result<(), DrawError> {
+    match *program {
+        DrawProgram::Program(program) => {
+            program.use_program(ctxt);
+            uniforms.bind(ctxt, program, fences)
+        }
+        #[cfg(any(safegl_gl41, safegl_gles31))]
+        DrawProgram::Pipeline(_) => {
+            let mut points = crate::uniforms::BindPoints::new(ctxt);
+            let mut subroutines = Vec::new();
+            for &stage in program.programs() {
+                stage.raw().use_program(ctxt);
+                subroutines.push(uniforms.bind_values(ctxt, stage, &mut points, fences)?);
+            }
+            program.use_programs(ctxt);
+            #[cfg(safegl_desktop)]
+            for (&stage, subroutines) in program.programs().iter().zip(&subroutines) {
+                stage.raw().flush_subroutine_uniforms();
+                crate::uniforms::bind_subroutine_uniforms(ctxt, stage, subroutines)?;
+            }
+            #[cfg(not(safegl_desktop))]
+            let _ = subroutines;
+            Ok(())
+        }
+    }
+}
+
 /// Checks that the primitives fit the tessellation and geometry stages of the program, and
 /// returns the vertices per patch of patches.
 #[cfg(any(safegl_desktop, safegl_gles32))]
 fn check_stages(
     context: &Context,
-    program: &Program,
+    program: &DrawProgram<'_>,
     primitives: index::PrimitiveType,
 ) -> Result<Option<u16>, DrawError> {
+    check_complete(program)?;
+
     let vertices_per_patch = match primitives {
         index::PrimitiveType::Patches { vertices_per_patch } => {
             if let Some(max) = context.capabilities().max_patch_vertices {
@@ -918,10 +957,30 @@ fn check_stages(
 #[cfg(not(any(safegl_desktop, safegl_gles32)))]
 fn check_stages(
     _: &Context,
-    _: &Program,
+    program: &DrawProgram<'_>,
     _: index::PrimitiveType,
 ) -> Result<Option<u16>, DrawError> {
+    check_complete(program)?;
     Ok(None)
+}
+
+/// Checks that a separable program drawn on its own has a vertex and a fragment shader.
+#[cfg(any(safegl_gl41, safegl_gles31))]
+fn check_complete(program: &DrawProgram<'_>) -> Result<(), DrawError> {
+    if let DrawProgram::Program(program) = program {
+        let stages = program.separable_stages();
+        let both = gl::VERTEX_SHADER_BIT | gl::FRAGMENT_SHADER_BIT;
+        if stages != 0 && stages & both != both {
+            return Err(DrawError::IncompleteProgram);
+        }
+    }
+    Ok(())
+}
+
+/// Without program pipelines, programs aren't separable.
+#[cfg(not(any(safegl_gl41, safegl_gles31)))]
+fn check_complete(_: &DrawProgram<'_>) -> Result<(), DrawError> {
+    Ok(())
 }
 
 unsafe fn sync_vertices_per_patch(
@@ -951,7 +1010,7 @@ fn binder_context_owns(buffer: &crate::buffer::BufferAnySlice<'_>, context: &Con
 /// current context.
 fn check_contexts(
     ctxt: &context::CommandContext<'_>,
-    program: &Program,
+    program: &DrawProgram<'_>,
     indices: &IndicesSource<'_>,
     draw_parameters: &DrawParameters<'_>,
 ) -> Result<(), DrawError> {
@@ -961,7 +1020,11 @@ fn check_contexts(
         })
     };
 
-    if !ctxt.owns(program.get_context()) {
+    if program
+        .programs()
+        .iter()
+        .any(|program| !ctxt.owns(program.get_context()))
+    {
         return mismatch("program");
     }
 
@@ -1011,7 +1074,7 @@ fn check_contexts(
         if !ctxt.owns(transform_feedback.get_context()) {
             return mismatch("transform feedback object");
         }
-        if transform_feedback.get_program_id() != program.get_id() {
+        if transform_feedback.get_program_id() != program.last_vertex_stage().get_id() {
             return Err(DrawError::TransformFeedbackProgramMismatch);
         }
 

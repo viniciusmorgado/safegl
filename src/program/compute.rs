@@ -72,6 +72,7 @@ impl ComputeShader {
                 None,
                 Default::default(),
                 None,
+                None,
             )?,
         })
     }
@@ -103,6 +104,7 @@ impl ComputeShader {
                 None,
                 Default::default(),
                 Some(&[module]),
+                None,
             )?,
         })
     }

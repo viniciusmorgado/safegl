@@ -132,14 +132,17 @@ impl Error for TransformFeedbackCreationError {}
 
 impl<'a> TransformFeedback<'a> {
     /// Builds a transform feedback object that captures the varyings of `program`, without
-    /// buffers yet: give it the buffers of the program in order with `with_buffer`.
+    /// buffers yet: give it the buffers of the program in order with `with_buffer`. For a
+    /// program pipeline, the varyings are the ones of the program of the last stage before
+    /// rasterization.
     pub fn new<F: ?Sized>(
         facade: &F,
-        program: &'a Program,
+        program: impl Into<crate::program::DrawProgram<'a>>,
     ) -> Result<TransformFeedback<'a>, TransformFeedbackCreationError>
     where
         F: Facade,
     {
+        let program = program.into().last_vertex_stage();
         // OpenGL objects can only be used with the context that created them
         let context = facade.get_context();
         if !std::ptr::eq(ProgramExt::get_context(program), &**context) {

@@ -169,6 +169,9 @@ unsafe fn restore_capabilities(ctxt: &mut CommandContext<'_>) {
 
 unsafe fn restore_bindings(ctxt: &mut CommandContext<'_>) {
     ctxt.glow.use_program(ctxt.state.program);
+    if crate::program::are_pipelines_supported(ctxt) {
+        ctxt.extra.BindProgramPipeline(ctxt.state.program_pipeline);
+    }
     ctxt.glow.bind_vertex_array(ctxt.state.vertex_array);
     ctxt.glow
         .bind_framebuffer(gl::READ_FRAMEBUFFER, ctxt.state.read_framebuffer);

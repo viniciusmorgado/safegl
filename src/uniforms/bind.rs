@@ -86,16 +86,34 @@ impl<'a> CollectedUniforms<'a> {
     where
         P: ProgramExt,
     {
-        let mut texture_bind_points = Bitsfield::new();
-        let mut uniform_buffer_bind_points = Bitsfield::new();
-        #[cfg(any(safegl_gl42, safegl_gles31))]
-        let mut shared_storage_buffer_bind_points = Bitsfield::new();
-        let mut image_unit_bind_points = Bitsfield::new();
-        // image uniforms that aren't set use unit 0, so SafeGL doesn't give it to other images;
-        // OpenGL ES uses the units of the shader instead
-        if ctxt.version.0 != crate::version::Api::GlEs {
-            image_unit_bind_points.set_used(0);
-        }
+        let mut points = BindPoints::new(ctxt);
+        let _subroutines = self.bind_values(ctxt, program, &mut points, fences)?;
+        #[cfg(safegl_desktop)]
+        bind_subroutine_uniforms(ctxt, program, &_subroutines)?;
+        Ok(())
+    }
+
+    /// Binds the uniforms to the program, which must be current, with the bind points of
+    /// `points`, which the programs of a pipeline share, and checks that every uniform of the
+    /// program has a value. Returns the subroutine uniforms to set, which the program must be
+    /// active for when they are set: see `bind_subroutine_uniforms`.
+    pub fn bind_values<'p, P>(
+        &'p self,
+        ctxt: &mut CommandContext<'_>,
+        program: &'p P,
+        points: &mut BindPoints,
+        fences: &mut FenceInserters<'a>,
+    ) -> Result<SubroutineBindings<'p>, DrawError>
+    where
+        P: ProgramExt,
+    {
+        let BindPoints {
+            texture: texture_bind_points,
+            uniform_buffer: uniform_buffer_bind_points,
+            #[cfg(any(safegl_gl42, safegl_gles31))]
+                storage_buffer: shared_storage_buffer_bind_points,
+            image_unit: image_unit_bind_points,
+        } = points;
 
         // Subroutine uniforms must be bound all at once, so we collect them first and process them at the end.
         // The vec contains the uniform we want to set and the value we want to set it to.
@@ -183,8 +201,8 @@ impl<'a> CollectedUniforms<'a> {
                     &value,
                     program,
                     uniform,
-                    &mut texture_bind_points,
-                    &mut image_unit_bind_points,
+                    texture_bind_points,
+                    image_unit_bind_points,
                     name,
                 )?;
             } else if let Some(block) = program.get_uniform_blocks().get(name) {
@@ -193,7 +211,7 @@ impl<'a> CollectedUniforms<'a> {
                     &value,
                     block,
                     program,
-                    &mut uniform_buffer_bind_points,
+                    uniform_buffer_bind_points,
                     name,
                 )?;
                 bound_blocks.push(name);
@@ -207,7 +225,7 @@ impl<'a> CollectedUniforms<'a> {
                     ctxt,
                     &value,
                     program,
-                    &mut shared_storage_buffer_bind_points,
+                    shared_storage_buffer_bind_points,
                     name,
                 )? {
                     bound_blocks.push(name);
@@ -238,13 +256,52 @@ impl<'a> CollectedUniforms<'a> {
 
         check_missing_uniforms(program, &given_locations, &bound_blocks)?;
 
-        // Process all subroutine uniforms in one batch.
         #[cfg(safegl_desktop)]
-        bind_subroutine_uniforms(ctxt, program, &subroutine_bindings)?;
-
-        Ok(())
+        return Ok(subroutine_bindings);
+        #[cfg(not(safegl_desktop))]
+        Ok(std::marker::PhantomData)
     }
 }
+
+/// The bind points of textures, buffers and images that the uniforms of a draw command use,
+/// which the programs of a pipeline share.
+pub(crate) struct BindPoints {
+    texture: Bitsfield,
+    uniform_buffer: Bitsfield,
+    #[cfg(any(safegl_gl42, safegl_gles31))]
+    storage_buffer: Bitsfield,
+    image_unit: Bitsfield,
+}
+
+impl BindPoints {
+    /// The bind points of a draw command, all free.
+    pub fn new(ctxt: &CommandContext<'_>) -> BindPoints {
+        let mut image_unit = Bitsfield::new();
+        // image uniforms that aren't set use unit 0, so SafeGL doesn't give it to other images;
+        // OpenGL ES uses the units of the shader instead
+        if ctxt.version.0 != crate::version::Api::GlEs {
+            image_unit.set_used(0);
+        }
+        BindPoints {
+            texture: Bitsfield::new(),
+            uniform_buffer: Bitsfield::new(),
+            #[cfg(any(safegl_gl42, safegl_gles31))]
+            storage_buffer: Bitsfield::new(),
+            image_unit,
+        }
+    }
+}
+
+/// The values of the subroutine uniforms of a program, by stage.
+#[cfg(safegl_desktop)]
+pub(crate) type SubroutineBindings<'p> = HashMap<
+    program::ShaderStage,
+    Vec<(&'p program::SubroutineUniform, &'p str)>,
+    BuildHasherDefault<FnvHasher>,
+>;
+/// Programs have no subroutine uniforms without desktop OpenGL.
+#[cfg(not(safegl_desktop))]
+pub(crate) type SubroutineBindings<'p> = std::marker::PhantomData<&'p ()>;
 
 /// Checks that the samplers, images and blocks of the program were given a value, and that its
 /// other uniforms have one.
@@ -307,15 +364,12 @@ where
     Ok(())
 }
 
+/// Sets the subroutine uniforms of a program, which must be active for their stages.
 #[cfg(safegl_desktop)]
-fn bind_subroutine_uniforms<P>(
+pub(crate) fn bind_subroutine_uniforms<P>(
     ctxt: &mut context::CommandContext<'_>,
     program: &P,
-    subroutine_bindings: &HashMap<
-        program::ShaderStage,
-        Vec<(&program::SubroutineUniform, &str)>,
-        BuildHasherDefault<FnvHasher>,
-    >,
+    subroutine_bindings: &SubroutineBindings<'_>,
 ) -> Result<(), DrawError>
 where
     P: ProgramExt,

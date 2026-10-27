@@ -1088,11 +1088,11 @@ pub trait Surface {
     /// documentation for example how to use it.
     ///
     /// See above for what happens exactly on the GPU when you draw.
-    fn draw<'a, 'b, V, I, U>(
+    fn draw<'a, 'b, 'p, V, I, U>(
         &mut self,
         _: V,
         _: I,
-        program: &Program,
+        program: impl Into<crate::program::DrawProgram<'p>>,
         uniforms: &U,
         draw_parameters: &DrawParameters<'_>,
     ) -> Result<(), DrawError>
@@ -1466,6 +1466,10 @@ pub enum DrawError {
     /// Note that it is perfectly valid to have an attribute in the vertex format that is
     /// not used by the program.
     AttributeMissing,
+
+    /// A separable program (`program::SeparableProgram`) drawn without a pipeline doesn't have
+    /// both a vertex and a fragment shader.
+    IncompleteProgram,
 
     /// A constant attribute (`vertex::ConstantAttribute`) is also provided by a vertex buffer, or
     /// given two constant values, or two members of a vertex format have the same location.
@@ -1958,6 +1962,8 @@ impl fmt::Display for DrawError {
                 "Drawing these captured vertices is not supported by the backend",
             AttributeProvidedTwice =>
                 "An attribute has a constant value and is provided by another vertex source too",
+            IncompleteProgram =>
+                "A separable program drawn alone lacks a vertex or a fragment shader",
             AttributeComponentsMismatch =>
                 "Attributes that share a location aren't given together by a vertex source",
             AttributeMissing =>
@@ -2340,11 +2346,11 @@ impl Surface for Frame {
         self.context.capabilities().stencil_bits
     }
 
-    fn draw<'a, 'b, V, I, U>(
+    fn draw<'a, 'b, 'p, V, I, U>(
         &mut self,
         vertex_buffer: V,
         index_buffer: I,
-        program: &Program,
+        program: impl Into<crate::program::DrawProgram<'p>>,
         uniforms: &U,
         draw_parameters: &DrawParameters<'_>,
     ) -> Result<(), DrawError>
@@ -2377,7 +2383,7 @@ impl Surface for Frame {
             fbo::FramebufferTarget::Raw(None),
             vertex_buffer,
             index_buffer.into(),
-            program,
+            program.into(),
             uniforms,
             draw_parameters,
             self.dimensions,

@@ -534,11 +534,11 @@ impl<'a> Surface for SimpleFrameBuffer<'a> {
         self.attachments.get_stencil_buffer_bits()
     }
 
-    fn draw<'b, 'v, V, I, U>(
+    fn draw<'b, 'v, 'p, V, I, U>(
         &mut self,
         vb: V,
         ib: I,
-        program: &crate::Program,
+        program: impl Into<crate::program::DrawProgram<'p>>,
         uniforms: &U,
         draw_parameters: &crate::DrawParameters<'_>,
     ) -> Result<(), DrawError>
@@ -571,7 +571,7 @@ impl<'a> Surface for SimpleFrameBuffer<'a> {
             fbo::FramebufferTarget::Attachments(&self.attachments),
             vb,
             ib.into(),
-            program,
+            program.into(),
             uniforms,
             draw_parameters,
             self.get_dimensions(),
@@ -1017,14 +1017,16 @@ impl<'a> MultiOutputFrameBuffer<'a> {
         unsafe { fbo::FramebuffersContainer::clear_buffer(&mut ctxt, &attachment, data.into()) }
     }
 
+    /// Returns the attachments with the colors at the locations of their outputs in `program`,
+    /// the program of the fragment stage, if there is one.
     fn build_attachments(
         &self,
-        program: &Program,
+        program: Option<&Program>,
     ) -> Result<fbo::ValidatedAttachments<'_>, DrawError> {
         let mut colors = SmallVec::new();
 
         for &(ref name, attachment) in self.color_attachments.iter() {
-            let location = match program.get_frag_data_location(name) {
+            let location = match program.and_then(|p| p.get_frag_data_location(name)) {
                 Some(l) => l,
                 None => {
                     return Err(DrawError::FragmentOutputMissing {
@@ -1084,11 +1086,11 @@ impl<'a> Surface for MultiOutputFrameBuffer<'a> {
         self.example_attachments.get_stencil_buffer_bits()
     }
 
-    fn draw<'i, 'v, V, I, U>(
+    fn draw<'i, 'v, 'p, V, I, U>(
         &mut self,
         vb: V,
         ib: I,
-        program: &crate::Program,
+        program: impl Into<crate::program::DrawProgram<'p>>,
         uniforms: &U,
         draw_parameters: &crate::DrawParameters<'_>,
     ) -> Result<(), DrawError>
@@ -1116,12 +1118,13 @@ impl<'a> Surface for MultiOutputFrameBuffer<'a> {
             }
         }
 
+        let program = program.into();
         ops::draw(
             &self.context,
-            fbo::FramebufferTarget::Attachments(&self.build_attachments(program)?),
+            fbo::FramebufferTarget::Attachments(&self.build_attachments(program.fragment())?),
             vb,
             ib.into(),
-            program,
+            program.into(),
             uniforms,
             draw_parameters,
             self.get_dimensions(),
@@ -1439,11 +1442,11 @@ impl Surface for EmptyFrameBuffer {
         None
     }
 
-    fn draw<'b, 'v, V, I, U>(
+    fn draw<'b, 'v, 'p, V, I, U>(
         &mut self,
         vb: V,
         ib: I,
-        program: &crate::Program,
+        program: impl Into<crate::program::DrawProgram<'p>>,
         uniforms: &U,
         draw_parameters: &crate::DrawParameters<'_>,
     ) -> Result<(), DrawError>
@@ -1476,7 +1479,7 @@ impl Surface for EmptyFrameBuffer {
             fbo::FramebufferTarget::Attachments(&self.attachments),
             vb,
             ib.into(),
-            program,
+            program.into(),
             uniforms,
             draw_parameters,
             self.get_dimensions(),

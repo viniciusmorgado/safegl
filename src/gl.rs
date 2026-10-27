@@ -141,6 +141,7 @@ macro_rules! extra_functions {
 extra_functions! {
     fn BeginConditionalRender(id: GLuint, mode: GLenum) -> ();
     fn BeginConditionalRenderNV(id: GLuint, mode: GLenum) -> ();
+    fn BindProgramPipeline(pipeline: GLuint) -> ();
     fn BindFragDataLocationIndexed(program: GLuint, colorNumber: GLuint, index: GLuint, name: *const GLchar) -> ();
     fn BindFragDataLocationIndexedEXT(program: GLuint, colorNumber: GLuint, index: GLuint, name: *const GLchar) -> ();
     fn ClampColor(target: GLenum, clamp: GLenum) -> ();
@@ -190,6 +191,10 @@ extra_functions! {
     fn GetObjectLabelKHR(identifier: GLenum, name: GLuint, bufSize: GLsizei, length: *mut GLsizei, label: *mut GLchar) -> ();
     fn GetObjectPtrLabel(ptr: *const c_void, bufSize: GLsizei, length: *mut GLsizei, label: *mut GLchar) -> ();
     fn GetObjectPtrLabelKHR(ptr: *const c_void, bufSize: GLsizei, length: *mut GLsizei, label: *mut GLchar) -> ();
+    fn DeleteProgramPipelines(n: GLsizei, pipelines: *const GLuint) -> ();
+    fn GenProgramPipelines(n: GLsizei, pipelines: *mut GLuint) -> ();
+    fn GetProgramPipelineInfoLog(pipeline: GLuint, bufSize: GLsizei, length: *mut GLsizei, infoLog: *mut GLchar) -> ();
+    fn GetProgramPipelineiv(pipeline: GLuint, pname: GLenum, params: *mut GLint) -> ();
     fn GetProgramiv(program: GLuint, pname: GLenum, params: *mut GLint) -> ();
     fn GetProgramInterfaceiv(program: GLuint, programInterface: GLenum, pname: GLenum, params: *mut GLint) -> ();
     fn GetProgramResourceIndex(program: GLuint, programInterface: GLenum, name: *const GLchar) -> GLuint;
@@ -248,6 +253,8 @@ extra_functions! {
     fn DrawTransformFeedbackStreamInstanced(mode: GLenum, id: GLuint, stream: GLuint, instancecount: GLsizei) -> ();
     fn PatchParameterfv(pname: GLenum, values: *const GLfloat) -> ();
     fn PrimitiveRestartIndex(index: GLuint) -> ();
+    fn UseProgramStages(pipeline: GLuint, stages: GLbitfield, program: GLuint) -> ();
+    fn ValidateProgramPipeline(pipeline: GLuint) -> ();
     fn ProgramParameteri(program: GLuint, pname: GLenum, value: GLint) -> ();
     fn ProvokingVertex(mode: GLenum) -> ();
     fn ProvokingVertexEXT(mode: GLenum) -> ();

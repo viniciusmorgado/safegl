@@ -14,6 +14,12 @@ use crate::version::Version;
 #[cfg(any(safegl_gl43, safegl_gles31))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
 pub use self::compute::{ComputeCommand, ComputeShader};
+pub use self::pipeline::DrawProgram;
+#[cfg(any(safegl_gl41, safegl_gles31))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles31))))]
+pub use self::pipeline::{
+    ProgramPipeline, ProgramPipelineCreationError, SeparableProgram, SeparableSource,
+};
 pub use self::program::Program;
 pub use self::reflection::ShaderStage;
 #[cfg(not(safegl_desktop))]
@@ -30,6 +36,7 @@ pub use self::reflection::{SubroutineData, SubroutineUniform};
 mod binary_header;
 #[cfg(any(safegl_gl43, safegl_gles31))]
 mod compute;
+mod pipeline;
 mod program;
 mod raw;
 mod reflection;
@@ -68,6 +75,20 @@ where
         && (ctxt.get_version().0 == Api::GlEs
             || ctxt.get_version() >= &Version(Api::Gl, 4, 1)
             || ctxt.get_extensions().gl_arb_get_program_binary)
+}
+
+/// Returns true if the backend supports program pipelines: OpenGL 4.1,
+/// `GL_ARB_separate_shader_objects` or OpenGL ES 3.1. WebGL doesn't have them.
+pub(crate) fn are_pipelines_supported<C: ?Sized>(ctxt: &C) -> bool
+where
+    C: CapabilitiesSource,
+{
+    use crate::version::{Api, Version};
+    let version = ctxt.get_version();
+    !crate::version::is_webgl()
+        && (version >= &Version(Api::Gl, 4, 1)
+            || (version.0 == Api::Gl && ctxt.get_extensions().gl_arb_separate_shader_objects)
+            || version >= &Version(Api::GlEs, 3, 1))
 }
 
 /// Returns true if the backend supports shader subroutines.
@@ -216,6 +237,12 @@ pub enum ProgramCreationError {
         name: String,
     },
 
+    /// Separable programs need OpenGL 4.1, `GL_ARB_separate_shader_objects` or OpenGL ES 3.1.
+    ProgramPipelinesNotSupported,
+
+    /// A separable program was given no shader.
+    NoShader,
+
     /// A SPIR-V module is invalid: it isn't a module, it has no such entry point for the stage
     /// of the shader, or a specialization constant doesn't exist or has another type. The
     /// string says why.
@@ -250,6 +277,10 @@ impl fmt::Display for ProgramCreationError {
             BinaryNotSupported => "Program binaries are not supported by the backend.",
             InvalidLinkLocation { .. } => "A location given before linking is invalid",
             InvalidSpirvModule(_) => "Invalid SPIR-V module",
+            ProgramPipelinesNotSupported => {
+                "Separable programs and program pipelines are not supported by the backend"
+            }
+            NoShader => "A separable program needs a shader",
             LinkLocationsNotSupported => {
                 "Fragment output locations can't be given before linking by the backend"
             }

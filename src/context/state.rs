@@ -120,6 +120,10 @@ pub struct GlState {
     /// The latest value passed to `glUseProgram`.
     pub program: Option<glow::Program>,
 
+    /// The latest value passed to `glBindProgramPipeline`, 0 for none. A program given to
+    /// `glUseProgram` is used instead of it.
+    pub program_pipeline: gl::types::GLuint,
+
     /// The latest value passed to `glBindVertexArray`.
     pub vertex_array: Option<glow::VertexArray>,
 
@@ -536,6 +540,7 @@ impl Default for GlState {
             enabled_clip_planes: 0,
 
             program: None,
+            program_pipeline: 0,
             vertex_array: None,
             clear_color: (0.0, 0.0, 0.0, 0.0),
             clear_depth: 1.0,

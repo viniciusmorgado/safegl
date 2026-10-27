@@ -19,7 +19,7 @@ use crate::ToGlEnum;
 use crate::{BlitMask, DrawParameters};
 
 use crate::DrawError;
-use crate::{Program, Surface};
+use crate::Surface;
 
 use crate::fbo;
 #[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
@@ -210,11 +210,11 @@ impl Surface for ExternalFramebuffer {
         self.stencil_buffer_bits
     }
 
-    fn draw<'a, 'b, V, I, U>(
+    fn draw<'a, 'b, 'p, V, I, U>(
         &mut self,
         vertex_buffer: V,
         index_buffer: I,
-        program: &Program,
+        program: impl Into<crate::program::DrawProgram<'p>>,
         uniforms: &U,
         draw_parameters: &DrawParameters<'_>,
     ) -> Result<(), DrawError>
@@ -247,7 +247,7 @@ impl Surface for ExternalFramebuffer {
             self.get_attachments(),
             vertex_buffer,
             index_buffer.into(),
-            program,
+            program.into(),
             uniforms,
             draw_parameters,
             self.get_dimensions(),
