@@ -16,7 +16,6 @@ use crate::DrawError;
 use crate::ProgramExt;
 use crate::RawUniformValue;
 use crate::TextureExt;
-use crate::UniformsExt;
 
 #[cfg(feature = "gl46")]
 use crate::uniforms::ImageUnitBehavior;
@@ -34,13 +33,32 @@ use crate::utils::bitsfield::Bitsfield;
 use crate::context;
 use crate::program;
 
-impl<U> UniformsExt for U
-where
-    U: Uniforms,
-{
-    fn bind_uniforms<'a, P>(
-        &'a self,
-        mut ctxt: &mut CommandContext<'_>,
+/// The uniforms of a draw command or a compute dispatch.
+///
+/// They are collected before SafeGL starts to issue OpenGL commands, so that the implementations
+/// of `Uniforms` and `AsUniformValue` can use SafeGL.
+pub(crate) struct CollectedUniforms<'a> {
+    values: smallvec::SmallVec<[(&'a str, UniformValue<'a>); 16]>,
+}
+
+impl<'a> CollectedUniforms<'a> {
+    /// Collects the values of `uniforms`.
+    pub fn new<U>(uniforms: &'a U) -> CollectedUniforms<'a>
+    where
+        U: Uniforms,
+    {
+        let mut values = smallvec::SmallVec::new();
+        uniforms.visit_values(|name, value| values.push((name, value)));
+        CollectedUniforms { values }
+    }
+
+    /// Binds the uniforms to the program, which must be current, and checks that every uniform
+    /// of the program has a value.
+    ///
+    /// Will replace texture and buffer bind points.
+    pub fn bind<P>(
+        &self,
+        ctxt: &mut CommandContext<'_>,
         program: &P,
         fences: &mut FenceInserters<'a>,
     ) -> Result<(), DrawError>
@@ -52,7 +70,11 @@ where
         #[cfg(feature = "gl46")]
         let mut shared_storage_buffer_bind_points = Bitsfield::new();
         let mut image_unit_bind_points = Bitsfield::new();
-        image_unit_bind_points.set_used(0); // Trying to attach data to image unit 0 would not go well
+        // image uniforms that aren't set use unit 0, so SafeGL doesn't give it to other images;
+        // OpenGL ES uses the units of the shader instead
+        if ctxt.version.0 != crate::version::Api::GlEs {
+            image_unit_bind_points.set_used(0);
+        }
 
         // Subroutine uniforms must be bound all at once, so we collect them first and process them at the end.
         // The vec contains the uniform we want to set and the value we want to set it to.
@@ -62,77 +84,80 @@ where
             _,
         > = HashMap::with_hasher(Default::default());
 
-        let mut visiting_result = Ok(());
-        self.visit_values(|name, value| {
-            if visiting_result.is_err() {
-                return;
-            }
+        // the locations of the uniforms given in this draw command, and the blocks bound
+        let mut given_locations: smallvec::SmallVec<[gl::types::GLint; 16]> =
+            smallvec::SmallVec::new();
+        let mut bound_blocks: smallvec::SmallVec<[&str; 8]> = smallvec::SmallVec::new();
 
+        for &(name, value) in self.values.iter() {
             if let Some(uniform) = program.get_uniform(name) {
-                // TODO: remove the size member
-                debug_assert!(uniform.size.is_none());
+                // members of blocks are reflected with the location -1
+                if uniform.location == -1 {
+                    return Err(DrawError::UniformBlockMember {
+                        name: name.to_owned(),
+                    });
+                }
 
                 if !value.is_usable_with(&uniform.ty) {
-                    visiting_result = Err(DrawError::UniformTypeMismatch {
+                    return Err(DrawError::UniformTypeMismatch {
                         name: name.to_owned(),
                         expected: uniform.ty,
                     });
-                    return;
                 }
 
-                match bind_uniform(
-                    &mut ctxt,
+                // shadow samplers return undefined values without a depth comparison, and
+                // other samplers with one
+                if let UniformValue::Texture(_, sampler) = value {
+                    let compares = sampler.is_some_and(|s| s.depth_texture_comparison.is_some());
+                    if compares != crate::uniforms::is_shadow_sampler(uniform.ty) {
+                        return Err(DrawError::DepthComparisonMismatch {
+                            name: name.to_owned(),
+                        });
+                    }
+                }
+
+                given_locations.push(uniform.location);
+                if let UniformValue::Keep = value {
+                    continue;
+                }
+
+                bind_uniform(
+                    ctxt,
                     &value,
                     program,
-                    uniform.location,
+                    uniform,
                     &mut texture_bind_points,
                     &mut image_unit_bind_points,
                     name,
-                ) {
-                    Ok(_) => (),
-                    Err(e) => {
-                        visiting_result = Err(e);
-                    }
-                };
+                )?;
             } else if let Some(block) = program.get_uniform_blocks().get(name) {
-                let fence = match bind_uniform_block(
-                    &mut ctxt,
+                let fence = bind_uniform_block(
+                    ctxt,
                     &value,
                     block,
                     program,
                     &mut uniform_buffer_bind_points,
                     name,
-                ) {
-                    Ok(f) => f,
-                    Err(e) => {
-                        visiting_result = Err(e);
-                        return;
-                    }
-                };
+                )?;
+                bound_blocks.push(name);
 
                 if let Some(fence) = fence {
                     fences.push(fence);
                 }
             } else {
                 #[cfg(feature = "gl46")]
-                match bind_storage_uniform(
-                    &mut ctxt,
+                if let Some(fence) = bind_storage_uniform(
+                    ctxt,
                     &value,
                     program,
                     &mut shared_storage_buffer_bind_points,
                     name,
-                ) {
-                    Ok(None) => (),
-                    Ok(Some(fence)) => {
-                        if let Some(fence) = fence {
-                            fences.push(fence);
-                        }
-                        return;
+                )? {
+                    bound_blocks.push(name);
+                    if let Some(fence) = fence {
+                        fences.push(fence);
                     }
-                    Err(e) => {
-                        visiting_result = Err(e);
-                        return;
-                    }
+                    continue;
                 }
 
                 if let UniformValue::Subroutine(stage, sr_name) = value {
@@ -141,26 +166,75 @@ where
                         .subroutine_uniforms
                         .get(&(name.into(), stage))
                     {
-                        subroutine_bindings.entry(stage).or_insert(Vec::new());
-                        let vec = subroutine_bindings.get_mut(&stage).unwrap();
-                        vec.push((subroutine_uniform, sr_name));
+                        subroutine_bindings
+                            .entry(stage)
+                            .or_default()
+                            .push((subroutine_uniform, sr_name));
                     }
                 }
-            }
-        });
 
-        // Process all subroutine uniforms in one batch.
-        if !subroutine_bindings.is_empty() {
-            match bind_subroutine_uniforms(&mut ctxt, program, &subroutine_bindings) {
-                Ok(_) => (),
-                Err(e) => {
-                    visiting_result = Err(e);
-                }
+                // values for uniforms that the program doesn't have, like the ones that the
+                // compiler removed because they aren't used, are ignored
             }
         }
 
-        visiting_result
+        check_missing_uniforms(program, &given_locations, &bound_blocks)?;
+
+        // Process all subroutine uniforms in one batch.
+        bind_subroutine_uniforms(ctxt, program, &subroutine_bindings)
     }
+}
+
+/// Checks that the samplers, images and blocks of the program were given a value, and that its
+/// other uniforms have one.
+fn check_missing_uniforms<P>(
+    program: &P,
+    given_locations: &[gl::types::GLint],
+    bound_blocks: &[&str],
+) -> Result<(), DrawError>
+where
+    P: ProgramExt,
+{
+    // an array has the location of its first element under its own name too: the shortest name
+    // of a location is reported
+    let mut missing: Option<(&str, bool)> = None;
+    for (name, uniform) in program.get_uniforms() {
+        if uniform.location == -1 || given_locations.contains(&uniform.location) {
+            continue;
+        }
+
+        // the bindings of samplers and images are shared between programs, so they must be given
+        // for every draw command, while the values of the other uniforms stay in the program
+        let opaque = crate::uniforms::is_opaque(uniform.ty);
+        if !opaque && program.is_uniform_set(uniform.location) {
+            continue;
+        }
+
+        if missing.is_none_or(|(missing, _)| name.len() < missing.len()) {
+            missing = Some((name, opaque));
+        }
+    }
+    if let Some((name, opaque)) = missing {
+        let name = name.to_owned();
+        return Err(if opaque {
+            DrawError::UniformBindingMissing { name }
+        } else {
+            DrawError::UniformMissing { name }
+        });
+    }
+
+    let blocks = program.get_uniform_blocks().keys();
+    #[cfg(feature = "gl46")]
+    let blocks = blocks
+        .chain(program.get_shader_storage_blocks().keys())
+        .chain(program.get_atomic_counters().keys());
+    for name in blocks {
+        if !bound_blocks.contains(&name.as_str()) {
+            return Err(DrawError::UniformBindingMissing { name: name.clone() });
+        }
+    }
+
+    Ok(())
 }
 
 fn bind_subroutine_uniforms<P>(
@@ -176,6 +250,23 @@ where
     P: ProgramExt,
 {
     let subroutine_data = program.get_subroutine_data();
+
+    // the subroutine uniforms of a stage are reset when the program is bound, so every stage
+    // that has some needs all of them
+    for &(_, stage) in subroutine_data.subroutine_uniforms.keys() {
+        if !subroutine_bindings.contains_key(&stage) {
+            return Err(DrawError::SubroutineUniformMissing {
+                stage,
+                real_count: 0,
+                expected_count: subroutine_data
+                    .subroutine_uniforms
+                    .keys()
+                    .filter(|&&(_, uni_stage)| uni_stage == stage)
+                    .count(),
+            });
+        }
+    }
+
     for (stage, bindings) in subroutine_bindings {
         // Validate that all subroutine uniforms of this stage are set, otherwise OpenGL will throw an error.
         let set_cnt = bindings.len();
@@ -219,6 +310,32 @@ where
     Ok(())
 }
 
+/// Checks that a buffer bound to a block belongs to the current context and starts at an offset
+/// that is a multiple of `alignment`.
+fn check_block_buffer(
+    ctxt: &context::CommandContext<'_>,
+    buffer: &crate::buffer::BufferAnySlice<'_>,
+    alignment: usize,
+    name: &str,
+) -> Result<(), DrawError> {
+    if !ctxt.owns(buffer.get_context()) {
+        return Err(DrawError::ContextMismatch {
+            object: format!("uniform `{}`", name),
+        });
+    }
+
+    let offset = buffer.get_offset_bytes();
+    if offset % alignment != 0 {
+        return Err(DrawError::BufferOffsetNotAligned {
+            name: name.to_owned(),
+            offset,
+            alignment,
+        });
+    }
+
+    Ok(())
+}
+
 fn bind_uniform_block<'a, P>(
     ctxt: &mut context::CommandContext<'_>,
     value: &UniformValue<'a>,
@@ -250,7 +367,12 @@ where
                 })?;
             buffer_bind_points.set_used(bind_point);
 
-            assert!(buffer.get_offset_bytes() == 0); // TODO: not implemented
+            check_block_buffer(
+                ctxt,
+                buffer,
+                ctxt.capabilities.uniform_buffer_offset_alignment,
+                name,
+            )?;
             let fence = buffer.add_fence();
             let block_id = block.id as gl::types::GLuint;
 
@@ -320,26 +442,51 @@ where
                 }
             }
 
-            let bind_point = buffer_bind_points
-                .get_unused()
-                .filter(|&point| {
-                    (point as i32) < ctxt.capabilities.max_indexed_shader_storage_buffer
-                })
-                .ok_or_else(|| DrawError::BufferBindingOutOfRange {
-                    name: name.to_owned(),
-                })?;
+            // OpenGL ES has no `glShaderStorageBlockBinding`: the block uses the binding point
+            // that the shader gives it
+            let fixed_binding = ctxt.version.0 == crate::version::Api::GlEs;
+            let bind_point = if fixed_binding {
+                let point = block.initial_binding;
+                if point < 0 || point >= ctxt.capabilities.max_indexed_shader_storage_buffer {
+                    return Err(DrawError::BufferBindingOutOfRange {
+                        name: name.to_owned(),
+                    });
+                }
+                if buffer_bind_points.is_used(point as u16) {
+                    return Err(DrawError::SharedBindingPoint {
+                        name: name.to_owned(),
+                    });
+                }
+                point as u16
+            } else {
+                buffer_bind_points
+                    .get_unused()
+                    .filter(|&point| {
+                        (point as i32) < ctxt.capabilities.max_indexed_shader_storage_buffer
+                    })
+                    .ok_or_else(|| DrawError::BufferBindingOutOfRange {
+                        name: name.to_owned(),
+                    })?
+            };
             buffer_bind_points.set_used(bind_point);
 
-            assert!(buffer.get_offset_bytes() == 0); // TODO: not implemented
+            check_block_buffer(
+                ctxt,
+                buffer,
+                ctxt.capabilities.shader_storage_buffer_offset_alignment,
+                name,
+            )?;
             let fence = buffer.add_fence();
             let block_id = block.id as gl::types::GLuint;
 
             buffer.prepare_and_bind_for_shared_storage(ctxt, bind_point as gl::types::GLuint);
-            program.set_shader_storage_block_binding(
-                ctxt,
-                block_id,
-                bind_point as gl::types::GLuint,
-            );
+            if !fixed_binding {
+                program.set_shader_storage_block_binding(
+                    ctxt,
+                    block_id,
+                    bind_point as gl::types::GLuint,
+                );
+            }
 
             Ok(fence)
         }
@@ -381,7 +528,7 @@ where
                 });
             }
 
-            assert!(buffer.get_offset_bytes() == 0); // TODO: not implemented
+            check_block_buffer(ctxt, buffer, 4, name)?;
             let fence = buffer.add_fence();
 
             buffer.prepare_and_bind_for_atomic_counter(
@@ -401,7 +548,7 @@ fn bind_uniform<P>(
     ctxt: &mut context::CommandContext,
     value: &UniformValue,
     program: &P,
-    location: gl::types::GLint,
+    uniform: &program::Uniform,
     texture_bind_points: &mut Bitsfield,
     image_unit_bind_points: &mut Bitsfield,
     name: &str,
@@ -409,6 +556,8 @@ fn bind_uniform<P>(
 where
     P: ProgramExt,
 {
+    let location = uniform.location;
+
     // The spec only states that a negative location is an error.
     // This fact is abused by some implementations (e.g. vitaGL)
     // which actually use negative values for uniform locations.
@@ -418,7 +567,23 @@ where
     #[cfg(not(target_os = "vita"))]
     assert!(location >= 0);
 
+    // textures can only be used with the context that created them
+    let texture_context = match *value {
+        UniformValue::Texture(texture, _) => Some(TextureExt::get_context(texture)),
+        UniformValue::BufferTexture(ref texture) => Some(TextureExt::get_context(texture)),
+        #[cfg(feature = "gl46")]
+        UniformValue::Image(texture, _) => Some(TextureExt::get_context(texture)),
+        _ => None,
+    };
+    if texture_context.is_some_and(|context| !ctxt.owns(context)) {
+        return Err(DrawError::ContextMismatch {
+            object: format!("uniform `{}`", name),
+        });
+    }
+
     match *value {
+        // the uniform keeps its value
+        UniformValue::Keep => Ok(()),
         UniformValue::Block(_, _) => Err(DrawError::UniformBufferToValue {
             name: name.to_owned(),
         }),
@@ -589,473 +754,33 @@ where
             program.set_uniform(ctxt, location, &RawUniformValue::UnsignedInt64Vec4(val));
             Ok(())
         }
-        UniformValue::Texture1d(texture, sampler) => bind_texture_uniform(
+        UniformValue::DoubleMat2x3(val) => {
+            program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat2x3(val));
+            Ok(())
+        }
+        UniformValue::DoubleMat2x4(val) => {
+            program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat2x4(val));
+            Ok(())
+        }
+        UniformValue::DoubleMat3x2(val) => {
+            program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat3x2(val));
+            Ok(())
+        }
+        UniformValue::DoubleMat3x4(val) => {
+            program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat3x4(val));
+            Ok(())
+        }
+        UniformValue::DoubleMat4x2(val) => {
+            program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat4x2(val));
+            Ok(())
+        }
+        UniformValue::DoubleMat4x3(val) => {
+            program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat4x3(val));
+            Ok(())
+        }
+        UniformValue::Texture(texture, sampler) => bind_texture_uniform(
             ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedTexture1d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::SrgbTexture1d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedSrgbTexture1d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::IntegralTexture1d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::UnsignedTexture1d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::DepthTexture1d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::Texture2d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedTexture2d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::SrgbTexture2d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedSrgbTexture2d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::IntegralTexture2d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::UnsignedTexture2d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::DepthTexture2d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::Texture2dMultisample(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::SrgbTexture2dMultisample(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::IntegralTexture2dMultisample(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::UnsignedTexture2dMultisample(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::DepthTexture2dMultisample(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::Texture3d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedTexture3d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::SrgbTexture3d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedSrgbTexture3d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::IntegralTexture3d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::UnsignedTexture3d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::DepthTexture3d(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::Texture1dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedTexture1dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::SrgbTexture1dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedSrgbTexture1dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::IntegralTexture1dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::UnsignedTexture1dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::DepthTexture1dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::Texture2dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedTexture2dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::SrgbTexture2dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedSrgbTexture2dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::IntegralTexture2dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::UnsignedTexture2dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::DepthTexture2dArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::Texture2dMultisampleArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::SrgbTexture2dMultisampleArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::IntegralTexture2dMultisampleArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::UnsignedTexture2dMultisampleArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::DepthTexture2dMultisampleArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::Cubemap(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedCubemap(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::SrgbCubemap(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedSrgbCubemap(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::IntegralCubemap(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::UnsignedCubemap(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::DepthCubemap(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CubemapArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedCubemapArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::SrgbCubemapArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::CompressedSrgbCubemapArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::IntegralCubemapArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::UnsignedCubemapArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
-            sampler,
-            location,
-            program,
-            texture_bind_points,
-        ),
-        UniformValue::DepthCubemapArray(texture, sampler) => bind_texture_uniform(
-            ctxt,
-            &**texture,
+            texture,
             sampler,
             location,
             program,
@@ -1065,193 +790,14 @@ where
             bind_texture_uniform(ctxt, &texture, None, location, program, texture_bind_points)
         }
         #[cfg(feature = "gl46")]
-        UniformValue::Image1d(texture, unit) => bind_image_uniform(
+        UniformValue::Image(texture, unit) => bind_image_uniform(
             ctxt,
-            &**texture,
+            texture,
             unit,
-            location,
+            uniform,
             program,
             image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::IntegralImage1d(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::UnsignedImage1d(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::Image2d(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::IntegralImage2d(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::UnsignedImage2d(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::Image3d(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::IntegralImage3d(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::UnsignedImage3d(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::Image1dArray(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::IntegralImage1dArray(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::UnsignedImage1dArray(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::Image2dArray(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::IntegralImage2dArray(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::UnsignedImage2dArray(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::ImageCube(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::IntegralImageCube(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::UnsignedImageCube(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::ImageCubeArray(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::IntegralImageCubeArray(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
-        ),
-        #[cfg(feature = "gl46")]
-        UniformValue::UnsignedImageCubeArray(texture, unit) => bind_image_uniform(
-            ctxt,
-            &**texture,
-            unit,
-            location,
-            program,
-            image_unit_bind_points,
+            name,
         ),
     }
 }
@@ -1312,14 +858,11 @@ where
                 None
             }
         })
-        .unwrap_or_else(|| {
-            texture_bind_points
-                .get_unused()
-                .expect("Not enough texture units available")
-        });
-    assert!(
-        (texture_unit as gl::types::GLint) < ctxt.capabilities.max_combined_texture_image_units
-    );
+        .or_else(|| texture_bind_points.get_unused())
+        .filter(|&unit| {
+            (unit as gl::types::GLint) < ctxt.capabilities.max_combined_texture_image_units
+        })
+        .ok_or(DrawError::InsufficientTextureUnits)?;
     texture_bind_points.set_used(texture_unit);
 
     // updating the program to use the right unit
@@ -1367,10 +910,11 @@ where
 fn bind_image_uniform<P, T>(
     ctxt: &mut context::CommandContext,
     texture: &T,
-    unit_behavior: Option<ImageUnitBehavior>,
-    location: gl::types::GLint,
+    unit_behavior: ImageUnitBehavior,
+    uniform: &program::Uniform,
     program: &P,
     image_unit_bind_points: &mut Bitsfield,
+    name: &str,
 ) -> Result<(), DrawError>
 where
     P: ProgramExt,
@@ -1378,19 +922,35 @@ where
 {
     use crate::ToGlEnum;
 
-    let unit_behavior = unit_behavior.expect("Unit behavior should always be provided");
-    let image_unit = match image_unit_bind_points.get_unused() {
-        Some(unit) => unit,
-        None => return Err(DrawError::InsufficientImageUnits),
-    };
-    image_unit_bind_points.set_used(image_unit);
+    // OpenGL ES can't change the unit of an image uniform: the image goes to the unit that the
+    // shader gives it
+    let image_unit = if ctxt.version.0 == crate::version::Api::GlEs {
+        let unit = uniform.binding.unwrap_or(0);
+        if !(0..=u16::MAX as i32).contains(&unit) {
+            return Err(DrawError::InsufficientImageUnits);
+        }
+        if image_unit_bind_points.is_used(unit as u16) {
+            return Err(DrawError::SharedBindingPoint {
+                name: name.to_owned(),
+            });
+        }
+        image_unit_bind_points.set_used(unit as u16);
+        unit as u16
+    } else {
+        let image_unit = match image_unit_bind_points.get_unused() {
+            Some(unit) => unit,
+            None => return Err(DrawError::InsufficientImageUnits),
+        };
+        image_unit_bind_points.set_used(image_unit);
 
-    // Update the program to use the right unit
-    program.set_uniform(
-        ctxt,
-        location,
-        &RawUniformValue::SignedInt(image_unit as gl::types::GLint),
-    );
+        // Update the program to use the right unit
+        program.set_uniform(
+            ctxt,
+            uniform.location,
+            &RawUniformValue::SignedInt(image_unit as gl::types::GLint),
+        );
+        image_unit
+    };
 
     // "If layered is false, then only a single level identified by <layer> will be bound"
     let (layered, layer) = match unit_behavior.layer {

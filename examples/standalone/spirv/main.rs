@@ -81,6 +81,7 @@ fn main() {
         }
 
         implement_vertex!(Vertex, dummy);
+        implement_any_bit_pattern!(Vertex, dummy);
 
         safegl::VertexBuffer::<Vertex>::empty(&display, 0).unwrap()
     };

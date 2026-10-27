@@ -213,3 +213,194 @@ where
 
     true
 }
+
+/// A fragment output declared in GLSL source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FragmentOutput {
+    /// Name of the output.
+    pub name: String,
+    /// The location given with `layout(location = N)`, if any.
+    pub location: Option<u32>,
+    /// The number of locations of the output: the size of an array, otherwise 1.
+    pub size: u32,
+}
+
+/// Returns the outputs declared in the source of a fragment shader, in their order.
+///
+/// Only declarations at global scope count, so the `out` parameters of functions are left out.
+/// Arrays whose size isn't a number get a size of 1.
+pub fn fragment_outputs(source: &str) -> Vec<FragmentOutput> {
+    // the source without comments nor preprocessor lines
+    let mut code = String::with_capacity(source.len());
+    let mut chars = source.chars().peekable();
+    let mut line_start = true;
+    while let Some(c) = chars.next() {
+        match c {
+            '/' if chars.peek() == Some(&'/') => {
+                while chars.peek().is_some_and(|&c| c != '\n') {
+                    chars.next();
+                }
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut previous = ' ';
+                for c in chars.by_ref() {
+                    if previous == '*' && c == '/' {
+                        break;
+                    }
+                    previous = c;
+                }
+                code.push(' ');
+            }
+            '#' if line_start => {
+                while chars.peek().is_some_and(|&c| c != '\n') {
+                    chars.next();
+                }
+            }
+            _ => {
+                if c == '\n' {
+                    line_start = true;
+                } else if !c.is_whitespace() {
+                    line_start = false;
+                }
+                code.push(c);
+            }
+        }
+    }
+
+    // the declarations at global scope: the text between `;` and `}` at a depth of 0
+    let mut declarations = Vec::new();
+    let mut depth = 0u32;
+    let mut current = String::new();
+    for c in code.chars() {
+        match c {
+            '{' => {
+                depth += 1;
+                current.clear();
+            }
+            '}' => {
+                depth = depth.saturating_sub(1);
+                current.clear();
+            }
+            ';' if depth == 0 => declarations.push(std::mem::take(&mut current)),
+            _ if depth == 0 => current.push(c),
+            _ => (),
+        }
+    }
+
+    let mut outputs = Vec::new();
+    for declaration in declarations {
+        // the location of `layout(location = N)`, and the declaration without the layout
+        let mut location = None;
+        let mut rest = declaration.as_str();
+        let mut words = String::new();
+        while let Some(start) = rest.find("layout") {
+            words.push_str(&rest[..start]);
+            let after = &rest[start + "layout".len()..];
+            let open = match after.find('(') {
+                Some(open) if after[..open].trim().is_empty() => open,
+                _ => {
+                    words.push_str("layout");
+                    rest = after;
+                    continue;
+                }
+            };
+            let close = match after.find(')') {
+                Some(close) => close,
+                None => break,
+            };
+            for qualifier in after[open + 1..close].split(',') {
+                let mut parts = qualifier.splitn(2, '=');
+                if parts.next().map(str::trim) == Some("location") {
+                    location = parts.next().and_then(|n| n.trim().parse().ok());
+                }
+            }
+            rest = &after[close + 1..];
+        }
+        words.push_str(rest);
+
+        // `out`, then optional qualifiers, then the type, then the names
+        let mut tokens = words.split_whitespace();
+        if !tokens.any(|token| token == "out") {
+            continue;
+        }
+        let remaining: Vec<&str> = tokens.collect();
+        let type_index = remaining
+            .iter()
+            .position(|token| !matches!(*token, "highp" | "mediump" | "lowp" | "invariant"));
+        let names = match type_index {
+            Some(index) => remaining[index + 1..].join(" "),
+            None => continue,
+        };
+
+        for declarator in names.split(',') {
+            let declarator = declarator.trim();
+            let (name, size) = match declarator.find('[') {
+                Some(bracket) => {
+                    let size = declarator[bracket + 1..]
+                        .trim_end_matches(']')
+                        .trim()
+                        .parse()
+                        .unwrap_or(1);
+                    (declarator[..bracket].trim(), size)
+                }
+                None => (declarator, 1),
+            };
+            if !name.is_empty() {
+                outputs.push(FragmentOutput {
+                    name: name.to_owned(),
+                    location,
+                    size,
+                });
+                // the following declarators of an explicit layout take the next locations
+                location = location.map(|location| location + size);
+            }
+        }
+    }
+
+    outputs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{fragment_outputs, FragmentOutput};
+
+    fn output(name: &str, location: Option<u32>, size: u32) -> FragmentOutput {
+        FragmentOutput {
+            name: name.to_owned(),
+            location,
+            size,
+        }
+    }
+
+    #[test]
+    fn outputs_of_fragment_shaders() {
+        let source = "
+            #version 330
+            // out vec4 commented;
+            /* out vec4 also_commented; */
+            in vec2 uv;
+            uniform sampler2D tex;
+            layout(location = 2) out vec4 normal;
+            out vec4 color;
+            out highp vec2 velocity[2], extra;
+
+            void helper(out float value) { value = 1.0; }
+
+            void main() {
+                float x;
+                helper(x);
+                color = vec4(x);
+            }
+        ";
+        assert_eq!(
+            fragment_outputs(source),
+            vec![
+                output("normal", Some(2), 1),
+                output("color", None, 1),
+                output("velocity", None, 2),
+                output("extra", None, 1),
+            ]
+        );
+    }
+}

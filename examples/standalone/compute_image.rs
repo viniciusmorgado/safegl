@@ -173,7 +173,7 @@ impl ApplicationContext for Application {
             self.fract_texture.width(),
             self.fract_texture.height(),
             1,
-        );
+        ).unwrap();
 
         let image_unit = self
             .fract_texture
@@ -189,7 +189,7 @@ impl ApplicationContext for Application {
             self.fract_texture.width(),
             self.fract_texture.height(),
             1,
-        );
+        ).unwrap();
 
         let fract_unit = self
             .fract_texture
@@ -210,12 +210,12 @@ impl ApplicationContext for Application {
             self.fract_texture.width(),
             self.fract_texture.height(),
             1,
-        );
+        ).unwrap();
 
         // drawing a frame
         self.final_texture
             .as_surface()
-            .fill(&frame, safegl::uniforms::MagnifySamplerFilter::Nearest);
+            .fill(&frame, safegl::uniforms::MagnifySamplerFilter::Nearest).unwrap();
 
         frame.finish().unwrap();
     }

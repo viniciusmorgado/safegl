@@ -325,12 +325,12 @@ pub fn sync_stencil(ctxt: &mut context::CommandContext<'_>, params: &Stencil) {
             ctxt.state.stencil_mask_back = params.write_mask_clockwise;
         }
 
-        if ctxt.state.stencil_mask_front != params.write_mask_clockwise {
+        if ctxt.state.stencil_mask_front != params.write_mask_counter_clockwise {
             unsafe {
                 ctxt.glow
-                    .stencil_mask_separate(glow::FRONT, params.write_mask_clockwise)
+                    .stencil_mask_separate(glow::FRONT, params.write_mask_counter_clockwise)
             };
-            ctxt.state.stencil_mask_front = params.write_mask_clockwise;
+            ctxt.state.stencil_mask_front = params.write_mask_counter_clockwise;
         }
     }
 

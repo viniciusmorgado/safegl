@@ -5,6 +5,245 @@ All notable changes to this project are documented in this file. Versions follow
 
 ## [Unreleased]
 
+Breaking changes:
+
+- `Blend::alpha_blending` blends the alpha channel with `source + destination × (1 - source
+  alpha)` instead of `source alpha × source alpha + destination × (1 - source alpha)`, so the alpha
+  of the target is the coverage of what was drawn over it (glium#1844). Code that reads back or
+  composites the alpha of targets drawn with it sees higher, correct alphas.
+- Samplers repeat textures by default (`SamplerWrapFunction::Repeat`), like OpenGL and like textures
+  used without a sampler, instead of mirroring them (glium#1967, glium#1536). To keep the previous
+  behavior, call `.wrap_function(SamplerWrapFunction::Mirror)` on the sampler.
+- `Vertex` is an unsafe trait, since SafeGL trusts its layout to read the vertices (glium#1684).
+  `implement_vertex!` is unchanged; manual implementations become `unsafe impl Vertex for ...`.
+- Buffers can only be created without data (`Buffer::empty*`, `VertexBuffer::empty*`,
+  `UniformBuffer::empty*`, ...), invalidated, read or mapped for reading when their content
+  implements the new unsafe trait `buffer::AnyBitPattern`, which says that every bit pattern is a
+  valid value. The content of such buffers is undefined, so reading it as `bool`, `char` or a
+  reference was undefined behavior, and an empty buffer of `TextureHandle`s made the GPU use
+  garbage handles (glium#1083). The trait is implemented for integers, floats, and arrays, slices
+  and tuples of them; implement it for your structs with
+  `implement_any_bit_pattern!(Struct, field1, field2, ...)` (all fields, or their indices for
+  tuple structs), which checks every field at compile time. `Index`, `PixelValue` and
+  `TextureBufferContent` require it, and `Content::read` requires it.
+- `UniformBlock` is an unsafe trait, since the GPU trusts the layout it describes, including the
+  texture handles in it. `implement_uniform_block!` is unchanged; manual implementations become
+  `unsafe impl UniformBlock for ...`. `UniformValue::Block` can no longer be built directly: use
+  `UniformValue::block(buffer_slice)`, which checks the layout with the type of the buffer, or the
+  unsafe `UniformValue::block_unchecked`.
+- `get()` on queries and on `debug::TimestampQuery` returns `Result<_, QueryResultError>`, with
+  `QueryResultError::ContextLost` when the OpenGL context has been lost, since the result is lost
+  with it (glium#1286); `is_ready()` returns `false` then. Add `.unwrap()` or `?` to the calls.
+- `SamplesPassedQuery`, `TimeElapsedQuery`, `PrimitivesGeneratedQuery` and
+  `TransformFeedbackPrimitivesWrittenQuery` return `u64` results instead of `u32`: 32 bits of
+  nanoseconds overflow after 4.3 seconds, and counters can exceed them too.
+- `DrawError::RasterizerDiscardNotSupported` is removed: `draw_primitives: false` works on OpenGL
+  ES 3.0 and above, where `GL_RASTERIZER_DISCARD` is core, instead of returning that error.
+- OpenGL objects can only be used with the context that created them, and SafeGL now checks it
+  everywhere instead of using whatever object has the same name in the other context
+  (glium#24): draws and compute dispatches return `DrawError::ContextMismatch`, framebuffers
+  `ValidationError::ContextMismatch`, copies `CopyError::ContextMismatch` and
+  `CopyImageError::ContextMismatch`, buffer textures and transform feedback sessions their own
+  `ContextMismatch`, and texture transfers `UploadError::ContextMismatch` and
+  `ReadError::ContextMismatch`. `LinearSyncFence::into_sync_fence` returns the fence when given
+  another context.
+- The blit methods of `Surface` (`blit_color`, `blit_whole_color_to`, `fill`, `blit_from_*`,
+  `blit_buffers_from_*`) return `Result<(), BlitError>`: a source from another context, a depth or
+  stencil blit with a linear filter (which used to panic) and a blit from an external framebuffer
+  to a surface that can't receive it (which used to panic too) are errors. `blit_from_frame` and
+  `blit_buffers_from_frame` take the context whose default framebuffer is the source.
+- `UniformValue` has a single `Texture(&TextureAny, Option<SamplerBehavior>)` variant and a single
+  `Image(&TextureAny, ImageUnitBehavior)` variant instead of one per texture type (glium#1035). The
+  kind and dimensions of the texture are checked against the sampler or image type of the uniform
+  at draw time, which also makes multisample array textures and `usampler1DArray` uniforms work.
+  The image unit behavior is no longer optional: `None` panicked.
+- Sampling a texture with a shadow sampler (`sampler2DShadow`, ...) without a depth comparison in
+  its sampler, or with another sampler and a depth comparison, returns
+  `DrawError::DepthComparisonMismatch`: OpenGL returns undefined values then.
+- `ComputeShader::execute` and `execute_indirect` return `Result<(), DrawError>` instead of
+  panicking on uniform errors, on unsupported compute shaders
+  (`DrawError::ComputeShadersNotSupported`), on too many work groups
+  (`DrawError::WorkGroupCountTooLarge`, which also allows the maximum itself now) and on unaligned
+  indirect offsets.
+- Texture writes (`write`, `write_compressed_data`, `raw_write`, `raw_upload_from_pixel_buffer*`)
+  return `Result<(), texture::UploadError>`, and texture reads (`read`, `read_to_pixel_buffer`,
+  `raw_read`, `raw_read_to_pixel_buffer`) return `Result<_, ReadError>`, instead
+  of panicking on regions out of the texture, data whose size doesn't match (glium#1875),
+  unsupported formats, multisample textures, small pixel buffers and lost contexts. Add `.unwrap()`
+  or `?` to the calls.
+- A transform feedback session must be used with the program it was built for, or the draw
+  returns `DrawError::TransformFeedbackProgramMismatch`.
+- `UniformType` has an `Unknown(u32)` variant for the types of vendor extensions, which no value
+  can be bound to, instead of panicking at program creation.
+- `TextureCreationError` of buffer textures, `CopyError`, `CopyImageError`, `ReadError`,
+  `ValidationError`, `TransformFeedbackSessionCreationError` and `DrawError` have new variants.
+- Every uniform of a program must have a value when drawing with it (glium#1388). Samplers,
+  images, uniform blocks, shader storage blocks and atomic counter buffers must be given for every
+  draw command, since their bindings are shared between programs, or the draw returns
+  `DrawError::UniformBindingMissing`. Other uniforms keep their value between draw commands, but
+  must have been given one once, or the draw returns `DrawError::UniformMissing`; pass
+  `uniforms::Keep` to keep the initializer of the shader instead. Every stage with subroutine
+  uniforms needs all of them, even when none was given. Giving a value to a member of a block by
+  name returns `DrawError::UniformBlockMember` instead of panicking.
+- Textures created with `new` have no mipmaps, whatever their format: use
+  `with_mipmaps(facade, data, MipmapsOption::AutoGeneratedMipmaps)` to have them (glium#843).
+  Mipmaps take memory and time, and textures drawn at their size don't need them. Creating
+  a texture with `AutoGeneratedMipmaps` in a format whose mipmaps the backend can't generate
+  returns `TextureCreationError::MipmapsNotSupported` instead of silently creating a single level,
+  and `generate_mipmaps` is safe and returns that error for such textures and multisample ones.
+- Drawing patches with a program that has no tessellation evaluation shader returns
+  `DrawError::PatchesWithoutTessellation`, and drawing other primitives with a tessellation program
+  returns `DrawError::TessellationWithoutPatches`, instead of raising `GL_INVALID_OPERATION`: the
+  checks were disabled. Drawing to a `MultiOutputFrameBuffer` whose program has no output for one
+  of its attachments returns `DrawError::FragmentOutputMissing` instead of panicking.
+- The unsafe `unchecked_read` and `unchecked_read_to_pixel_buffer` of textures are replaced by the
+  safe `read_as` and `read_to_pixel_buffer_as`: an unsupported pixel format returns
+  `ReadError::OutputFormatNotSupported` instead of invalid data. Read floating-point textures
+  exactly with `read_as::<_, (f32, f32, f32, f32)>()` (glium#1502).
+- There can only be one `Frame` of a context at a time (glium#1005): `Frame::new` returns
+  `Result<Frame, FrameError>`, `draw()` panics with a message while the previous frame isn't
+  finished, and the new `try_draw()` returns `FrameError::AlreadyDrawing` instead. A second frame
+  drew to the same back buffer, and swapped it a second time with undefined content.
+- `Uniforms::visit_values` gives names that live as long as the uniforms (`&'a str`), so that
+  SafeGL can collect the values before it starts to issue commands: implementations of `Uniforms`
+  and `AsUniformValue` can now use SafeGL.
+- On OpenGL ES, which has no `glShaderStorageBlockBinding`, a shader storage block is bound at the
+  binding point that the shader gives it instead of one chosen by SafeGL, which raised
+  `GL_INVALID_OPERATION` on drivers that follow the specification. Two storage blocks with the same
+  `layout(binding = N)` that get a buffer each return the new `DrawError::SharedBindingPoint`
+  there; give them different binding points.
+- On OpenGL ES, which can't change the unit of an image uniform, an image is bound to the unit
+  that the shader gives it with `layout(binding = N)` instead of one chosen by SafeGL with
+  `glUniform1i`, which raised `GL_INVALID_OPERATION` and left the image unbound. Two image
+  uniforms with the same binding return `DrawError::SharedBindingPoint` there. The reflected
+  `Uniform` gets the `binding` field, the unit of the shader for images.
+
+Additions:
+
+- `UniformValue::DoubleMat2x3` and the other non-square double-precision matrices, from
+  `[[f64; R]; C]` arrays, and 64-bit integer uniform values are bound to their GLSL types.
+- `UniformValue` implements `AsUniformValue`, so a value built in advance, for example from a
+  `Sampler`, can be passed to `uniform!`.
+- A buffer slice that starts at an offset can be bound to a uniform block, a shader storage block
+  or an atomic counter buffer, which used to panic; an offset that isn't aligned as the backend
+  requires returns `DrawError::BufferOffsetNotAligned`. `Capabilities` gives the
+  `uniform_buffer_offset_alignment` and `shader_storage_buffer_offset_alignment`.
+- A basic type or an array matches a uniform block that has it as single member, like slices do.
+- `raw_upload_from_pixel_buffer` uploads to cubemaps and cubemap arrays, whose faces are layers,
+  instead of panicking.
+- `implement_vertex!` works on tuple structs, whose fields are given by index with the name of
+  their attribute: `implement_vertex!(Vertex, 0 => position, 1 => color normalize(true))`
+  (glium#1523).
+- `uniform!` accepts strings as names, for the members of structs and the elements of arrays:
+  `uniform! { "lights[0].color": color }` (glium#941).
+- `PrimitivesGeneratedQuery` works on OpenGL ES 3.2 and with `GL_EXT_geometry_shader` or
+  `GL_OES_geometry_shader`, and `TimeElapsedQuery` with `GL_EXT_disjoint_timer_query`, instead of
+  returning `QueryCreationError::NotSupported` on every version of OpenGL ES.
+- `Display::rebuild(context, surface)` moves a display to another glutin context and surface,
+  for example of another window, keeping its objects, and `Display::gl_context()` gives the glutin
+  context to share them with.
+
+Fixes:
+
+- Buffer slices are bound with their own range to uniform blocks, shader storage blocks, atomic
+  counter buffers and transform feedback, instead of the whole buffer.
+- Programs using cube map array images, `samplerCubeArrayShadow`, `usampler1DArray`, 64-bit
+  integers, double-precision matrix inputs or half-float inputs no longer panic at creation.
+- Creating a `Texture2dMultisampleArray` no longer raises `GL_INVALID_ENUM`.
+- A transform feedback session can be used by several draws in a row, which append their
+  vertices, instead of panicking on the second one; transform feedback ends before the program
+  changes and before compute dispatches, where it raised `GL_INVALID_OPERATION`.
+- Indexed draws bind every vertex buffer even when they don't have the same length.
+- Running out of texture units returns `DrawError::InsufficientTextureUnits` instead of panicking.
+- Double-precision uniforms work on OpenGL 4.0 and above without `GL_ARB_gpu_shader_fp64` in the
+  extensions list, instead of panicking.
+- Empty framebuffers with a width, height, number of layers or number of samples of 0 return
+  `ValidationError::EmptyFramebufferUnsupportedDimensions` instead of panicking.
+- `BufferTexture::from_buffer` returns `TextureCreationError::NotSupported` without buffer
+  textures instead of panicking.
+- Conditional rendering with a query that was never used draws nothing, since the query counted
+  no samples, instead of raising `GL_INVALID_OPERATION`.
+- Drawing with the same query as `samples_passed_query` and as the condition returns
+  `DrawError::WrongQueryOperation` instead of raising an OpenGL error.
+- `to_buffer_u32` on a query that was never used writes 0, the result `get()` returns, instead of
+  panicking.
+- A `TimestampQuery` that is dropped without being read deletes its query object instead of
+  leaking it.
+- The documentation of `PrimitivesGeneratedQuery` says that it counts the primitives of the last
+  vertex processing stage, without a geometry shader too.
+- `slice(start..end)` on buffers returns `None` when `start > end`, instead of a slice whose size
+  overflows.
+- Reading a buffer into a `Vec` no longer exposes uninitialized memory to the closure of
+  `Content::read`, and `Content::to_void_ptr` no longer panics on an empty slice.
+- SafeGL can be used from the closure of `exec_in_context`, which no longer holds the context
+  while it runs, and SafeGL's vertex array object is unbound before it so that the closure can't
+  change it (glium#615). Validating a framebuffer no longer borrows the context a second time.
+  Calling SafeGL while it is issuing commands, for example from a debug callback, panics with a
+  message instead of `BorrowMutError`.
+- The debug callback is called with a shared reference to the context instead of a mutable one
+  made from a shared pointer, which was undefined behavior. A panic of the callback, which
+  aborted the process since it can't unwind through OpenGL, is resumed when the command that
+  triggered the message returns, and a callback that triggers messages itself isn't called again
+  for them.
+- Querying the depth and stencil bits of a render buffer no longer leaves SafeGL's cache of the
+  bound render buffer out of date.
+- On desktop OpenGL, the fragment outputs that have no `layout(location = N)` get locations in
+  their declaration order, so that the first one is written to targets with a single color buffer
+  on every driver instead of one chosen by the linker (glium#285).
+- Reading a texture on OpenGL ES in another pixel format than the one it guarantees for the kind
+  of texture, like the `(u8, u8, u8, u8)` of `read()` for a floating-point texture, converts the
+  pixels on the CPU instead of failing (glium#1502).
+- Compressed data whose width or height isn't a multiple of 4 is sized by whole 4x4 blocks
+  instead of panicking (glium#410), and compressed data for one-dimensional or three-dimensional
+  textures returns `FormatNotSupported` instead of panicking. `ClientFormatAny::get_num_components`
+  works for compressed formats instead of panicking.
+- Reading a texture into a pixel buffer that is too small returns `ReadError::BufferTooSmall`
+  instead of panicking.
+- Writing to a range of a buffer waits for all the fences of the GPU commands that use it: a
+  fence that covered the whole range, like the one of a draw command that used the whole buffer,
+  was missed, so a write to a persistent-mapped buffer could race with the GPU (glium#1789).
+- `restore_state` also forgets the vertex array objects of SafeGL, whose element array buffer or
+  attributes the other code may have changed while one was bound, and the uniform values and
+  block bindings that the programs cached, which the other code may have changed too (glium#1696,
+  glium#1867, glium#1417).
+- The documentation explains the stalls caused by writing to buffers that the GPU still reads
+  (glium#1789), and the CPU use of the NVIDIA driver without synchronous debug output
+  (glium#1927).
+- Blits check the rules that made OpenGL raise `GL_INVALID_OPERATION` and copy nothing
+  (glium#653, glium#1748): they return `BlitError::ScaledMultisample`, `SampleCountMismatch`,
+  `MultisampleTarget` (OpenGL ES), `FormatMismatch`, `LinearFilterOnIntegers` or
+  `SameSourceAndTarget` (OpenGL ES). A framebuffer object of SafeGL is read from its first color
+  attachment, instead of the read buffer left by a previous read. The documentation of `fill` says
+  which way it copies.
+- Tessellation works on OpenGL ES 3.2, where it is core, and on OpenGL ES with
+  `GL_EXT_tessellation_shader` or `GL_OES_tessellation_shader`, whose `glPatchParameteri` has
+  another name: SafeGL didn't detect it and returned `DrawError::TessellationNotSupported`.
+- The reflection of a uniform or shader storage block lists the members of its structs in the
+  order of their declaration, instead of the order of the driver (alphabetical on NVIDIA).
+- The binding points of atomic counters are reflected with `glGetProgramResourceiv` on OpenGL ES,
+  which has no `glGetActiveAtomicCounterBufferiv`: the counters were bound at binding point 0,
+  whatever their `layout(binding = N)`.
+- Faces that are counter-clockwise on the target used the stencil write mask of the clockwise
+  faces when the two masks differ.
+- Writing a query result into a buffer that a shader wrote to issues
+  `glMemoryBarrier(GL_QUERY_BUFFER_BARRIER_BIT)` according to the previous query-buffer barrier,
+  instead of the previous pixel-buffer barrier, which skipped or repeated it.
+- The documentation of sRGB said that SafeGL enables `GL_FRAMEBUFFER_SRGB` by default, while the
+  programs of `Program::from_source` and `program!` output sRGB and draw with it disabled. It
+  now explains both values of `outputs_srgb`, `clear_color_srgb`, and the conversion that OpenGL
+  ES can't turn off without `GL_EXT_sRGB_write_control` (glium#1115).
+- `Context::rebuild` compares the version and the extensions of the new context with the first
+  one: it compared the values that glow read from the first context, so it never refused a
+  context. It also sets up the debug output and the seamless cube maps of the new context, and
+  turns off the debug output of the previous one, whose messages would have reached a SafeGL
+  context that could be gone. `Backend::create_glow_context` is called again for the new context.
+- With the default `DebugCallbackBehavior::DebugMessageOnError`, the driver no longer generates the
+  debug messages of low severity and the notifications, which the callback ignores: the NVIDIA
+  driver formatted one for every buffer it created, and crashed doing it once while another thread
+  created a context.
+
+## [0.2.0]
+
 Additions:
 
 - `DrawParameters::alpha_to_coverage`, `sample_shading` (`glMinSampleShading`) and `sample_mask`

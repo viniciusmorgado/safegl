@@ -6,6 +6,7 @@
 use std::error::Error;
 use std::fmt;
 use std::os::raw::c_void;
+use std::rc::Rc;
 
 use glow::HasContext;
 
@@ -72,6 +73,10 @@ pub enum CopyImageError {
 
     /// The source and the destination are the same image, and the regions overlap.
     OverlappingRegions,
+
+    /// The destination belongs to another context than the source. OpenGL objects can only be
+    /// used with the context that created them.
+    ContextMismatch,
 }
 
 impl fmt::Display for CopyImageError {
@@ -90,6 +95,9 @@ impl fmt::Display for CopyImageError {
             }
             CopyImageError::OverlappingRegions => {
                 "The source and destination regions of the same image overlap"
+            }
+            CopyImageError::ContextMismatch => {
+                "The destination belongs to another context than the source"
             }
         })
     }
@@ -629,10 +637,16 @@ pub fn copy_image<'a, 'b>(
 ) -> Result<(), CopyImageError> {
     let source = source.into();
     let destination = destination.into();
-    let context = match source {
+    let context_of = |target: &CopyImageTarget<'_>| match *target {
         CopyImageTarget::Texture(mipmap) => mipmap.get_texture().get_context().clone(),
         CopyImageTarget::RenderBuffer(render_buffer) => render_buffer.get_context().clone(),
     };
+    let context = context_of(&source);
+
+    // OpenGL objects can only be used with the context that created them
+    if !Rc::ptr_eq(&context, &context_of(&destination)) {
+        return Err(CopyImageError::ContextMismatch);
+    }
 
     let mut ctxt = context.make_current();
     if !is_copy_image_supported(&*context) {

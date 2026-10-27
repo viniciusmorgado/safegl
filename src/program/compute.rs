@@ -11,6 +11,7 @@ use std::os::raw;
 use fnv::FnvHasher;
 
 use crate::CapabilitiesSource;
+use crate::DrawError;
 use crate::GlObject;
 use crate::ProgramExt;
 use crate::RawUniformValue;
@@ -57,7 +58,7 @@ impl ComputeShader {
         let shader = build_shader(facade, gl::COMPUTE_SHADER, src)?;
 
         Ok(ComputeShader {
-            raw: RawProgram::from_shaders(facade, &[shader], false, false, false, None)?,
+            raw: RawProgram::from_shaders(facade, &[shader], false, false, false, None, None)?,
         })
     }
 
@@ -75,7 +76,7 @@ impl ComputeShader {
         let shader = build_spirv_shader(facade, gl::COMPUTE_SHADER, spirv)?;
 
         Ok(ComputeShader {
-            raw: RawProgram::from_shaders(facade, &[shader], false, false, false, None)?,
+            raw: RawProgram::from_shaders(facade, &[shader], false, false, false, None, None)?,
         })
     }
 
@@ -100,24 +101,30 @@ impl ComputeShader {
     /// `x * y * z` work groups will be started. The current work group can be retrieved with
     /// `gl_WorkGroupID`. Inside each work group, additional local work groups can be started
     /// depending on the attributes of the compute shader itself.
+    ///
+    /// Returns an error if the uniforms don't match the program, or if there are more work groups
+    /// than the backend supports.
     #[inline]
-    pub fn execute<U>(&self, uniforms: U, x: u32, y: u32, z: u32)
+    pub fn execute<U>(&self, uniforms: U, x: u32, y: u32, z: u32) -> Result<(), DrawError>
     where
         U: Uniforms,
     {
-        unsafe { self.raw.dispatch_compute(uniforms, x, y, z) }.unwrap(); // FIXME: return error
+        unsafe { self.raw.dispatch_compute(uniforms, x, y, z) }
     }
 
     /// Executes the compute shader.
     ///
     /// This is similar to `execute`, except that the parameters are stored in a buffer.
     #[inline]
-    pub fn execute_indirect<U>(&self, uniforms: U, buffer: BufferSlice<'_, ComputeCommand>)
+    pub fn execute_indirect<U>(
+        &self,
+        uniforms: U,
+        buffer: BufferSlice<'_, ComputeCommand>,
+    ) -> Result<(), DrawError>
     where
         U: Uniforms,
     {
-        unsafe { self.raw.dispatch_compute_indirect(uniforms, buffer) }.unwrap();
-        // FIXME: return error
+        unsafe { self.raw.dispatch_compute_indirect(uniforms, buffer) }
     }
 
     /// Returns the program's compiled binary.
@@ -206,6 +213,11 @@ impl GlObject for ComputeShader {
 
 impl ProgramExt for ComputeShader {
     #[inline]
+    fn get_context(&self) -> &crate::context::Context {
+        self.raw.get_context()
+    }
+
+    #[inline]
     fn use_program(&self, ctxt: &mut CommandContext<'_>) {
         self.raw.use_program(ctxt)
     }
@@ -256,6 +268,16 @@ impl ProgramExt for ComputeShader {
     #[inline]
     fn get_uniform(&self, name: &str) -> Option<&Uniform> {
         self.raw.get_uniform(name)
+    }
+
+    #[inline]
+    fn get_uniforms(&self) -> &HashMap<String, Uniform, BuildHasherDefault<FnvHasher>> {
+        self.raw.get_uniforms()
+    }
+
+    #[inline]
+    fn is_uniform_set(&self, location: gl::types::GLint) -> bool {
+        self.raw.is_uniform_set(location)
     }
 
     #[inline]

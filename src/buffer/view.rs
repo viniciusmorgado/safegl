@@ -26,6 +26,7 @@ use crate::buffer::alloc::ReadMapping;
 use crate::buffer::alloc::WriteMapping;
 use crate::buffer::fences::Fences;
 use crate::buffer::fences::Inserter;
+use crate::buffer::AnyBitPattern;
 use crate::buffer::BufferCreationError;
 use crate::buffer::BufferMode;
 use crate::buffer::BufferType;
@@ -87,6 +88,7 @@ where
     ) -> Result<Buffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: AnyBitPattern,
     {
         assert!(<T as Content>::is_size_suitable(size));
 
@@ -124,6 +126,11 @@ where
     /// - For immutable buffers, creates a temporary buffer that contains the data then calls
     ///   `glCopyBufferSubData` to copy from the temporary buffer to the real one.
     /// - For other types, calls `glBufferSubData`.
+    ///
+    /// Writing to a buffer that the GPU still reads for previous draw commands makes the driver
+    /// wait for them, or copy the buffer. To update a buffer several times per frame, write to
+    /// different slices of a larger buffer, or call `invalidate` before writing it whole, which
+    /// tells the driver that the previous content isn't needed anymore.
     ///
     /// # Panic
     ///
@@ -164,12 +171,18 @@ where
     /// `glInvalidateBufferData` is not supported, does nothing.
     ///
     #[inline]
-    pub fn invalidate(&self) {
+    pub fn invalidate(&self)
+    where
+        T: AnyBitPattern,
+    {
         self.alloc.as_ref().unwrap().invalidate(0, self.get_size());
     }
 
     /// Reads the content of the buffer.
-    pub fn read(&self) -> Result<T::Owned, ReadError> {
+    pub fn read(&self) -> Result<T::Owned, ReadError>
+    where
+        T: AnyBitPattern,
+    {
         self.fence.as_ref().unwrap().wait(
             &mut self.alloc.as_ref().unwrap().get_context().make_current(),
             0..self.get_size(),
@@ -189,7 +202,10 @@ where
     ///   to the real buffer.
     /// - For other types, calls `glMapBuffer` or `glMapSubBuffer`.
     ///
-    pub fn map(&mut self) -> Mapping<'_, T> {
+    pub fn map(&mut self) -> Mapping<'_, T>
+    where
+        T: AnyBitPattern,
+    {
         self.fence.as_ref().unwrap().wait(
             &mut self.alloc.as_ref().unwrap().get_context().make_current(),
             0..self.get_size(),
@@ -208,7 +224,10 @@ where
     ///   maps it.
     /// - For other types, calls `glMapBuffer` or `glMapSubBuffer`.
     ///
-    pub fn map_read(&mut self) -> ReadMapping<'_, T> {
+    pub fn map_read(&mut self) -> ReadMapping<'_, T>
+    where
+        T: AnyBitPattern,
+    {
         self.fence.as_ref().unwrap().wait(
             &mut self.alloc.as_ref().unwrap().get_context().make_current(),
             0..self.get_size(),
@@ -239,9 +258,8 @@ where
 
     /// Copies the content of the buffer to another buffer.
     ///
-    /// # Panic
-    ///
-    /// Panics if `T` is unsized and the other buffer is too small.
+    /// Returns `CopyError::TargetTooSmall` if `T` is unsized and the other buffer is too small,
+    /// and `CopyError::ContextMismatch` if it belongs to another context.
     ///
     pub fn copy_to<'a, S>(&self, target: S) -> Result<(), CopyError>
     where
@@ -365,6 +383,7 @@ where
     ) -> Result<Buffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: AnyBitPattern,
     {
         Alloc::empty(facade, ty, mem::size_of::<T>(), mode).map(|buffer| Buffer {
             alloc: Some(buffer),
@@ -388,6 +407,7 @@ where
     ) -> Result<Buffer<[T]>, BufferCreationError>
     where
         F: Facade,
+        T: AnyBitPattern,
     {
         Alloc::empty(facade, ty, len * mem::size_of::<T>(), mode).map(|buffer| Buffer {
             alloc: Some(buffer),
@@ -426,7 +446,7 @@ where
 
 impl<T> Buffer<[T]>
 where
-    T: PixelValue,
+    T: PixelValue + AnyBitPattern,
 {
     /// Reads the content of the buffer.
     #[inline]
@@ -639,12 +659,18 @@ where
     /// Calls `glInvalidateBufferSubData` if supported.
     ///
     #[inline]
-    pub fn invalidate(&self) {
+    pub fn invalidate(&self)
+    where
+        T: AnyBitPattern,
+    {
         self.alloc.invalidate(self.bytes_start, self.get_size());
     }
 
     /// Reads the content of the buffer.
-    pub fn read(&self) -> Result<T::Owned, ReadError> {
+    pub fn read(&self) -> Result<T::Owned, ReadError>
+    where
+        T: AnyBitPattern,
+    {
         self.fence.wait(
             &mut self.alloc.get_context().make_current(),
             self.bytes_start..self.bytes_end,
@@ -655,9 +681,8 @@ where
 
     /// Copies the content of this slice to another slice.
     ///
-    /// # Panic
-    ///
-    /// Panics if `T` is unsized and the other buffer is too small.
+    /// Returns `CopyError::TargetTooSmall` if `T` is unsized and the other buffer is too small,
+    /// and `CopyError::ContextMismatch` if it belongs to another context.
     pub fn copy_to<S>(&self, target: S) -> Result<(), CopyError>
     where
         S: Into<BufferSlice<'a, T>>,
@@ -753,17 +778,16 @@ where
     /// OpenGL is performed.
     #[inline]
     pub fn slice<R: RangeArgument<usize>>(&self, range: R) -> Option<BufferSlice<'a, [T]>> {
-        if range.start().map_or(0, |e| *e) > self.len()
-            || range.end().map_or(0, |e| *e) > self.len()
-        {
+        let start = range.start().map_or(0, |e| *e);
+        let end = range.end().map_or(self.len(), |e| *e);
+        if start > end || end > self.len() {
             return None;
         }
 
         Some(BufferSlice {
             alloc: self.alloc,
-            bytes_start: self.bytes_start + range.start().map_or(0, |e| *e) * mem::size_of::<T>(),
-            bytes_end: self.bytes_start
-                + range.end().map_or(self.len(), |e| *e) * mem::size_of::<T>(),
+            bytes_start: self.bytes_start + start * mem::size_of::<T>(),
+            bytes_end: self.bytes_start + end * mem::size_of::<T>(),
             fence: self.fence,
             marker: PhantomData,
         })
@@ -772,7 +796,7 @@ where
 
 impl<'a, T> BufferSlice<'a, [T]>
 where
-    T: PixelValue + 'a,
+    T: PixelValue + AnyBitPattern + 'a,
 {
     /// Reads the content of the buffer.
     #[inline]
@@ -919,7 +943,7 @@ where
         index: gl::types::GLuint,
     ) {
         self.alloc
-            .prepare_and_bind_for_uniform(ctxt, index, 0..self.alloc.get_size());
+            .prepare_and_bind_for_uniform(ctxt, index, self.bytes_start..self.bytes_end);
     }
 
     #[cfg(feature = "gl46")]
@@ -929,8 +953,11 @@ where
         ctxt: &mut CommandContext<'_>,
         index: gl::types::GLuint,
     ) {
-        self.alloc
-            .prepare_and_bind_for_shared_storage(ctxt, index, 0..self.alloc.get_size());
+        self.alloc.prepare_and_bind_for_shared_storage(
+            ctxt,
+            index,
+            self.bytes_start..self.bytes_end,
+        );
     }
 
     #[cfg(feature = "gl46")]
@@ -940,14 +967,17 @@ where
         ctxt: &mut CommandContext<'_>,
         index: gl::types::GLuint,
     ) {
-        self.alloc
-            .prepare_and_bind_for_atomic_counter(ctxt, index, 0..self.alloc.get_size());
+        self.alloc.prepare_and_bind_for_atomic_counter(
+            ctxt,
+            index,
+            self.bytes_start..self.bytes_end,
+        );
     }
 
     #[inline]
     fn bind_to_transform_feedback(&self, ctxt: &mut CommandContext<'_>, index: gl::types::GLuint) {
         self.alloc
-            .bind_to_transform_feedback(ctxt, index, 0..self.alloc.get_size());
+            .bind_to_transform_feedback(ctxt, index, self.bytes_start..self.bytes_end);
     }
 }
 
@@ -985,7 +1015,10 @@ where
     /// - For other types, calls `glMapBuffer` or `glMapSubBuffer`.
     ///
     #[inline]
-    pub fn map(self) -> Mapping<'a, T> {
+    pub fn map(self) -> Mapping<'a, T>
+    where
+        T: AnyBitPattern,
+    {
         self.fence.wait(
             &mut self.alloc.get_context().make_current(),
             self.bytes_start..self.bytes_end,
@@ -1004,7 +1037,10 @@ where
     /// - For other types, calls `glMapBuffer` or `glMapSubBuffer`.
     ///
     #[inline]
-    pub fn map_read(self) -> ReadMapping<'a, T> {
+    pub fn map_read(self) -> ReadMapping<'a, T>
+    where
+        T: AnyBitPattern,
+    {
         self.fence.wait(
             &mut self.alloc.get_context().make_current(),
             self.bytes_start..self.bytes_end,
@@ -1065,21 +1101,26 @@ where
     /// Calls `glInvalidateBufferSubData` if supported.
     ///
     #[inline]
-    pub fn invalidate(&self) {
+    pub fn invalidate(&self)
+    where
+        T: AnyBitPattern,
+    {
         self.alloc.invalidate(self.bytes_start, self.get_size());
     }
 
     /// Reads the content of the buffer.
     #[inline]
-    pub fn read(&self) -> Result<T::Owned, ReadError> {
+    pub fn read(&self) -> Result<T::Owned, ReadError>
+    where
+        T: AnyBitPattern,
+    {
         unsafe { self.alloc.read::<T>(self.bytes_start..self.bytes_end) }
     }
 
     /// Copies the content of this slice to another slice.
     ///
-    /// # Panic
-    ///
-    /// Panics if `T` is unsized and the other buffer is too small.
+    /// Returns `CopyError::TargetTooSmall` if `T` is unsized and the other buffer is too small,
+    /// and `CopyError::ContextMismatch` if it belongs to another context.
     pub fn copy_to<S>(&self, target: S) -> Result<(), CopyError>
     where
         S: Into<BufferSlice<'a, T>>,
@@ -1175,17 +1216,16 @@ where
     /// OpenGL is performed.
     #[inline]
     pub fn slice<R: RangeArgument<usize>>(self, range: R) -> Option<BufferMutSlice<'a, [T]>> {
-        if range.start().map_or(0, |e| *e) > self.len()
-            || range.end().map_or(0, |e| *e) > self.len()
-        {
+        let start = range.start().map_or(0, |e| *e);
+        let end = range.end().map_or(self.len(), |e| *e);
+        if start > end || end > self.len() {
             return None;
         }
 
-        let len = self.len();
         Some(BufferMutSlice {
             alloc: self.alloc,
-            bytes_start: self.bytes_start + range.start().map_or(0, |e| *e) * mem::size_of::<T>(),
-            bytes_end: self.bytes_start + range.end().map_or(len, |e| *e) * mem::size_of::<T>(),
+            bytes_start: self.bytes_start + start * mem::size_of::<T>(),
+            bytes_end: self.bytes_start + end * mem::size_of::<T>(),
             fence: self.fence,
             marker: PhantomData,
         })
@@ -1194,7 +1234,7 @@ where
 
 impl<'a, T> BufferMutSlice<'a, [T]>
 where
-    T: PixelValue + 'a,
+    T: PixelValue + AnyBitPattern + 'a,
 {
     /// Reads the content of the buffer.
     #[inline]
@@ -1361,7 +1401,7 @@ impl BufferAny {
     #[inline]
     pub unsafe fn read<T>(&self) -> Result<T::Owned, ReadError>
     where
-        T: Content,
+        T: Content + AnyBitPattern,
     {
         // TODO: add check
         self.fence.wait(
@@ -1661,7 +1701,7 @@ impl<'a> BufferExt for BufferAnySlice<'a> {
         index: gl::types::GLuint,
     ) {
         self.alloc
-            .prepare_and_bind_for_uniform(ctxt, index, 0..self.alloc.get_size());
+            .prepare_and_bind_for_uniform(ctxt, index, self.bytes_start..self.bytes_end);
     }
 
     #[cfg(feature = "gl46")]
@@ -1671,8 +1711,11 @@ impl<'a> BufferExt for BufferAnySlice<'a> {
         ctxt: &mut CommandContext<'_>,
         index: gl::types::GLuint,
     ) {
-        self.alloc
-            .prepare_and_bind_for_shared_storage(ctxt, index, 0..self.alloc.get_size());
+        self.alloc.prepare_and_bind_for_shared_storage(
+            ctxt,
+            index,
+            self.bytes_start..self.bytes_end,
+        );
     }
 
     #[cfg(feature = "gl46")]
@@ -1682,13 +1725,16 @@ impl<'a> BufferExt for BufferAnySlice<'a> {
         ctxt: &mut CommandContext<'_>,
         index: gl::types::GLuint,
     ) {
-        self.alloc
-            .prepare_and_bind_for_atomic_counter(ctxt, index, 0..self.alloc.get_size());
+        self.alloc.prepare_and_bind_for_atomic_counter(
+            ctxt,
+            index,
+            self.bytes_start..self.bytes_end,
+        );
     }
 
     #[inline]
     fn bind_to_transform_feedback(&self, ctxt: &mut CommandContext<'_>, index: gl::types::GLuint) {
         self.alloc
-            .bind_to_transform_feedback(ctxt, index, 0..self.alloc.get_size());
+            .bind_to_transform_feedback(ctxt, index, self.bytes_start..self.bytes_end);
     }
 }

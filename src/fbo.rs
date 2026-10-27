@@ -71,6 +71,7 @@ use crate::texture::TextureAnyMipmap;
 use crate::texture::TextureKind;
 
 use crate::context::CommandContext;
+use crate::context::Context;
 use crate::gl;
 use crate::version::Api;
 use crate::version::Version;
@@ -117,6 +118,15 @@ pub enum RegularAttachment<'a> {
 }
 
 impl<'a> RegularAttachment<'a> {
+    /// Returns true if the attachment was created by `context`.
+    fn belongs_to(&self, context: &Context) -> bool {
+        let owner: &Context = match self {
+            RegularAttachment::Texture(t) => TextureExt::get_context(t.get_texture()),
+            RegularAttachment::RenderBuffer(rb) => rb.get_context(),
+        };
+        std::ptr::eq(owner, context)
+    }
+
     /// Returns the kind of attachment (float, integral, unsigned, depth, stencil, depthstencil).
     #[inline]
     pub fn kind(&self) -> TextureKind {
@@ -130,6 +140,27 @@ impl<'a> RegularAttachment<'a> {
 /// Describes a single layered framebuffer attachment.
 #[derive(Copy, Clone)]
 pub struct LayeredAttachment<'a>(TextureAnyMipmap<'a>);
+
+impl<'a> LayeredAttachment<'a> {
+    /// Returns true if the attachment was created by `context`.
+    fn belongs_to(&self, context: &Context) -> bool {
+        std::ptr::eq(&**TextureExt::get_context(self.0.get_texture()), context)
+    }
+}
+
+impl<T> FramebufferSpecificAttachments<T> {
+    /// Returns true if `f` returns true for all the attachments.
+    fn all(&self, mut f: impl FnMut(&T) -> bool) -> bool {
+        let depth_stencil = match self.depth_stencil {
+            DepthStencilAttachments::None => true,
+            DepthStencilAttachments::DepthAttachment(ref a)
+            | DepthStencilAttachments::StencilAttachment(ref a)
+            | DepthStencilAttachments::DepthStencilAttachment(ref a) => f(a),
+            DepthStencilAttachments::DepthAndStencilAttachments(ref a, ref b) => f(a) && f(b),
+        };
+        depth_stencil && self.colors.iter().all(|(_, a)| f(a))
+    }
+}
 
 /// Depth and/or stencil attachment to use.
 #[derive(Copy, Clone)]
@@ -165,19 +196,30 @@ impl<'a> FramebufferAttachments<'a> {
     /// After building a `FramebufferAttachments` struct, you must use this function
     /// to "compile" the attachments and make sure that they are valid together.
     #[inline]
-    pub fn validate<C: ?Sized>(
+    ///
+    /// `ctxt` is the current context, through which the formats of the attachments are queried.
+    pub fn validate(
         self,
-        context: &C,
-    ) -> Result<ValidatedAttachments<'a>, ValidationError>
-    where
-        C: CapabilitiesSource,
-    {
+        ctxt: &mut CommandContext<'_>,
+    ) -> Result<ValidatedAttachments<'a>, ValidationError> {
+        let context: &Context = ctxt.context;
+
+        // OpenGL objects can only be used with the context that created them
+        let owned = match self {
+            FramebufferAttachments::Regular(ref a) => a.all(|a| a.belongs_to(context)),
+            FramebufferAttachments::Layered(ref a) => a.all(|a| a.belongs_to(context)),
+            FramebufferAttachments::Empty { .. } => true,
+        };
+        if !owned {
+            return Err(ValidationError::ContextMismatch);
+        }
+
         match self {
             FramebufferAttachments::Regular(a) => {
-                FramebufferAttachments::validate_regular(context, a)
+                FramebufferAttachments::validate_regular(ctxt, a)
             }
             FramebufferAttachments::Layered(a) => {
-                FramebufferAttachments::validate_layered(context, a)
+                FramebufferAttachments::validate_layered(ctxt, a)
             }
 
             FramebufferAttachments::Empty {
@@ -187,20 +229,15 @@ impl<'a> FramebufferAttachments<'a> {
                 samples,
                 fixed_samples,
             } => {
-                if context.get_version() >= &Version(Api::Gl, 4, 3)
-                    || context.get_version() >= &Version(Api::GlEs, 3, 1)
+                if context.get_opengl_version() >= &Version(Api::Gl, 4, 3)
+                    || context.get_opengl_version() >= &Version(Api::GlEs, 3, 1)
                     || context.get_extensions().gl_arb_framebuffer_no_attachments
                 {
-                    assert!(width >= 1);
-                    assert!(height >= 1);
-                    if let Some(layers) = layers {
-                        assert!(layers >= 1);
-                    }
-                    if let Some(samples) = samples {
-                        assert!(samples >= 1);
-                    }
-
-                    if width
+                    if width == 0
+                        || height == 0
+                        || layers == Some(0)
+                        || samples == Some(0)
+                        || width
                         > context
                             .get_capabilities()
                             .max_framebuffer_width
@@ -232,7 +269,7 @@ impl<'a> FramebufferAttachments<'a> {
                             depth_stencil: None,
                             default_width: Some(width),
                             default_height: Some(height),
-                            default_layers: if context.get_version() <= &Version(Api::GlEs, 3, 1) {
+                            default_layers: if context.get_opengl_version() <= &Version(Api::GlEs, 3, 1) {
                                 None
                             } else {
                                 Some(layers.unwrap_or(0))
@@ -254,23 +291,22 @@ impl<'a> FramebufferAttachments<'a> {
         }
     }
 
-    fn validate_layered<C: ?Sized>(
-        context: &C,
+    fn validate_layered(
+        ctxt: &mut CommandContext<'_>,
         FramebufferSpecificAttachments {
             colors,
             depth_stencil,
         }: FramebufferSpecificAttachments<LayeredAttachment<'a>>,
-    ) -> Result<ValidatedAttachments<'a>, ValidationError>
-    where
-        C: CapabilitiesSource,
-    {
+    ) -> Result<ValidatedAttachments<'a>, ValidationError> {
+        let context: &Context = ctxt.context;
+
         // TODO: make sure that all attachments are layered
 
         macro_rules! handle_tex {
             ($tex:ident, $dim:ident, $samples:ident, $num_bits:ident) => {{
                 $num_bits = Some(
                     $tex.get_texture()
-                        .get_internal_format()
+                        .get_internal_format_with(ctxt)
                         .map(|f| f.get_total_bits())
                         .ok()
                         .unwrap_or(24) as u16,
@@ -371,7 +407,7 @@ impl<'a> FramebufferAttachments<'a> {
                 raw_attachments.stencil = Some(handle_tex!(s, dimensions, samples, stencil_bits));
             }
             DepthStencilAttachments::DepthStencilAttachment(LayeredAttachment(ref ds)) => {
-                let depth_stencil_bits = ds.get_texture().get_depth_stencil_bits();
+                let depth_stencil_bits = ds.get_texture().get_depth_stencil_bits_with(ctxt);
                 depth_bits = Some(depth_stencil_bits.0);
                 stencil_bits = Some(depth_stencil_bits.1);
                 raw_attachments.depth_stencil = Some(handle_tex!(ds, dimensions, samples));
@@ -399,21 +435,20 @@ impl<'a> FramebufferAttachments<'a> {
         })
     }
 
-    fn validate_regular<C: ?Sized>(
-        context: &C,
+    fn validate_regular(
+        ctxt: &mut CommandContext<'_>,
         FramebufferSpecificAttachments {
             colors,
             depth_stencil,
         }: FramebufferSpecificAttachments<RegularAttachment<'a>>,
-    ) -> Result<ValidatedAttachments<'a>, ValidationError>
-    where
-        C: CapabilitiesSource,
-    {
+    ) -> Result<ValidatedAttachments<'a>, ValidationError> {
+        let context: &Context = ctxt.context;
+
         macro_rules! handle_tex {
             ($tex:ident, $dim:ident, $samples:ident, $num_bits:ident) => {{
                 $num_bits = Some(
                     $tex.get_texture()
-                        .get_internal_format()
+                        .get_internal_format_with(ctxt)
                         .map(|f| f.get_total_bits())
                         .ok()
                         .unwrap_or(24) as u16,
@@ -565,9 +600,9 @@ impl<'a> FramebufferAttachments<'a> {
             DepthStencilAttachments::DepthStencilAttachment(ref ds) => {
                 let depth_stencil_bits = match ds {
                     RegularAttachment::Texture(ref tex) => {
-                        tex.get_texture().get_depth_stencil_bits()
+                        tex.get_texture().get_depth_stencil_bits_with(ctxt)
                     }
-                    RegularAttachment::RenderBuffer(ref rb) => rb.get_depth_stencil_bits(),
+                    RegularAttachment::RenderBuffer(ref rb) => rb.get_depth_stencil_bits_with(ctxt),
                 };
                 depth_bits = Some(depth_stencil_bits.0);
                 stencil_bits = Some(depth_stencil_bits.1);
@@ -686,6 +721,10 @@ pub enum ValidationError {
         /// `GL_FRAMEBUFFER_UNSUPPORTED`.
         status: u32,
     },
+
+    /// An attachment belongs to another context than the framebuffer. OpenGL objects can only be
+    /// used with the context that created them.
+    ContextMismatch,
 }
 
 impl fmt::Display for ValidationError {
@@ -706,6 +745,7 @@ impl fmt::Display for ValidationError {
                 "Backends only support a certain number of color attachments"
             }
             Incomplete { .. } => "OpenGL doesn't support this combination of attachments",
+            ContextMismatch => "An attachment belongs to another context than the framebuffer",
         };
         match self {
             TooManyColorAttachments {

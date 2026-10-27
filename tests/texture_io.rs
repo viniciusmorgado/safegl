@@ -27,7 +27,7 @@ fn rect(left: u32, bottom: u32, width: u32, height: u32) -> Rect {
 /// Reads a whole image of a texture.
 fn read_image(image: TextureAnyImage<'_>) -> Vec<Vec<Pixel>> {
     let rect = rect(0, 0, image.get_width(), image.get_height().unwrap_or(1));
-    image.raw_read(&rect)
+    image.raw_read(&rect).unwrap()
 }
 
 #[test]
@@ -36,10 +36,11 @@ fn write_1d() {
     // OpenGL ES has no 1D textures
     let texture = match Texture1d::empty(&display, 4) {
         Ok(texture) => texture,
-        Err(_) => return,
+        Err(safegl::texture::TextureCreationError::TypeNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
-    texture.write(1, vec![(1u8, 2u8, 3u8, 4u8), (5, 6, 7, 8)]);
+    texture.write(1, vec![(1u8, 2u8, 3u8, 4u8), (5, 6, 7, 8)]).unwrap();
 
     let data = read_image(texture.main_level().into());
     assert_eq!(data[0][1], (1, 2, 3, 4));
@@ -52,11 +53,11 @@ fn write_3d() {
     let display = support::build_display();
     let texture = Texture3d::empty(&display, 4, 4, 4).unwrap();
     // the content of an empty texture is undefined
-    texture.write((0, 0, 0), vec![vec![vec![(0u8, 0u8, 0u8, 0u8); 4]; 4]; 4]);
+    texture.write((0, 0, 0), vec![vec![vec![(0u8, 0u8, 0u8, 0u8); 4]; 4]; 4]).unwrap();
 
     // a 2×2×2 block whose texels hold their z coordinate
     let block: Vec<Vec<Vec<Pixel>>> = (0..2).map(|z| vec![vec![(z, 0, 0, 255); 2]; 2]).collect();
-    texture.write((1, 1, 2), block);
+    texture.write((1, 1, 2), block).unwrap();
 
     for z in 2..4 {
         let slice = texture
@@ -79,11 +80,11 @@ fn write_array_layer() {
     let texture = Texture2dArray::empty(&display, 2, 2, 3).unwrap();
     for layer in 0..3 {
         let layer = texture.main_level().layer(layer).unwrap();
-        layer.write(rect(0, 0, 2, 2), vec![vec![(0u8, 0u8, 0u8, 0u8); 2]; 2]);
+        layer.write(rect(0, 0, 2, 2), vec![vec![(0u8, 0u8, 0u8, 0u8); 2]; 2]).unwrap();
     }
 
     let layer = texture.main_level().layer(2).unwrap();
-    layer.write(rect(0, 0, 2, 2), vec![vec![(9u8, 8u8, 7u8, 6u8); 2]; 2]);
+    layer.write(rect(0, 0, 2, 2), vec![vec![(9u8, 8u8, 7u8, 6u8); 2]; 2]).unwrap();
 
     assert_eq!(read_image(layer.into())[1][1], (9, 8, 7, 6));
     let first = texture.main_level().layer(0).unwrap();
@@ -97,11 +98,11 @@ fn write_cubemap_face() {
     let texture = Cubemap::empty(&display, 2).unwrap();
     for face in [CubeLayer::NegativeY, CubeLayer::PositiveY] {
         let face = texture.main_level().image(face);
-        face.write(rect(0, 0, 2, 2), vec![vec![(0u8, 0u8, 0u8, 0u8); 2]; 2]);
+        face.write(rect(0, 0, 2, 2), vec![vec![(0u8, 0u8, 0u8, 0u8); 2]; 2]).unwrap();
     }
 
     let face = texture.main_level().image(CubeLayer::NegativeY);
-    face.write(rect(1, 0, 1, 2), vec![vec![(1u8, 2u8, 3u8, 4u8)]; 2]);
+    face.write(rect(1, 0, 1, 2), vec![vec![(1u8, 2u8, 3u8, 4u8)]; 2]).unwrap();
 
     let data = read_image(face.into());
     assert_eq!(data[0][1], (1, 2, 3, 4));
@@ -123,15 +124,15 @@ fn write_and_clear_unsigned_texture() {
     )
     .unwrap();
 
-    texture.write(rect(0, 0, 1, 1), vec![vec![(1u8, 2u8, 3u8, 4u8)]]);
-    let data: Vec<Vec<(u32, u32, u32, u32)>> = unsafe { texture.unchecked_read() };
+    texture.write(rect(0, 0, 1, 1), vec![vec![(1u8, 2u8, 3u8, 4u8)]]).unwrap();
+    let data: Vec<Vec<(u32, u32, u32, u32)>> = texture.read_as().unwrap();
     assert_eq!(data[0][0], (1, 2, 3, 4));
 
     // `glClearColor` doesn't apply to integer color buffers
     SimpleFrameBuffer::new(&display, &texture)
         .unwrap()
         .clear_color(5.0, 6.0, 7.0, 8.0);
-    let data: Vec<Vec<(u32, u32, u32, u32)>> = unsafe { texture.unchecked_read() };
+    let data: Vec<Vec<(u32, u32, u32, u32)>> = texture.read_as().unwrap();
     assert_eq!(data[1][1], (5, 6, 7, 8));
     display.assert_no_error(None);
 }
@@ -148,11 +149,11 @@ fn write_and_read_depth() {
     )
     .unwrap();
 
-    texture.write(rect(0, 0, 2, 2), vec![vec![0.25f32, 0.75]; 2]);
+    texture.write(rect(0, 0, 2, 2), vec![vec![0.25f32, 0.75]; 2]).unwrap();
 
     // OpenGL ES can't read depth values without `GL_NV_read_depth`
     if !support::is_gles(&display) {
-        let data: Vec<Vec<f32>> = texture.read();
+        let data: Vec<Vec<f32>> = texture.read().unwrap();
         assert_eq!(data[1], vec![0.25, 0.75]);
     }
     display.assert_no_error(None);
@@ -177,7 +178,7 @@ fn read_depth_stencil() {
         SimpleFrameBuffer::with_depth_stencil_buffer(&display, &color, &texture).unwrap();
     target.clear_depth_and_stencil(1.0, 3);
     let image: TextureAnyImage<'_> = texture.main_level().into();
-    let data: Vec<Vec<u32>> = image.raw_read(&rect(0, 0, 2, 2));
+    let data: Vec<Vec<u32>> = image.raw_read(&rect(0, 0, 2, 2)).unwrap();
     assert_eq!(data[1][1], (0xff_ffff << 8) | 3);
     display.assert_no_error(None);
 }
@@ -193,7 +194,9 @@ fn stencil_texture_format() {
         2,
     ) {
         Ok(texture) => texture,
-        Err(_) => return,
+        Err(safegl::texture::TextureCreationError::TypeNotSupported)
+            | Err(safegl::texture::TextureCreationError::FormatNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     match texture.get_internal_format() {
@@ -229,7 +232,7 @@ fn rows_without_padding() {
     .unwrap();
 
     let image: TextureAnyImage<'_> = texture.main_level().into();
-    let read: Vec<Vec<(u8, u8, u8)>> = image.raw_read(&rect(0, 0, 3, 3));
+    let read: Vec<Vec<(u8, u8, u8)>> = image.raw_read(&rect(0, 0, 3, 3)).unwrap();
     assert_eq!(read[1][0], (0, 1, 0));
     assert_eq!(read[2][2], (2, 2, 0));
     display.assert_no_error(None);

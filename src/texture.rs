@@ -91,10 +91,25 @@ that screens darken some values that they receive.
 When you load image files, you are encouraged to create sRGB textures (with `SrgbTexture2d` instead
 of `Texture2d` for example).
 
-By default, SafeGL enables the `GL_FRAMEBUFFER_SRGB` trigger, which expects the output of your
-fragment shader to be in linear RGB and then turns it into sRGB before writing in the framebuffer.
-Sampling from an sRGB texture will convert the texture colors from sRGB to RGB. If you create a
-regular RGB texture and put sRGB data in it, then the result will be too bright.
+Sampling an sRGB texture converts its texels from sRGB to linear RGB. If you create a regular RGB
+texture and put sRGB data in it, the colors are too bright when the shader uses them as linear
+values.
+
+When drawing, the `outputs_srgb` flag of the program decides what happens to the colors written
+to an sRGB target:
+
+- With `outputs_srgb: true`, the default of `Program::from_source` and of `program!`, the fragment
+  shader outputs sRGB values: SafeGL disables `GL_FRAMEBUFFER_SRGB` and the colors are written as
+  they are.
+- With `outputs_srgb: false`, the fragment shader outputs linear RGB: SafeGL enables
+  `GL_FRAMEBUFFER_SRGB` and the colors are converted to sRGB when they are written.
+
+Targets that aren't sRGB are never converted. Likewise, `clear_color` takes linear values, which
+are converted for sRGB targets, and `clear_color_srgb` takes sRGB values, written as they are.
+
+OpenGL ES can only write to sRGB targets without the conversion with
+`GL_EXT_sRGB_write_control`. Without it, the colors are always converted, whatever `outputs_srgb`
+is, and `clear_color_srgb` behaves like `clear_color`.
 
 # Bindless textures
 
@@ -888,6 +903,11 @@ pub enum TextureCreationError {
 
     /// The size of the data doesn't match the texture dimensions.
     DataSizeMismatch,
+
+    /// Mipmaps can't be generated for the texture: it is multisampled, or the backend can't
+    /// generate mipmaps in its format, like the formats that aren't both color-renderable and
+    /// filterable on OpenGL ES.
+    MipmapsNotSupported,
 }
 
 impl fmt::Display for TextureCreationError {
@@ -898,12 +918,70 @@ impl fmt::Display for TextureCreationError {
             DimensionsNotSupported => "The requested texture dimensions are not supported",
             TypeNotSupported => "The texture type is not supported by the backend",
             DataSizeMismatch => "The size of the data doesn't match the texture dimensions",
+            MipmapsNotSupported => "Mipmaps can't be generated for the texture",
         };
         fmt.write_str(desc)
     }
 }
 
 impl Error for TextureCreationError {}
+
+/// Error that can happen when uploading data to a texture.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UploadError {
+    /// The region is outside of the texture, or its dimensions don't match the data.
+    OutOfBounds,
+
+    /// The data doesn't have the size that the region needs in its format.
+    DataSizeMismatch {
+        /// The size in bytes that the region needs.
+        expected: usize,
+        /// The size in bytes of the data.
+        obtained: usize,
+    },
+
+    /// The backend doesn't support uploading data in this format to this texture.
+    FormatNotSupported,
+
+    /// OpenGL can't upload data to multisample textures; draw to them instead.
+    MultisampleTexture,
+
+    /// The pixel buffer to upload from belongs to another context than the texture. OpenGL
+    /// objects can only be used with the context that created them.
+    ContextMismatch,
+
+    /// The pixel buffer doesn't hold enough pixels for the region.
+    BufferTooSmall,
+}
+
+impl fmt::Display for UploadError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UploadError::OutOfBounds => fmt.write_str(
+                "The region is outside of the texture, or its dimensions don't match the data",
+            ),
+            UploadError::DataSizeMismatch { expected, obtained } => write!(
+                fmt,
+                "The data has {} bytes, but the region needs {}",
+                obtained, expected
+            ),
+            UploadError::FormatNotSupported => fmt.write_str(
+                "The backend doesn't support uploading data in this format to this texture",
+            ),
+            UploadError::MultisampleTexture => {
+                fmt.write_str("OpenGL can't upload data to multisample textures")
+            }
+            UploadError::ContextMismatch => fmt.write_str(
+                "The pixel buffer belongs to another context than the texture",
+            ),
+            UploadError::BufferTooSmall => {
+                fmt.write_str("The pixel buffer doesn't hold enough pixels for the region")
+            }
+        }
+    }
+}
+
+impl Error for UploadError {}
 
 impl From<FormatNotSupportedError> for TextureCreationError {
     #[inline]

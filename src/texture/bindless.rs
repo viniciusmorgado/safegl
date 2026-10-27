@@ -188,7 +188,7 @@ impl<'a> AsUniformValue for TextureHandle<'a> {
     }
 }
 
-impl<'a> UniformBlock for TextureHandle<'a> {
+unsafe impl<'a> UniformBlock for TextureHandle<'a> {
     fn matches(layout: &BlockLayout, base_offset: usize) -> Result<(), LayoutMismatchError> {
         if let BlockLayout::BasicType {
             ty,

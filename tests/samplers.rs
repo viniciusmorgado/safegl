@@ -78,7 +78,7 @@ fn magnify_nearest_filtering() {
         Err(e) => panic!("{:?}", e),
     };
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read().unwrap();
     assert_eq!(data[0][0], (255, 255, 255, 255));
 
     display.assert_no_error(None);
@@ -125,7 +125,7 @@ fn border_color() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read().unwrap();
     assert_eq!(data[0][0], (0, 255, 0, 255));
     display.assert_no_error(None);
 }
@@ -142,6 +142,6 @@ fn sampler_value_outlives_the_sampler() {
         .into();
     assert!(matches!(
         value,
-        safegl::uniforms::UniformValue::Texture2d(_, Some(_))
+        safegl::uniforms::UniformValue::Texture(_, Some(_))
     ));
 }

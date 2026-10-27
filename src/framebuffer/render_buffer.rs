@@ -25,7 +25,7 @@ use crate::texture::{
 use crate::image_format;
 
 use crate::backend::Facade;
-use crate::context::Context;
+use crate::context::{CommandContext, Context};
 use crate::fbo::FramebuffersContainer;
 use crate::gl;
 use crate::ContextExt;
@@ -536,11 +536,18 @@ impl RenderBufferAny {
 
     /// Determines the number of depth and stencil bits in the format of this render buffer.
     pub fn get_depth_stencil_bits(&self) -> (u16, u16) {
+        self.get_depth_stencil_bits_with(&mut self.context.make_current())
+    }
+
+    /// Same as `get_depth_stencil_bits`, with the context already current.
+    pub(crate) fn get_depth_stencil_bits_with(&self, ctxt: &mut CommandContext<'_>) -> (u16, u16) {
         unsafe {
-            let ctxt = self.context.make_current();
-            ctxt.glow
-                .bind_renderbuffer(glow::RENDERBUFFER, Some(self.id));
-            // FIXME: GL version considerations
+            // `glGetRenderbufferParameteriv` is core in OpenGL 3.0 and OpenGL ES 2.0
+            if ctxt.state.renderbuffer != Some(self.id) {
+                ctxt.glow
+                    .bind_renderbuffer(glow::RENDERBUFFER, Some(self.id));
+                ctxt.state.renderbuffer = Some(self.id);
+            }
             let depth_bits: gl::types::GLint = ctxt
                 .glow
                 .get_renderbuffer_parameter_i32(glow::RENDERBUFFER, glow::RENDERBUFFER_DEPTH_SIZE);
@@ -548,7 +555,6 @@ impl RenderBufferAny {
                 glow::RENDERBUFFER,
                 glow::RENDERBUFFER_STENCIL_SIZE,
             );
-            ctxt.glow.bind_renderbuffer(glow::RENDERBUFFER, None);
             (depth_bits as u16, stencil_bits as u16)
         }
     }

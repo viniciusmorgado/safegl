@@ -44,7 +44,12 @@ impl SyncFence {
         F: Facade,
     {
         let mut ctxt = facade.get_context().make_current();
-        unsafe { new_linear_sync_fence(&mut ctxt) }.map(|f| f.into_sync_fence(facade))
+        unsafe { new_linear_sync_fence(&mut ctxt) }.map(|fence| {
+            match fence.into_sync_fence(facade) {
+                Ok(fence) => fence,
+                Err(_) => unreachable!("the fence was created by the context of the facade"),
+            }
+        })
     }
 
     /// Returns true if the operations before the fence have finished on the server, without
@@ -104,21 +109,32 @@ impl Drop for SyncFence {
 #[must_use]
 pub struct LinearSyncFence {
     id: Option<glow::Fence>,
+    // the address of the context that created the fence, which identifies it without making the
+    // fence not `Send`
+    context: usize,
 }
 
 unsafe impl Send for LinearSyncFence {}
 
 impl LinearSyncFence {
     /// Turns the prototype into a real fence.
+    ///
+    /// Returns the prototype if `facade` isn't the context that created it: OpenGL objects can
+    /// only be used with the context that created them.
     #[inline]
-    pub fn into_sync_fence<F: ?Sized>(mut self, facade: &F) -> SyncFence
+    pub fn into_sync_fence<F: ?Sized>(mut self, facade: &F) -> Result<SyncFence, LinearSyncFence>
     where
         F: Facade,
     {
-        SyncFence {
-            context: facade.get_context().clone(),
-            id: self.id.take(),
+        let context = facade.get_context();
+        if &**context as *const Context as usize != self.context {
+            return Err(self);
         }
+
+        Ok(SyncFence {
+            context: context.clone(),
+            id: self.id.take(),
+        })
     }
 }
 
@@ -136,6 +152,7 @@ pub unsafe fn new_linear_sync_fence(
 ) -> Result<LinearSyncFence, SyncNotSupportedError> {
     // sync objects are core in OpenGL 3.2 and OpenGL ES 3.0
     Ok(LinearSyncFence {
+        context: ctxt.context as *const Context as usize,
         id: Some(
             ctxt.glow
                 .fence_sync(glow::SYNC_GPU_COMMANDS_COMPLETE, 0)

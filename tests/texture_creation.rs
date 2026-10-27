@@ -38,7 +38,7 @@ fn get_format_u8u8u8u8() {
     display.assert_no_error(None);
 
     let format = match texture.get_internal_format() {
-        Err(_) => return,
+        Err(safegl::texture::GetFormatError::NotSupported) => return,
         Ok(f) => f,
     };
 
@@ -72,7 +72,10 @@ fn depth_texture_1d_creation() {
     let display = support::build_display();
 
     let texture = match safegl::texture::DepthTexture1d::new(&display, vec![0.0, 0.0, 0.0, 0.0f32]) {
-        Err(_) => return, // TODO: not supported error
+        Err(safegl::texture::TextureCreationError::FormatNotSupported)
+        | Err(safegl::texture::TextureCreationError::DimensionsNotSupported)
+        | Err(safegl::texture::TextureCreationError::TypeNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(t) => t,
     };
 
@@ -130,7 +133,7 @@ fn texture_2d_as_uniform_value_lifetime() {
     let uniforms = get_uniforms(&texture);
     assert!(matches!(
         uniforms,
-        safegl::uniforms::UniformValue::Texture2d(..)
+        safegl::uniforms::UniformValue::Texture(..)
     ));
 
     display.assert_no_error(None);
@@ -167,7 +170,10 @@ fn depth_texture_2d_creation() {
     );
 
     let texture = match texture {
-        Err(_) => return, // TODO: not supported error
+        Err(safegl::texture::TextureCreationError::FormatNotSupported)
+        | Err(safegl::texture::TextureCreationError::DimensionsNotSupported)
+        | Err(safegl::texture::TextureCreationError::TypeNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(t) => t,
     };
 
@@ -180,14 +186,15 @@ fn depth_texture_2d_creation() {
 }
 
 #[test]
-#[ignore] // `thread 'empty_depth_texture2d_f32' panicked at 'assertion failed: version >= &GlVersion(3, 0)'`
 fn empty_depth_texture2d_f32() {
     let display = support::build_display();
 
-    let _texture = safegl::texture::DepthTexture2d::empty(&display, 128, 128);
+    let texture = safegl::texture::DepthTexture2d::empty(&display, 128, 128).unwrap();
+    assert_eq!(texture.get_width(), 128);
+    assert_eq!(texture.get_height(), Some(128));
 
     display.assert_no_error(None);
-    drop(_texture);
+    drop(texture);
     display.assert_no_error(None);
 }
 
@@ -222,7 +229,10 @@ macro_rules! empty_texture_test {
             let display = support::build_display();
 
             let texture = match safegl::texture::$tex_ty::empty(&display, $($dims),+) {
-                Err(_) => return,       // TODO: make sure it's `NotSupported`
+                Err(safegl::texture::TextureCreationError::FormatNotSupported)
+                | Err(safegl::texture::TextureCreationError::DimensionsNotSupported)
+                | Err(safegl::texture::TextureCreationError::TypeNotSupported) => return,
+                Err(e) => panic!("{:?}", e),
                 Ok(tex) => tex
             };
 
@@ -531,7 +541,10 @@ fn zero_sized_texture_1d_creation() {
     let display = support::build_display();
 
     let texture = match safegl::texture::Texture1d::new(&display, Vec::<(u8, u8, u8, u8)>::new()) {
-        Err(_) => return, // TODO: make sure it's `NotSupported`
+        Err(safegl::texture::TextureCreationError::FormatNotSupported)
+        | Err(safegl::texture::TextureCreationError::DimensionsNotSupported)
+        | Err(safegl::texture::TextureCreationError::TypeNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(t) => t,
     };
 
@@ -564,7 +577,10 @@ fn zero_sized_texture_3d_creation() {
 
     let texture =
         match safegl::texture::Texture3d::new(&display, Vec::<Vec<Vec<(u8, u8, u8, u8)>>>::new()) {
-            Err(_) => return, // TODO: make sure it's `NotSupported`
+            Err(safegl::texture::TextureCreationError::FormatNotSupported)
+            | Err(safegl::texture::TextureCreationError::DimensionsNotSupported)
+            | Err(safegl::texture::TextureCreationError::TypeNotSupported) => return,
+            Err(e) => panic!("{:?}", e),
             Ok(t) => t,
         };
 
@@ -579,7 +595,7 @@ fn zero_sized_texture_3d_creation() {
 #[cfg(feature = "gl46")]
 #[test]
 fn bindless_texture_residency_context_rebuild() {
-    let display = support::build_display();
+    let mut display = support::build_display();
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
     let texture = safegl::texture::Texture2d::new(
@@ -593,12 +609,12 @@ fn bindless_texture_residency_context_rebuild() {
 
     let texture = match texture.resident() {
         Ok(t) => t,
-        Err(_) => return,
+        Err(safegl::texture::BindlessTexturesNotSupportedError) => return,
     };
 
     // here is the trick: we rebuild the display, meaning that texture residency has to be updated
     // by SafeGL
-    support::rebuild_display(&display);
+    support::rebuild_display(&mut display);
 
     // if bindless textures are supported, we can call .unwrap() and expect that everything
     // else is supported here as well
@@ -606,9 +622,9 @@ fn bindless_texture_residency_context_rebuild() {
     let program = safegl::Program::from_source(
         &display,
         "
-            #version 100
+            #version 400
 
-            attribute lowp vec2 position;
+            in vec2 position;
 
             void main() {
                 gl_Position = vec4(position, 0.0, 1.0);
@@ -651,7 +667,7 @@ fn bindless_texture_residency_context_rebuild() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 0, 255));
@@ -677,9 +693,9 @@ fn upload_from_pixel_buffer() {
 
     texture
         .main_level()
-        .raw_upload_from_pixel_buffer(buffer.as_slice(), 0..2, 0..2, 0..1);
+        .raw_upload_from_pixel_buffer(buffer.as_slice(), 0..2, 0..2, 0..1).unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(data[0][0], (0, 255, 0, 255));
     assert_eq!(data[0][1], (255, 0, 255, 0));
     assert_eq!(data[1][0], (255, 255, 0, 255));
@@ -708,13 +724,80 @@ fn upload_from_pixel_buffer_inverted() {
 
     texture
         .main_level()
-        .raw_upload_from_pixel_buffer_inverted(buffer.as_slice(), 0..2, 0..2, 0..1);
+        .raw_upload_from_pixel_buffer_inverted(buffer.as_slice(), 0..2, 0..2, 0..1).unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(data[0][0], (0, 255, 0, 255));
     assert_eq!(data[0][1], (255, 0, 255, 0));
     assert_eq!(data[1][0], (0, 255, 255, 255));
     assert_eq!(data[1][1], (255, 0, 0, 255));
+
+    display.assert_no_error(None);
+}
+
+#[test]
+fn compressed_texture_with_partial_blocks() {
+    use safegl::texture::{CompressedFormat, CompressedMipmapsOption, CompressedTexture2d};
+
+    let display = support::build_display();
+
+    // a 6x6 image takes 2x2 blocks of 8 bytes in DXT1, the blocks at the edges being partial
+    let data = vec![0u8; 2 * 2 * 8];
+    let texture = CompressedTexture2d::with_compressed_data(
+        &display,
+        &data,
+        6,
+        6,
+        CompressedFormat::S3tcDxt1NoAlpha,
+        CompressedMipmapsOption::NoMipmap,
+    );
+    match texture {
+        Ok(texture) => assert_eq!(texture.get_width(), 6),
+        // without S3TC
+        Err(safegl::texture::TextureCreationError::FormatNotSupported) => (),
+        Err(e) => panic!("{:?}", e),
+    }
+
+    // data whose size doesn't fit the blocks is an error, not a panic
+    let result = CompressedTexture2d::with_compressed_data(
+        &display,
+        &data[..10],
+        6,
+        6,
+        CompressedFormat::S3tcDxt1NoAlpha,
+        CompressedMipmapsOption::NoMipmap,
+    );
+    assert!(result.is_err());
+
+    display.assert_no_error(None);
+}
+
+#[test]
+fn data_of_the_wrong_size() {
+    let display = support::build_display();
+
+    // RGB bytes given as RGBA
+    let image = safegl::texture::RawImage2d::from_raw_rgba(vec![0u8; 3 * 4 * 4], (4, 4));
+    assert!(matches!(
+        safegl::Texture2d::new(&display, image),
+        Err(safegl::texture::TextureCreationError::DataSizeMismatch)
+    ));
+
+    let texture = safegl::Texture2d::empty(&display, 4, 4).unwrap();
+    let image = safegl::texture::RawImage2d::from_raw_rgba(vec![0u8; 3 * 4 * 4], (4, 4));
+    let result = texture.write(
+        safegl::Rect {
+            left: 0,
+            bottom: 0,
+            width: 4,
+            height: 4,
+        },
+        image,
+    );
+    assert!(matches!(
+        result,
+        Err(safegl::texture::UploadError::DataSizeMismatch { expected: 64, obtained: 48 })
+    ));
 
     display.assert_no_error(None);
 }

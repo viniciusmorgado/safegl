@@ -1,7 +1,6 @@
 use crate::buffer::{Buffer, BufferAny, BufferCreationError, BufferMode, BufferType, Content};
 use crate::buffer::{BufferMutSlice, BufferSlice};
-use crate::program;
-use crate::uniforms::{AsUniformValue, LayoutMismatchError, UniformBlock, UniformValue};
+use crate::uniforms::{AsUniformValue, UniformBlock, UniformValue};
 
 use crate::GlObject;
 
@@ -12,17 +11,22 @@ use crate::backend::Facade;
 /// Buffer that contains a uniform block.
 ///
 /// For example, to use a `UniformBuffer<[u32; 8]>`, you must declare it in GLSL as
-///```ignore
-///     uniform MyBlock {
-///         uint array[8];
-///     };
-///```
+/// ```glsl
+/// uniform MyBlock {
+///     uint array[8];
+/// };
+/// ```
 ///
 /// and pass it to `uniform!` like this:
-///     # use safegl::uniform;
-///     uniform! {
-///         MyBlock: &buffer,
-///     }
+///
+/// ```no_run
+/// # use safegl::uniform;
+/// # fn example(buffer: safegl::uniforms::UniformBuffer<[u32; 8]>) {
+/// let uniforms = uniform! {
+///     MyBlock: &buffer,
+/// };
+/// # }
+/// ```
 #[derive(Debug)]
 pub struct UniformBuffer<T: ?Sized>
 where
@@ -111,6 +115,7 @@ where
     pub fn empty<F: ?Sized>(facade: &F) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         UniformBuffer::empty_impl(facade, BufferMode::Default)
     }
@@ -120,6 +125,7 @@ where
     pub fn empty_dynamic<F: ?Sized>(facade: &F) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         UniformBuffer::empty_impl(facade, BufferMode::Dynamic)
     }
@@ -129,6 +135,7 @@ where
     pub fn empty_persistent<F: ?Sized>(facade: &F) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         UniformBuffer::empty_impl(facade, BufferMode::Persistent)
     }
@@ -138,6 +145,7 @@ where
     pub fn empty_immutable<F: ?Sized>(facade: &F) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         UniformBuffer::empty_impl(facade, BufferMode::Immutable)
     }
@@ -149,6 +157,7 @@ where
     ) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         let buffer = Buffer::empty(facade, BufferType::UniformBuffer, mode)?;
 
@@ -173,6 +182,7 @@ where
     ) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         UniformBuffer::empty_unsized_impl(facade, size, BufferMode::Default)
     }
@@ -190,6 +200,7 @@ where
     ) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         UniformBuffer::empty_unsized_impl(facade, size, BufferMode::Dynamic)
     }
@@ -207,6 +218,7 @@ where
     ) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         UniformBuffer::empty_unsized_impl(facade, size, BufferMode::Persistent)
     }
@@ -224,6 +236,7 @@ where
     ) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         UniformBuffer::empty_unsized_impl(facade, size, BufferMode::Immutable)
     }
@@ -236,6 +249,7 @@ where
     ) -> Result<UniformBuffer<T>, BufferCreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         let buffer = Buffer::empty_unsized(facade, BufferType::UniformBuffer, size, mode)?;
 
@@ -291,15 +305,6 @@ where
 {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
-        #[inline]
-        fn f<T: ?Sized>(block: &program::UniformBlock) -> Result<(), LayoutMismatchError>
-        where
-            T: UniformBlock + Content,
-        {
-            // TODO: more checks?
-            T::matches(&block.layout, 0)
-        }
-
-        UniformValue::Block(self.buffer.as_slice_any(), f::<T>)
+        UniformValue::block(self.buffer.as_slice())
     }
 }

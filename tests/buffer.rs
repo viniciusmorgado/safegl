@@ -18,6 +18,7 @@ fn buffer_immutable_creation() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     safegl::VertexBuffer::new(
         &display,
@@ -52,6 +53,7 @@ fn buffer_dynamic_creation() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     safegl::VertexBuffer::dynamic(
         &display,
@@ -86,6 +88,7 @@ fn buffer_immutable_empty_creation() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb: safegl::VertexBuffer<Vertex> = safegl::VertexBuffer::empty(&display, 12).unwrap();
     assert_eq!(vb.len(), 12);
@@ -104,6 +107,7 @@ fn buffer_dynamic_empty_creation() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb: safegl::VertexBuffer<Vertex> = safegl::VertexBuffer::empty_dynamic(&display, 12).unwrap();
     assert_eq!(vb.len(), 12);
@@ -122,6 +126,7 @@ fn buffer_immutable_mapping_read() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let mut vb = safegl::VertexBuffer::new(
         &display,
@@ -156,6 +161,7 @@ fn buffer_dynamic_mapping_read() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let mut vb = safegl::VertexBuffer::dynamic(
         &display,
@@ -190,6 +196,7 @@ fn buffer_immutable_mapping_write() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let mut vb = safegl::VertexBuffer::new(
         &display,
@@ -229,6 +236,7 @@ fn buffer_dynamic_mapping_write() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let mut vb = safegl::VertexBuffer::dynamic(
         &display,
@@ -269,6 +277,7 @@ fn buffer_mapping_multithread() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let mut vb = safegl::VertexBuffer::empty(&display, 2).unwrap();
 
@@ -298,6 +307,7 @@ fn buffer_immutable_read() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb = safegl::VertexBuffer::new(
         &display,
@@ -337,6 +347,7 @@ fn buffer_dynamic_read() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb = safegl::VertexBuffer::dynamic(
         &display,
@@ -376,6 +387,7 @@ fn buffer_immutable_read_slice() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb = safegl::VertexBuffer::new(
         &display,
@@ -414,6 +426,7 @@ fn buffer_dynamic_read_slice() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb = safegl::VertexBuffer::dynamic(
         &display,
@@ -452,6 +465,7 @@ fn buffer_slice_out_of_bounds() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb = safegl::VertexBuffer::new(
         &display,
@@ -469,6 +483,11 @@ fn buffer_slice_out_of_bounds() {
     .unwrap();
 
     assert!(vb.slice(0..3).is_none());
+    // a range that ends before it starts would have a negative size
+    #[allow(clippy::reversed_empty_ranges)]
+    let reversed = vb.slice(2..1);
+    assert!(reversed.is_none());
+    assert!(vb.slice(1..1).unwrap().len() == 0);
 
     display.assert_no_error(None);
 }
@@ -484,6 +503,7 @@ fn buffer_immutable_write() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb = safegl::VertexBuffer::new(
         &display,
@@ -536,6 +556,7 @@ fn buffer_dynamic_write() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb = safegl::VertexBuffer::dynamic(
         &display,
@@ -588,6 +609,7 @@ fn buffer_immutable_write_slice() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb = safegl::VertexBuffer::new(
         &display,
@@ -634,6 +656,7 @@ fn buffer_dynamic_write_slice() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     let vb = safegl::VertexBuffer::dynamic(
         &display,
@@ -680,6 +703,7 @@ fn zero_sized_immutable_buffer() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     safegl::VertexBuffer::new(&display, &Vec::<Vertex>::new()).unwrap();
 
@@ -697,6 +721,7 @@ fn zero_sized_dynamic_buffer() {
     }
 
     implement_vertex!(Vertex, field1, field2);
+    implement_any_bit_pattern!(Vertex, field1, field2);
 
     safegl::VertexBuffer::new(&display, &Vec::<Vertex>::new()).unwrap();
 
@@ -712,6 +737,7 @@ fn invalidate() {
         field: f32,
     }
     implement_vertex!(Vertex, field);
+    implement_any_bit_pattern!(Vertex, field);
 
     let buffer = safegl::VertexBuffer::new(&display, &[Vertex { field: 2.0 }]).unwrap();
 
@@ -729,6 +755,7 @@ fn invalidate_range() {
         field: f32,
     }
     implement_vertex!(Vertex, field);
+    implement_any_bit_pattern!(Vertex, field);
 
     let buffer = safegl::VertexBuffer::new(
         &display,
@@ -832,6 +859,7 @@ fn immutable_mapping_forget_then_draw() {
     }
 
     implement_vertex!(Vertex, position);
+    implement_any_bit_pattern!(Vertex, position);
 
     let mut vb = safegl::VertexBuffer::new(
         &display,
@@ -929,7 +957,7 @@ fn immutable_mapping_forget_then_draw() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for pixel in data.iter().flat_map(|e| e.iter()) {
         assert_eq!(*pixel, (255, 0, 0, 255));
     }
@@ -1024,6 +1052,7 @@ fn dynamic_mapping_forget_then_draw() {
     }
 
     implement_vertex!(Vertex, position);
+    implement_any_bit_pattern!(Vertex, position);
 
     let mut vb = safegl::VertexBuffer::dynamic(
         &display,
@@ -1121,7 +1150,7 @@ fn dynamic_mapping_forget_then_draw() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for pixel in data.iter().flat_map(|e| e.iter()) {
         assert_eq!(*pixel, (255, 0, 0, 255));
     }
@@ -1139,7 +1168,7 @@ fn copy_to() {
         safegl::buffer::BufferType::ArrayBuffer,
         BufferMode::Persistent,
     );
-    let buf1 = if let Ok(buf) = buf1 { buf } else { return };
+    let buf1 = buf1.unwrap();
 
     let buf2 = safegl::buffer::BufferView::new(
         &display,
@@ -1147,15 +1176,16 @@ fn copy_to() {
         safegl::buffer::BufferType::ArrayBuffer,
         BufferMode::Persistent,
     );
-    let buf2 = if let Ok(buf) = buf2 { buf } else { return };
+    let buf2 = buf2.unwrap();
 
-    if buf1.copy_to(buf2.as_slice()).is_err() {
-        return;
+    match buf1.copy_to(buf2.as_slice()) {
+        Err(safegl::buffer::CopyError::NotSupported) => return,
+        result => result.unwrap(),
     }
 
     let result = match buf2.read() {
         Ok(r) => r,
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     assert_eq!(result, [1, 2, 3]);
@@ -1173,7 +1203,7 @@ fn copy_to_slice() {
         safegl::buffer::BufferType::ArrayBuffer,
         BufferMode::Persistent,
     );
-    let buf1 = if let Ok(buf) = buf1 { buf } else { return };
+    let buf1 = buf1.unwrap();
 
     let buf2 = safegl::buffer::BufferView::<[u8]>::new(
         &display,
@@ -1181,15 +1211,16 @@ fn copy_to_slice() {
         safegl::buffer::BufferType::ArrayBuffer,
         BufferMode::Persistent,
     );
-    let buf2 = if let Ok(buf) = buf2 { buf } else { return };
+    let buf2 = buf2.unwrap();
 
-    if buf1.copy_to(buf2.slice(1..3).unwrap()).is_err() {
-        return;
+    match buf1.copy_to(buf2.slice(1..3).unwrap()) {
+        Err(safegl::buffer::CopyError::NotSupported) => return,
+        result => result.unwrap(),
     }
 
     let result = match buf2.read() {
         Ok(r) => r,
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     assert_eq!(result, [0, 1, 2]);

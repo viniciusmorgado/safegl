@@ -313,7 +313,8 @@ impl ApplicationContext for Application {
                     .first_layer()
                     .into_image(None)
                     .unwrap()
-                    .raw_read_to_pixel_buffer(&read_target, &self.picking_pbo);
+                    .raw_read_to_pixel_buffer(&read_target, &self.picking_pbo)
+                    .unwrap();
             } else {
                 self.picking_pbo.write(&[0]);
             }

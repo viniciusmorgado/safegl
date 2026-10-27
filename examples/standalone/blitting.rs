@@ -63,12 +63,12 @@ impl ApplicationContext for Application {
                 &self.dest_texture.as_surface(),
                 &dest_rect,
                 safegl::uniforms::MagnifySamplerFilter::Linear,
-            );
+            ).unwrap();
         }
 
         self.dest_texture
             .as_surface()
-            .fill(&frame, safegl::uniforms::MagnifySamplerFilter::Linear);
+            .fill(&frame, safegl::uniforms::MagnifySamplerFilter::Linear).unwrap();
         frame.finish().unwrap();
     }
 }

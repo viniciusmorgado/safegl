@@ -38,9 +38,7 @@ impl Fences {
         let mut new_fences = SmallVec::new();
 
         for existing in existing_fences.drain(..) {
-            if (existing.0.start >= range.start && existing.0.start < range.end)
-                || (existing.0.end > range.start && existing.0.end < range.end)
-            {
+            if overlaps(&existing.0, &range) {
                 unsafe { sync::wait_linear_sync_fence_and_drop(existing.1, ctxt) };
             } else {
                 new_fences.push(existing);
@@ -122,5 +120,33 @@ impl<'a> Inserter<'a> {
         }
 
         *existing_fences = new_fences;
+    }
+}
+
+/// Returns true if the two ranges of bytes have bytes in common.
+fn overlaps(a: &Range<usize>, b: &Range<usize>) -> bool {
+    !a.is_empty() && !b.is_empty() && a.start < b.end && b.start < a.end
+}
+
+#[cfg(test)]
+mod tests {
+    use super::overlaps;
+
+    #[test]
+    fn overlapping_ranges() {
+        // a fence over the whole buffer covers a write in its middle
+        assert!(overlaps(&(0..100), &(10..20)));
+        // and the other way around
+        assert!(overlaps(&(10..20), &(0..100)));
+        // ranges that end at the same byte
+        assert!(overlaps(&(50..100), &(0..100)));
+        assert!(overlaps(&(0..100), &(50..100)));
+        // ranges that share some bytes
+        assert!(overlaps(&(0..50), &(25..75)));
+        // ranges next to each other don't
+        assert!(!overlaps(&(0..50), &(50..100)));
+        assert!(!overlaps(&(50..100), &(0..50)));
+        // nor empty ranges
+        assert!(!overlaps(&(10..10), &(0..100)));
     }
 }

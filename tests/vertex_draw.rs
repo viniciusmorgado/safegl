@@ -19,12 +19,14 @@ struct Vertex {
     position: [f32; 2],
 }
 implement_vertex!(Vertex, position);
+implement_any_bit_pattern!(Vertex, position);
 
 #[derive(Copy, Clone)]
 struct Instance {
     color: [f32; 4],
 }
 implement_vertex!(Instance, color);
+implement_any_bit_pattern!(Instance, color);
 
 /// The `#version` line for desktop OpenGL, or for OpenGL ES with a default precision.
 fn header(display: &Display) -> &'static str {
@@ -64,7 +66,7 @@ const QUAD: [Vertex; 6] = [
 ];
 
 fn pixel(texture: &Texture2d) -> (u8, u8, u8, u8) {
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     data[0][0]
 }
 
@@ -302,5 +304,113 @@ fn vertex_buffer_any_back_to_typed() {
 
     let vertices: VertexBuffer<Vertex> = unsafe { any.into_vertex_buffer() };
     assert_eq!(vertices.read().unwrap(), QUAD.to_vec());
+    display.assert_no_error(None);
+}
+
+#[test]
+fn indexed_vertex_buffers_of_different_lengths() {
+    // with indices, the vertex buffers don't need the same length, and all of them are bound
+    let display = support::build_display();
+
+    #[derive(Copy, Clone)]
+    struct Unused {
+        unused: f32,
+    }
+    implement_vertex!(Unused, unused);
+
+    #[derive(Copy, Clone)]
+    struct Color {
+        color: [f32; 4],
+    }
+    implement_vertex!(Color, color);
+
+    let positions = VertexBuffer::new(
+        &display,
+        &[
+            Vertex { position: [-1.0, -1.0] },
+            Vertex { position: [-1.0, 1.0] },
+            Vertex { position: [1.0, -1.0] },
+            Vertex { position: [1.0, 1.0] },
+        ],
+    )
+    .unwrap();
+    let unused = VertexBuffer::new(&display, &[Unused { unused: 0.0 }; 8]).unwrap();
+    let colors = VertexBuffer::new(&display, &[Color { color: [0.0, 1.0, 0.0, 1.0] }; 4]).unwrap();
+    let indices = safegl::IndexBuffer::new(
+        &display,
+        PrimitiveType::TriangleStrip,
+        &[0u16, 1, 2, 3],
+    )
+    .unwrap();
+
+    let program = build_program(
+        &display,
+        "in vec2 position;\nin float unused;\nin vec4 color;\nout vec4 v_color;\nvoid main() { v_color = color + vec4(unused); gl_Position = vec4(position, 0.0, 1.0); }",
+        "in vec4 v_color;\nvoid main() { f_color = v_color; }",
+    );
+
+    let texture = support::build_renderable_texture(&display);
+    texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+    texture
+        .as_surface()
+        .draw(
+            (&positions, &unused, &colors),
+            &indices,
+            &program,
+            &uniform! {},
+            &Default::default(),
+        )
+        .unwrap();
+
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
+    assert_eq!(data[0][0], (0, 255, 0, 255));
+
+    display.assert_no_error(None);
+}
+
+#[test]
+fn tuple_struct_vertices() {
+    use safegl::vertex::Vertex as _;
+
+    #[derive(Copy, Clone)]
+    struct TupleVertex([f32; 2], [u8; 4]);
+    implement_vertex!(TupleVertex, 0 => position, 1 => color normalize(true));
+
+    // the attributes have the names given, the offsets of the fields and their types
+    let bindings = TupleVertex::build_bindings();
+    assert_eq!(bindings[0].0, "position");
+    assert_eq!(bindings[0].1, 0);
+    assert_eq!(bindings[0].3, AttributeType::F32F32);
+    assert_eq!(bindings[1].0, "color");
+    assert_eq!(bindings[1].1, 8);
+    assert_eq!(bindings[1].3, AttributeType::U8U8U8U8);
+    assert!(bindings[1].4);
+
+    let display = support::build_display();
+    let vertices = VertexBuffer::new(
+        &display,
+        &QUAD.map(|v| TupleVertex(v.position, [0, 0, 255, 255])),
+    )
+    .unwrap();
+    let program = build_program(
+        &display,
+        "in vec2 position;\nin vec4 color;\nout vec4 v_color;\nvoid main() { v_color = color; gl_Position = vec4(position, 0.0, 1.0); }",
+        "in vec4 v_color;\nvoid main() { f_color = v_color; }",
+    );
+    let texture = support::build_renderable_texture(&display);
+    texture
+        .as_surface()
+        .draw(
+            &vertices,
+            NoIndices(PrimitiveType::TrianglesList),
+            &program,
+            &uniform! {},
+            &Default::default(),
+        )
+        .unwrap();
+
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
+    assert_eq!(data[0][0], (0, 0, 255, 255));
+
     display.assert_no_error(None);
 }

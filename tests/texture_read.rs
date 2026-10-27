@@ -29,7 +29,7 @@ fn texture_2d_read_pixelbuffer() {
     .unwrap();
 
     let read_back: Vec<Vec<(u8, u8, u8, u8)>> =
-        match texture.read_to_pixel_buffer().read_as_texture_2d() {
+        match texture.read_to_pixel_buffer().unwrap().read_as_texture_2d() {
             Ok(r) => r,
             Err(safegl::buffer::ReadError::NotSupported) => return,
             e => e.unwrap(),
@@ -50,11 +50,14 @@ macro_rules! read_texture_test {
             let display = support::build_display();
 
             let texture = match safegl::texture::$tex_ty::new(&display, $data) {
-                Err(_) => return, // TODO: make sure that the error is "NotSupported"
+                Err(safegl::texture::TextureCreationError::FormatNotSupported)
+                | Err(safegl::texture::TextureCreationError::DimensionsNotSupported)
+                | Err(safegl::texture::TextureCreationError::TypeNotSupported) => return,
+                Err(e) => panic!("{:?}", e),
                 Ok(t) => t,
             };
 
-            let read_back: Vec<Vec<$data_ty>> = texture.read();
+            let read_back: Vec<Vec<$data_ty>> = texture.read().unwrap();
 
             assert_eq!(read_back, $data);
 
@@ -141,3 +144,59 @@ read_texture_test!(read_unsignedtexture2darray, UnsignedTexture2dArray, (u8, u8,
 read_texture_test!(read_unsignedtexture3d, UnsignedTexture3d, (u8, u8, u8, u8),
     vec![vec![vec![(0, 1, 2, 3), (4, 5, 6, 7)], vec![(8, 9, 10, 11), (12, 13, 14, 15)]]]);*/
 // TODO: srgb textures
+
+#[test]
+fn read_float_values_exactly() {
+    let display = support::build_display();
+
+    let texture = match safegl::texture::Texture2d::empty_with_format(
+        &display,
+        safegl::texture::UncompressedFloatFormat::F32F32F32F32,
+        safegl::texture::MipmapsOption::NoMipmap,
+        2,
+        2,
+    ) {
+        Ok(texture) => texture,
+        Err(safegl::texture::TextureCreationError::TypeNotSupported)
+            | Err(safegl::texture::TextureCreationError::FormatNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
+    };
+    let texels = vec![vec![(1.5f32, -2.0f32, 1.0e6f32, 0.25f32); 2]; 2];
+    texture
+        .write(
+            safegl::Rect {
+                left: 0,
+                bottom: 0,
+                width: 2,
+                height: 2,
+            },
+            texels.clone(),
+        )
+        .unwrap();
+
+    // read as floats, the values are exact
+    let floats: Vec<Vec<(f32, f32, f32, f32)>> = texture.read_as().unwrap();
+    assert_eq!(floats, texels);
+
+    // read as bytes, they are clamped and normalized, on OpenGL ES too
+    let bytes: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
+    assert_eq!(bytes[0][0], (255, 0, 255, 64));
+
+    display.assert_no_error(None);
+}
+
+#[test]
+fn read_bytes_as_floats() {
+    let display = support::build_display();
+
+    let texture = support::build_unicolor_texture2d(&display, 1.0, 0.0, 0.0);
+    let floats: Vec<Vec<(f32, f32, f32, f32)>> = texture.read_as().unwrap();
+    assert_eq!(floats[0][0], (1.0, 0.0, 0.0, 1.0));
+
+    // and into a pixel buffer
+    let buffer = texture.read_to_pixel_buffer_as::<(f32, f32, f32, f32)>().unwrap();
+    let floats: Vec<Vec<(f32, f32, f32, f32)>> = buffer.read_as_texture_2d().unwrap();
+    assert_eq!(floats[0][0], (1.0, 0.0, 0.0, 1.0));
+
+    display.assert_no_error(None);
+}

@@ -6,6 +6,7 @@
 use crate::backend::Facade;
 use crate::context::Context;
 use crate::gl;
+use crate::draw_parameters::QueryResultError;
 use crate::version::Api;
 use crate::ContextExt;
 use glow::HasContext;
@@ -109,7 +110,7 @@ pub enum MessageType {
 ///
 /// match (after, before) {
 ///     (Some(after), Some(before)) => {
-///         let elapsed = after.get() - before.get();
+///         let elapsed = after.get().unwrap() - before.get().unwrap();
 ///         println!("Time it took to do stuff: {}", elapsed);
 ///     },
 ///     _ => ()
@@ -153,7 +154,13 @@ impl TimestampQuery {
     ///
     /// It takes some time to retrieve the value, during which you can execute other
     /// functions.
+    ///
+    /// Returns `false` if the context has been lost: the timestamp will never be available.
     pub fn is_ready(&self) -> bool {
+        if self.context.is_context_lost() {
+            return false;
+        }
+
         let ctxt = self.context.make_current();
 
         if ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_disjoint_timer_query {
@@ -170,19 +177,33 @@ impl TimestampQuery {
     /// Returns the value of the timestamp. Blocks until it is available.
     ///
     /// This function doesn't block if `is_ready` returns true.
-    pub fn get(self) -> u64 {
+    ///
+    /// Returns an error if the OpenGL context has been lost, since the timestamp is lost with it.
+    pub fn get(self) -> Result<u64, QueryResultError> {
+        if self.context.is_context_lost() {
+            return Err(QueryResultError::ContextLost);
+        }
+
         let ctxt = self.context.make_current();
 
         if ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_disjoint_timer_query {
             unsafe {
-                let value = ctxt
+                Ok(ctxt
                     .glow
-                    .get_query_parameter_u64(self.id, glow::QUERY_RESULT);
-                ctxt.glow.delete_query(self.id);
-                value
+                    .get_query_parameter_u64(self.id, glow::QUERY_RESULT))
             }
         } else {
             unreachable!();
+        }
+    }
+}
+
+impl Drop for TimestampQuery {
+    fn drop(&mut self) {
+        // also deletes the queries whose result was never read
+        let ctxt = self.context.make_current();
+        unsafe {
+            ctxt.glow.delete_query(self.id);
         }
     }
 }

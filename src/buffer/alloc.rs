@@ -16,7 +16,7 @@ use std::os::raw;
 use std::rc::Rc;
 use std::{fmt, mem, ptr};
 
-use crate::buffer::{BufferCreationError, BufferMode, BufferType, Content};
+use crate::buffer::{AnyBitPattern, BufferCreationError, BufferMode, BufferType, Content};
 use crate::vertex::TransformFeedbackSession;
 use crate::vertex_array_object::VertexAttributesSystem;
 
@@ -52,6 +52,13 @@ impl Error for ReadError {}
 pub enum CopyError {
     /// The backend doesn't support copying between buffers.
     NotSupported,
+
+    /// The target belongs to another context than the source. OpenGL objects can only be used
+    /// with the context that created them.
+    ContextMismatch,
+
+    /// The target is smaller than the source.
+    TargetTooSmall,
 }
 
 impl fmt::Display for CopyError {
@@ -59,6 +66,8 @@ impl fmt::Display for CopyError {
         use self::CopyError::*;
         let desc = match *self {
             NotSupported => "The backend doesn't support copying between buffers",
+            ContextMismatch => "The target belongs to another context than the source",
+            TargetTooSmall => "The target is smaller than the source",
         };
         fmt.write_str(desc)
     }
@@ -302,7 +311,7 @@ impl Alloc {
     }
 
     /// Makes sure that the buffer is bound to the `GL_QUERY_BUFFER` and calls
-    /// `glMemoryBarrier(GL_PIXEL_BUFFER_BARRIER_BIT)` if necessary.
+    /// `glMemoryBarrier(GL_QUERY_BUFFER_BARRIER_BIT)` if necessary.
     #[cfg(feature = "gl46")]
     pub fn prepare_and_bind_for_query(&self, ctxt: &mut CommandContext<'_>) {
         assert!(
@@ -314,7 +323,7 @@ impl Alloc {
         self.assert_unmapped(ctxt);
         self.assert_not_transform_feedback(ctxt);
 
-        if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_pixel_buffer {
+        if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_query_buffer {
             unsafe {
                 ctxt.glow.memory_barrier(glow::QUERY_BUFFER_BARRIER_BIT);
             }
@@ -955,7 +964,7 @@ impl Alloc {
     ///
     pub unsafe fn read<D: ?Sized>(&self, range: Range<usize>) -> Result<D::Owned, ReadError>
     where
-        D: Content,
+        D: Content + AnyBitPattern,
     {
         let size_to_read = range.end - range.start;
 
@@ -1015,7 +1024,7 @@ impl Alloc {
     ///
     /// # Panic
     ///
-    /// Panics if the offset/sizes are out of range.
+    /// Panics if the range is out of the source.
     ///
     pub fn copy_to(
         &self,
@@ -1023,12 +1032,17 @@ impl Alloc {
         target: &Alloc,
         dest_offset: usize,
     ) -> Result<(), CopyError> {
-        // TODO: read+write manually
-        // TODO: check that the other buffer belongs to the same context
+        // OpenGL objects can only be used with the context that created them
+        if !Rc::ptr_eq(&self.context, &target.context) {
+            return Err(CopyError::ContextMismatch);
+        }
 
+        // the ranges come from slices, which are always inside their buffer
         assert!(range.end >= range.start);
         assert!(range.end <= self.size);
-        assert!(dest_offset + range.end - range.start <= target.size);
+        if dest_offset + range.end - range.start > target.size {
+            return Err(CopyError::TargetTooSmall);
+        }
 
         let mut ctxt = self.context.make_current();
 

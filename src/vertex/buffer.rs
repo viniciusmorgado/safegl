@@ -202,6 +202,7 @@ where
     pub fn empty<F: ?Sized>(facade: &F, elements: usize) -> Result<VertexBuffer<T>, CreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         VertexBuffer::empty_impl(facade, elements, BufferMode::Default)
     }
@@ -216,6 +217,7 @@ where
     ) -> Result<VertexBuffer<T>, CreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         VertexBuffer::empty_impl(facade, elements, BufferMode::Dynamic)
     }
@@ -230,6 +232,7 @@ where
     ) -> Result<VertexBuffer<T>, CreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         VertexBuffer::empty_impl(facade, elements, BufferMode::Persistent)
     }
@@ -244,6 +247,7 @@ where
     ) -> Result<VertexBuffer<T>, CreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         VertexBuffer::empty_impl(facade, elements, BufferMode::Immutable)
     }
@@ -256,6 +260,7 @@ where
     ) -> Result<VertexBuffer<T>, CreationError>
     where
         F: Facade,
+        T: crate::buffer::AnyBitPattern,
     {
         if !T::is_supported(facade) {
             return Err(CreationError::FormatNotSupported);

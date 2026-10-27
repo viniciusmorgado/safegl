@@ -1,5 +1,5 @@
 /// A trait that must be implemented for any type that can represent the value of a pixel.
-pub unsafe trait PixelValue: Copy + Clone + Send + 'static {
+pub unsafe trait PixelValue: Copy + Clone + Send + crate::buffer::AnyBitPattern + 'static {
     /// Returns corresponding client format.
     fn get_format() -> super::ClientFormat;
 }

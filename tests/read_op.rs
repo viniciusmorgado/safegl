@@ -4,7 +4,6 @@ extern crate safegl;
 mod support;
 
 #[test]
-#[should_panic(expected = "rectangle out of bounds")]
 fn test_read() {
     let display = support::build_display();
 
@@ -20,7 +19,9 @@ fn test_read() {
         height: 8_388_608,
     };
 
-    let _pixels: Vec<Vec<(u8, u8, u8, u8)>> = image.raw_read(&rect);
+    // the rectangle is out of the image, even if its corners overflow
+    let pixels: Result<Vec<Vec<(u8, u8, u8, u8)>>, _> = image.raw_read(&rect);
+    assert!(matches!(pixels, Err(safegl::ReadError::OutOfBounds)));
 }
 
 #[test]

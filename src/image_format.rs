@@ -137,7 +137,8 @@ impl ClientFormat {
             ClientFormat::I32I32 => 2 * mem::size_of::<i32>(),
             ClientFormat::I32I32I32 => 3 * mem::size_of::<i32>(),
             ClientFormat::I32I32I32I32 => 4 * mem::size_of::<i32>(),
-            ClientFormat::U3U3U2 => (3 + 3 + 2) / 8,
+            // 3 + 3 + 2 bits
+            ClientFormat::U3U3U2 => 1,
             ClientFormat::U5U6U5 => (5 + 6 + 5) / 8,
             ClientFormat::U4U4U4U4 => (4 + 4 + 4 + 4) / 8,
             ClientFormat::U5U5U5U1 => (5 + 5 + 5 + 1) / 8,
@@ -1541,20 +1542,25 @@ impl ClientFormatAny {
     /// ## Panic
     ///
     /// Panics if the dimensions are invalid for this format.
+    /// Returns the size in bytes of an image of these dimensions in this format, or `None` if
+    /// the format can't have them: compressed formats are made of 4x4 blocks of two-dimensional
+    /// images.
     pub fn get_buffer_size(
         &self,
         width: u32,
         height: Option<u32>,
         depth: Option<u32>,
         array_size: Option<u32>,
-    ) -> usize {
-        match *self {
+    ) -> Option<usize> {
+        let block_bytes = match *self {
             ClientFormatAny::ClientFormat(ref format) => {
-                format.get_size()
-                    * width as usize
-                    * height.unwrap_or(1) as usize
-                    * depth.unwrap_or(1) as usize
-                    * array_size.unwrap_or(1) as usize
+                return Some(
+                    format.get_size()
+                        * width as usize
+                        * height.unwrap_or(1) as usize
+                        * depth.unwrap_or(1) as usize
+                        * array_size.unwrap_or(1) as usize,
+                );
             }
 
             // 8 bytes per 4x4 block
@@ -1563,28 +1569,7 @@ impl ClientFormatAny {
             | ClientFormatAny::CompressedFormat(CompressedFormat::S3tcDxt1NoAlpha)
             | ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::S3tcDxt1NoAlpha)
             | ClientFormatAny::CompressedFormat(CompressedFormat::RgtcFormatU)
-            | ClientFormatAny::CompressedFormat(CompressedFormat::RgtcFormatI) => {
-                let width = if width < 4 { 4 } else { width as usize };
-                let height = height
-                    .map(|height| if height < 4 { 4 } else { height as usize })
-                    .expect("ST3C, RGTC and BPTC textures must have 2 dimensions");
-                if (width % 4) != 0 || (height % 4) != 0 {
-                    panic!(
-                        "ST3C, RGTC and BPTC textures must have a width and height multiple of 4."
-                    );
-                }
-                if depth.is_some() {
-                    // allow `array_size` (2D textures arrays) but not depth (3D textures)
-                    panic!("ST3C, RGTC and BPTC textures are 2 dimension only.")
-                }
-
-                let uncompressed_bit_size = 4
-                    * width as usize
-                    * height as usize
-                    * depth.unwrap_or(1) as usize
-                    * array_size.unwrap_or(1) as usize;
-                uncompressed_bit_size / 8 // Apply 8:1 compression ratio
-            }
+            | ClientFormatAny::CompressedFormat(CompressedFormat::RgtcFormatI) => 8,
 
             // 16 bytes per 4x4 block
             ClientFormatAny::CompressedFormat(CompressedFormat::S3tcDxt3Alpha)
@@ -1596,36 +1581,43 @@ impl ClientFormatAny {
             | ClientFormatAny::CompressedFormat(CompressedFormat::BptcSignedFloat3)
             | ClientFormatAny::CompressedFormat(CompressedFormat::BptcUnsignedFloat3)
             | ClientFormatAny::CompressedFormat(CompressedFormat::RgtcFormatUU)
-            | ClientFormatAny::CompressedFormat(CompressedFormat::RgtcFormatII) => {
-                let width = if width < 4 { 4 } else { width as usize };
-                let height = height
-                    .map(|height| if height < 4 { 4 } else { height as usize })
-                    .expect("ST3C, RGTC and BPTC textures must have 2 dimensions");
-                if (width % 4) != 0 || (height % 4) != 0 {
-                    panic!(
-                        "ST3C, RGTC and BPTC textures must have a width and height multiple of 4."
-                    );
-                }
-                if depth.is_some() {
-                    // allow `array_size` (2D textures arrays) but not depth (3D textures)
-                    panic!("ST3C, RGTC and BPTC textures are 2 dimension only.")
-                }
+            | ClientFormatAny::CompressedFormat(CompressedFormat::RgtcFormatII) => 16,
+        };
 
-                let uncompressed_bit_size = 4
-                    * width as usize
-                    * height as usize
-                    * depth.unwrap_or(1) as usize
-                    * array_size.unwrap_or(1) as usize;
-                uncompressed_bit_size / 4 // Apply 4:1 compression ratio
-            }
+        // the S3TC, RGTC and BPTC formats only exist for two-dimensional images and their arrays;
+        // the blocks at the right and top edges of an image whose size isn't a multiple of 4 are
+        // partial, but take the room of a whole block
+        let height = height?;
+        if depth.is_some() {
+            return None;
         }
+        let blocks = width.div_ceil(4) as usize
+            * height.div_ceil(4) as usize
+            * array_size.unwrap_or(1) as usize;
+        Some(blocks * block_bytes)
     }
 
+    /// Returns the number of components of the format.
     #[inline]
     pub fn get_num_components(&self) -> u8 {
         match *self {
             ClientFormatAny::ClientFormat(ref format) => format.get_num_components(),
-            _ => unimplemented!(),
+            ClientFormatAny::CompressedFormat(CompressedFormat::RgtcFormatU)
+            | ClientFormatAny::CompressedFormat(CompressedFormat::RgtcFormatI) => 1,
+            ClientFormatAny::CompressedFormat(CompressedFormat::RgtcFormatUU)
+            | ClientFormatAny::CompressedFormat(CompressedFormat::RgtcFormatII) => 2,
+            ClientFormatAny::CompressedFormat(CompressedFormat::S3tcDxt1NoAlpha)
+            | ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::S3tcDxt1NoAlpha)
+            | ClientFormatAny::CompressedFormat(CompressedFormat::BptcSignedFloat3)
+            | ClientFormatAny::CompressedFormat(CompressedFormat::BptcUnsignedFloat3) => 3,
+            ClientFormatAny::CompressedFormat(CompressedFormat::S3tcDxt1Alpha)
+            | ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::S3tcDxt1Alpha)
+            | ClientFormatAny::CompressedFormat(CompressedFormat::S3tcDxt3Alpha)
+            | ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::S3tcDxt3Alpha)
+            | ClientFormatAny::CompressedFormat(CompressedFormat::S3tcDxt5Alpha)
+            | ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::S3tcDxt5Alpha)
+            | ClientFormatAny::CompressedFormat(CompressedFormat::BptcUnorm4)
+            | ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::Bptc) => 4,
         }
     }
 

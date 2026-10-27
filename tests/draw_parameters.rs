@@ -24,7 +24,7 @@ fn color_mask() {
         .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(0, 0, 0, 255));
@@ -107,7 +107,7 @@ fn scissor() {
         .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     assert_eq!(data[0][0], (255, 0, 0, 255));
     assert_eq!(data[1][0], (0, 0, 0, 0));
@@ -147,7 +147,7 @@ fn scissor_followed_by_clear() {
         .unwrap();
     texture.as_surface().clear_color(1.0, 0.0, 1.0, 1.0);
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 255, 255));
@@ -181,7 +181,7 @@ fn viewport_followed_by_clear() {
         .unwrap();
     texture.as_surface().clear_color(1.0, 0.0, 1.0, 1.0);
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 255, 255));
@@ -214,7 +214,7 @@ fn viewport() {
         .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     assert_eq!(data[0][0], (255, 0, 0, 255));
     assert_eq!(data[1][0], (0, 0, 0, 0));
@@ -243,16 +243,12 @@ fn dont_draw_primitives() {
 
     let texture = support::build_renderable_texture(&display);
     texture.as_surface().clear_color(0.0, 1.0, 0.0, 0.0);
-    match texture
+    texture
         .as_surface()
         .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
-    {
-        Ok(_) => (),
-        Err(safegl::DrawError::RasterizerDiscardNotSupported) => return,
-        e => e.unwrap(),
-    }
+        .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(0, 255, 0, 0));
@@ -275,14 +271,10 @@ fn dont_draw_primitives_then_draw() {
 
     let texture = support::build_renderable_texture(&display);
     texture.as_surface().clear_color(0.0, 1.0, 0.0, 0.0);
-    match texture
+    texture
         .as_surface()
         .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
-    {
-        Ok(_) => (),
-        Err(safegl::DrawError::RasterizerDiscardNotSupported) => return,
-        e => e.unwrap(),
-    }
+        .unwrap();
     texture
         .as_surface()
         .draw(
@@ -294,7 +286,7 @@ fn dont_draw_primitives_then_draw() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 0, 255));
@@ -420,7 +412,7 @@ fn cull_clockwise() {
         )
         .unwrap();
 
-    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(read_back[0].last().unwrap(), &(255, 0, 0, 255));
     assert_eq!(read_back.last().unwrap()[0], (0, 0, 0, 0));
 
@@ -543,7 +535,7 @@ fn cull_counterclockwise() {
         )
         .unwrap();
 
-    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(read_back[0].last().unwrap(), &(0, 0, 0, 0));
     assert_eq!(read_back.last().unwrap()[0], (255, 0, 0, 255));
 
@@ -661,7 +653,7 @@ fn cull_clockwise_trianglestrip() {
         )
         .unwrap();
 
-    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(read_back[0][0], (0, 0, 0, 0));
     assert_eq!(read_back.last().unwrap().last().unwrap(), &(0, 0, 0, 0));
 
@@ -779,7 +771,7 @@ fn cull_counterclockwise_trianglestrip() {
         )
         .unwrap();
 
-    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(read_back[0][0], (255, 0, 0, 255));
     assert_eq!(read_back.last().unwrap().last().unwrap(), &(255, 0, 0, 255));
 
@@ -866,7 +858,7 @@ macro_rules! blending_test {
             texture.as_surface().draw(&vb, &ib, &program, &uniform!{ color: $dest },
                                       &params).unwrap();
 
-            let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+            let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
             for row in data.iter() {
                 for pixel in row.iter() {
                     assert_eq!(pixel, &$result);
@@ -905,6 +897,26 @@ blending_test!(
     (255, 255, 255, 255)
 );
 
+/// A program that colors each triangle with the `value.y` of its provoking vertex.
+fn provoking_vertex_program(
+    display: &safegl::Display<safegl::glutin::surface::WindowSurface>,
+) -> safegl::Program {
+    let header = if support::is_gles(display) {
+        "#version 300 es\nprecision highp float;\n"
+    } else {
+        "#version 330\n"
+    };
+    let vertex = format!(
+        "{header}in vec2 value;\nflat out float v_value;\n\
+         void main() {{ v_value = value.y; gl_Position = vec4(value, 0.0, 1.0); }}"
+    );
+    let fragment = format!(
+        "{header}flat in float v_value;\nout vec4 f_color;\n\
+         void main() {{ f_color = vec4(1.0, (v_value + 1.0) * 0.5, 0.0, 1.0); }}"
+    );
+    safegl::Program::from_source(display, &vertex, &fragment, None).unwrap()
+}
+
 #[test]
 fn provoking_vertex_last() {
     let display = support::build_display();
@@ -929,35 +941,7 @@ fn provoking_vertex_last() {
         )
         .unwrap()
     };
-
-    let program = safegl::Program::from_source(
-        &display,
-        "
-            #version 100
-
-            attribute lowp vec2 value;
-            varying lowp flat float v_value;
-
-            void main() {
-                v_value = value.y;
-                gl_Position = vec4(value, 0.0, 1.0);
-            }
-        ",
-        "
-            #version 100
-
-            varying lowp flat float v_value;
-
-            void main() {
-                gl_FragColor = vec4(1.0, (v_value + 1.0) * 0.5, 0.0, 1.0);
-            }
-        ",
-        None,
-    );
-    let program = match program {
-        Err(_) => return,
-        Ok(p) => p,
-    };
+    let program = provoking_vertex_program(&display);
 
     let texture = support::build_renderable_texture(&display);
     texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
@@ -975,7 +959,7 @@ fn provoking_vertex_last() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     // only the bottom-left half of the screen is filled
     for row in data.iter().take(256) {
@@ -1011,35 +995,7 @@ fn provoking_vertex_first() {
         )
         .unwrap()
     };
-
-    let program = safegl::Program::from_source(
-        &display,
-        "
-            #version 100
-
-            attribute lowp vec2 value;
-            varying lowp flat float v_value;
-
-            void main() {
-                v_value = value.y;
-                gl_Position = vec4(value, 0.0, 1.0);
-            }
-        ",
-        "
-            #version 100
-
-            varying lowp flat float v_value;
-
-            void main() {
-                gl_FragColor = vec4(1.0, (v_value + 1.0) * 0.5, 0.0, 1.0);
-            }
-        ",
-        None,
-    );
-    let program = match program {
-        Err(_) => return,
-        Ok(p) => p,
-    };
+    let program = provoking_vertex_program(&display);
 
     let texture = support::build_renderable_texture(&display);
     texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
@@ -1063,7 +1019,7 @@ fn provoking_vertex_first() {
         e => e.unwrap(),
     }
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     // only the bottom-left half of the screen is filled
     for row in data.iter().take(256) {
@@ -1191,7 +1147,7 @@ fn depth_clamp_all() {
         e => e.unwrap(),
     }
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     for row in data.iter() {
         for pixel in row.iter() {
@@ -1318,7 +1274,7 @@ fn depth_clamp_near() {
         e => e.unwrap(),
     }
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     // the left part of the texture is red
     for row in data.iter() {
@@ -1453,7 +1409,7 @@ fn depth_clamp_far() {
         e => e.unwrap(),
     }
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     // the left part of the texture is black
     for row in data.iter() {
@@ -1620,7 +1576,7 @@ fn primitive_restart_index() {
         e => e.unwrap(),
     }
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     let tex_w = texture.get_width() as usize;
     let tex_h = texture.get_height().unwrap() as usize;

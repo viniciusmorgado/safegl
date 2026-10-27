@@ -14,7 +14,10 @@ fn empty() {
     let texture = BufferTexture::empty(&display, 32, BufferTextureType::Float);
     let texture: BufferTexture<(u8, u8, u8, u8)> = match texture {
         Ok(t) => t,
-        Err(_) => return,
+        Err(safegl::texture::buffer_texture::CreationError::TextureCreationError(
+                safegl::texture::buffer_texture::TextureCreationError::NotSupported,
+            )) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     display.assert_no_error(None);
@@ -30,11 +33,17 @@ fn sample() {
     let buf_tex = BufferTexture::new(&display, data, BufferTextureType::Float);
     let buf_tex: BufferTexture<(u8, u8, u8, u8)> = match buf_tex {
         Ok(t) => t,
-        Err(_) => return,
+        Err(safegl::texture::buffer_texture::CreationError::TextureCreationError(
+                safegl::texture::buffer_texture::TextureCreationError::NotSupported,
+            )) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
+    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::Gl, 1, 4)) {
+        return;
+    }
     let program = safegl::Program::from_source(
         &display,
         "
@@ -57,10 +66,7 @@ fn sample() {
         ",
         None,
     );
-    let program = match program {
-        Ok(p) => p,
-        Err(_) => return,
-    };
+    let program = program.unwrap();
 
     let output = support::build_renderable_texture(&display);
     output.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
@@ -75,7 +81,7 @@ fn sample() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 255, 255));
@@ -93,11 +99,17 @@ fn wrong_type() {
     let buf_tex = BufferTexture::new(&display, data, BufferTextureType::Float);
     let buf_tex: BufferTexture<(u8, u8, u8, u8)> = match buf_tex {
         Ok(t) => t,
-        Err(_) => return,
+        Err(safegl::texture::buffer_texture::CreationError::TextureCreationError(
+                safegl::texture::buffer_texture::TextureCreationError::NotSupported,
+            )) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
+    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::Gl, 1, 4)) {
+        return;
+    }
     let program = safegl::Program::from_source(
         &display,
         "
@@ -120,10 +132,7 @@ fn wrong_type() {
         ",
         None,
     );
-    let program = match program {
-        Ok(p) => p,
-        Err(_) => return,
-    };
+    let program = program.unwrap();
 
     let mut frame = display.draw();
     let result = frame.draw(

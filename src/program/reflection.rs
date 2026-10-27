@@ -29,6 +29,11 @@ pub struct Uniform {
 
     /// If it is an array, the number of elements.
     pub size: Option<usize>,
+
+    /// For an image uniform, the image unit that the shader gives it with `layout(binding = N)`,
+    /// 0 without one. OpenGL ES can't change it, so SafeGL binds the image to this unit there;
+    /// desktop OpenGL can, and SafeGL picks a unit itself. `None` for other uniforms.
+    pub binding: Option<i32>,
 }
 
 /// Information about a uniform block (except its name).
@@ -217,7 +222,9 @@ pub unsafe fn reflect_uniforms(
             .get_active_uniform(program, uniform_id as gl::types::GLuint)
             .expect("glGetActiveUniform failed");
 
-        let location = locations.register(ctxt.glow.get_uniform_location(program, &uniform_name));
+        let gl_location = ctxt.glow.get_uniform_location(program, &uniform_name);
+        let binding = image_binding(ctxt, program, data_type, gl_location.as_ref());
+        let location = locations.register(gl_location);
 
         if data_type == gl::UNSIGNED_INT_ATOMIC_COUNTER {
             assert!(query_atomic_counters);
@@ -227,12 +234,29 @@ pub unsafe fn reflect_uniforms(
                 &[uniform_id as gl::types::GLuint],
                 glow::UNIFORM_ATOMIC_COUNTER_BUFFER_INDEX,
             )[0];
-            ctxt.extra.GetActiveAtomicCounterBufferiv(
-                program.raw_name(),
-                atomic_counter_id as gl::types::GLuint,
-                gl::ATOMIC_COUNTER_BUFFER_BINDING,
-                &mut atomic_counter_buffer_bind_point,
-            );
+            // OpenGL ES has no `glGetActiveAtomicCounterBufferiv`
+            if ctxt.version.0 == Api::GlEs
+                || ctxt.version >= &Version(Api::Gl, 4, 3)
+                || ctxt.extensions.gl_arb_program_interface_query
+            {
+                ctxt.extra.GetProgramResourceiv(
+                    program.raw_name(),
+                    gl::ATOMIC_COUNTER_BUFFER,
+                    atomic_counter_id as gl::types::GLuint,
+                    1,
+                    &gl::BUFFER_BINDING,
+                    1,
+                    ptr::null_mut(),
+                    &mut atomic_counter_buffer_bind_point,
+                );
+            } else {
+                ctxt.extra.GetActiveAtomicCounterBufferiv(
+                    program.raw_name(),
+                    atomic_counter_id as gl::types::GLuint,
+                    gl::ATOMIC_COUNTER_BUFFER_BINDING,
+                    &mut atomic_counter_buffer_bind_point,
+                );
+            }
             atomic_counters.insert(
                 uniform_name,
                 UniformBlock {
@@ -256,6 +280,7 @@ pub unsafe fn reflect_uniforms(
                     } else {
                         Some(data_size as usize)
                     },
+                    binding,
                 },
             );
         }
@@ -283,14 +308,40 @@ pub unsafe fn reflect_uniforms(
         // are objects that must be queried one by one
         for i in 1..uniform.size.unwrap_or(1) {
             let element = format!("{}[{}]", name_base, i);
-            let location = locations.register(ctxt.glow.get_uniform_location(program, &element));
+            let gl_location = ctxt.glow.get_uniform_location(program, &element);
+            let binding = first.binding.and_then(|_| {
+                image_binding(ctxt, program, gl::IMAGE_2D, gl_location.as_ref())
+            });
+            let location = locations.register(gl_location);
             if location != -1 {
-                uniforms_flattened.insert(element, Uniform { location, ..first });
+                uniforms_flattened.insert(
+                    element,
+                    Uniform {
+                        location,
+                        binding,
+                        ..first
+                    },
+                );
             }
         }
     }
 
     (uniforms_flattened, atomic_counters, locations)
+}
+
+/// Returns the image unit of a uniform of type `data_type`, if it is an image.
+unsafe fn image_binding(
+    ctxt: &CommandContext<'_>,
+    program: glow::Program,
+    data_type: gl::types::GLenum,
+    location: Option<&glow::UniformLocation>,
+) -> Option<i32> {
+    if !(gl::IMAGE_1D..=gl::UNSIGNED_INT_IMAGE_2D_MULTISAMPLE_ARRAY).contains(&data_type) {
+        return None;
+    }
+    let mut unit = [0];
+    ctxt.glow.get_uniform_i32(program, location?, &mut unit);
+    Some(unit[0])
 }
 
 pub unsafe fn reflect_attributes(
@@ -335,11 +386,16 @@ pub unsafe fn reflect_attributes(
             .get_attrib_location(program, &attr_name)
             .map_or(-1, |location| location as gl::types::GLint);
 
+        // inputs of vendor types that no vertex format has are left out
+        let Some(ty) = glenum_to_attribute_type(data_type) else {
+            continue;
+        };
+
         attributes.insert(
             attr_name,
             Attribute {
                 location,
-                ty: glenum_to_attribute_type(data_type),
+                ty,
                 size: data_size as usize,
             },
         );
@@ -532,7 +588,8 @@ pub unsafe fn reflect_transform_feedback(
                 });
             }
 
-            let ty = glenum_to_attribute_type(ty as gl::types::GLenum);
+            let ty = glenum_to_attribute_type(ty as gl::types::GLenum)
+                .expect("transform feedback varyings have standard types");
 
             let prev_size = result[0].stride;
             result[0].stride += size as usize * ty.get_size_bytes();
@@ -545,7 +602,8 @@ pub unsafe fn reflect_transform_feedback(
             });
         } else if buffer_mode == TransformFeedbackMode::Separate {
             let id = result.len();
-            let ty = glenum_to_attribute_type(ty as gl::types::GLenum);
+            let ty = glenum_to_attribute_type(ty as gl::types::GLenum)
+                .expect("transform feedback varyings have standard types");
             result.push(TransformFeedbackBuffer {
                 id: id as i32,
                 elements: vec![TransformFeedbackVarying {
@@ -936,6 +994,12 @@ where
     }
 
     // ↓ actual body of `introspection_output_to_layout` starts here ↓
+
+    // drivers list the variables in any order, alphabetical for some of them: sorting them by
+    // offset gives the members in the order of their declaration
+    let mut elements: Vec<_> = elements.collect();
+    elements.sort_by_key(|element| element.1);
+
     let mut layout = BlockLayout::Struct {
         members: Vec::new(),
     };
@@ -1025,7 +1089,7 @@ fn glenum_to_uniform_type(ty: gl::types::GLenum) -> UniformType {
         gl::UNSIGNED_INT_SAMPLER_2D => UniformType::USampler2d,
         gl::UNSIGNED_INT_SAMPLER_3D => UniformType::USampler3d,
         gl::UNSIGNED_INT_SAMPLER_CUBE => UniformType::USamplerCube,
-        gl::UNSIGNED_INT_SAMPLER_1D_ARRAY => UniformType::USampler2dArray,
+        gl::UNSIGNED_INT_SAMPLER_1D_ARRAY => UniformType::USampler1dArray,
         gl::UNSIGNED_INT_SAMPLER_2D_ARRAY => UniformType::USampler2dArray,
         gl::UNSIGNED_INT_SAMPLER_CUBE_MAP_ARRAY => UniformType::USamplerCubeArray,
         gl::UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE => UniformType::USampler2dMultisample,
@@ -1063,13 +1127,26 @@ fn glenum_to_uniform_type(ty: gl::types::GLenum) -> UniformType {
         gl::UNSIGNED_INT_IMAGE_2D_MULTISAMPLE => UniformType::UImage2dMultisample,
         gl::UNSIGNED_INT_IMAGE_2D_MULTISAMPLE_ARRAY => UniformType::UImage2dMultisampleArray,
         gl::UNSIGNED_INT_ATOMIC_COUNTER => UniformType::AtomicCounterUint,
-        v => panic!("Unknown value returned by OpenGL uniform type: {}", v),
+        gl::SAMPLER_CUBE_MAP_ARRAY_SHADOW => UniformType::SamplerCubeArrayShadow,
+        gl::IMAGE_CUBE_MAP_ARRAY => UniformType::ImageCubeArray,
+        gl::INT_IMAGE_CUBE_MAP_ARRAY => UniformType::IImageCubeArray,
+        gl::UNSIGNED_INT_IMAGE_CUBE_MAP_ARRAY => UniformType::UImageCubeArray,
+        gl::INT64_ARB => UniformType::Int64,
+        gl::INT64_VEC2_ARB => UniformType::Int64Vec2,
+        gl::INT64_VEC3_ARB => UniformType::Int64Vec3,
+        gl::INT64_VEC4_ARB => UniformType::Int64Vec4,
+        gl::UNSIGNED_INT64_ARB => UniformType::UnsignedInt64,
+        gl::UNSIGNED_INT64_VEC2_ARB => UniformType::UnsignedInt64Vec2,
+        gl::UNSIGNED_INT64_VEC3_ARB => UniformType::UnsignedInt64Vec3,
+        gl::UNSIGNED_INT64_VEC4_ARB => UniformType::UnsignedInt64Vec4,
+        // types of vendor extensions, which no value can be bound to
+        v => UniformType::Unknown(v),
     }
 }
 
 #[inline]
-fn glenum_to_attribute_type(value: gl::types::GLenum) -> AttributeType {
-    match value {
+fn glenum_to_attribute_type(value: gl::types::GLenum) -> Option<AttributeType> {
+    Some(match value {
         gl::FLOAT => AttributeType::F32,
         gl::FLOAT_VEC2 => AttributeType::F32F32,
         gl::FLOAT_VEC3 => AttributeType::F32F32F32,
@@ -1098,8 +1175,29 @@ fn glenum_to_attribute_type(value: gl::types::GLenum) -> AttributeType {
         gl::DOUBLE_VEC2 => AttributeType::F64F64,
         gl::DOUBLE_VEC3 => AttributeType::F64F64F64,
         gl::DOUBLE_VEC4 => AttributeType::F64F64F64F64,
-        v => panic!("Unknown value returned by OpenGL attribute type: {}", v),
-    }
+        gl::DOUBLE_MAT2 => AttributeType::F64x2x2,
+        gl::DOUBLE_MAT3 => AttributeType::F64x3x3,
+        gl::DOUBLE_MAT4 => AttributeType::F64x4x4,
+        gl::DOUBLE_MAT2x3 => AttributeType::F64x2x3,
+        gl::DOUBLE_MAT2x4 => AttributeType::F64x2x4,
+        gl::DOUBLE_MAT3x2 => AttributeType::F64x3x2,
+        gl::DOUBLE_MAT3x4 => AttributeType::F64x3x4,
+        gl::DOUBLE_MAT4x2 => AttributeType::F64x4x2,
+        gl::DOUBLE_MAT4x3 => AttributeType::F64x4x3,
+        gl::INT64_ARB => AttributeType::I64,
+        gl::INT64_VEC2_ARB => AttributeType::I64I64,
+        gl::INT64_VEC3_ARB => AttributeType::I64I64I64,
+        gl::INT64_VEC4_ARB => AttributeType::I64I64I64I64,
+        gl::UNSIGNED_INT64_ARB => AttributeType::U64,
+        gl::UNSIGNED_INT64_VEC2_ARB => AttributeType::U64U64,
+        gl::UNSIGNED_INT64_VEC3_ARB => AttributeType::U64U64U64,
+        gl::UNSIGNED_INT64_VEC4_ARB => AttributeType::U64U64U64U64,
+        gl::FLOAT16_NV => AttributeType::F16,
+        gl::FLOAT16_VEC2_NV => AttributeType::F16F16,
+        gl::FLOAT16_VEC3_NV => AttributeType::F16F16F16,
+        gl::FLOAT16_VEC4_NV => AttributeType::F16F16F16F16,
+        _ => return None,
+    })
 }
 
 #[inline]
@@ -1333,5 +1431,40 @@ pub unsafe fn reflect_subroutine_data(
     SubroutineData {
         location_counts,
         subroutine_uniforms,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{introspection_output_to_layout, BlockLayout, UniformType};
+
+    #[test]
+    fn members_in_declaration_order() {
+        // the order of NVIDIA's driver
+        let elements = vec![
+            ("dir".to_owned(), 8, UniformType::FloatVec2, 1, None),
+            ("pos".to_owned(), 0, UniformType::FloatVec2, 1, None),
+            ("speed".to_owned(), 16, UniformType::Float, 1, None),
+        ];
+        let member = |name: &str, ty, offset_in_buffer| {
+            (
+                name.to_owned(),
+                BlockLayout::BasicType {
+                    ty,
+                    offset_in_buffer,
+                },
+            )
+        };
+
+        assert_eq!(
+            introspection_output_to_layout(elements.into_iter()),
+            BlockLayout::Struct {
+                members: vec![
+                    member("pos", UniformType::FloatVec2, 0),
+                    member("dir", UniformType::FloatVec2, 8),
+                    member("speed", UniformType::Float, 16),
+                ],
+            }
+        );
     }
 }

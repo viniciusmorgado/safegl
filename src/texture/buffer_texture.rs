@@ -53,7 +53,6 @@ wrong type will result in an error.
 
 */
 use std::error::Error;
-use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::{fmt, mem};
@@ -93,6 +92,10 @@ pub enum TextureCreationError {
 
     /// The size of the buffer that you are trying to bind exceeds `GL_MAX_TEXTURE_BUFFER_SIZE`.
     TooLarge,
+
+    /// The buffer belongs to another context. OpenGL objects can only be used with the context
+    /// that created them.
+    ContextMismatch,
 }
 
 impl fmt::Display for TextureCreationError {
@@ -105,6 +108,8 @@ impl fmt::Display for TextureCreationError {
                 "The requested format is not supported in combination with the given texture buffer type",
             TooLarge =>
                 "The size of the buffer that you are trying to bind exceeds `GL_MAX_TEXTURE_BUFFER_SIZE`",
+            ContextMismatch =>
+                "The buffer belongs to another context",
         };
         fmt.write_str(desc)
     }
@@ -334,12 +339,20 @@ where
         F: Facade,
     {
         let context = context.get_context();
+
+        // OpenGL objects can only be used with the context that created them
+        if !Rc::ptr_eq(context, buffer.get_context()) {
+            return Err((TextureCreationError::ContextMismatch, buffer));
+        }
+
         let mut ctxt = context.make_current();
 
-        // checking capabilities
-        if buffer.get_size() / mem::size_of::<T>()
-            > ctxt.capabilities.max_texture_buffer_size.unwrap() as usize
-        {
+        // checking capabilities, which are only known if buffer textures are supported
+        let max_size = match ctxt.capabilities.max_texture_buffer_size {
+            Some(max_size) => max_size as usize,
+            None => return Err((TextureCreationError::NotSupported, buffer)),
+        };
+        if buffer.get_size() / mem::size_of::<T>() > max_size {
             return Err((TextureCreationError::TooLarge, buffer));
         }
 
@@ -515,7 +528,7 @@ where
         BufferTextureRef {
             texture: self.texture,
             ty: self.ty,
-            marker: PhantomData,
+            context: self.buffer.get_context(),
         }
     }
 }
@@ -547,7 +560,7 @@ where
 pub struct BufferTextureRef<'a> {
     texture: glow::Texture,
     ty: BufferTextureType,
-    marker: PhantomData<&'a ()>,
+    context: &'a Rc<Context>,
 }
 
 impl<'a> BufferTextureRef<'a> {
@@ -566,7 +579,7 @@ impl<'a> TextureExt for BufferTextureRef<'a> {
 
     #[inline]
     fn get_context(&self) -> &Rc<Context> {
-        unimplemented!(); // TODO:
+        self.context
     }
 
     #[inline]
@@ -629,7 +642,7 @@ pub enum TextureBufferContentType {
 }
 
 /// Trait for data types that can be interpreted by a buffer texture.
-pub unsafe trait TextureBufferContent: BufferContent {
+pub unsafe trait TextureBufferContent: BufferContent + crate::buffer::AnyBitPattern {
     /// Returns the enumeration corresponding to elements of this data type.
     fn get_type() -> TextureBufferContentType;
 }

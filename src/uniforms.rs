@@ -141,6 +141,8 @@ pub use self::sampler::{
 };
 pub use self::sampler::{BorderColor, Sampler, SamplerBehavior};
 pub use self::uniforms::{DynamicUniforms, EmptyUniforms, UniformsStorage};
+pub(crate) use self::value::{is_opaque, is_shadow_sampler};
+pub use self::value::Keep;
 pub use self::value::{UniformType, UniformValue};
 
 use std::error::Error;
@@ -152,6 +154,7 @@ use crate::program;
 use crate::program::BlockLayout;
 
 mod bind;
+pub(crate) use self::bind::CollectedUniforms;
 mod buffer;
 #[cfg(feature = "gl46")]
 mod image_unit;
@@ -164,7 +167,11 @@ mod value;
 /// Objects of this type can be passed to the `draw()` function.
 pub trait Uniforms {
     /// Calls the parameter once with the name and value of each uniform.
-    fn visit_values<'a, F: FnMut(&str, UniformValue<'a>)>(&'a self, _: F);
+    ///
+    /// The names live as long as `self`, so that SafeGL can collect the values before it starts
+    /// to issue OpenGL commands: the implementations of this trait and of `AsUniformValue` can
+    /// create or read SafeGL objects.
+    fn visit_values<'a, F: FnMut(&'a str, UniformValue<'a>)>(&'a self, _: F);
 }
 
 /// Error about a block layout mismatch.
@@ -279,21 +286,22 @@ where
 {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
-        #[inline]
-        fn f<T: ?Sized>(block: &program::UniformBlock) -> Result<(), LayoutMismatchError>
-        where
-            T: UniformBlock + BufferContent,
-        {
-            // TODO: more checks?
-            T::matches(&block.layout, 0)
-        }
-
-        UniformValue::Block(self.as_slice_any(), f::<T>)
+        UniformValue::block(self.as_slice())
     }
 }
 
 /// Objects that are suitable for being inside a uniform block or a SSBO.
-pub trait UniformBlock {
+///
+/// Use `implement_uniform_block!` to implement it for a struct.
+///
+/// # Safety
+///
+/// `matches` and `build_layout` must describe the layout of the type in memory. In particular,
+/// only types that hold texture handles obtained from SafeGL, like `TextureHandle`, may match the
+/// sampler and image types of a block: the GPU uses the bytes of these members as bindless
+/// handles, and a handle that doesn't come from a resident texture makes it sample garbage or
+/// crash.
+pub unsafe trait UniformBlock {
     // TODO: `: Copy`, but unsized structs don't impl `Copy`
     /// Checks whether the uniforms' layout matches the given block if `Self` starts at
     /// the given offset.
@@ -303,7 +311,7 @@ pub trait UniformBlock {
     fn build_layout(base_offset: usize) -> BlockLayout;
 }
 
-impl<T> UniformBlock for [T]
+unsafe impl<T> UniformBlock for [T]
 where
     T: UniformBlock,
 {
@@ -346,7 +354,7 @@ where
 
 macro_rules! impl_uniform_block_array {
     ($len:expr) => {
-        impl<T> UniformBlock for [T; $len]
+        unsafe impl<T> UniformBlock for [T; $len]
         where
             T: UniformBlock,
         {

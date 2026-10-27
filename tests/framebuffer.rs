@@ -123,7 +123,7 @@ fn simple_render_to_texture() {
         )
         .unwrap();
 
-    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     assert_eq!(read_back[0][0], (255, 0, 0, 255));
     assert_eq!(read_back[64][64], (255, 0, 0, 255));
@@ -194,7 +194,9 @@ fn depth_texture2d() {
         .take(128)
         .collect::<Vec<_>>();
     let depth = match safegl::texture::DepthTexture2d::new(&display, depth_data) {
-        Err(_) => return,
+        Err(safegl::texture::TextureCreationError::TypeNotSupported)
+            | Err(safegl::texture::TextureCreationError::FormatNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(t) => t,
     };
 
@@ -215,7 +217,7 @@ fn depth_texture2d() {
         .unwrap();
 
     // reading back the color
-    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = color.read();
+    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = color.read().unwrap();
 
     assert_eq!(read_back[0][0], (255, 255, 255, 255));
     assert_eq!(read_back[127][127], (0, 0, 0, 255));
@@ -228,34 +230,28 @@ fn multioutput() {
     let display = support::build_display();
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
-    let program = match safegl::Program::from_source(
-        &display,
-        "
-            #version 110
-
-            attribute vec2 position;
-
-            void main() {
-                gl_Position = vec4(position, 0.0, 1.0);
-            }
-        ",
-        "
-            #version 330
-
-            out vec4 color1;
-            out vec4 color2;
-
-            void main() {
-                color1 = vec4(1.0, 1.0, 1.0, 1.0);
-                color2 = vec4(1.0, 0.0, 0.0, 1.0);
-            }
-        ",
-        None,
-    ) {
-        Err(safegl::CompilationError(..)) => return,
-        Ok(p) => p,
-        e => e.unwrap(),
+    // OpenGL ES needs a location for each output when there are several
+    let (header, color1, color2) = if support::is_gles(&display) {
+        (
+            "#version 300 es\nprecision highp float;\n",
+            "layout(location = 0) out vec4 color1;",
+            "layout(location = 1) out vec4 color2;",
+        )
+    } else {
+        ("#version 330\n", "out vec4 color1;", "out vec4 color2;")
     };
+    let program = safegl::Program::from_source(
+        &display,
+        &format!(
+            "{header}in vec2 position;\nvoid main() {{ gl_Position = vec4(position, 0.0, 1.0); }}"
+        ),
+        &format!(
+            "{header}{color1}\n{color2}\n\
+             void main() {{ color1 = vec4(1.0, 1.0, 1.0, 1.0); color2 = vec4(1.0, 0.0, 0.0, 1.0); }}"
+        ),
+        None,
+    )
+    .unwrap();
 
     // building two empty color attachments
     let color1 = safegl::Texture2d::empty_with_format(
@@ -296,7 +292,7 @@ fn multioutput() {
         .unwrap();
 
     // checking color1
-    let read_back1: Vec<Vec<(u8, u8, u8, u8)>> = color1.read();
+    let read_back1: Vec<Vec<(u8, u8, u8, u8)>> = color1.read().unwrap();
     for row in read_back1.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 255, 255, 255));
@@ -304,7 +300,7 @@ fn multioutput() {
     }
 
     // checking color2
-    let read_back2: Vec<Vec<(u8, u8, u8, u8)>> = color2.read();
+    let read_back2: Vec<Vec<(u8, u8, u8, u8)>> = color2.read().unwrap();
     for row in read_back2.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 0, 255));
@@ -320,7 +316,7 @@ fn array_level() {
 
     let texture = match safegl::texture::Texture2dArray::empty(&display, 128, 128, 4) {
         Ok(t) => t,
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     let mut framebuffer = safegl::framebuffer::SimpleFrameBuffer::new(
@@ -358,7 +354,7 @@ fn cubemap_layer() {
 
     let texture = match safegl::texture::Cubemap::empty(&display, 128) {
         Ok(t) => t,
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
     };
 
     let mut framebuffer = safegl::framebuffer::SimpleFrameBuffer::new(
@@ -410,34 +406,40 @@ fn multi_color_attachments_maximum() {
 
 #[cfg(feature = "gl46")]
 #[test]
-#[should_panic]
 fn empty_framebuffer_wrong_layers() {
-    use safegl::framebuffer::EmptyFrameBuffer;
+    use safegl::framebuffer::{EmptyFrameBuffer, ValidationError};
 
     let display = support::build_display();
 
     // ignore the test
     if !EmptyFrameBuffer::is_supported(&display) {
-        panic!();
+        return;
     }
 
-    let _fb = EmptyFrameBuffer::new(&display, 256, 256, Some(0), None, true);
+    let fb = EmptyFrameBuffer::new(&display, 256, 256, Some(0), None, true);
+    assert!(matches!(
+        fb,
+        Err(ValidationError::EmptyFramebufferUnsupportedDimensions)
+    ));
 }
 
 #[cfg(feature = "gl46")]
 #[test]
-#[should_panic]
 fn empty_framebuffer_wrong_samples() {
-    use safegl::framebuffer::EmptyFrameBuffer;
+    use safegl::framebuffer::{EmptyFrameBuffer, ValidationError};
 
     let display = support::build_display();
 
     // ignore the test
     if !EmptyFrameBuffer::is_supported(&display) {
-        panic!();
+        return;
     }
 
-    let _fb = EmptyFrameBuffer::new(&display, 256, 256, None, Some(0), true);
+    let fb = EmptyFrameBuffer::new(&display, 256, 256, None, Some(0), true);
+    assert!(matches!(
+        fb,
+        Err(ValidationError::EmptyFramebufferUnsupportedDimensions)
+    ));
 }
 
 #[cfg(feature = "gl46")]

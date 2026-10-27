@@ -19,8 +19,9 @@ fn header(display: &Display, desktop: u32, es: u32) -> String {
     }
 }
 
-fn vertex(display: &Display) -> String {
-    header(display, 140, 300)
+/// The vertex shader, whose version must be the one of the fragment shader on OpenGL ES.
+fn vertex(display: &Display, desktop: u32, es: u32) -> String {
+    header(display, desktop, es)
         + "in vec2 position;\nvoid main() { gl_Position = vec4(position, 0.0, 1.0); }"
 }
 
@@ -30,6 +31,7 @@ struct Data {
     value: [f32; 4],
 }
 implement_uniform_block!(Data, value);
+implement_any_bit_pattern!(Data, value);
 
 fn indexed_binding_preserves_readback(ty: BufferType, qualifier: &str, version: u32, es: u32) {
     let display = support::build_display();
@@ -37,7 +39,7 @@ fn indexed_binding_preserves_readback(ty: BufferType, qualifier: &str, version: 
     let output = safegl::texture::Texture2d::empty(&display, 1, 1).unwrap();
     let program = safegl::Program::from_source(
         &display,
-        &vertex(&display),
+        &vertex(&display, version, es),
         &(header(&display, version, es) + &format!("layout(std140) {qualifier} Block {{ vec4 value; }};\nout vec4 color;\nvoid main() {{ color = value; }}")),
         None,
     ).unwrap();
@@ -119,9 +121,9 @@ fn buffer_texture_binding_cache() {
         } else {
             ""
         };
-    let buffer_program = safegl::Program::from_source(&display, &vertex(&display),
+    let buffer_program = safegl::Program::from_source(&display, &vertex(&display, 140, 320),
         &(fragment.clone() + "uniform samplerBuffer data; out vec4 color;\nvoid main() { color = texelFetch(data, 0); }"), None).unwrap();
-    let mixed_program = safegl::Program::from_source(&display, &vertex(&display),
+    let mixed_program = safegl::Program::from_source(&display, &vertex(&display, 140, 320),
         &(fragment + "uniform samplerBuffer data; uniform sampler2D image; out vec4 color;\nvoid main() { color = vec4(texelFetch(data, 0).rgb + texelFetch(image, ivec2(0), 0).rgb, 1.0); }"), None).unwrap();
 
     // Repeated buffer-texture draws must reuse a cached unit. Without caching,
@@ -146,7 +148,7 @@ fn buffer_texture_binding_cache() {
         .draw(&vb, &ib, &mixed_program, &uniforms, &Default::default())
         .unwrap();
     display.assert_no_error(None);
-    let pixels: Vec<Vec<(u8, u8, u8, u8)>> = output.read();
+    let pixels: Vec<Vec<(u8, u8, u8, u8)>> = output.read().unwrap();
     assert_eq!(pixels, vec![vec![(255, 255, 0, 255)]]);
 }
 
@@ -171,11 +173,11 @@ fn atomic_counter_binding_cache() {
     )
     .unwrap();
     assert_eq!(b.read().unwrap(), 20);
-    shader.execute(uniform! { counter: &a }, 1, 1, 1);
+    shader.execute(uniform! { counter: &a }, 1, 1, 1).unwrap();
     assert_eq!(b.read().unwrap(), 20);
     assert_eq!(a.read().unwrap(), 11);
     assert_eq!(b.read().unwrap(), 20);
-    shader.execute(uniform! { counter: &a }, 1, 1, 1);
+    shader.execute(uniform! { counter: &a }, 1, 1, 1).unwrap();
     assert_eq!(a.read().unwrap(), 12);
     display.assert_no_error(None);
 }
@@ -195,7 +197,7 @@ fn atomic_counter_high_binding_point() {
         BufferMode::Dynamic,
     )
     .unwrap();
-    shader.execute(uniform! { counter: &counter }, 1, 1, 1);
+    shader.execute(uniform! { counter: &counter }, 1, 1, 1).unwrap();
     assert_eq!(counter.read().unwrap(), 6);
     display.assert_no_error(None);
 }
@@ -208,6 +210,7 @@ fn transform_feedback_generic_binding_does_not_change_indexed_binding() {
         output_val: (f32, f32),
     }
     implement_vertex!(Vertex, output_val);
+    implement_any_bit_pattern!(Vertex, output_val);
 
     let display = support::build_display();
     let (vb, ib) = support::build_rectangle_vb_ib(&display);

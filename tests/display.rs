@@ -21,7 +21,7 @@ fn clear_color() {
     let texture = support::build_renderable_texture(&display);
     texture.as_surface().clear_color(1.0, 0.0, 0.0, 1.0);
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     for row in data.iter() {
         for pixel in row.iter() {
@@ -49,7 +49,7 @@ fn clear_color_rect() {
         .as_surface()
         .clear(Some(&rect), Some((0.0, 1.0, 0.0, 1.0)), false, None, None);
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
 
     for row in data.iter() {
         for (col, pixel) in row.iter().enumerate() {
@@ -76,10 +76,10 @@ fn timestamp_query() {
     let display = support::build_display();
 
     let query1 = safegl::debug::TimestampQuery::new(&display);
-    let query1 = query1.map(|q| q.get());
+    let query1 = query1.map(|q| q.get().unwrap());
 
     let query2 = safegl::debug::TimestampQuery::new(&display);
-    let query2 = query2.map(|q| q.get());
+    let query2 = query2.map(|q| q.get().unwrap());
 
     match (query1, query2) {
         (Some(q1), Some(q2)) => assert!(q2 >= q1 && q1 != 0),
@@ -138,14 +138,14 @@ fn multiple_displays() {
         .unwrap();
     texture2.as_surface().clear_color(0.0, 1.0, 0.0, 0.0);
 
-    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture1.read();
+    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture1.read().unwrap();
     for row in read_back.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 0, 255));
         }
     }
 
-    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture2.read();
+    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture2.read().unwrap();
     for row in read_back.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(0, 255, 0, 0));
@@ -169,5 +169,28 @@ fn is_context_lost() {
     // tests that `is_context_lost` doesn't trigger an OpenGL error
     let display = support::build_display();
     display.is_context_lost();
+    display.assert_no_error(None);
+}
+
+#[test]
+fn one_frame_at_a_time() {
+    let display = support::build_display();
+
+    // a second frame would draw to the same back buffer and swap it again
+    let frame = display.draw();
+    assert_eq!(
+        display.try_draw().err(),
+        Some(safegl::FrameError::AlreadyDrawing)
+    );
+    frame.finish().unwrap();
+
+    // once finished, a new frame can start, and a frame dropped during a panic ends too
+    display.try_draw().unwrap().finish().unwrap();
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _frame = display.draw();
+        panic!("dropping the frame");
+    }));
+    display.draw().finish().unwrap();
+
     display.assert_no_error(None);
 }

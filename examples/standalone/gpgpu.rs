@@ -43,6 +43,7 @@ impl ApplicationContext for Application {
             values: [[f32; 4]; NUM_VALUES / 4],
         }
         implement_uniform_block!(Data, power, values);
+        implement_any_bit_pattern!(Data, power, _padding, values);
 
         let mut buffer: safegl::uniforms::UniformBuffer<Data> =
             safegl::uniforms::UniformBuffer::empty(display).unwrap();
@@ -60,7 +61,7 @@ impl ApplicationContext for Application {
             }
         }
 
-        program.execute(uniform! { MyBlock: &*buffer }, NUM_VALUES as u32 / 4, 1, 1);
+        program.execute(uniform! { MyBlock: &*buffer }, NUM_VALUES as u32 / 4, 1, 1).unwrap();
 
         {
             let mapping = buffer.map();

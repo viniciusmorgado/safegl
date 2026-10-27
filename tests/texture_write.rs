@@ -25,9 +25,9 @@ fn texture_2d_write() {
             height: 1,
         },
         vec![vec![(128u8, 64u8, 2u8)]],
-    );
+    ).unwrap();
 
-    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let read_back: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     assert_eq!(read_back[0][0], (0, 1, 2, 255));
     assert_eq!(read_back[0][1], (4, 8, 16, 255));
     assert_eq!(read_back[1][0], (32, 64, 128, 255));

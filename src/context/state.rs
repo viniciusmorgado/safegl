@@ -339,6 +339,10 @@ pub struct GlState {
     /// We maintain a counter that is incremented at each draw call.
     pub next_draw_call_id: u64,
 
+    /// Incremented by `restore_state`: the programs forget the uniform values and block bindings
+    /// that they cached before, since code outside of SafeGL may have changed them.
+    pub uniform_values_generation: u64,
+
     /// The draw call ID of the latest call to `glMemoryBarrier` with
     /// `GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT`.
     pub latest_memory_barrier_vertex_attrib_array: u64,
@@ -533,6 +537,7 @@ impl Default for GlState {
             clip_control: (gl::LOWER_LEFT, gl::NEGATIVE_ONE_TO_ONE),
 
             next_draw_call_id: 1,
+            uniform_values_generation: 0,
             latest_memory_barrier_vertex_attrib_array: 1,
             latest_memory_barrier_element_array: 1,
             latest_memory_barrier_uniform: 1,

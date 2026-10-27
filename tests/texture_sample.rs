@@ -21,7 +21,7 @@ macro_rules! texture_sample_test {
             )
             .unwrap();
 
-            let program = safegl::Program::from_source(
+            let program = support::program_from_legacy(
                 &display,
                 "
                     #version 110
@@ -36,15 +36,14 @@ macro_rules! texture_sample_test {
                     "
                     #version 110
 
-                    uniform {} texture;
+                    uniform {} tex;
 
                     void main() {{
-                        gl_FragColor = {}(texture, {});
+                        gl_FragColor = {}(tex, {});
                     }}
                 ",
                     $sampler_ty, $fun, $coords
                 ),
-                None,
             )
             .unwrap();
 
@@ -56,12 +55,12 @@ macro_rules! texture_sample_test {
                     &vb,
                     &ib,
                     &program,
-                    &uniform! { texture: &texture },
+                    &uniform! { tex: &texture },
                     &Default::default(),
                 )
                 .unwrap();
 
-            let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read();
+            let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read().unwrap();
             for row in data.iter() {
                 for pixel in row.iter() {
                     assert_eq!(pixel, &(255, 0, 0, 255));
@@ -114,7 +113,7 @@ fn bindless_texture() {
 
     let texture = match texture.resident() {
         Ok(t) => t,
-        Err(_) => return,
+        Err(safegl::texture::BindlessTexturesNotSupportedError) => return,
     };
 
     // if bindless textures are supported, we can call .unwrap() and expect that everything
@@ -168,7 +167,7 @@ fn bindless_texture() {
         )
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = output.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 0, 0, 255));

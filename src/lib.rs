@@ -327,6 +327,9 @@ trait ContextExt {
 
 /// Internal trait for programs.
 trait ProgramExt {
+    /// Returns the context that created the program.
+    fn get_context(&self) -> &Context;
+
     /// Calls `glUseProgram` and enables/disables `GL_PROGRAM_POINT_SIZE` and
     /// `GL_FRAMEBUFFER_SRGB`.
     fn use_program(&self, ctxt: &mut context::CommandContext<'_>);
@@ -364,6 +367,13 @@ trait ProgramExt {
     );
 
     fn get_uniform(&self, name: &str) -> Option<&program::Uniform>;
+
+    /// Returns the active uniforms of the program, which aren't in blocks.
+    fn get_uniforms(&self) -> &HashMap<String, program::Uniform, BuildHasherDefault<FnvHasher>>;
+
+    /// Returns true if a value was given to the uniform at `location` since the program was
+    /// created. OpenGL keeps the values of the uniforms of a program between draw commands.
+    fn is_uniform_set(&self, location: gl::types::GLint) -> bool;
 
     fn get_uniform_blocks(
         &self,
@@ -403,6 +413,9 @@ trait QueryExt {
 
     /// Returns true if the query has never been used.
     fn is_unused(&self) -> bool;
+
+    /// Returns the context that created the query.
+    fn get_context(&self) -> &Context;
 }
 
 /// Internal trait for textures.
@@ -456,8 +469,7 @@ trait TextureMipmapExt {
         height: Option<u32>,
         depth: Option<u32>,
         regen_mipmaps: bool,
-    ) -> Result<(), ()>
-    // TODO return a better Result!?
+    ) -> Result<(), texture::UploadError>
     where
         P: Send + Copy + Clone + 'a;
 
@@ -466,7 +478,18 @@ trait TextureMipmapExt {
 
 /// Internal trait for transform feedback sessions.
 trait TransformFeedbackSessionExt {
-    /// Updates the state of OpenGL to make the transform feedback session current.
+    /// Returns the context of the buffer of the session.
+    fn get_context(&self) -> &Rc<Context>;
+
+    /// Returns the program whose outputs the session captures.
+    fn get_program_id(&self) -> glow::Program;
+
+    /// Returns true if transform feedback is active and captures into the buffer of the session,
+    /// so that a draw command continues it.
+    fn is_active(&self, _: &CommandContext<'_>) -> bool;
+
+    /// Updates the state of OpenGL to make the transform feedback session current, continuing
+    /// it if it is already active.
     ///
     /// The second parameter must be the primitive type of the input vertex data.
     fn bind(&self, _: &mut CommandContext<'_>, _: index::PrimitiveType);
@@ -478,20 +501,6 @@ trait TransformFeedbackSessionExt {
     fn ensure_buffer_out_of_transform_feedback(_: &mut CommandContext<'_>, _: glow::Buffer);
 }
 
-/// Internal trait for uniforms handling.
-trait UniformsExt {
-    /// Binds the uniforms to a given program.
-    ///
-    /// Will replace texture and buffer bind points.
-    fn bind_uniforms<'a, P>(
-        &'a self,
-        _: &mut CommandContext<'_>,
-        _: &P,
-        _: &mut buffer::FenceInserters<'a>,
-    ) -> Result<(), DrawError>
-    where
-        P: ProgramExt;
-}
 
 /// A raw value of a uniform. "Raw" means that it's passed directly with `glUniform`. Textures
 /// for example are just passed as integers.
@@ -536,6 +545,18 @@ pub enum RawUniformValue {
     DoubleMat2([[gl::types::GLdouble; 2]; 2]),
     DoubleMat3([[gl::types::GLdouble; 3]; 3]),
     DoubleMat4([[gl::types::GLdouble; 4]; 4]),
+    /// Column-major matrix with 2 columns and 3 rows.
+    DoubleMat2x3([[gl::types::GLdouble; 3]; 2]),
+    /// Column-major matrix with 2 columns and 4 rows.
+    DoubleMat2x4([[gl::types::GLdouble; 4]; 2]),
+    /// Column-major matrix with 3 columns and 2 rows.
+    DoubleMat3x2([[gl::types::GLdouble; 2]; 3]),
+    /// Column-major matrix with 3 columns and 4 rows.
+    DoubleMat3x4([[gl::types::GLdouble; 4]; 3]),
+    /// Column-major matrix with 4 columns and 2 rows.
+    DoubleMat4x2([[gl::types::GLdouble; 2]; 4]),
+    /// Column-major matrix with 4 columns and 3 rows.
+    DoubleMat4x3([[gl::types::GLdouble; 3]; 4]),
     DoubleVec2([gl::types::GLdouble; 2]),
     DoubleVec3([gl::types::GLdouble; 3]),
     DoubleVec4([gl::types::GLdouble; 4]),
@@ -907,6 +928,9 @@ pub trait Surface {
     }
 
     /// Clears the color attachment of the target. The color is in sRGB format and is not converted in the target.
+    ///
+    /// OpenGL ES without `GL_EXT_sRGB_write_control` converts it anyway when the target has sRGB
+    /// format, like `clear_color`.
     fn clear_color_srgb(&mut self, red: f32, green: f32, blue: f32, alpha: f32) {
         self.clear(None, Some((red, green, blue, alpha)), true, None, None);
     }
@@ -1002,11 +1026,12 @@ pub trait Surface {
     #[inline]
     fn blit_from_frame(
         &self,
+        source: &Context,
         source_rect: &Rect,
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,
-    ) {
-        self.blit_buffers_from_frame(source_rect, target_rect, filter, BlitMask::color())
+    ) -> Result<(), BlitError> {
+        self.blit_buffers_from_frame(source, source_rect, target_rect, filter, BlitMask::color())
     }
 
     /// Blits from a simple framebuffer.
@@ -1017,7 +1042,7 @@ pub trait Surface {
         source_rect: &Rect,
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,
-    ) {
+    ) -> Result<(), BlitError> {
         self.blit_buffers_from_simple_framebuffer(
             source,
             source_rect,
@@ -1035,7 +1060,7 @@ pub trait Surface {
         source_rect: &Rect,
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,
-    ) {
+    ) -> Result<(), BlitError> {
         self.blit_buffers_from_multioutput_framebuffer(
             source,
             source_rect,
@@ -1053,7 +1078,7 @@ pub trait Surface {
         source_rect: &Rect,
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,
-    ) {
+    ) -> Result<(), BlitError> {
         self.blit_buffers_from_external_framebuffer(
             source,
             source_rect,
@@ -1066,11 +1091,12 @@ pub trait Surface {
     /// Blits from the default framebuffer.
     fn blit_buffers_from_frame(
         &self,
+        source: &Context,
         source_rect: &Rect,
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,
         mask: BlitMask,
-    );
+    ) -> Result<(), BlitError>;
 
     /// Blits from a simple framebuffer.
     fn blit_buffers_from_simple_framebuffer(
@@ -1080,7 +1106,7 @@ pub trait Surface {
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,
         mask: BlitMask,
-    );
+    ) -> Result<(), BlitError>;
 
     /// Blits from a multi-output framebuffer.
     fn blit_buffers_from_multioutput_framebuffer(
@@ -1090,7 +1116,7 @@ pub trait Surface {
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,
         mask: BlitMask,
-    );
+    ) -> Result<(), BlitError>;
 
     /// Blits from a framebuffer created outside SafeGL.
     ///
@@ -1103,9 +1129,9 @@ pub trait Surface {
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,
         mask: BlitMask,
-    ) {
+    ) -> Result<(), BlitError> {
         let _ = (source, source_rect, target_rect, filter, mask);
-        unimplemented!("this surface can't be the target of a blit from an external framebuffer")
+        Err(BlitError::UnsupportedSource)
     }
 
     /// Copies a rectangle of pixels from this surface to another surface.
@@ -1115,18 +1141,24 @@ pub trait Surface {
     /// target areas don't have the same dimensions, the image will be resized to match.
     /// The `filter` parameter is relevant only in this situation.
     ///
-    /// It is possible for the source and the target to be the same surface. However if the
-    /// rectangles overlap, then the behavior is undefined.
+    /// On desktop OpenGL, the source and the target can be the same surface, but the content of
+    /// overlapping rectangles is undefined. OpenGL ES can't blit a surface to itself.
     ///
     /// Note that there is no alpha blending, depth/stencil checking, etc. This function just
     /// copies pixels.
+    ///
+    /// Returns an error if OpenGL can't do the copy: a multisampled source or target with
+    /// rectangles of different sizes, different numbers of samples or different formats, a
+    /// multisampled target on OpenGL ES, integer formats with other formats or with a linear
+    /// filter, or a source from another context.
     fn blit_color<S>(
         &self,
         source_rect: &Rect,
         target: &S,
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,
-    ) where
+    ) -> Result<(), BlitError>
+    where
         S: Surface;
 
     /// Copies the entire surface to a target surface. See `blit_color`.
@@ -1136,7 +1168,8 @@ pub trait Surface {
         target: &S,
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,
-    ) where
+    ) -> Result<(), BlitError>
+    where
         S: Surface,
     {
         let src_dim = self.get_dimensions();
@@ -1149,9 +1182,13 @@ pub trait Surface {
         self.blit_color(&src_rect, target, target_rect, filter)
     }
 
-    /// Copies the entire surface to the entire target. See `blit_color`.
+    /// Copies the entire surface to the entire target, scaling it if their sizes differ. See
+    /// `blit_color`.
+    ///
+    /// `source.fill(&target, filter)` copies `source` into `target`: to show a texture in the
+    /// window, call `texture.as_surface().fill(&frame, filter)`.
     #[inline]
-    fn fill<S>(&self, target: &S, filter: uniforms::MagnifySamplerFilter)
+    fn fill<S>(&self, target: &S, filter: uniforms::MagnifySamplerFilter) -> Result<(), BlitError>
     where
         S: Surface,
     {
@@ -1177,7 +1214,77 @@ pub trait Surface {
 trait FboAttachments {
     /// Returns the attachments of this framebuffer, or the raw framebuffer it is.
     fn get_attachments(&self) -> fbo::FramebufferTarget<'_>;
+
+    /// Returns the context of the framebuffer.
+    fn get_fbo_context(&self) -> &Context;
 }
+
+/// Error that can happen while blitting.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BlitError {
+    /// The source belongs to another context than the target. OpenGL objects can only be used
+    /// with the context that created them.
+    ContextMismatch,
+
+    /// Depth and stencil buffers can only be blitted with the `Nearest` filter.
+    LinearFilterOnDepthStencil,
+
+    /// The target surface can't be the target of a blit from this kind of source. This only
+    /// happens with surfaces implemented outside SafeGL.
+    UnsupportedSource,
+
+    /// The source or the target is multisampled, and the rectangles don't have the same size:
+    /// multisample blits can't scale.
+    ScaledMultisample,
+
+    /// The source and the target are multisampled with different numbers of samples.
+    SampleCountMismatch,
+
+    /// OpenGL ES can't blit to a multisampled target.
+    MultisampleTarget,
+
+    /// The formats of the source and the target can't be blitted: integers and other formats
+    /// can't be blitted to each other, multisample blits need the same color format, and depth
+    /// and stencil buffers need the same format.
+    FormatMismatch,
+
+    /// Integer color buffers can only be blitted with the `Nearest` filter.
+    LinearFilterOnIntegers,
+
+    /// OpenGL ES can't blit a buffer to itself.
+    SameSourceAndTarget,
+}
+
+impl fmt::Display for BlitError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = match *self {
+            BlitError::ContextMismatch => {
+                "The source belongs to another context than the target of the blit"
+            }
+            BlitError::LinearFilterOnDepthStencil => {
+                "Depth and stencil buffers can only be blitted with the `Nearest` filter"
+            }
+            BlitError::UnsupportedSource => {
+                "The target surface can't be the target of a blit from this kind of source"
+            }
+            BlitError::ScaledMultisample => "Multisample blits can't scale",
+            BlitError::SampleCountMismatch => {
+                "The source and the target have different numbers of samples"
+            }
+            BlitError::MultisampleTarget => "OpenGL ES can't blit to a multisampled target",
+            BlitError::FormatMismatch => {
+                "The formats of the source and the target can't be blitted to each other"
+            }
+            BlitError::LinearFilterOnIntegers => {
+                "Integer color buffers can only be blitted with the `Nearest` filter"
+            }
+            BlitError::SameSourceAndTarget => "OpenGL ES can't blit a buffer to itself",
+        };
+        fmt.write_str(desc)
+    }
+}
+
+impl Error for BlitError {}
 
 /// Error that can happen while drawing.
 #[derive(Clone, Debug)]
@@ -1265,6 +1372,17 @@ pub enum DrawError {
     /// Using a program which contains tessellation shaders, but without submitting patches.
     TessellationWithoutPatches,
 
+    /// Drawing patches with a program that has no tessellation evaluation shader.
+    PatchesWithoutTessellation,
+
+    /// The program has no active fragment output with the name of an attachment of the
+    /// `MultiOutputFrameBuffer` drawn upon. Outputs that the shader never writes are removed by
+    /// the compiler.
+    FragmentOutputMissing {
+        /// Name of the output.
+        name: String,
+    },
+
     /// The geometry shader of the program takes another kind of primitives than the ones drawn.
     GeometryShaderInputMismatch,
 
@@ -1289,9 +1407,6 @@ pub enum DrawError {
     /// The requested provoking vertex is not supported by the backend.
     ProvokingVertexNotSupported,
 
-    /// Discarding rasterizer output isn't supported by the backend.
-    RasterizerDiscardNotSupported,
-
     /// Depth clamping isn't supported by the backend.
     DepthClampNotSupported,
 
@@ -1308,6 +1423,9 @@ pub enum DrawError {
 
     /// Tried to enable a clip plane that does not exist.
     ClipPlaneIndexOutOfBounds,
+
+    /// Tried to sample more textures than the backend has texture units.
+    InsufficientTextureUnits,
 
     /// Tried to use too many image units simultaneously
     #[cfg(feature = "gl46")]
@@ -1350,6 +1468,77 @@ pub enum DrawError {
     BufferBindingOutOfRange {
         /// Name of the block.
         name: String,
+    },
+
+    /// Two shader storage blocks, or two image uniforms, have the same `layout(binding = N)` in
+    /// the shader, which can't be changed on OpenGL ES, and were given a buffer or an image each.
+    SharedBindingPoint {
+        /// Name of the second block or image uniform.
+        name: String,
+    },
+
+    /// Compute shaders need OpenGL 4.3, OpenGL ES 3.1 or `GL_ARB_compute_shader`.
+    ComputeShadersNotSupported,
+
+    /// A compute shader was executed with more work groups than the backend supports.
+    WorkGroupCountTooLarge {
+        /// The number of work groups requested in each dimension.
+        requested: (u32, u32, u32),
+        /// The maximum number of work groups in each dimension.
+        maximum: (u32, u32, u32),
+    },
+
+    /// The transform feedback session was built for another program than the one drawn with: it
+    /// would capture the outputs of that program with the layout of the other.
+    TransformFeedbackProgramMismatch,
+
+    /// An active uniform of the program has never been given a value. Give it one, or pass
+    /// `uniforms::Keep` to keep the initializer of the shader.
+    UniformMissing {
+        /// Name of the uniform.
+        name: String,
+    },
+
+    /// A sampler, an image, a uniform block, a shader storage block or an atomic counter buffer
+    /// of the program wasn't given a value. They must be given one for every draw command, since
+    /// their bindings are shared between programs.
+    UniformBindingMissing {
+        /// Name of the uniform or block.
+        name: String,
+    },
+
+    /// A value was given to a member of a uniform block or shader storage block by name. The
+    /// members of blocks are in buffers, which are bound to the whole block.
+    UniformBlockMember {
+        /// Name of the member.
+        name: String,
+    },
+
+    /// A texture is bound to a shadow sampler (`sampler2DShadow`, ...) without a depth comparison
+    /// in its sampler, or to another sampler with one. Sampling it would return undefined values.
+    /// Set the comparison with `depth_texture_comparison` on the sampler of shadow maps.
+    DepthComparisonMismatch {
+        /// Name of the uniform.
+        name: String,
+    },
+
+    /// An object given to the draw command belongs to another context than the surface drawn
+    /// upon. OpenGL objects can only be used with the context that created them.
+    ContextMismatch {
+        /// What the object is, like `program` or `uniform `tex``.
+        object: String,
+    },
+
+    /// A buffer slice bound to a uniform block, shader storage block or atomic counter buffer
+    /// doesn't start at an offset that the backend accepts: a multiple of
+    /// `GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT`, `GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT` or 4.
+    BufferOffsetNotAligned {
+        /// Name of the block.
+        name: String,
+        /// Offset of the slice in bytes.
+        offset: usize,
+        /// The alignment required by the backend.
+        alignment: usize,
     },
 }
 
@@ -1399,6 +1588,10 @@ impl fmt::Display for DrawError {
                 "Trying to use tessellation, but this is not supported by the underlying hardware",
             TessellationWithoutPatches =>
                 "Using a program which contains tessellation shaders, but without submitting patches",
+            FragmentOutputMissing { .. } =>
+                "The program has no active fragment output with the name of an attachment",
+            PatchesWithoutTessellation =>
+                "Drawing patches with a program that has no tessellation evaluation shader",
             GeometryShaderInputMismatch =>
                 "The geometry shader of the program takes another kind of primitives than the ones drawn",
             SamplersNotSupported => "
@@ -1415,8 +1608,6 @@ impl fmt::Display for DrawError {
                 "Trying to use smoothing, but this is not supported by the backend",
             ProvokingVertexNotSupported =>
                 "Trying to set the provoking vertex, but this is not supported by the backend",
-            RasterizerDiscardNotSupported =>
-                "Discarding rasterizer output is not supported by the backend",
             DepthClampNotSupported =>
                 "The depth clamp mode is not supported by the backend",
             BlendingParameterNotSupported =>
@@ -1428,6 +1619,8 @@ impl fmt::Display for DrawError {
                 "Changing the clip volume definition (origin and depth mode) is not supported by the backend",
             ClipPlaneIndexOutOfBounds =>
                 "Tried to enable a clip plane that does not exist.",
+            InsufficientTextureUnits =>
+                "Tried to sample more textures than the implementation has texture units",
             #[cfg(feature = "gl46")]
             InsufficientImageUnits =>
                 "Tried to use more image uniforms that the implementation has support for",
@@ -1452,6 +1645,26 @@ impl fmt::Display for DrawError {
                 "Clamping the depth offset is not supported by the backend",
             BufferBindingOutOfRange { .. } =>
                 "A block needs more buffer binding points than the backend has",
+            SharedBindingPoint { .. } =>
+                "Two shader storage blocks or image uniforms have the same binding point in the shader and were given a buffer or an image each",
+            ComputeShadersNotSupported =>
+                "Compute shaders are not supported by the backend",
+            WorkGroupCountTooLarge { .. } =>
+                "A compute shader was executed with more work groups than the backend supports",
+            TransformFeedbackProgramMismatch =>
+                "The transform feedback session was built for another program",
+            UniformMissing { .. } =>
+                "An active uniform of the program has never been given a value",
+            UniformBindingMissing { .. } =>
+                "A sampler, image or block of the program wasn't given a value",
+            UniformBlockMember { .. } =>
+                "A value was given to a member of a block by name",
+            DepthComparisonMismatch { .. } =>
+                "A shadow sampler without a depth comparison, or another sampler with one",
+            ContextMismatch { .. } =>
+                "An object belongs to another context than the one drawn upon",
+            BufferOffsetNotAligned { .. } =>
+                "A buffer slice bound to a block doesn't start at an offset the backend accepts",
         };
         match self {
             UniformTypeMismatch {
@@ -1461,6 +1674,27 @@ impl fmt::Display for DrawError {
             UniformBufferToValue { name } => write!(fmt, "{}: {}", desc, name,),
             UniformValueToBlock { name } => write!(fmt, "{}: {}", desc, name,),
             BufferBindingOutOfRange { name } => write!(fmt, "{}: {}", desc, name,),
+            SharedBindingPoint { name } => write!(fmt, "{}: `{}`", desc, name),
+            ContextMismatch { object } => write!(fmt, "{}: {}", desc, object),
+            DepthComparisonMismatch { name } => write!(fmt, "{}: {}", desc, name),
+            UniformMissing { name } => write!(fmt, "{}: `{}`", desc, name),
+            FragmentOutputMissing { name } => write!(fmt, "{}: `{}`", desc, name),
+            UniformBindingMissing { name } => write!(fmt, "{}: `{}`", desc, name),
+            UniformBlockMember { name } => write!(fmt, "{}: `{}`", desc, name),
+            WorkGroupCountTooLarge { requested, maximum } => write!(
+                fmt,
+                "{}: {:?} requested, {:?} at most",
+                desc, requested, maximum
+            ),
+            BufferOffsetNotAligned {
+                name,
+                offset,
+                alignment,
+            } => write!(
+                fmt,
+                "{}: `{}` starts at {} bytes, not a multiple of {}",
+                desc, name, offset, alignment
+            ),
             UniformBlockLayoutMismatch { name, err } => {
                 write!(fmt, "{}: {}, caused by {}", desc, name, err,)
             }
@@ -1547,13 +1781,21 @@ impl Frame {
     }
 
     /// Builds a new `Frame`. Use the `draw` function on `Display` instead of this function.
+    ///
+    /// Returns `FrameError::AlreadyDrawing` if another `Frame` of the context hasn't been
+    /// finished: they would all draw to the same back buffer, and the second one would swap a
+    /// back buffer whose content is undefined.
     #[inline]
-    pub fn new(context: Rc<Context>, dimensions: (u32, u32)) -> Frame {
-        Frame {
+    pub fn new(context: Rc<Context>, dimensions: (u32, u32)) -> Result<Frame, FrameError> {
+        if !context.begin_frame() {
+            return Err(FrameError::AlreadyDrawing);
+        }
+
+        Ok(Frame {
             context,
             dimensions,
             destroyed: false,
-        }
+        })
     }
 
     /// Stop drawing, swap the buffers, and consume the Frame.
@@ -1575,9 +1817,29 @@ impl Frame {
         }
 
         self.destroyed = true;
+        self.context.end_frame();
         self.context.swap_buffers()
     }
 }
+
+/// Error that can happen when starting a `Frame`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameError {
+    /// Another `Frame` of the context hasn't been finished yet.
+    AlreadyDrawing,
+}
+
+impl fmt::Display for FrameError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            FrameError::AlreadyDrawing => {
+                fmt.write_str("Another `Frame` of the context hasn't been finished yet")
+            }
+        }
+    }
+}
+
+impl Error for FrameError {}
 
 impl Surface for Frame {
     #[inline]
@@ -1655,21 +1917,24 @@ impl Surface for Frame {
         target: &S,
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,
-    ) where
+    ) -> Result<(), BlitError>
+    where
         S: Surface,
     {
-        target.blit_from_frame(source_rect, target_rect, filter)
+        target.blit_from_frame(&self.context, source_rect, target_rect, filter)
     }
 
     fn blit_buffers_from_frame(
         &self,
+        source: &Context,
         source_rect: &Rect,
         target_rect: &BlitTarget,
         filter: MagnifySamplerFilter,
         mask: BlitMask,
-    ) {
+    ) -> Result<(), BlitError> {
         ops::blit(
             &self.context,
+            source,
             fbo::FramebufferTarget::Raw(None),
             self.get_attachments(),
             mask.to_glenum(),
@@ -1686,9 +1951,10 @@ impl Surface for Frame {
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,
         mask: BlitMask,
-    ) {
+    ) -> Result<(), BlitError> {
         ops::blit(
             &self.context,
+            source.get_fbo_context(),
             source.get_attachments(),
             self.get_attachments(),
             mask.to_glenum(),
@@ -1705,9 +1971,10 @@ impl Surface for Frame {
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,
         mask: BlitMask,
-    ) {
+    ) -> Result<(), BlitError> {
         ops::blit(
             &self.context,
+            source.get_fbo_context(),
             source.get_attachments(),
             self.get_attachments(),
             mask.to_glenum(),
@@ -1724,9 +1991,10 @@ impl Surface for Frame {
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,
         mask: BlitMask,
-    ) {
+    ) -> Result<(), BlitError> {
         ops::blit(
             &self.context,
+            source.get_fbo_context(),
             source.get_attachments(),
             self.get_attachments(),
             mask.to_glenum(),
@@ -1739,6 +2007,11 @@ impl Surface for Frame {
 
 impl FboAttachments for Frame {
     #[inline]
+    fn get_fbo_context(&self) -> &Context {
+        &self.context
+    }
+
+    #[inline]
     fn get_attachments(&self) -> fbo::FramebufferTarget<'_> {
         fbo::FramebufferTarget::Raw(None)
     }
@@ -1747,6 +2020,10 @@ impl FboAttachments for Frame {
 impl Drop for Frame {
     #[inline]
     fn drop(&mut self) {
+        if !self.destroyed {
+            self.context.end_frame();
+        }
+
         if !thread::panicking() {
             assert!(
                 self.destroyed,

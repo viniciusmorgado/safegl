@@ -103,6 +103,7 @@ impl Program {
                         has_tessellation_control_shader,
                         has_tessellation_evaluation_shader,
                         transform_feedback_varyings,
+                        Some(fragment_shader),
                     )?,
                     outputs_srgb,
                     uses_point_size,
@@ -172,6 +173,7 @@ impl Program {
                         has_tessellation_control_shader,
                         has_tessellation_evaluation_shader,
                         transform_feedback_varyings,
+                        None,
                     )?,
                     outputs_srgb,
                     uses_point_size,
@@ -467,6 +469,11 @@ impl GlObject for Program {
 }
 
 impl ProgramExt for Program {
+    #[inline]
+    fn get_context(&self) -> &crate::context::Context {
+        self.raw.get_context()
+    }
+
     fn use_program(&self, ctxt: &mut CommandContext<'_>) {
         // compatibility was checked at program creation
         if ctxt.version.0 == Api::Gl {
@@ -545,6 +552,16 @@ impl ProgramExt for Program {
     #[inline]
     fn get_uniform(&self, name: &str) -> Option<&Uniform> {
         self.raw.get_uniform(name)
+    }
+
+    #[inline]
+    fn get_uniforms(&self) -> &HashMap<String, Uniform, BuildHasherDefault<FnvHasher>> {
+        self.raw.get_uniforms()
+    }
+
+    #[inline]
+    fn is_uniform_set(&self, location: gl::types::GLint) -> bool {
+        self.raw.is_uniform_set(location)
     }
 
     #[inline]

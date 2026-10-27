@@ -1,9 +1,10 @@
 use std::error::Error;
+use std::rc::Rc;
 use std::{fmt, mem};
 
 use crate::backend::Facade;
 use crate::buffer::{Buffer, BufferAnySlice};
-use crate::context::CommandContext;
+use crate::context::{CommandContext, Context};
 use crate::index::PrimitiveType;
 use crate::program::OutputPrimitives;
 use crate::program::Program;
@@ -11,6 +12,7 @@ use crate::vertex::Vertex;
 use crate::BufferExt;
 use crate::ContextExt;
 use crate::GlObject;
+use crate::ProgramExt;
 use crate::TransformFeedbackSessionExt;
 
 use crate::gl;
@@ -67,6 +69,7 @@ use glow::HasContext;
 /// }
 ///
 /// implement_vertex!(Vertex, output_val);
+/// safegl::implement_any_bit_pattern!(Vertex, output_val);
 ///
 /// let mut out_buffer: safegl::VertexBuffer<Vertex> = safegl::VertexBuffer::empty(&display, 6).unwrap();
 ///
@@ -100,6 +103,10 @@ pub enum TransformFeedbackSessionCreationError {
 
     /// The format of the output doesn't match what the program is expected to output.
     WrongVertexFormat,
+
+    /// The program or the buffer belongs to another context. OpenGL objects can only be used
+    /// with the context that created them.
+    ContextMismatch,
 }
 
 impl fmt::Display for TransformFeedbackSessionCreationError {
@@ -110,6 +117,7 @@ impl fmt::Display for TransformFeedbackSessionCreationError {
             WrongVertexFormat => {
                 "The format of the output doesn't match what the program is expected to output"
             }
+            ContextMismatch => "The program or the buffer belongs to another context",
         };
         fmt.write_str(desc)
     }
@@ -146,6 +154,14 @@ impl<'a> TransformFeedbackSession<'a> {
             return Err(TransformFeedbackSessionCreationError::NotSupported);
         }
 
+        // OpenGL objects can only be used with the context that created them
+        let context: &Context = facade.get_context();
+        if !std::ptr::eq(ProgramExt::get_context(program), context)
+            || !std::ptr::eq(&**buffer.get_context(), context)
+        {
+            return Err(TransformFeedbackSessionCreationError::ContextMismatch);
+        }
+
         if !program
             .transform_feedback_matches(&<V as Vertex>::build_bindings(), mem::size_of::<V>())
         {
@@ -160,15 +176,30 @@ impl<'a> TransformFeedbackSession<'a> {
 }
 
 impl<'a> TransformFeedbackSessionExt for TransformFeedbackSession<'a> {
+    #[inline]
+    fn get_context(&self) -> &Rc<Context> {
+        self.buffer.get_context()
+    }
+
+    #[inline]
+    fn get_program_id(&self) -> glow::Program {
+        self.program.get_id()
+    }
+
+    fn is_active(&self, ctxt: &CommandContext<'_>) -> bool {
+        ctxt.state.transform_feedback_enabled.is_some()
+            && ctxt
+                .state
+                .indexed_transform_feedback_buffer_bindings
+                .first()
+                .is_some_and(|binding| {
+                    binding.buffer == Some(self.buffer.get_id())
+                        && binding.offset == self.buffer.get_offset_bytes() as gl::types::GLintptr
+                        && binding.size == self.buffer.get_size() as gl::types::GLsizeiptr
+                })
+    }
+
     fn bind(&self, ctxt: &mut CommandContext<'_>, draw_primitives: PrimitiveType) {
-        // TODO: check that the state matches what is required
-        if ctxt.state.transform_feedback_enabled.is_some() {
-            unimplemented!();
-        }
-
-        // FIXME: use the memory barrier system
-        self.buffer.bind_to_transform_feedback(ctxt, 0);
-
         unsafe {
             let primitives = match (self.program.get_output_primitives(), draw_primitives) {
                 (Some(OutputPrimitives::Points), _) => gl::POINTS,
@@ -189,6 +220,15 @@ impl<'a> TransformFeedbackSessionExt for TransformFeedbackSession<'a> {
                 (None, PrimitiveType::TriangleFan) => gl::TRIANGLES,
                 (None, PrimitiveType::Patches { .. }) => unreachable!(),
             };
+
+            // the session continues: the new primitives are captured after the previous ones
+            if self.is_active(ctxt) && ctxt.state.transform_feedback_enabled == Some(primitives) {
+                return;
+            }
+            Self::unbind(ctxt);
+
+            // FIXME: use the memory barrier system
+            self.buffer.bind_to_transform_feedback(ctxt, 0);
 
             ctxt.glow.begin_transform_feedback(primitives);
             ctxt.state.transform_feedback_enabled = Some(primitives);

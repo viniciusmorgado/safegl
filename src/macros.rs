@@ -7,10 +7,13 @@
 /// the arguments of this macro match the `println!` macro.
 ///
 /// ## Example
-/// ```ignore rust
+/// ```no_run
+/// # use safegl::assert_no_gl_error;
+/// # fn example(my_display: &safegl::Display<safegl::glutin::surface::WindowSurface>) {
 /// assert_no_gl_error!(my_display);
 /// assert_no_gl_error!(my_display, "custom message");
 /// assert_no_gl_error!(my_display, "custom format {}", 5);
+/// # }
 /// ```
 #[macro_export]
 macro_rules! assert_no_gl_error {
@@ -47,28 +50,50 @@ macro_rules! assert_no_gl_error {
 /// };
 /// # }
 /// ```
+///
+/// Names that aren't identifiers, like the members of structs and the elements of arrays, are
+/// given as strings:
+///
+/// ```rust
+/// # use safegl::uniform;
+/// # fn main() {
+/// // uniform struct Light { vec3 position; vec3 color; } lights[2];
+/// let uniforms = uniform! {
+///     "lights[0].position": [0.0f32, 2.0, 0.0],
+///     "lights[0].color": [1.0f32, 1.0, 1.0],
+///     "lights[1].position": [4.0f32, 2.0, 0.0],
+///     "lights[1].color": [1.0f32, 0.0, 0.0],
+///     ambient: 0.1f32,
+/// };
+/// # }
+/// ```
 #[macro_export]
 macro_rules! uniform {
     () => {
         $crate::uniforms::EmptyUniforms
     };
 
-    ($field:ident: $value:expr) => {
-        $crate::uniforms::UniformsStorage::new(stringify!($field), $value)
+    (@name $field:ident) => {
+        stringify!($field)
     };
 
-    ($field1:ident: $value1:expr, $($field:ident: $value:expr),+) => {
-        {
-            let uniforms = $crate::uniforms::UniformsStorage::new(stringify!($field1), $value1);
-            $(
-                let uniforms = uniforms.add(stringify!($field), $value);
-            )+
-            uniforms
-        }
+    (@name $field:literal) => {
+        $field
     };
 
-    ($($field:ident: $value:expr),*,) => {
-        $crate::uniform!($($field: $value),*)
+    (@add $uniforms:expr;) => {
+        $uniforms
+    };
+
+    (@add $uniforms:expr; $field:tt: $value:expr $(, $($rest:tt)*)?) => {
+        $crate::uniform!(@add $uniforms.add($crate::uniform!(@name $field), $value); $($($rest)*)?)
+    };
+
+    ($field:tt: $value:expr $(, $($rest:tt)*)?) => {
+        $crate::uniform!(@add
+            $crate::uniforms::UniformsStorage::new($crate::uniform!(@name $field), $value);
+            $($($rest)*)?
+        )
     };
 }
 
@@ -134,7 +159,21 @@ macro_rules! dynamic_uniform{
 ///
 /// If not using the location option, when it comes to using to using your vertex array in a shader you must make sure that all your attribute variables *match* the field names in the struct you are calling calling this macro for.
 ///
-/// So, if you have a `vertex_position` attribute/input in your shader, a field named `vertex_position` must be present in the struct. Otherwise the drawing functions will panic.
+/// So, if you have a `vertex_position` attribute/input in your shader, a field named `vertex_position` must be present in the struct. Otherwise the drawing functions return `DrawError::AttributeMissing`.
+///
+/// ## Tuple structs
+///
+/// The fields of a tuple struct are given by their index, with the name of their attribute:
+///
+/// ```
+/// # use safegl::implement_vertex;
+/// #[derive(Clone, Copy)]
+/// struct Vertex([f32; 3], [f32; 2]);
+///
+/// implement_vertex!(Vertex, 0 => position, 1 => tex_coords);
+/// ```
+///
+/// The normalize and location options follow the name: `0 => position location(0)`.
 ///
 /// ## Normalize option
 ///
@@ -166,6 +205,14 @@ macro_rules! dynamic_uniform{
 /// ```
 #[macro_export]
 macro_rules! implement_vertex {
+    (@or [$default:expr]) => {
+        $default
+    };
+
+    (@or [$default:expr] $value:expr) => {
+        $value
+    };
+
     ($struct_name:ty, $($field_name:ident),+) => (
         impl $struct_name {
             const BINDINGS: $crate::vertex::VertexFormat = &[
@@ -192,7 +239,7 @@ macro_rules! implement_vertex {
             ];
         }
 
-        impl $crate::vertex::Vertex for $struct_name {
+        unsafe impl $crate::vertex::Vertex for $struct_name {
             #[inline]
             fn build_bindings() -> $crate::vertex::VertexFormat {
                 Self::BINDINGS
@@ -227,7 +274,7 @@ macro_rules! implement_vertex {
                 ),+
             ];
         }
-        impl $crate::vertex::Vertex for $struct_name {
+        unsafe impl $crate::vertex::Vertex for $struct_name {
             #[inline]
             fn build_bindings() -> $crate::vertex::VertexFormat {
                 Self::BINDINGS
@@ -263,7 +310,7 @@ macro_rules! implement_vertex {
             ];
         }
 
-        impl $crate::vertex::Vertex for $struct_name {
+        unsafe impl $crate::vertex::Vertex for $struct_name {
             #[inline]
             fn build_bindings() -> $crate::vertex::VertexFormat {
                 Self::BINDINGS
@@ -274,6 +321,142 @@ macro_rules! implement_vertex {
     ($struct_name:ty, $($field_name:ident),+,) => (
         $crate::implement_vertex!($struct_name, $($field_name),+);
     );
+
+    // tuple structs, whose fields have an index and are given the name of their attribute
+    ($struct_name:ty, $($index:tt => $name:ident $(normalize($normalize:expr))?
+                         $(location($location:expr))?),+ $(,)?) => {
+        impl $struct_name {
+            const BINDINGS: $crate::vertex::VertexFormat = &[
+                $(
+                    (
+                        std::borrow::Cow::Borrowed(stringify!($name)),
+                        ::core::mem::offset_of!($struct_name, $index),
+                        $crate::implement_vertex!(@or [-1] $($location)?),
+                        {
+                            const fn attr_type_of_val<T: $crate::vertex::Attribute>(_: Option<&T>)
+                                -> $crate::vertex::AttributeType
+                            {
+                                <T as $crate::vertex::Attribute>::TYPE
+                            }
+                            let field_option = match None::<&$struct_name> {
+                                Some(v) => Some(&v.$index),
+                                None => None
+                            };
+                            attr_type_of_val(field_option)
+                        },
+                        $crate::implement_vertex!(@or [false] $($normalize)?)
+                    )
+                ),+
+            ];
+        }
+
+        unsafe impl $crate::vertex::Vertex for $struct_name {
+            #[inline]
+            fn build_bindings() -> $crate::vertex::VertexFormat {
+                Self::BINDINGS
+            }
+        }
+    };
+}
+
+/// Implements the `safegl::buffer::AnyBitPattern` trait for the given struct.
+///
+/// The parameters must be the name of the struct and the names of **all** its fields, or the
+/// indices of all its fields for a tuple struct. The macro fails to compile if a field is missing
+/// or if the type of a field doesn't implement `AnyBitPattern`, so the struct is guaranteed to be
+/// valid for every bit pattern.
+///
+/// Buffers can only be created without data, invalidated, read or mapped for reading when their
+/// content implements `AnyBitPattern`.
+///
+/// ## Example
+///
+/// ```
+/// # use safegl::implement_any_bit_pattern;
+/// #[derive(Copy, Clone)]
+/// struct Particle {
+///     position: [f32; 3],
+///     age: u32,
+/// }
+/// implement_any_bit_pattern!(Particle, position, age);
+///
+/// #[derive(Copy, Clone)]
+/// struct Color(f32, f32, f32);
+/// implement_any_bit_pattern!(Color, 0, 1, 2);
+///
+/// // unsized structs work too
+/// struct Particles {
+///     count: u32,
+///     particles: [Particle],
+/// }
+/// implement_any_bit_pattern!(Particles, count, particles);
+/// ```
+///
+/// A struct with a field that can't hold every bit pattern is rejected:
+///
+/// ```compile_fail
+/// # use safegl::implement_any_bit_pattern;
+/// #[derive(Copy, Clone)]
+/// struct Flagged {
+///     value: f32,
+///     enabled: bool,
+/// }
+/// implement_any_bit_pattern!(Flagged, value, enabled);
+/// ```
+///
+/// So is a struct whose fields aren't all listed:
+///
+/// ```compile_fail
+/// # use safegl::implement_any_bit_pattern;
+/// #[derive(Copy, Clone)]
+/// struct Flagged {
+///     value: f32,
+///     enabled: bool,
+/// }
+/// implement_any_bit_pattern!(Flagged, value);
+/// ```
+#[macro_export]
+macro_rules! implement_any_bit_pattern {
+    (__underscore $index:tt) => { _ };
+
+    (__check $struct_name:ident [$($gs:ident),*] [$($pattern:tt)*] $($field:tt),+) => {
+        const _: () = {
+            #[allow(dead_code, clippy::extra_unused_type_parameters)]
+            fn check<$($gs: $crate::buffer::AnyBitPattern),*>(value: &$struct_name<$($gs),*>) {
+                fn is_any_bit_pattern<T: ?Sized + $crate::buffer::AnyBitPattern>(_: &T) {}
+                // a pattern without `..` doesn't compile if a field is missing
+                let $($pattern)* = value;
+                $(is_any_bit_pattern(&value.$field);)+
+            }
+        };
+
+        unsafe impl<$($gs: $crate::buffer::AnyBitPattern),*> $crate::buffer::AnyBitPattern
+            for $struct_name<$($gs),*>
+        {
+        }
+    };
+
+    ($struct_name:ident <$($gs:ident),+>, $($field_name:ident),+ $(,)?) => {
+        $crate::implement_any_bit_pattern!(__check $struct_name [$($gs),+]
+            [$struct_name { $($field_name: _),+ }] $($field_name),+);
+    };
+
+    ($struct_name:ident <$($gs:ident),+>, $($index:tt),+ $(,)?) => {
+        $crate::implement_any_bit_pattern!(__check $struct_name [$($gs),+]
+            [$struct_name($($crate::implement_any_bit_pattern!(__underscore $index)),+)]
+            $($index),+);
+    };
+
+    ($struct_name:ident, $($field_name:ident),+ $(,)?) => {
+        $crate::implement_any_bit_pattern!(__check $struct_name []
+            [$struct_name { $($field_name: _),+ }] $($field_name),+);
+    };
+
+    ($struct_name:ident, $($index:tt),+ $(,)?) => {
+        $crate::implement_any_bit_pattern!(__check $struct_name []
+            [$struct_name($($crate::implement_any_bit_pattern!(__underscore $index)),+)]
+            $($index),+);
+    };
 }
 
 /// Implements the `safegl::buffer::Content` trait for the given type.
@@ -335,7 +518,10 @@ macro_rules! implement_buffer_content {
 
                 #[inline]
                 unsafe fn read<F, E>(size: usize, f: F) -> ::std::result::Result<Box<$struct_name<$($gs)*>>, E>
-                              where F: FnOnce(&mut $struct_name<$($gs)*>) -> ::std::result::Result<(), E>
+                              // the bound is higher-ranked so that it isn't rejected as trivially false
+                              // for structs that don't implement the trait
+                              where for<'__any> $struct_name<$($gs)*>: $crate::buffer::AnyBitPattern,
+                                    F: FnOnce(&mut $struct_name<$($gs)*>) -> ::std::result::Result<(), E>
                 {
                     assert!(<$struct_name<$($gs)*> as $crate::buffer::Content>::is_size_suitable(size));
                     let len = $crate::implement_buffer_content!(__len $struct_name [$($gs)*] size)
@@ -428,7 +614,7 @@ macro_rules! implement_uniform_block {
 
     (__impl $struct_name:ident [$($gs:tt)*], $($field_name:ident),+) => (
         $crate::implement_uniform_block! { __as_item
-            impl<$($gs)*> $crate::uniforms::UniformBlock for $struct_name<$($gs)*> {
+            unsafe impl<$($gs)*> $crate::uniforms::UniformBlock for $struct_name<$($gs)*> {
                 fn matches(layout: &$crate::program::BlockLayout, base_offset: usize)
                            -> ::std::result::Result<(), $crate::uniforms::LayoutMismatchError>
                 {

@@ -197,7 +197,8 @@ fn main() {
     // note that constructing a `Frame` object manually is a bit hacky and may be changed
     // in the future
     let draw = |context: &Rc<safegl::backend::Context>| {
-        let mut target = safegl::Frame::new(context.clone(), context.get_framebuffer_dimensions());
+        let mut target =
+            safegl::Frame::new(context.clone(), context.get_framebuffer_dimensions()).unwrap();
         target.clear_color(0.0, 1.0, 0.0, 1.0);
         target.finish().unwrap();
     };

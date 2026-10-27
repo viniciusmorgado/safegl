@@ -2,6 +2,7 @@
 
 use crate::gl;
 
+use std::any::Any;
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell, RefMut};
 use std::collections::HashMap;
@@ -10,9 +11,11 @@ use std::hash::BuildHasherDefault;
 use std::marker::PhantomData;
 use std::mem;
 use std::os::raw;
+use std::panic;
 use std::ptr;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::thread;
 use std::str;
 
 use fnv::FnvHasher;
@@ -77,7 +80,23 @@ pub struct Context {
     check_current_context: bool,
 
     /// The callback that is used by the debug output feature.
-    debug_callback: Option<debug::DebugCallback>,
+    debug_callback: RefCell<Option<debug::DebugCallback>>,
+
+    /// Whether a `Frame` is being drawn: there can only be one at a time, since they all draw
+    /// to the back buffer of the same window.
+    frame_in_progress: Cell<bool>,
+
+    /// The payload of a panic of the debug callback, which can't unwind through OpenGL: it is
+    /// resumed when the command that triggered the message returns.
+    debug_callback_panic: Cell<Option<Box<dyn Any + Send>>>,
+
+    /// Whether the debug messages are synchronous, to set up the debug output again when the
+    /// OpenGL context changes.
+    debug_output_synchronous: bool,
+
+    /// Whether the callback only reports messages of medium and high severity, so that the
+    /// driver doesn't need to generate the others.
+    debug_output_errors_only: bool,
 
     /// Whether or not errors triggered by ARB_debug_output (and similar extensions) should be
     /// reported to the user when `DebugCallbackBehavior::DebugMessageOnError` is used. This must
@@ -112,6 +131,9 @@ pub struct Context {
 
 /// This struct is a guard that is returned when you want to access the OpenGL backend.
 pub struct CommandContext<'a> {
+    /// The context that is current.
+    pub context: &'a Context,
+
     /// The glow context used to issue OpenGL calls.
     pub glow: &'a glow::Context,
 
@@ -163,6 +185,58 @@ pub struct CommandContext<'a> {
     marker: PhantomData<*mut u8>,
 }
 
+/// Calls `glPatchParameteri(GL_PATCH_VERTICES, ...)`, under the name of the version or the
+/// extension that has it. Tessellation must be supported.
+pub(crate) unsafe fn set_patch_vertices(
+    gl: (&glow::Context, &gl::Extra),
+    version: &Version,
+    extensions: &ExtensionsList,
+    value: gl::types::GLint,
+) {
+    if version >= &Version(Api::Gl, 4, 0)
+        || version >= &Version(Api::GlEs, 3, 2)
+        || extensions.gl_arb_tessellation_shader
+    {
+        gl.0.patch_parameter_i32(glow::PATCH_VERTICES, value);
+    } else if extensions.gl_oes_tessellation_shader {
+        gl.1.PatchParameteriOES(gl::PATCH_VERTICES, value);
+    } else {
+        gl.1.PatchParameteriEXT(gl::PATCH_VERTICES, value);
+    }
+}
+
+impl Context {
+    /// Marks the start of a `Frame`. Returns false if another one is in progress.
+    pub(crate) fn begin_frame(&self) -> bool {
+        !self.frame_in_progress.replace(true)
+    }
+
+    /// Marks the end of the current `Frame`.
+    pub(crate) fn end_frame(&self) {
+        self.frame_in_progress.set(false);
+    }
+}
+
+impl<'a> Drop for CommandContext<'a> {
+    fn drop(&mut self) {
+        // the debug callback panicked during the commands
+        if let Some(payload) = self.context.debug_callback_panic.take() {
+            if !thread::panicking() {
+                panic::resume_unwind(payload);
+            }
+        }
+    }
+}
+
+impl<'a> CommandContext<'a> {
+    /// Returns true if `context` is the current context: OpenGL objects can only be used with
+    /// the context that created them.
+    #[inline]
+    pub fn owns(&self, context: &Context) -> bool {
+        std::ptr::eq(self.context, context)
+    }
+}
+
 impl Context {
     /// Builds a new context.
     ///
@@ -210,6 +284,7 @@ impl Context {
         let resident_texture_handles = RefCell::new(Vec::new());
         let resident_image_handles = RefCell::new(Vec::new());
 
+        let errors_only = matches!(callback_behavior, DebugCallbackBehavior::DebugMessageOnError);
         let (debug_callback, synchronous) = match callback_behavior {
             DebugCallbackBehavior::Ignore => (None, false),
             DebugCallbackBehavior::DebugMessageOnError => (
@@ -233,7 +308,11 @@ impl Context {
             version,
             extensions,
             capabilities,
-            debug_callback,
+            debug_callback: RefCell::new(debug_callback),
+            frame_in_progress: Cell::new(false),
+            debug_callback_panic: Cell::new(None),
+            debug_output_synchronous: synchronous,
+            debug_output_errors_only: errors_only,
             report_debug_output_errors,
             backend: RefCell::new(Box::new(backend)),
             check_current_context,
@@ -244,8 +323,8 @@ impl Context {
             resident_image_handles,
         });
 
-        if context.debug_callback.is_some() {
-            init_debug_callback(&context, synchronous);
+        if context.debug_callback.borrow().is_some() {
+            init_debug_callback(&context);
         }
 
         // making sure that an error wasn't triggered during initialization
@@ -260,9 +339,7 @@ impl Context {
             /*assert!(::get_gl_error(&mut ctxt).is_none(),
             "SafeGL has triggered an OpenGL error during initialization. Please report \
              this error: https://github.com/viniciusmorgado/safegl/issues");*/
-            if ctxt.version.0 == Api::Gl && ctxt.extensions.gl_arb_seamless_cube_map {
-                ctxt.glow.enable(glow::TEXTURE_CUBE_MAP_SEAMLESS);
-            }
+            init_state(&ctxt);
         }
 
         Ok(context)
@@ -283,20 +360,48 @@ impl Context {
     where
         B: Backend + 'static,
     {
-        // framebuffer objects and vertex array objects aren't shared,
-        // so we have to destroy them
+        self.rebuild_inner(move |context| {
+            let old_backend = context.backend.replace(Box::new(new_backend));
+            Box::new(move |context: &Context| {
+                context.backend.replace(old_backend);
+            })
+        })
+    }
+
+    /// Changes the OpenGL context associated with this context. `switch` changes it in the
+    /// backend, and returns a function that changes it back if the new one isn't compatible.
+    pub(crate) unsafe fn rebuild_inner<'a, F>(&self, switch: F) -> Result<(), IncompatibleOpenGl>
+    where
+        F: FnOnce(&Context) -> Box<dyn FnOnce(&Context) + 'a>,
+    {
         {
             let mut ctxt = self.make_current();
+
+            // framebuffer objects and vertex array objects aren't shared,
+            // so we have to destroy them
             fbo::FramebuffersContainer::purge_all(&mut ctxt);
             vertex_array_object::VertexAttributesSystem::purge_all(&mut ctxt);
+
+            // the old context could outlive this one and send messages to a dangling pointer
+            if ctxt.state.enabled_debug_output == Some(true) {
+                ctxt.glow.disable(glow::DEBUG_OUTPUT);
+                ctxt.state.enabled_debug_output = Some(false);
+            }
         }
 
-        new_backend.make_current();
+        let switch_back = switch(self);
+        self.backend.borrow().make_current();
 
-        let version = version::get_gl_version(&self.glow);
-        let extensions = extensions::get_extensions(&self.glow);
+        // glow reads the version and the extensions once, when it is created
+        let new_glow = self.backend.borrow().create_glow_context();
+        let version = version::get_gl_version(&new_glow);
+        let extensions = extensions::get_extensions(&new_glow);
         if version != self.version || extensions != self.extensions {
+            switch_back(self);
             self.backend.borrow().make_current();
+            if self.debug_callback.borrow().is_some() {
+                init_debug_callback(self);
+            }
             return Err(IncompatibleOpenGl(format!(
                 "the new context provides OpenGL {:?} {}.{} and its extensions, instead of \
                  {:?} {}.{} and the extensions of the first context",
@@ -305,7 +410,12 @@ impl Context {
         }
 
         *self.state.borrow_mut() = Default::default();
-        *self.backend.borrow_mut() = Box::new(new_backend);
+
+        // the debug output and the other state are set up again in the new context
+        if self.debug_callback.borrow().is_some() {
+            init_debug_callback(self);
+        }
+        init_state(&self.make_current());
 
         // making textures resident
         let textures = self.resident_texture_handles.borrow();
@@ -605,14 +715,29 @@ impl Context {
     ///
     /// **If `action` manipulates any OpenGL state, it must be restored before `action`
     /// completes, or [`Context::restore_state`] must be called afterwards.**
+    ///
+    /// The context is current when `action` starts, and `action` can use SafeGL. SafeGL's vertex
+    /// array object is unbound, so that the code can't change it by binding buffers.
     #[inline]
     pub unsafe fn exec_in_context<'a, T, F>(&self, action: F) -> T
     where
         T: Send + 'static,
         F: FnOnce() -> T + 'a,
     {
-        let _ctxt = self.make_current();
-        action()
+        {
+            let mut ctxt = self.make_current();
+            if ctxt.state.vertex_array.is_some() {
+                ctxt.glow.bind_vertex_array(None);
+                ctxt.state.vertex_array = None;
+            }
+        }
+        let result = action();
+
+        // the debug callback panicked on a message of the closure
+        if let Some(payload) = self.debug_callback_panic.take() {
+            panic::resume_unwind(payload);
+        }
+        result
     }
 
     /// Makes the OpenGL state match the state that SafeGL expects, after code outside of SafeGL
@@ -770,10 +895,18 @@ impl ContextExt for Context {
             }
         }
 
+        // SafeGL can't issue commands while it is already issuing some: from a debug callback
+        // or a destructor that runs in the middle of a command
+        let state = self.state.try_borrow_mut().expect(
+            "SafeGL was called while it was already issuing OpenGL commands, for example from a \
+             debug callback",
+        );
+
         CommandContext {
+            context: self,
             glow: &self.glow,
             extra: &self.extra,
-            state: self.state.borrow_mut(),
+            state,
             version: &self.version,
             extensions: &self.extensions,
             capabilities: &self.capabilities,
@@ -823,6 +956,7 @@ impl Drop for Context {
             }
 
             let mut ctxt = CommandContext {
+                context: self,
                 glow: &self.glow,
                 extra: &self.extra,
                 state: self.state.borrow_mut(),
@@ -903,12 +1037,22 @@ fn check_gl_compatibility(version: &Version) -> Result<(), IncompatibleOpenGl> {
 }
 
 /// Describes the behavior that the debug output should have.
+///
+/// The synchronous behaviors (`DebugMessageOnError`, the default in debug builds, and `Custom`
+/// with `synchronous: true`) make the driver report each message during the call that caused
+/// it, which disables the threaded optimizations of some drivers and costs some speed. Without
+/// them, the NVIDIA driver runs OpenGL commands on a worker thread, which waits for the vertical
+/// synchronization by spinning: a program that does little else shows a CPU core busy. Set the
+/// `__GL_THREADED_OPTIMIZATIONS=0` environment variable, or `__GL_YIELD=USLEEP`, to avoid it.
 pub enum DebugCallbackBehavior {
     /// Don't do anything. This is the default behavior in release.
     Ignore,
 
     /// Print a message on stdout on error, except in some circumstances like when compiling
     /// shaders. This is the default behavior in debug mode.
+    ///
+    /// Only the messages of medium and high severity are printed, so the driver is told not to
+    /// generate the others: some drivers format a notification for every buffer they create.
     DebugMessageOnError,
 
     /// Print every single output received by the driver.
@@ -1024,7 +1168,29 @@ fn printall_debug_callback(
 
 /// Initializes `GL_KHR_debug`, `GL_ARB_debug`, or a similar extension so that the debug output
 /// is reported.
-fn init_debug_callback(context: &Rc<Context>, synchronous: bool) {
+/// Sets up the state that SafeGL expects in a new OpenGL context.
+unsafe fn init_state(ctxt: &CommandContext<'_>) {
+    if ctxt.version.0 == Api::Gl && ctxt.extensions.gl_arb_seamless_cube_map {
+        ctxt.glow.enable(glow::TEXTURE_CUBE_MAP_SEAMLESS);
+    }
+}
+
+/// Disables the debug messages of low severity and notifications, which the default callback
+/// ignores: some drivers spend a lot of time formatting them, for every buffer for example.
+unsafe fn disable_minor_debug_messages(
+    control: impl Fn(gl::types::GLenum, gl::types::GLenum, gl::types::GLenum, gl::types::GLboolean),
+    has_notifications: bool,
+) {
+    control(gl::DONT_CARE, gl::DONT_CARE, gl::DEBUG_SEVERITY_LOW, gl::FALSE);
+    if has_notifications {
+        control(gl::DONT_CARE, gl::DONT_CARE, gl::DEBUG_SEVERITY_NOTIFICATION, gl::FALSE);
+    }
+}
+
+fn init_debug_callback(context: &Context) {
+    let synchronous = context.debug_output_synchronous;
+    let errors_only = context.debug_output_errors_only;
+
     // this is the C callback
     extern "system" fn callback_wrapper(
         source: gl::types::GLenum,
@@ -1035,12 +1201,9 @@ fn init_debug_callback(context: &Rc<Context>, synchronous: bool) {
         message: *const gl::types::GLchar,
         user_param: *mut raw::c_void,
     ) {
-        // note that we transmute the user param into a proper context
-        // in order to enforce safety here, the context disables debug output and flushes in its
-        // destructor
-
-        let user_param = user_param as *const Context;
-        let user_param: &mut Context = unsafe { mem::transmute(user_param) };
+        // the user param is the context, which disables debug output and flushes in its
+        // destructor, so that it outlives the messages
+        let context: &Context = unsafe { &*(user_param as *const Context) };
 
         let message =
             unsafe { String::from_utf8(CStr::from_ptr(message).to_bytes().to_vec()).unwrap() };
@@ -1076,22 +1239,26 @@ fn init_debug_callback(context: &Rc<Context>, synchronous: bool) {
             _ => return, // TODO: what to do in this situation?
         };
 
-        if let Some(callback) = user_param.debug_callback.as_mut() {
-            // FIXME: catch_panic here once it's stable
-            callback(
-                source,
-                ty,
-                severity,
-                id,
-                user_param.report_debug_output_errors.get(),
-                &message,
-            );
+        // a callback that triggers messages itself isn't called again for them
+        let mut callback = match context.debug_callback.try_borrow_mut() {
+            Ok(callback) => callback,
+            Err(_) => return,
+        };
+        if let Some(callback) = callback.as_mut() {
+            // a panic can't unwind through OpenGL: it is resumed when the command returns
+            let report_errors = context.report_debug_output_errors.get();
+            let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+                callback(source, ty, severity, id, report_errors, &message)
+            }));
+            if let Err(payload) = result {
+                context.debug_callback_panic.set(Some(payload));
+            }
         }
     }
 
     struct ContextRawPtr(*const Context);
     unsafe impl Send for ContextRawPtr {}
-    let context_raw_ptr = ContextRawPtr(&**context);
+    let context_raw_ptr = ContextRawPtr(context);
 
     unsafe {
         let mut ctxt = context.make_current();
@@ -1120,6 +1287,15 @@ fn init_debug_callback(context: &Rc<Context>, synchronous: bool) {
                     ptr::null(),
                     gl::TRUE,
                 );
+                if errors_only {
+                    disable_minor_debug_messages(
+                        |source, ty, severity, enabled| {
+                            ctxt.extra
+                                .DebugMessageControl(source, ty, severity, 0, ptr::null(), enabled)
+                        },
+                        true,
+                    );
+                }
 
                 if ctxt.state.enabled_debug_output != Some(true) {
                     ctxt.glow.enable(glow::DEBUG_OUTPUT);
@@ -1136,6 +1312,15 @@ fn init_debug_callback(context: &Rc<Context>, synchronous: bool) {
                     ptr::null(),
                     gl::TRUE,
                 );
+                if errors_only {
+                    disable_minor_debug_messages(
+                        |source, ty, severity, enabled| {
+                            ctxt.extra
+                                .DebugMessageControlKHR(source, ty, severity, 0, ptr::null(), enabled)
+                        },
+                        true,
+                    );
+                }
 
                 if ctxt.state.enabled_debug_output != Some(true) {
                     ctxt.glow.enable(glow::DEBUG_OUTPUT);
@@ -1152,6 +1337,15 @@ fn init_debug_callback(context: &Rc<Context>, synchronous: bool) {
                     ptr::null(),
                     gl::TRUE,
                 );
+                if errors_only {
+                    disable_minor_debug_messages(
+                        |source, ty, severity, enabled| {
+                            ctxt.extra
+                                .DebugMessageControlARB(source, ty, severity, 0, ptr::null(), enabled)
+                        },
+                        false,
+                    );
+                }
 
                 ctxt.state.enabled_debug_output = Some(true);
             }

@@ -19,7 +19,7 @@ fn uniform_buffer_mapping_read() {
     let display = support::build_display();
 
     let mut vb = match safegl::uniforms::UniformBuffer::new(&display, 12) {
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(b) => b,
     };
 
@@ -34,7 +34,7 @@ fn uniform_buffer_mapping_write() {
     let display = support::build_display();
 
     let mut vb = match safegl::uniforms::UniformBuffer::new(&display, 6) {
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(b) => b,
     };
 
@@ -54,7 +54,7 @@ fn uniform_buffer_read() {
     let display = support::build_display();
 
     let vb = match safegl::uniforms::UniformBuffer::new(&display, 12) {
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(b) => b,
     };
 
@@ -74,7 +74,7 @@ fn uniform_buffer_write() {
     let display = support::build_display();
 
     let vb = match safegl::uniforms::UniformBuffer::new(&display, 5) {
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(b) => b,
     };
 
@@ -97,6 +97,9 @@ fn block() {
 
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
+    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::Gl, 3, 3)) {
+        return;
+    }
     let program = safegl::Program::from_source(
         &display,
         "
@@ -110,7 +113,7 @@ fn block() {
         ",
         "
             #version 330
-            uniform layout(std140);
+            layout(std140) uniform;
 
             uniform MyBlock {
                 vec3 color;
@@ -123,11 +126,7 @@ fn block() {
         None,
     );
 
-    // ignoring test in case of compilation error (version may not be supported)
-    let program = match program {
-        Ok(p) => p,
-        Err(_) => return,
-    };
+    let program = program.unwrap();
 
     #[derive(Copy, Clone)]
     struct Data {
@@ -135,6 +134,7 @@ fn block() {
     }
 
     implement_uniform_block!(Data, color);
+    implement_any_bit_pattern!(Data, color);
 
     let buffer = match safegl::uniforms::UniformBuffer::new(
         &display,
@@ -142,7 +142,7 @@ fn block() {
             color: (1.0f32, 1.0f32, 0.0f32),
         },
     ) {
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(b) => b,
     };
 
@@ -157,7 +157,7 @@ fn block() {
         .draw(&vb, &ib, &program, &uniforms, &Default::default())
         .unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 255, 0, 255));
@@ -173,6 +173,9 @@ fn block_wrong_type() {
 
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
+    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::Gl, 3, 3)) {
+        return;
+    }
     let program = safegl::Program::from_source(
         &display,
         "
@@ -186,7 +189,7 @@ fn block_wrong_type() {
         ",
         "
             #version 330
-            uniform layout(std140);
+            layout(std140) uniform;
 
             uniform MyBlock {
                 vec3 color;
@@ -199,14 +202,10 @@ fn block_wrong_type() {
         None,
     );
 
-    // ignoring test in case of compilation error (version may not be supported)
-    let program = match program {
-        Ok(p) => p,
-        Err(_) => return,
-    };
+    let program = program.unwrap();
 
     let buffer = match safegl::uniforms::UniformBuffer::new(&display, 2) {
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(b) => b,
     };
 
@@ -236,7 +235,7 @@ fn buffer_write() {
     let display = support::build_display();
 
     let mut buf = match safegl::uniforms::UniformBuffer::new(&display, (5, 3)) {
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(b) => b,
     };
 
@@ -257,6 +256,9 @@ fn persistent_block_race_condition() {
 
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
+    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::Gl, 3, 3)) {
+        return;
+    }
     let program = safegl::Program::from_source(
         &display,
         "
@@ -270,7 +272,7 @@ fn persistent_block_race_condition() {
         ",
         "
             #version 330
-            uniform layout(std140);
+            layout(std140) uniform;
 
             uniform MyBlock {
                 vec3 color;
@@ -283,11 +285,7 @@ fn persistent_block_race_condition() {
         None,
     );
 
-    // ignoring test in case of compilation error (version may not be supported)
-    let program = match program {
-        Ok(p) => p,
-        Err(_) => return,
-    };
+    let program = program.unwrap();
 
     #[derive(Copy, Clone)]
     struct Data {
@@ -295,6 +293,7 @@ fn persistent_block_race_condition() {
     }
 
     implement_uniform_block!(Data, color);
+    implement_any_bit_pattern!(Data, color);
 
     let mut buffer = match safegl::uniforms::UniformBuffer::new(
         &display,
@@ -302,7 +301,7 @@ fn persistent_block_race_condition() {
             color: (0.5f32, 0.5f32, 0.5f32),
         },
     ) {
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(b) => b,
     };
 
@@ -354,7 +353,7 @@ fn persistent_block_race_condition() {
         mapping.color.2 = 0.0;
     }
 
-    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
     for row in data.iter() {
         for pixel in row.iter() {
             assert_eq!(pixel, &(255, 255, 255, 255));
@@ -369,7 +368,7 @@ fn empty_uniform_buffer() {
     let display = support::build_display();
 
     let _ = match safegl::uniforms::UniformBuffer::new(&display, ()) {
-        Err(_) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(b) => b,
     };
 

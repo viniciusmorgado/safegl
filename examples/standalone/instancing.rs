@@ -13,6 +13,7 @@ struct Attr {
     world_position: (f32, f32, f32),
 }
 implement_vertex!(Attr, world_position);
+implement_any_bit_pattern!(Attr, world_position);
 
 struct Application {
     pub vertex_buffer: safegl::vertex::VertexBufferAny,

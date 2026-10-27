@@ -15,6 +15,13 @@ pub(crate) unsafe fn restore_state(ctxt: &mut CommandContext<'_>) {
     restore_capabilities(ctxt);
     restore_bindings(ctxt);
     restore_fixed_function(ctxt);
+
+    // the other code may have bound an element array buffer, or changed the attributes, while a
+    // vertex array object of SafeGL was bound: they are created again when needed
+    crate::vertex_array_object::VertexAttributesSystem::purge_all(ctxt);
+
+    // and it may have changed the uniforms of SafeGL's programs
+    ctxt.state.uniform_values_generation += 1;
 }
 
 /// Enables or disables `cap`.
@@ -252,13 +259,13 @@ unsafe fn restore_fixed_function(ctxt: &mut CommandContext<'_>) {
             .PolygonOffsetClampEXT(factor, units, state.polygon_offset_clamp);
     }
 
-    if ctxt.version >= &Version(Api::Gl, 4, 0)
-        || ctxt.version >= &Version(Api::GlEs, 3, 2)
-        || ctxt.extensions.gl_arb_tessellation_shader
-        || ctxt.extensions.gl_oes_tessellation_shader
-    {
-        ctxt.glow
-            .patch_parameter_i32(gl::PATCH_VERTICES, state.patch_patch_vertices);
+    if ctxt.capabilities.max_patch_vertices.is_some() {
+        super::set_patch_vertices(
+            (ctxt.glow, ctxt.extra),
+            ctxt.version,
+            ctxt.extensions,
+            state.patch_patch_vertices,
+        );
     }
 
     let bb = state.primitive_bounding_box;

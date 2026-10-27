@@ -8,9 +8,13 @@ use crate::version::Version;
 
 use crate::backend::Facade;
 use crate::context::Context;
+#[cfg(feature = "gl46")]
+use crate::vertex::TransformFeedbackSession;
+#[cfg(feature = "gl46")]
+use crate::TransformFeedbackSessionExt;
 use crate::ContextExt;
 #[cfg(feature = "gl46")]
-use crate::UniformsExt;
+use crate::uniforms::CollectedUniforms;
 
 use std::cell::RefCell;
 use std::collections::hash_map::{self, HashMap};
@@ -91,6 +95,7 @@ impl RawProgram {
         has_tessellation_control_shader: bool,
         has_tessellation_evaluation_shader: bool,
         transform_feedback: Option<(Vec<String>, TransformFeedbackMode)>,
+        fragment_source: Option<&str>,
     ) -> Result<RawProgram, ProgramCreationError>
     where
         F: Facade,
@@ -118,6 +123,15 @@ impl RawProgram {
                 };
 
                 ctxt.glow.transform_feedback_varyings(id, &names, mode);
+            }
+
+            // the fragment outputs without a location get locations in their declaration order,
+            // so that the first one goes to the first draw buffer on every driver; OpenGL ES
+            // requires a location when there are several outputs
+            if ctxt.version.0 == crate::version::Api::Gl {
+                if let Some(source) = fragment_source {
+                    bind_fragment_output_locations(&ctxt, id, source);
+                }
             }
 
             // linking
@@ -505,6 +519,7 @@ impl RawProgram {
     /// ## Example
     ///
     /// ```no_run
+    /// # #[cfg(feature = "gl46")]
     /// # fn example(program: safegl::Program) {
     /// for (name, uniform) in program.get_shader_storage_blocks() {
     ///     println!("Name: {}", name);
@@ -523,6 +538,7 @@ impl RawProgram {
     /// ## Example
     ///
     /// ```no_run
+    /// # #[cfg(feature = "gl46")]
     /// # fn example(program: safegl::Program) {
     /// for (name, uniform) in program.get_atomic_counters() {
     ///     println!("Name: {}", name);
@@ -556,29 +572,35 @@ impl RawProgram {
         y: u32,
         z: u32,
     ) -> Result<(), DrawError>
-    // TODO: other error?
     where
         U: Uniforms,
     {
+        // the values of the uniforms are collected before the context is borrowed, so that the
+        // code that gives them can use SafeGL
+        let uniforms = CollectedUniforms::new(&uniforms);
         let mut ctxt = self.context.make_current();
 
-        // TODO: return an error instead
-        assert!(x < ctxt.capabilities.max_compute_work_group_count.0 as u32);
-        assert!(y < ctxt.capabilities.max_compute_work_group_count.1 as u32);
-        assert!(z < ctxt.capabilities.max_compute_work_group_count.2 as u32);
+        if !is_compute_supported(&ctxt) {
+            return Err(DrawError::ComputeShadersNotSupported);
+        }
 
-        assert!(
-            ctxt.version >= &Version(Api::Gl, 4, 3)
-                || ctxt.version >= &Version(Api::GlEs, 3, 1)
-                || ctxt.extensions.gl_arb_compute_shader
-        );
+        // the maximum number of work groups is included
+        let (max_x, max_y, max_z) = ctxt.capabilities.max_compute_work_group_count;
+        if x > max_x as u32 || y > max_y as u32 || z > max_z as u32 {
+            return Err(DrawError::WorkGroupCountTooLarge {
+                requested: (x, y, z),
+                maximum: (max_x as u32, max_y as u32, max_z as u32),
+            });
+        }
 
         TimeElapsedQuery::end_conditional_render(&mut ctxt);
+        // `glUseProgram` is invalid while transform feedback is active
+        TransformFeedbackSession::unbind(&mut ctxt);
 
         let mut fences = crate::buffer::FenceInserters::new();
 
         self.use_program(&mut ctxt);
-        uniforms.bind_uniforms(&mut ctxt, self, &mut fences)?;
+        uniforms.bind(&mut ctxt, self, &mut fences)?;
         ctxt.glow.dispatch_compute(x, y, z);
 
         for fence in fences {
@@ -602,25 +624,39 @@ impl RawProgram {
         uniforms: U,
         buffer: BufferSlice<'_, ComputeCommand>,
     ) -> Result<(), DrawError>
-    // TODO: other error?
     where
         U: Uniforms,
     {
+        // the values of the uniforms are collected before the context is borrowed, so that the
+        // code that gives them can use SafeGL
+        let uniforms = CollectedUniforms::new(&uniforms);
         let mut ctxt = self.context.make_current();
 
-        assert!(
-            ctxt.version >= &Version(Api::Gl, 4, 3)
-                || ctxt.version >= &Version(Api::GlEs, 3, 1)
-                || ctxt.extensions.gl_arb_compute_shader
-        );
+        if !is_compute_supported(&ctxt) {
+            return Err(DrawError::ComputeShadersNotSupported);
+        }
+
+        if !ctxt.owns(buffer.get_context()) {
+            return Err(DrawError::ContextMismatch {
+                object: "dispatch commands buffer".to_owned(),
+            });
+        }
+
+        // OpenGL requires the offset of the commands to be a multiple of 4
+        let offset = buffer.get_offset_bytes();
+        if offset % 4 != 0 {
+            return Err(DrawError::BufferOffsetNotAligned {
+                name: "dispatch commands buffer".to_owned(),
+                offset,
+                alignment: 4,
+            });
+        }
 
         TimeElapsedQuery::end_conditional_render(&mut ctxt);
+        // `glUseProgram` is invalid while transform feedback is active
+        TransformFeedbackSession::unbind(&mut ctxt);
 
         buffer.prepare_and_bind_for_dispatch_indirect(&mut ctxt);
-        let offset = buffer.get_offset_bytes();
-
-        // an error is generated if the offset is not a multiple of 4
-        assert!(offset % 4 == 0);
 
         if let Some(fence) = buffer.add_fence() {
             fence.insert(&mut ctxt);
@@ -629,7 +665,7 @@ impl RawProgram {
         self.use_program(&mut ctxt);
 
         let mut fences = crate::buffer::FenceInserters::new();
-        uniforms.bind_uniforms(&mut ctxt, self, &mut fences)?;
+        uniforms.bind(&mut ctxt, self, &mut fences)?;
 
         ctxt.glow.dispatch_compute_indirect(offset as i32);
 
@@ -660,6 +696,11 @@ impl GlObject for RawProgram {
 }
 
 impl ProgramExt for RawProgram {
+    #[inline]
+    fn get_context(&self) -> &Context {
+        &self.context
+    }
+
     #[inline]
     fn use_program(&self, ctxt: &mut CommandContext<'_>) {
         unsafe {
@@ -719,6 +760,16 @@ impl ProgramExt for RawProgram {
     #[inline]
     fn get_uniform(&self, name: &str) -> Option<&Uniform> {
         self.uniforms.get(name)
+    }
+
+    #[inline]
+    fn get_uniforms(&self) -> &HashMap<String, Uniform, BuildHasherDefault<FnvHasher>> {
+        &self.uniforms
+    }
+
+    #[inline]
+    fn is_uniform_set(&self, location: gl::types::GLint) -> bool {
+        self.uniform_values.is_set(location)
     }
 
     #[inline]
@@ -803,4 +854,45 @@ unsafe fn check_program_link_errors(
     }
 
     Ok(())
+}
+
+/// Returns true if compute shaders are supported.
+#[cfg(feature = "gl46")]
+fn is_compute_supported(ctxt: &CommandContext<'_>) -> bool {
+    ctxt.version >= &Version(Api::Gl, 4, 3)
+        || ctxt.version >= &Version(Api::GlEs, 3, 1)
+        || ctxt.extensions.gl_arb_compute_shader
+}
+
+/// Binds the outputs of a fragment shader that have no location to locations in their
+/// declaration order, skipping the locations given in the shader.
+unsafe fn bind_fragment_output_locations(
+    ctxt: &CommandContext<'_>,
+    program: glow::Program,
+    source: &str,
+) {
+    let outputs = crate::program::shader::fragment_outputs(source);
+
+    let is_free = |location: u32, size: u32| {
+        outputs.iter().all(|output| match output.location {
+            Some(taken) => location + size <= taken || taken + output.size <= location,
+            None => true,
+        })
+    };
+
+    let mut next = 0;
+    let mut assigned: Vec<(u32, u32)> = Vec::new();
+    for output in outputs.iter().filter(|output| output.location.is_none()) {
+        while !is_free(next, output.size)
+            || assigned
+                .iter()
+                .any(|&(start, size)| next < start + size && start < next + output.size)
+        {
+            next += 1;
+        }
+        ctxt.glow
+            .bind_frag_data_location(program, next, &output.name);
+        assigned.push((next, output.size));
+        next += output.size;
+    }
 }

@@ -13,6 +13,9 @@ fn basic() {
 
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
+    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::Gl, 4, 3)) {
+        return;
+    }
     let program = safegl::Program::from_source(
         &display,
         "
@@ -39,11 +42,7 @@ fn basic() {
         None,
     );
 
-    // ignoring test in case of compilation error (version may not be supported)
-    let program = match program {
-        Ok(p) => p,
-        Err(_) => return,
-    };
+    let program = program.unwrap();
 
     let buffer = match safegl::buffer::Buffer::new(
         &display,
@@ -51,7 +50,8 @@ fn basic() {
         safegl::buffer::BufferType::AtomicCounterBuffer,
         safegl::buffer::BufferMode::Default,
     ) {
-        Err(_) => return,
+        Err(safegl::buffer::BufferCreationError::BufferTypeNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
         Ok(b) => b,
     };
 
