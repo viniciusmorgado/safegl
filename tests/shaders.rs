@@ -1085,3 +1085,27 @@ fn precision_of_shaders() {
 
     display.assert_no_error(None);
 }
+
+/// Programs are linked with `GL_PROGRAM_BINARY_RETRIEVABLE_HINT`, so that their binaries can be
+/// retrieved on every driver.
+#[cfg(any(safegl_gl41, safegl_gles30))]
+#[test]
+fn programs_are_linked_with_the_binary_hint() {
+    use safegl::glow::HasContext;
+    use safegl::GlObject;
+
+    let display = support::build_display();
+    if !safegl::program::is_binary_supported(&display) {
+        return;
+    }
+    let (_, _, program) = support::build_fullscreen_red_pipeline(&display);
+    let hint = unsafe {
+        display.glow_context().get_program_parameter_i32(
+            program.get_id(),
+            safegl::glow::PROGRAM_BINARY_RETRIEVABLE_HINT,
+        )
+    };
+    assert_eq!(hint, 1);
+
+    display.assert_no_error(None);
+}

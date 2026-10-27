@@ -138,6 +138,20 @@ impl RawProgram {
                 }
             }
 
+            // the binaries of programs can be retrieved after they are linked with this hint,
+            // which some drivers need (core in OpenGL 4.1 and OpenGL ES 3.0)
+            if !crate::version::is_webgl()
+                && (ctxt.version.0 == crate::version::Api::GlEs
+                    || ctxt.version >= &crate::version::Version(crate::version::Api::Gl, 4, 1)
+                    || ctxt.extensions.gl_arb_get_program_binary)
+            {
+                ctxt.extra.ProgramParameteri(
+                    id.raw_name(),
+                    gl::PROGRAM_BINARY_RETRIEVABLE_HINT,
+                    gl::TRUE as gl::types::GLint,
+                );
+            }
+
             // linking
             {
                 ctxt.report_debug_output_errors.set(false);

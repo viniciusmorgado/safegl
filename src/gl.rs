@@ -244,6 +244,7 @@ extra_functions! {
     fn DrawTransformFeedbackStreamInstanced(mode: GLenum, id: GLuint, stream: GLuint, instancecount: GLsizei) -> ();
     fn PatchParameterfv(pname: GLenum, values: *const GLfloat) -> ();
     fn PrimitiveRestartIndex(index: GLuint) -> ();
+    fn ProgramParameteri(program: GLuint, pname: GLenum, value: GLint) -> ();
     fn ProvokingVertex(mode: GLenum) -> ();
     fn ProvokingVertexEXT(mode: GLenum) -> ();
     fn ReadnPixels(x: GLint, y: GLint, width: GLsizei, height: GLsizei, format: GLenum, type_: GLenum, bufSize: GLsizei, data: *mut c_void) -> ();

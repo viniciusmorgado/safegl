@@ -529,6 +529,8 @@ Additions:
 
 Fixes:
 
+- Programs are linked with `GL_PROGRAM_BINARY_RETRIEVABLE_HINT` where program binaries exist,
+  without which some drivers return no binary from `Program::get_binary`.
 - Pixels are read with the robust `glReadnPixels` and compressed images with
   `glGetnCompressedTexImage` where they exist (OpenGL 4.5, OpenGL ES 3.2 and the robustness
   extensions), which never write past the end of the destination.
