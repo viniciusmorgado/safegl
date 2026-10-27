@@ -50,6 +50,11 @@ local cases = {
   { "gles30_has_transform_feedback_objects", { "gles30" }, nil, [[
     pub use safegl::vertex::{CapturedVertices, TransformFeedback};
   ]] },
+  { "gl41_has_viewport_arrays", { "gl41" }, nil, [[
+    pub fn f(v: &[safegl::ViewportState]) -> safegl::DrawParameters<'_> {
+        safegl::DrawParameters { viewports: v, ..Default::default() }
+    }
+  ]] },
   { "gl42_has_image_units", { "gl42" }, nil, [[
     pub use safegl::uniforms::ImageUnitFormat;
   ]] },
@@ -212,6 +217,9 @@ local cases = {
   ]] },
   { "gl40_has_no_viewport_limit", { "gl40" }, "no field `max_viewports`", [[
     pub fn f(l: &safegl::Limits) -> Option<i32> { l.max_viewports }
+  ]] },
+  { "gl40_has_no_viewport_arrays", { "gl40" }, "ViewportState", [[
+    pub use safegl::ViewportState;
   ]] },
   { "gl44_has_no_cull_limit", { "gl44" }, "no field `max_cull_distances`", [[
     pub fn f(l: &safegl::Limits) -> Option<i32> { l.max_cull_distances }

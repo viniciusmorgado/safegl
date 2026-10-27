@@ -411,6 +411,10 @@ Additions:
   `DrawError::PointCoordOriginNotSupported` in an OpenGL ES context), and
   `DrawParameters::point_fade_threshold` the size under which multisampled points fade
   (`GL_POINT_FADE_THRESHOLD_SIZE`).
+- `DrawParameters::viewports` gives a draw several viewports, each with its depth range and
+  scissor box, among which geometry shaders choose with `gl_ViewportIndex` (`gl41`,
+  `glViewportArrayv`, `glDepthRangeArrayv`, `glScissorArrayv`, `ViewportState`; OpenGL 4.1 or
+  `GL_ARB_viewport_array` at runtime). Viewports keep fractions of pixels.
 - `sample_positions` on `SimpleFrameBuffer`, `MultiOutputFrameBuffer`, `DefaultFramebuffer`,
   `ExternalFramebuffer` and `Frame` returns where the GPU places the samples inside the pixels
   (`glGetMultisamplefv(GL_SAMPLE_POSITION)`, `any(desktop, gles31)`), or nothing if the

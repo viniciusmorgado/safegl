@@ -230,6 +230,8 @@ unsafe fn restore_fixed_function(ctxt: &mut CommandContext<'_>) {
     let (r, g, b, a) = state.blend_color;
     ctxt.glow.blend_color(r, g, b, a);
     state.indexed_blend = true;
+    // other code may have changed the viewports of other indices; the next draw sets them all
+    state.viewport_array_dirty = desktop;
 
     ctxt.glow.depth_func(state.depth_func);
     ctxt.glow.depth_mask(state.depth_mask);

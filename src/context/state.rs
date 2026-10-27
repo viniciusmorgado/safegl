@@ -153,6 +153,10 @@ pub struct GlState {
     /// `blend_func`.
     pub indexed_blend: bool,
 
+    /// Whether a draw gave the viewport indices other than 0 their own viewport, depth range or
+    /// scissor state, which the single viewport doesn't override until they are set again.
+    pub viewport_array_dirty: bool,
+
     /// The latest buffer bound to `GL_ARRAY_BUFFER`.
     pub array_buffer_binding: Option<glow::Buffer>,
 
@@ -536,6 +540,7 @@ impl Default for GlState {
             color_mask: (1, 1, 1, 1),
             indexed_color_mask: false,
             indexed_blend: false,
+            viewport_array_dirty: false,
             array_buffer_binding: None,
             pixel_pack_buffer_binding: None,
             pixel_unpack_buffer_binding: None,

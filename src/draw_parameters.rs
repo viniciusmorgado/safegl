@@ -517,6 +517,23 @@ pub struct DrawParameters<'a> {
     /// not the scissor box.
     pub scissor: Option<Rect>,
 
+    /// Several viewports, each with its depth range and scissor box, among which a geometry
+    /// shader chooses by writing `gl_ViewportIndex` (`glViewportArrayv`, `glDepthRangeArrayv`
+    /// and `glScissorArrayv`). Default value is an empty slice, which uses `viewport`,
+    /// `scissor` and `Depth::range` instead.
+    ///
+    /// Primitives whose `gl_ViewportIndex` is past the end of the slice use the whole surface,
+    /// the `(0.0, 1.0)` depth range and no scissor box. Typical uses are rendering the faces
+    /// of a cube map or the cascades of a shadow map into the parts of an atlas in one draw.
+    ///
+    /// With a non-empty slice, `viewport` and `scissor` must be `None` and `Depth::range` must
+    /// be `(0.0, 1.0)`, or `DrawError::ViewportArrayConflict` is returned. More entries than
+    /// `Limits::max_viewports` return `DrawError::ViewportIndexOutOfBounds`. Needs OpenGL 4.1
+    /// or `GL_ARB_viewport_array`, otherwise returns `DrawError::ViewportArrayNotSupported`.
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    pub viewports: &'a [ViewportState],
+
     /// If `false`, the pipeline will stop after the primitives generation stage. The default
     /// value is `true`.
     ///
@@ -1051,6 +1068,8 @@ impl<'a> Default for DrawParameters<'a> {
             dithering: true,
             viewport: None,
             scissor: None,
+            #[cfg(safegl_gl41)]
+            viewports: &[],
             draw_primitives: true,
             samples_passed_query: None,
             #[cfg(safegl_desktop)]
@@ -1154,12 +1173,21 @@ pub fn sync(
     #[cfg(any(safegl_desktop, safegl_gles31))]
     sync_sample_mask(ctxt, draw_parameters.multisample.sample_mask)?;
     sync_dithering(ctxt, draw_parameters.dithering);
-    sync_viewport_scissor(
-        ctxt,
-        draw_parameters.viewport,
-        draw_parameters.scissor,
-        dimensions,
-    );
+    #[cfg(safegl_gl41)]
+    let viewport_array = !draw_parameters.viewports.is_empty();
+    #[cfg(not(safegl_gl41))]
+    let viewport_array = false;
+    if viewport_array {
+        #[cfg(safegl_gl41)]
+        sync_viewport_array(ctxt, draw_parameters, dimensions)?;
+    } else {
+        sync_viewport_scissor(
+            ctxt,
+            draw_parameters.viewport,
+            draw_parameters.scissor,
+            dimensions,
+        );
+    }
     sync_rasterizer_discard(ctxt, draw_parameters.draw_primitives)?;
     sync_queries(ctxt, draw_parameters)?;
     #[cfg(safegl_desktop)]
@@ -1774,12 +1802,166 @@ fn sync_dithering(ctxt: &mut context::CommandContext<'_>, dithering: bool) {
     }
 }
 
+/// One viewport of `DrawParameters::viewports`.
+#[derive(Copy, Clone, Debug, PartialEq)]
+#[cfg(safegl_gl41)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+pub struct ViewportState {
+    /// The left of the viewport, in pixels. Fractions are kept, with
+    /// `Limits::viewport_subpixel_bits` bits of precision.
+    pub left: f32,
+    /// The bottom of the viewport, in pixels.
+    pub bottom: f32,
+    /// The width of the viewport, in pixels. Negative widths return
+    /// `DrawError::InvalidViewport`.
+    pub width: f32,
+    /// The height of the viewport, in pixels. Negative heights return
+    /// `DrawError::InvalidViewport`.
+    pub height: f32,
+    /// The near and far depth values of the viewport, clamped to `0.0..=1.0`, like
+    /// `Depth::range`.
+    pub depth_range: (f32, f32),
+    /// The scissor box of the viewport, if any.
+    pub scissor: Option<Rect>,
+}
+
+#[cfg(safegl_gl41)]
+impl From<Rect> for ViewportState {
+    /// The viewport `rect`, with the `(0.0, 1.0)` depth range and no scissor box.
+    fn from(rect: Rect) -> ViewportState {
+        ViewportState {
+            left: rect.left as f32,
+            bottom: rect.bottom as f32,
+            width: rect.width as f32,
+            height: rect.height as f32,
+            depth_range: (0.0, 1.0),
+            scissor: None,
+        }
+    }
+}
+
+/// Sets the viewports of `DrawParameters::viewports`, which isn't empty.
+#[cfg(safegl_gl41)]
+fn sync_viewport_array(
+    ctxt: &mut context::CommandContext<'_>,
+    draw_parameters: &DrawParameters<'_>,
+    surface_dimensions: (u32, u32),
+) -> Result<(), DrawError> {
+    let viewports = draw_parameters.viewports;
+    let max = ctxt
+        .capabilities
+        .limits
+        .max_viewports
+        .ok_or(DrawError::ViewportArrayNotSupported)?
+        .max(0) as usize;
+    if viewports.len() > max {
+        return Err(DrawError::ViewportIndexOutOfBounds);
+    }
+    if draw_parameters.viewport.is_some()
+        || draw_parameters.scissor.is_some()
+        || draw_parameters.depth.range != (0.0, 1.0)
+    {
+        return Err(DrawError::ViewportArrayConflict);
+    }
+    let valid = |v: &ViewportState| {
+        v.left.is_finite() && v.bottom.is_finite() && v.width >= 0.0 && v.height >= 0.0
+    };
+    if !viewports.iter().all(valid) {
+        return Err(DrawError::InvalidViewport);
+    }
+
+    let whole = ViewportState::from(Rect {
+        left: 0,
+        bottom: 0,
+        width: surface_dimensions.0,
+        height: surface_dimensions.1,
+    });
+    let entries = (0..max)
+        .map(|i| {
+            let v = viewports.get(i).unwrap_or(&whole);
+            // the largest viewport of the implementation, like `glViewport` does
+            let width = v.width.min(ctxt.capabilities.max_viewport_dims.0 as f32);
+            let height = v.height.min(ctxt.capabilities.max_viewport_dims.1 as f32);
+            let (near, far) = v.depth_range;
+            let scissor = v.scissor.map(|s| {
+                [
+                    s.left as gl::types::GLint,
+                    s.bottom as gl::types::GLint,
+                    s.width as gl::types::GLsizei,
+                    s.height as gl::types::GLsizei,
+                ]
+            });
+            (
+                [v.left, v.bottom, width, height],
+                [near.clamp(0.0, 1.0) as f64, far.clamp(0.0, 1.0) as f64],
+                scissor,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    // clears and restores call the functions that set every index, so the arrays aren't cached
+    let rects = entries.iter().map(|e| e.0).collect::<Vec<_>>();
+    let depth_ranges = entries.iter().map(|e| e.1).collect::<Vec<_>>();
+    let scissors = entries
+        .iter()
+        .map(|e| e.2.unwrap_or([0, 0, 0, 0]))
+        .collect::<Vec<_>>();
+    unsafe {
+        ctxt.glow.viewport_f32_slice(0, max as i32, &rects);
+        ctxt.glow.depth_range_f64_slice(0, max as i32, &depth_ranges);
+        ctxt.glow.scissor_slice(0, max as i32, &scissors);
+        for (i, entry) in entries.iter().enumerate() {
+            if entry.2.is_some() {
+                ctxt.glow.enable_draw_buffer(glow::SCISSOR_TEST, i as u32);
+            } else {
+                ctxt.glow.disable_draw_buffer(glow::SCISSOR_TEST, i as u32);
+            }
+        }
+    }
+
+    // the caches of the single viewport, depth range and scissor box describe index 0, which
+    // clears use
+    let (rect, depth_range, scissor) = entries[0];
+    ctxt.state.viewport = if rect.iter().all(|c| c.fract() == 0.0) {
+        Some((rect[0] as i32, rect[1] as i32, rect[2] as i32, rect[3] as i32))
+    } else {
+        None
+    };
+    ctxt.state.depth_range = (depth_range[0] as f32, depth_range[1] as f32);
+    ctxt.state.scissor = Some(scissors[0].into());
+    ctxt.state.enabled_scissor_test = scissor.is_some();
+    ctxt.state.viewport_array_dirty = true;
+    Ok(())
+}
+
+/// Gives every viewport index the viewport, depth range and scissor state of index 0 again after
+/// a draw with `DrawParameters::viewports`, before the single viewport is set.
+fn reset_viewport_array(ctxt: &mut context::CommandContext<'_>) {
+    if !ctxt.state.viewport_array_dirty {
+        return;
+    }
+    ctxt.state.viewport_array_dirty = false;
+    // `glViewport`, `glScissor`, `glDepthRange` and `glEnable` set every index
+    ctxt.state.viewport = None;
+    ctxt.state.scissor = None;
+    let (near, far) = ctxt.state.depth_range;
+    unsafe {
+        ctxt.glow.depth_range_f64(near as f64, far as f64);
+        if ctxt.state.enabled_scissor_test {
+            ctxt.glow.enable(glow::SCISSOR_TEST);
+        } else {
+            ctxt.glow.disable(glow::SCISSOR_TEST);
+        }
+    }
+}
+
 fn sync_viewport_scissor(
     ctxt: &mut context::CommandContext<'_>,
     viewport: Option<Rect>,
     scissor: Option<Rect>,
     surface_dimensions: (u32, u32),
 ) {
+    reset_viewport_array(ctxt);
     // viewport
     if let Some(viewport) = viewport {
         assert!(

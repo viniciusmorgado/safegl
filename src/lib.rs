@@ -163,6 +163,9 @@ pub use crate::draw_parameters::LogicOp;
 #[cfg(safegl_desktop)]
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub use crate::draw_parameters::PointCoordOrigin;
+#[cfg(safegl_gl41)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+pub use crate::draw_parameters::ViewportState;
 #[cfg(safegl_desktop)]
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub use crate::draw_parameters::PolygonMode;
@@ -1628,6 +1631,28 @@ pub enum DrawError {
     #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     AlphaToOneNotSupported,
 
+    /// Viewport arrays (`DrawParameters::viewports`) aren't supported by the backend.
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    ViewportArrayNotSupported,
+
+    /// `DrawParameters::viewports` was given together with `viewport`, `scissor` or a
+    /// `Depth::range` other than `(0.0, 1.0)`.
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    ViewportArrayConflict,
+
+    /// `DrawParameters::viewports` has more entries than `Limits::max_viewports`.
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    ViewportIndexOutOfBounds,
+
+    /// A viewport of `DrawParameters::viewports` has a negative size or a position that isn't
+    /// finite.
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    InvalidViewport,
+
     /// `DrawParameters::point_coord_origin` is `LowerLeft` while drawing into an OpenGL ES
     /// context, where it is always `UpperLeft`.
     #[cfg(safegl_desktop)]
@@ -1910,6 +1935,15 @@ impl fmt::Display for DrawError {
                 "Dual-source blending is not supported by the backend",
             DualSourceBlendingTooManyDrawBuffers =>
                 "Dual-source blending is used with too many draw buffers",
+            #[cfg(safegl_gl41)]
+            ViewportArrayNotSupported => "Viewport arrays are not supported by the backend",
+            #[cfg(safegl_gl41)]
+            ViewportArrayConflict =>
+                "Viewport arrays can't be used with a viewport, a scissor box or a depth range",
+            #[cfg(safegl_gl41)]
+            ViewportIndexOutOfBounds => "There are more viewports than the backend supports",
+            #[cfg(safegl_gl41)]
+            InvalidViewport => "A viewport has a negative size or a position that isn't finite",
             #[cfg(safegl_desktop)]
             PointCoordOriginNotSupported =>
                 "The lower left origin of point coordinates is not supported by the backend",
