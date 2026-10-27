@@ -365,6 +365,11 @@ pub struct DrawParameters<'a> {
     /// See the `BackfaceCullingMode` documentation for more infos.
     pub backface_culling: BackfaceCullingMode,
 
+    /// The winding of the triangles that face the camera (`glFrontFace`), whose fragments have
+    /// `gl_FrontFacing` true. `backface_culling` and the two-sided stencil settings still name the
+    /// triangles by their winding; points and lines use the stencil settings of the front faces.
+    pub front_face: FrontFace,
+
     /// How to render polygons. The default value is `Fill`.
     ///
     /// See the documentation of `PolygonMode` for more infos.
@@ -965,6 +970,7 @@ impl<'a> Default for DrawParameters<'a> {
             #[cfg(safegl_desktop)]
             point_size: None,
             backface_culling: BackfaceCullingMode::CullingDisabled,
+            front_face: FrontFace::CounterClockwise,
             #[cfg(safegl_desktop)]
             polygon_mode: PolygonMode::Fill,
             #[cfg(safegl_desktop)]
@@ -1041,7 +1047,7 @@ pub fn sync(
     #[cfg(any(safegl_desktop, safegl_gles32))]
     validate_outputs(ctxt, draw_parameters)?;
     depth::sync_depth(ctxt, &draw_parameters.depth)?;
-    stencil::sync_stencil(ctxt, &draw_parameters.stencil);
+    stencil::sync_stencil(ctxt, &draw_parameters.stencil, draw_parameters.front_face);
     #[cfg(any(safegl_desktop, safegl_gles32))]
     let (blends, masks) = (
         draw_parameters.outputs.iter().map(|output| output.blend),
@@ -1057,7 +1063,8 @@ pub fn sync(
     sync_line_width(ctxt, draw_parameters.line_width)?;
     #[cfg(safegl_desktop)]
     sync_point_size(ctxt, draw_parameters.point_size);
-    sync_backface_culling(ctxt, draw_parameters.backface_culling);
+    sync_front_face(ctxt, draw_parameters.front_face);
+    sync_backface_culling(ctxt, draw_parameters.backface_culling, draw_parameters.front_face);
     #[cfg(safegl_desktop)]
     sync_polygon_mode(ctxt, draw_parameters.polygon_mode)?;
     #[cfg(safegl_desktop)]
@@ -1211,12 +1218,43 @@ fn sync_point_size(ctxt: &mut context::CommandContext<'_>, point_size: Option<f3
     }
 }
 
+/// The winding of the triangles that face the camera (`glFrontFace`).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FrontFace {
+    /// Counter-clockwise triangles face the camera (`GL_CCW`), the default of OpenGL.
+    #[default]
+    CounterClockwise,
+    /// Clockwise triangles face the camera (`GL_CW`), as in Direct3D.
+    Clockwise,
+}
+
+fn sync_front_face(ctxt: &mut context::CommandContext<'_>, front_face: FrontFace) {
+    let mode = match front_face {
+        FrontFace::CounterClockwise => gl::CCW,
+        FrontFace::Clockwise => gl::CW,
+    };
+    if ctxt.state.front_face != mode {
+        unsafe { ctxt.glow.front_face(mode) };
+        ctxt.state.front_face = mode;
+    }
+}
+
 fn sync_backface_culling(
     ctxt: &mut context::CommandContext<'_>,
     backface_culling: BackfaceCullingMode,
+    front_face: FrontFace,
 ) {
-    // note: we never change the value of `glFrontFace`, whose default is GL_CCW
-    //  that's why `CullClockwise` uses `GL_BACK` for example
+    // the culled faces are named by their winding, which faces the camera or not depending on
+    // `glFrontFace`
+    let backface_culling = match (backface_culling, front_face) {
+        (BackfaceCullingMode::CullCounterClockwise, FrontFace::Clockwise) => {
+            BackfaceCullingMode::CullClockwise
+        }
+        (BackfaceCullingMode::CullClockwise, FrontFace::Clockwise) => {
+            BackfaceCullingMode::CullCounterClockwise
+        }
+        (mode, _) => mode,
+    };
     match backface_culling {
         BackfaceCullingMode::CullingDisabled => unsafe {
             if ctxt.state.enabled_cull_face {

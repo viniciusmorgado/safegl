@@ -266,6 +266,7 @@ unsafe fn restore_fixed_function(ctxt: &mut CommandContext<'_>) {
 
     ctxt.glow.line_width(state.line_width);
     ctxt.glow.cull_face(state.cull_face);
+    ctxt.glow.front_face(state.front_face);
     let (factor, units) = state.polygon_offset;
     ctxt.glow.polygon_offset(factor, units);
 

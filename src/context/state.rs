@@ -282,6 +282,9 @@ pub struct GlState {
     /// The latest value passed to `glCullFace`.
     pub cull_face: gl::types::GLenum,
 
+    /// The latest value passed to `glFrontFace`.
+    pub front_face: gl::types::GLenum,
+
     /// The latest value passed to `glPolygonMode`.
     pub polygon_mode: gl::types::GLenum,
 
@@ -551,6 +554,7 @@ impl Default for GlState {
             line_width: 1.0,
             point_size: 1.0,
             cull_face: gl::BACK,
+            front_face: gl::CCW,
             polygon_mode: gl::FILL,
             smooth: (gl::DONT_CARE, gl::DONT_CARE),
             provoking_vertex: gl::LAST_VERTEX_CONVENTION,

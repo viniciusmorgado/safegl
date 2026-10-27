@@ -164,7 +164,7 @@ pub use crate::draw_parameters::PolygonMode;
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub use crate::draw_parameters::Smooth;
 pub use crate::draw_parameters::{
-    BackfaceCullingMode, Blend, BlendingFunction, LinearBlendingFactor,
+    BackfaceCullingMode, Blend, BlendingFunction, FrontFace, LinearBlendingFactor,
 };
 pub use crate::draw_parameters::{Depth, DepthTest, DrawParameters, StencilOperation, StencilTest};
 pub use crate::index::IndexBuffer;

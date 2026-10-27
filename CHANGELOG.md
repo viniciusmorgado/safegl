@@ -384,6 +384,10 @@ Additions:
 - Programs that place their captured varyings with the `xfb_buffer`, `xfb_offset` and `xfb_stride`
   qualifiers (OpenGL 4.4 or `GL_ARB_enhanced_layouts`) reflect their transform feedback buffers,
   offsets and strides, read from the program interface.
+- `DrawParameters::front_face` chooses the winding of the triangles that face the camera
+  (`glFrontFace`, `FrontFace::CounterClockwise` or `Clockwise`), which `gl_FrontFacing` reads.
+  `backface_culling` and the two-sided stencil settings keep naming the triangles by their
+  winding.
 
 Fixes:
 
