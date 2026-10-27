@@ -127,6 +127,7 @@ extensions! {
     "GL_EXT_texture_norm16" => gl_ext_texture_norm16,
     "GL_EXT_texture_sRGB" => gl_ext_texture_srgb,
     "GL_KHR_debug" => gl_khr_debug,
+    "GL_KHR_no_error" => gl_khr_no_error,
     "GL_KHR_context_flush_control" => gl_khr_context_flush_control,
     "GL_KHR_robustness" => gl_khr_robustness,
     "GL_KHR_robust_buffer_access_behavior" => gl_khr_robust_buffer_access_behavior,

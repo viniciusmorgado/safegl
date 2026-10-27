@@ -119,6 +119,9 @@ fn create_context(
 ) -> Option<NotCurrentContext> {
     apis.into_iter().find_map(|version| {
         let mut context_attributes = safegl::backend::glutin::context_attributes_builder(version);
+        if let Some(robustness) = parse_robustness() {
+            context_attributes = context_attributes.with_robustness(robustness);
+        }
         if let Some(shared) = shared {
             context_attributes = context_attributes.with_sharing(shared);
         }
@@ -306,6 +309,27 @@ fn parse_display_api() -> glutin_winit::ApiPreference {
         Ok("egl") => glutin_winit::ApiPreference::PreferEgl,
         Ok("glx") | Ok("wgl") | Err(_) => glutin_winit::ApiPreference::FallbackEgl,
         Ok(other) => panic!("SAFEGL_GL_DISPLAY must be `egl`, `glx` or `wgl`, not `{other}`"),
+    }
+}
+
+/// The context APIs that the tests request, in order: the one of `SAFEGL_GL_VERSION` (such as
+/// `OpenGL 4.0` or `OpenGL ES 3.2`), or else those of the selected levels.
+pub fn context_apis() -> Vec<glutin::context::ContextApi> {
+    parse_version()
+}
+
+/// The robustness of the contexts of the tests: `SAFEGL_ROBUSTNESS=robust` for robust buffer
+/// access, `lose` for robust buffer access with contexts lost on GPU resets, and `no_error` for
+/// contexts without error checking. A context that the driver can't create this way fails.
+fn parse_robustness() -> Option<glutin::context::Robustness> {
+    use glutin::context::Robustness;
+
+    match env::var("SAFEGL_ROBUSTNESS").as_deref() {
+        Ok("robust") => Some(Robustness::RobustNoResetNotification),
+        Ok("lose") => Some(Robustness::RobustLoseContextOnReset),
+        Ok("no_error") => Some(Robustness::NoError),
+        Ok(other) => panic!("SAFEGL_ROBUSTNESS must be `robust`, `lose` or `no_error`, not `{other}`"),
+        Err(_) => None,
     }
 }
 

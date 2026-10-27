@@ -136,9 +136,12 @@ include!(concat!(env!("OUT_DIR"), "/levels.rs"));
 pub use crate::backend::glutin::glutin;
 #[cfg(feature = "simple_window_builder")]
 pub use crate::backend::winit;
+#[cfg(any(safegl_gl45, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_gles32))))]
+pub use crate::context::GraphicsResetStatus;
 pub use crate::context::{
     Capabilities, ExtensionsList, Limits, ProvokingVertexConvention, QueryCounterBits,
-    ReleaseBehavior, StageLimits,
+    ReleaseBehavior, ResetNotificationStrategy, StageLimits,
 };
 #[cfg(any(safegl_desktop, safegl_gles32))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]

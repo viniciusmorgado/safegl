@@ -39,7 +39,9 @@ use crate::texture;
 use crate::uniforms;
 use crate::vertex_array_object;
 
-pub use self::capabilities::{Capabilities, ReleaseBehavior};
+#[cfg(any(safegl_gl45, safegl_gles32))]
+pub use self::capabilities::GraphicsResetStatus;
+pub use self::capabilities::{Capabilities, ReleaseBehavior, ResetNotificationStrategy};
 pub use self::extensions::ExtensionsList;
 pub use self::limits::{Limits, ProvokingVertexConvention, QueryCounterBits, StageLimits};
 pub use self::state::GlState;
@@ -468,7 +470,9 @@ impl Context {
         // swapping
         let err = backend.swap_buffers();
         if let Err(SwapBuffersError::ContextLost) = err {
-            self.state.borrow_mut().lost_context = true;
+            let mut state = self.state.borrow_mut();
+            state.lost_context = true;
+            state.reset_status = gl::UNKNOWN_CONTEXT_RESET;
         }
         err
     }
@@ -550,10 +554,21 @@ impl Context {
         self.capabilities().robustness
     }
 
-    /// Returns true if a context loss is possible.
+    /// Returns true if a context loss is possible: the context was created with the
+    /// `LoseContextOnReset` reset notification strategy.
     #[inline]
     pub fn is_context_loss_possible(&self) -> bool {
-        self.capabilities().can_lose_context
+        self.capabilities().reset_notification == ResetNotificationStrategy::LoseContextOnReset
+    }
+
+    /// Returns true if the context was created without error checking (OpenGL 4.6 or
+    /// `GL_KHR_no_error`), in which OpenGL errors are undefined behavior. SafeGL validates its
+    /// calls itself, but the debug callback receives no error messages from such a context.
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    #[inline]
+    pub fn is_no_error(&self) -> bool {
+        self.capabilities().no_error
     }
 
     /// Returns true if the context has been lost and needs to be recreated.
@@ -565,24 +580,55 @@ impl Context {
     /// is detected), then calls `glGetGraphicsResetStatus`. If this function is not available,
     /// returns false.
     pub fn is_context_lost(&self) -> bool {
-        if self.state.borrow().lost_context {
-            return true;
+        self.reset_status() != gl::NO_ERROR
+    }
+
+    /// Returns how the GPU reset that lost the context involved it, or `None` if the context
+    /// isn't lost, or if the backend can't tell resets (OpenGL 4.5, OpenGL ES 3.2,
+    /// `GL_KHR_robustness`, `GL_ARB_robustness` or `GL_EXT_robustness`).
+    ///
+    /// A context created with the `NoResetNotification` strategy (see
+    /// `Capabilities::reset_notification`) isn't told about resets, so this is always `None`.
+    /// The status stays once the context is known to be lost, like `is_context_lost`.
+    #[cfg(any(safegl_gl45, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_gles32))))]
+    pub fn graphics_reset_status(&self) -> Option<GraphicsResetStatus> {
+        match self.reset_status() {
+            gl::NO_ERROR => None,
+            gl::GUILTY_CONTEXT_RESET => Some(GraphicsResetStatus::Guilty),
+            gl::INNOCENT_CONTEXT_RESET => Some(GraphicsResetStatus::Innocent),
+            _ => Some(GraphicsResetStatus::Unknown),
+        }
+    }
+
+    /// Returns the reset status that made the context lost, or `GL_NO_ERROR` if it isn't lost.
+    ///
+    /// If the context has been determined lost before, returns the status of then. Otherwise,
+    /// asks the backend (which is how a WebGL context loss is detected), then calls
+    /// `glGetGraphicsResetStatus` if the context has it.
+    fn reset_status(&self) -> gl::types::GLenum {
+        {
+            let state = self.state.borrow();
+            if state.lost_context {
+                return state.reset_status;
+            }
         }
 
         let lost_by_backend = self.backend.borrow().is_context_lost();
 
         let mut ctxt = self.make_current();
 
-        let lost = if lost_by_backend {
-            true
+        let status = if lost_by_backend {
+            gl::UNKNOWN_CONTEXT_RESET
         } else {
-            graphics_reset_status(&ctxt).is_some_and(|status| status != gl::NO_ERROR)
+            query_graphics_reset_status(&ctxt).unwrap_or(gl::NO_ERROR)
         };
 
-        if lost {
+        if status != gl::NO_ERROR {
             ctxt.state.lost_context = true;
+            ctxt.state.reset_status = status;
         }
-        lost
+        status
     }
 
     /// Returns the behavior when the current OpenGL context is changed.
@@ -1014,7 +1060,7 @@ impl<'a> CapabilitiesSource for CommandContext<'a> {
 /// The function is core in OpenGL 4.5 and OpenGL ES 3.2, and desktop `GL_KHR_robustness` uses the
 /// same name; OpenGL ES names it with a `KHR` suffix, and `GL_EXT_robustness` and
 /// `GL_ARB_robustness` with their suffixes. WebGL has none: the backend is its only source.
-fn graphics_reset_status(ctxt: &CommandContext<'_>) -> Option<gl::types::GLenum> {
+fn query_graphics_reset_status(ctxt: &CommandContext<'_>) -> Option<gl::types::GLenum> {
     let version = ctxt.version;
     let extensions = ctxt.extensions;
     unsafe {

@@ -11,6 +11,10 @@ pub struct GlState {
     /// to check for lost context as long as this is false.
     pub lost_context: bool,
 
+    /// The `glGetGraphicsResetStatus` value that told that the context was lost, or
+    /// `GL_UNKNOWN_CONTEXT_RESET` when something else told it.
+    pub reset_status: gl::types::GLenum,
+
     /// Whether GL_BLEND is enabled
     pub enabled_blend: bool,
 
@@ -445,6 +449,7 @@ impl Default for GlState {
 
         GlState {
             lost_context: false,
+            reset_status: gl::NO_ERROR,
 
             enabled_blend: false,
             enabled_cull_face: false,

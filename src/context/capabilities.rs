@@ -50,8 +50,16 @@ pub struct Capabilities {
     /// True if out-of-bound access on the GPU side can't result in crashes.
     pub robustness: bool,
 
-    /// True if it is possible for the OpenGL context to be lost.
-    pub can_lose_context: bool,
+    /// What the context does when the GPU is reset (`GL_RESET_NOTIFICATION_STRATEGY`):
+    /// `LoseContextOnReset` means that the context can be lost.
+    pub reset_notification: ResetNotificationStrategy,
+
+    /// True if the context was created without error checking (`GL_CONTEXT_FLAG_NO_ERROR_BIT`,
+    /// OpenGL 4.6 or `GL_KHR_no_error`): OpenGL errors are undefined behavior instead of being
+    /// reported, and `glGetError` returns no error.
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    pub no_error: bool,
 
     /// What happens when you change the current OpenGL context.
     pub release_behavior: ReleaseBehavior,
@@ -171,6 +179,35 @@ pub struct FormatInfos {
     pub multisamples: Option<Vec<gl::types::GLint>>,
 }
 
+/// What a context does when the GPU is reset (`GL_RESET_NOTIFICATION_STRATEGY`), which a context
+/// is created with.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ResetNotificationStrategy {
+    /// The context isn't told about resets and isn't lost by them (`GL_NO_RESET_NOTIFICATION`).
+    /// This is the strategy of contexts created without robustness.
+    NoResetNotification,
+
+    /// The context is lost when the GPU is reset (`GL_LOSE_CONTEXT_ON_RESET`):
+    /// `Context::is_context_lost` tells it, and the context must be created again.
+    LoseContextOnReset,
+}
+
+/// How a GPU reset that lost the context involved it, from `glGetGraphicsResetStatus`.
+#[cfg(any(safegl_gl45, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_gles32))))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum GraphicsResetStatus {
+    /// The commands of this context caused the reset (`GL_GUILTY_CONTEXT_RESET`).
+    Guilty,
+
+    /// Another context caused the reset (`GL_INNOCENT_CONTEXT_RESET`).
+    Innocent,
+
+    /// The cause is unknown (`GL_UNKNOWN_CONTEXT_RESET`), or the backend told that the context
+    /// was lost without a reset status, as WebGL and window systems do.
+    Unknown,
+}
+
 /// Defines what happens when you change the current context.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ReleaseBehavior {
@@ -241,7 +278,7 @@ pub unsafe fn get_capabilities(
             false
         },
 
-        can_lose_context: if version >= &Version(Api::Gl, 4, 5)
+        reset_notification: if version >= &Version(Api::Gl, 4, 5)
             || version >= &Version(Api::GlEs, 3, 2)
             || extensions.gl_khr_robustness
             || extensions.gl_arb_robustness
@@ -249,21 +286,24 @@ pub unsafe fn get_capabilities(
         {
             let val = gl.get_parameter_i32(glow::RESET_NOTIFICATION_STRATEGY);
 
+            // AMD drivers return 0x31BE, which isn't an OpenGL value, and Adreno 430/506
+            // drivers return `GL_NO_ERROR`: any value other than `GL_LOSE_CONTEXT_ON_RESET` means
+            // that the context isn't lost
             match val as gl::types::GLenum {
-                gl::LOSE_CONTEXT_ON_RESET => true,
-                gl::NO_RESET_NOTIFICATION => false,
-
-                // WORK-AROUND: AMD drivers erroneously return this value, which doesn't even
-                //              correspond to any GLenum in the specs. We work around this bug
-                //              by interpreting it as `false`.
-                0x31BE => false,
-
-                // WORK-AROUND: Adreno 430/506 drivers return NO_ERROR.
-                gl::NO_ERROR => false,
-
-                // any other value can't tell that the context can be lost
-                _ => false,
+                gl::LOSE_CONTEXT_ON_RESET => ResetNotificationStrategy::LoseContextOnReset,
+                _ => ResetNotificationStrategy::NoResetNotification,
             }
+        } else {
+            ResetNotificationStrategy::NoResetNotification
+        },
+
+        #[cfg(safegl_gl46)]
+        no_error: if version >= &Version(Api::Gl, 4, 6) || extensions.gl_khr_no_error {
+            // OpenGL ES has `GL_CONTEXT_FLAGS` from version 3.2
+            (version.0 == Api::Gl || version >= &Version(Api::GlEs, 3, 2))
+                && (gl.get_parameter_i32(glow::CONTEXT_FLAGS) as gl::types::GLenum
+                    & glow::CONTEXT_FLAG_NO_ERROR_BIT)
+                    != 0
         } else {
             false
         },

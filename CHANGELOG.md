@@ -206,6 +206,9 @@ Breaking changes:
   larger than `Limits::max_renderbuffer_size` return `DimensionsNotSupported`, and those with more
   samples than `Limits::max_samples` or than their format has return `SamplesNotSupported`,
   instead of being created without storage and failing when drawn to.
+- `Capabilities::can_lose_context: bool` is replaced by `Capabilities::reset_notification`, a
+  `ResetNotificationStrategy` (`NoResetNotification` or `LoseContextOnReset`).
+  `Context::is_context_loss_possible()` is unchanged.
 
 Additions:
 
@@ -276,6 +279,14 @@ Additions:
   query counters (`QueryCounterBits`). Each limit exists at the levels whose versions have it,
   like the rest of the API, and is `None` when the driver lacks the version or extension that
   brings it. `ReleaseBehavior`, the type of `Capabilities::release_behavior`, is exported.
+- `Context::graphics_reset_status()` (`gl45`, `gles32`) tells whether the GPU reset that lost the
+  context was caused by it (`GraphicsResetStatus::Guilty`), by another context (`Innocent`) or by
+  an unknown cause.
+- `SimpleWindowBuilder::with_robustness` requests a context with robust buffer access, lost or not
+  on GPU resets, or without error checking (`Robustness::NoError`), and falls back to a context
+  without robustness. `Capabilities::no_error` and `Context::is_no_error()` (`gl46`) tell whether
+  the context checks errors. The tests run in such contexts with `SAFEGL_ROBUSTNESS=robust`,
+  `lose` or `no_error`.
 
 Fixes:
 
