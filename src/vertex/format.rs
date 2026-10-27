@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::mem;
 
-use crate::version::Api;
+use crate::version::{Api, Version};
 use crate::vertex::Attribute;
 use crate::CapabilitiesSource;
 
@@ -216,7 +216,11 @@ impl AttributeType {
             | &AttributeType::F64x3x4
             | &AttributeType::F64x4x2
             | &AttributeType::F64x4x3
-            | &AttributeType::F64x4x4 => caps.get_version().0 == Api::Gl,
+            | &AttributeType::F64x4x4 => {
+                // core in OpenGL 4.1, and not part of OpenGL ES
+                caps.get_version() >= &Version(Api::Gl, 4, 1)
+                    || caps.get_extensions().gl_arb_vertex_attrib_64bit
+            }
 
             &AttributeType::F16
             | &AttributeType::F16F16
@@ -232,7 +236,12 @@ impl AttributeType {
             | &AttributeType::F16x4x3
             | &AttributeType::F16x4x4 => true,
 
-            &AttributeType::FixedFloatI16U16 => true,
+            // `GL_FIXED` is core in OpenGL ES 2.0 and OpenGL 4.1
+            &AttributeType::FixedFloatI16U16 => {
+                caps.get_version().0 == Api::GlEs
+                    || caps.get_version() >= &Version(Api::Gl, 4, 1)
+                    || caps.get_extensions().gl_arb_es2_compatibility
+            }
 
             &AttributeType::I2I10I10I10Reversed | &AttributeType::U2U10U10U10Reversed => true,
 
@@ -240,7 +249,11 @@ impl AttributeType {
                 caps.get_extensions().gl_oes_vertex_type_10_10_10_2
             }
 
-            &AttributeType::F10F11F11UnsignedIntReversed => caps.get_version().0 == Api::Gl,
+            // core in OpenGL 4.4, and not part of OpenGL ES
+            &AttributeType::F10F11F11UnsignedIntReversed => {
+                caps.get_version() >= &Version(Api::Gl, 4, 4)
+                    || caps.get_extensions().gl_arb_vertex_type_10f_11f_11f_rev
+            }
         }
     }
 

@@ -6,7 +6,7 @@ use std::fmt;
 use std::sync::Mutex;
 
 use crate::gl;
-use crate::version::Api;
+use crate::version::{Api, Version};
 
 #[cfg(feature = "gl46")]
 #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
@@ -47,12 +47,15 @@ where
 
 /// Returns true if the backend supports creating and retrieving binary format.
 #[inline]
-pub fn is_binary_supported<C: ?Sized>(_ctxt: &C) -> bool
+pub fn is_binary_supported<C: ?Sized>(ctxt: &C) -> bool
 where
     C: CapabilitiesSource,
 {
     // program binaries are core in OpenGL 4.1 and OpenGL ES 3.0, but don't exist on WebGL
     !crate::version::is_webgl()
+        && (ctxt.get_version().0 == Api::GlEs
+            || ctxt.get_version() >= &Version(Api::Gl, 4, 1)
+            || ctxt.get_extensions().gl_arb_get_program_binary)
 }
 
 /// Returns true if the backend supports shader subroutines.

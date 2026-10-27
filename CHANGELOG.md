@@ -241,6 +241,11 @@ Fixes:
   debug messages of low severity and the notifications, which the callback ignores: the NVIDIA
   driver formatted one for every buffer it created, and crashed doing it once while another thread
   created a context.
+- Vertex attributes of type `F10F11F11UnsignedIntReversed` require OpenGL 4.4 or
+  `GL_ARB_vertex_type_10f_11f_11f_rev`, and double-precision attributes OpenGL 4.1 or
+  `GL_ARB_vertex_attrib_64bit`, instead of being accepted by every desktop context. Fixed-point
+  attributes (`FixedFloatI16U16`) and program binaries require OpenGL 4.1 or one of
+  `GL_ARB_ES2_compatibility` / `GL_ARB_get_program_binary` on desktop OpenGL.
 
 ## [0.2.0]
 
