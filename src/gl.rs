@@ -171,6 +171,7 @@ extra_functions! {
     fn GetGraphicsResetStatus() -> GLenum;
     fn GetGraphicsResetStatusARB() -> GLenum;
     fn GetGraphicsResetStatusEXT() -> GLenum;
+    fn GetGraphicsResetStatusKHR() -> GLenum;
     fn GetProgramInterfaceiv(program: GLuint, programInterface: GLenum, pname: GLenum, params: *mut GLint) -> ();
     fn GetProgramResourceName(program: GLuint, programInterface: GLenum, index: GLuint, bufSize: GLsizei, length: *mut GLsizei, name: *mut GLchar) -> ();
     fn GetProgramResourceiv(program: GLuint, programInterface: GLenum, index: GLuint, propCount: GLsizei, props: *const GLenum, bufSize: GLsizei, length: *mut GLsizei, params: *mut GLint) -> ();

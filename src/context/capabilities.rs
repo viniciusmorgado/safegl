@@ -235,6 +235,7 @@ pub unsafe fn get_capabilities(
         },
 
         can_lose_context: if version >= &Version(Api::Gl, 4, 5)
+            || version >= &Version(Api::GlEs, 3, 2)
             || extensions.gl_khr_robustness
             || extensions.gl_arb_robustness
             || extensions.gl_ext_robustness
@@ -253,7 +254,8 @@ pub unsafe fn get_capabilities(
                 // WORK-AROUND: Adreno 430/506 drivers return NO_ERROR.
                 gl::NO_ERROR => false,
 
-                _ => unreachable!(),
+                // any other value can't tell that the context can be lost
+                _ => false,
             }
         } else {
             false

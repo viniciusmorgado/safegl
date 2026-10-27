@@ -386,6 +386,11 @@ Fixes:
 - Anisotropic filtering works on OpenGL 4.6, where it is core, and with
   `GL_ARB_texture_filter_anisotropic`: `Capabilities::max_texture_max_anisotropy` was `None` and
   samplers ignored their anisotropy unless the driver listed `GL_EXT_texture_filter_anisotropic`.
+- Checking whether the context is lost calls the `glGetGraphicsResetStatus` of the context: on
+  OpenGL ES 3.0 and 3.1 with `GL_KHR_robustness` it is `glGetGraphicsResetStatusKHR`, while SafeGL
+  called the unsuffixed name, which panics when the driver doesn't export it.
+  `Capabilities::can_lose_context` reads the reset strategy of OpenGL ES 3.2 contexts without
+  robustness extensions, and an unknown strategy is reported as `false` instead of panicking.
 
 ## [0.2.0]
 

@@ -573,20 +573,8 @@ impl Context {
 
         let lost = if lost_by_backend {
             true
-        } else if is_webgl() {
-            // WebGL has no `glGetGraphicsResetStatus`; the backend is the only source
-            false
-        } else if ctxt.version >= &Version(Api::Gl, 4, 5)
-            || ctxt.version >= &Version(Api::GlEs, 3, 2)
-            || ctxt.extensions.gl_khr_robustness
-        {
-            unsafe { ctxt.extra.GetGraphicsResetStatus() != gl::NO_ERROR }
-        } else if ctxt.extensions.gl_ext_robustness {
-            unsafe { ctxt.extra.GetGraphicsResetStatusEXT() != gl::NO_ERROR }
-        } else if ctxt.extensions.gl_arb_robustness {
-            unsafe { ctxt.extra.GetGraphicsResetStatusARB() != gl::NO_ERROR }
         } else {
-            false
+            graphics_reset_status(&ctxt).is_some_and(|status| status != gl::NO_ERROR)
         };
 
         if lost {
@@ -1016,6 +1004,34 @@ impl<'a> CapabilitiesSource for CommandContext<'a> {
     #[inline]
     fn get_capabilities(&self) -> &Capabilities {
         self.capabilities
+    }
+}
+
+/// Calls the `glGetGraphicsResetStatus` of the context, or returns `None` if it has none.
+///
+/// The function is core in OpenGL 4.5 and OpenGL ES 3.2, and desktop `GL_KHR_robustness` uses the
+/// same name; OpenGL ES names it with a `KHR` suffix, and `GL_EXT_robustness` and
+/// `GL_ARB_robustness` with their suffixes. WebGL has none: the backend is its only source.
+fn graphics_reset_status(ctxt: &CommandContext<'_>) -> Option<gl::types::GLenum> {
+    let version = ctxt.version;
+    let extensions = ctxt.extensions;
+    unsafe {
+        if is_webgl() {
+            None
+        } else if version >= &Version(Api::Gl, 4, 5)
+            || version >= &Version(Api::GlEs, 3, 2)
+            || (version.0 == Api::Gl && extensions.gl_khr_robustness)
+        {
+            Some(ctxt.extra.GetGraphicsResetStatus())
+        } else if extensions.gl_khr_robustness {
+            Some(ctxt.extra.GetGraphicsResetStatusKHR())
+        } else if extensions.gl_ext_robustness {
+            Some(ctxt.extra.GetGraphicsResetStatusEXT())
+        } else if extensions.gl_arb_robustness {
+            Some(ctxt.extra.GetGraphicsResetStatusARB())
+        } else {
+            None
+        }
     }
 }
 
