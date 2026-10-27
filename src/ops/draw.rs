@@ -345,12 +345,23 @@ where
 
                 unsafe {
                     buffer.prepare_and_bind_for_draw_indirect(&mut ctxt);
-                    ctxt.extra.MultiDrawArraysIndirect(
-                        primitives.to_glenum(),
-                        ptr as *const _,
-                        buffer.get_elements_count() as gl::types::GLsizei,
-                        0,
-                    );
+                    let count = buffer.get_elements_count() as gl::types::GLsizei;
+                    // OpenGL ES only has `GL_EXT_multi_draw_indirect`
+                    if ctxt.version.0 == Api::GlEs {
+                        ctxt.extra.MultiDrawArraysIndirectEXT(
+                            primitives.to_glenum(),
+                            ptr as *const _,
+                            count,
+                            0,
+                        );
+                    } else {
+                        ctxt.extra.MultiDrawArraysIndirect(
+                            primitives.to_glenum(),
+                            ptr as *const _,
+                            count,
+                            0,
+                        );
+                    }
                 }
             }
 
@@ -375,13 +386,25 @@ where
                 unsafe {
                     commands.prepare_and_bind_for_draw_indirect(&mut ctxt);
                     debug_assert_eq!(base_vertex, 0); // enforced earlier in this function
-                    ctxt.extra.MultiDrawElementsIndirect(
-                        primitives.to_glenum(),
-                        data_type.to_glenum(),
-                        cmd_ptr as *const _,
-                        commands.get_elements_count() as gl::types::GLsizei,
-                        0,
-                    );
+                    let count = commands.get_elements_count() as gl::types::GLsizei;
+                    // OpenGL ES only has `GL_EXT_multi_draw_indirect`
+                    if ctxt.version.0 == Api::GlEs {
+                        ctxt.extra.MultiDrawElementsIndirectEXT(
+                            primitives.to_glenum(),
+                            data_type.to_glenum(),
+                            cmd_ptr as *const _,
+                            count,
+                            0,
+                        );
+                    } else {
+                        ctxt.extra.MultiDrawElementsIndirect(
+                            primitives.to_glenum(),
+                            data_type.to_glenum(),
+                            cmd_ptr as *const _,
+                            count,
+                            0,
+                        );
+                    }
                 }
             }
 

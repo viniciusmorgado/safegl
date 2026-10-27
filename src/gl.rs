@@ -205,6 +205,8 @@ extra_functions! {
     fn MinSampleShadingOES(value: GLfloat) -> ();
     fn MultiDrawArraysIndirect(mode: GLenum, indirect: *const c_void, drawcount: GLsizei, stride: GLsizei) -> ();
     fn MultiDrawElementsIndirect(mode: GLenum, type_: GLenum, indirect: *const c_void, drawcount: GLsizei, stride: GLsizei) -> ();
+    fn MultiDrawArraysIndirectEXT(mode: GLenum, indirect: *const c_void, drawcount: GLsizei, stride: GLsizei) -> ();
+    fn MultiDrawElementsIndirectEXT(mode: GLenum, type_: GLenum, indirect: *const c_void, drawcount: GLsizei, stride: GLsizei) -> ();
     fn PointSize(size: GLfloat) -> ();
     fn PolygonOffsetClamp(factor: GLfloat, units: GLfloat, clamp: GLfloat) -> ();
     fn PolygonOffsetClampEXT(factor: GLfloat, units: GLfloat, clamp: GLfloat) -> ();

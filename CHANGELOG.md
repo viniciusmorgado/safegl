@@ -255,6 +255,8 @@ Fixes:
 - On OpenGL ES 3.2, or with the geometry shader and tessellation extensions, index buffers of
   adjacency primitives and patches are accepted, and tessellation shaders are created with
   `GL_EXT_tessellation_shader` too: only `GL_OES_tessellation_shader` was checked.
+- Multi-draw indirect draws use the `...EXT` entry points of `GL_EXT_multi_draw_indirect` on
+  OpenGL ES, instead of the desktop ones that the driver doesn't have.
 
 ## [0.2.0]
 
