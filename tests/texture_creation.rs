@@ -669,7 +669,7 @@ fn bindless_texture_residency_context_rebuild() {
 
     let buffer = safegl::uniforms::UniformBuffer::new(
         &display,
-        safegl::texture::TextureHandle::new(&texture, &Default::default()),
+        safegl::texture::TextureHandle::new(&texture, &Default::default()).unwrap(),
     )
     .unwrap();
 

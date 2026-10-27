@@ -48,7 +48,7 @@ implement_uniform_block!(UniformBuffer<'a>, texture, some_value);
 # fn example<T>(display: safegl::Display<T>, texture: safegl::texture::bindless::ResidentTexture)
 #     where T: SurfaceTypeTrait + ResizeableSurface {
 let uniform_buffer = safegl::uniforms::UniformBuffer::new(&display, UniformBuffer {
-    texture: safegl::texture::TextureHandle::new(&texture, &Default::default()),
+    texture: safegl::texture::TextureHandle::new(&texture, &Default::default()).unwrap(),
     some_value: 5.0,
 });
 # }
@@ -77,7 +77,7 @@ use std::ops::{Deref, DerefMut};
 use crate::program::BlockLayout;
 use crate::uniforms::AsUniformValue;
 use crate::uniforms::LayoutMismatchError;
-use crate::uniforms::SamplerBehavior;
+use crate::uniforms::{SamplerBehavior, SamplerNotSupportedError};
 use crate::uniforms::{MagnifySamplerFilter, MinifySamplerFilter, SamplerWrapFunction};
 use crate::uniforms::UniformBlock;
 use crate::uniforms::UniformType;
@@ -120,9 +120,12 @@ impl ResidentTexture {
 
     /// Returns the resident handle of the texture sampled with `sampler`
     /// (`glGetTextureSamplerHandleARB`), made the first time it is asked for.
-    fn sampler_handle(&self, sampler: &SamplerBehavior) -> gl::types::GLuint64 {
+    fn sampler_handle(
+        &self,
+        sampler: &SamplerBehavior,
+    ) -> Result<gl::types::GLuint64, SamplerNotSupportedError> {
         if let Some(&handle) = self.sampler_handles.borrow().get(sampler) {
-            return handle;
+            return Ok(handle);
         }
         let texture = self.texture.as_ref().unwrap();
         let key = *sampler;
@@ -158,8 +161,9 @@ impl ResidentTexture {
             };
         }
         let mut ctxt = texture.get_context().make_current();
+        crate::sampler_object::check_support(&ctxt, &sampler)?;
         let sampler_object = crate::sampler_object::get_sampler(&mut ctxt, &sampler)
-            .expect("sampler objects exist where bindless textures do");
+            .expect("the sampler is supported");
         let handle = unsafe {
             let handle = ctxt
                 .extra
@@ -173,7 +177,7 @@ impl ResidentTexture {
             key.depth_texture_comparison.is_some(),
         ));
         self.sampler_handles.borrow_mut().insert(key, handle);
-        handle
+        Ok(handle)
     }
 
     /// Unwraps the texture and restores it.
@@ -237,18 +241,29 @@ pub struct TextureHandle<'a> {
 impl<'a> TextureHandle<'a> {
     /// Builds a handle of `texture` sampled with `sampler`
     /// (`glGetTextureSamplerHandleARB`). The handle stays resident as long as the texture.
+    ///
+    /// Returns an error if the backend can't sample with `sampler`.
     #[inline]
-    pub fn new(texture: &'a ResidentTexture, sampler: &SamplerBehavior) -> TextureHandle<'a> {
-        TextureHandle {
-            value: texture.sampler_handle(sampler),
+    pub fn new(
+        texture: &'a ResidentTexture,
+        sampler: &SamplerBehavior,
+    ) -> Result<TextureHandle<'a>, SamplerNotSupportedError> {
+        Ok(TextureHandle {
+            value: texture.sampler_handle(sampler)?,
             marker: PhantomData,
-        }
+        })
     }
 
-    /// Sets the value to the given texture.
+    /// Sets the value to the given texture, or returns an error if the backend can't sample
+    /// with `sampler`.
     #[inline]
-    pub fn set(&mut self, texture: &'a ResidentTexture, sampler: &SamplerBehavior) {
-        *self = TextureHandle::new(texture, sampler);
+    pub fn set(
+        &mut self,
+        texture: &'a ResidentTexture,
+        sampler: &SamplerBehavior,
+    ) -> Result<(), SamplerNotSupportedError> {
+        *self = TextureHandle::new(texture, sampler)?;
+        Ok(())
     }
 
     /// Returns the raw handle.

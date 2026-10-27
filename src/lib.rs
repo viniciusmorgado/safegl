@@ -1747,6 +1747,10 @@ pub enum DrawError {
         name: String,
     },
 
+    /// The sampler of a texture uniform has a wrap function, a border color or an anisotropy
+    /// that the backend doesn't have.
+    SamplerNotSupported(uniforms::SamplerNotSupportedError),
+
     /// A rectangle texture is sampled with a sampler that repeats or mirrors it, or that
     /// filters it with mipmaps, which rectangle textures don't have: they can only be clamped
     /// (`SamplerWrapFunction::Clamp` or `BorderClamp`) and filtered with `Nearest` or `Linear`.
@@ -1921,6 +1925,7 @@ impl Error for DrawError {
         use self::DrawError::*;
         match *self {
             UniformBlockLayoutMismatch { ref err, .. } => Some(err),
+            SamplerNotSupported(ref err) => Some(err),
             _ => None,
         }
     }
@@ -2069,6 +2074,8 @@ impl fmt::Display for DrawError {
             #[cfg(any(safegl_desktop, safegl_gles32))]
             BorderColorMismatch { .. } =>
                 "The border color of a sampler isn't of the kind of its texture",
+            SamplerNotSupported(_) =>
+                "The sampler of a texture uses a function that the backend doesn't have",
             #[cfg(safegl_desktop)]
             RectangleTextureSampler { .. } =>
                 "A rectangle texture is sampled with a wrap function or a filter it doesn't have",

@@ -18,7 +18,8 @@ pub enum SamplerWrapFunction {
     /// Use texture border.
     ///
     /// Requires OpenGL ES 3.2 or `GL_EXT_texture_border_clamp` on OpenGL ES, and isn't
-    /// available on WebGL. Falls back to `Clamp` where unsupported.
+    /// available on WebGL. Sampling with it where it's unsupported is an error
+    /// (`SamplerNotSupportedError::WrapFunction`).
     #[cfg(any(safegl_desktop, safegl_gles32))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     BorderClamp,
@@ -26,7 +27,8 @@ pub enum SamplerWrapFunction {
     /// Same as Mirror, but only for one repetition,
     ///
     /// Requires OpenGL 4.4, `GL_ARB_texture_mirror_clamp_to_edge` or, on OpenGL ES,
-    /// `GL_EXT_texture_mirror_clamp_to_edge`. Falls back to `Clamp` where unsupported.
+    /// `GL_EXT_texture_mirror_clamp_to_edge`. Sampling with it where it's unsupported is an
+    /// error (`SamplerNotSupportedError::WrapFunction`).
     #[cfg(safegl_gl44)]
     #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
     MirrorClamp,
@@ -385,15 +387,17 @@ pub struct SamplerBehavior {
     ///
     /// ## Compatibility
     ///
-    /// This parameter is always available. However it is ignored on hardware that does
-    /// not support anisotropic filtering.
+    /// Anisotropic filtering requires OpenGL 4.6, `GL_ARB_texture_filter_anisotropic` or
+    /// `GL_EXT_texture_filter_anisotropic`: a value above 1 without them is an error
+    /// (`SamplerNotSupportedError::Anisotropy`).
     ///
-    /// If you set the value to a value higher than what the hardware supports, it will
-    /// be clamped.
+    /// A value higher than what the hardware supports is clamped to its maximum
+    /// (`Capabilities::max_texture_max_anisotropy`).
     pub max_anisotropy: u16,
 
     /// The color returned outside the texture with `SamplerWrapFunction::BorderClamp`. `None`
-    /// keeps OpenGL's default, transparent black. Ignored where `BorderClamp` isn't supported.
+    /// keeps OpenGL's default, transparent black. A color where `BorderClamp` isn't supported
+    /// is an error (`SamplerNotSupportedError::WrapFunction`).
     #[cfg(any(safegl_desktop, safegl_gles32))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     pub border_color: Option<BorderColor>,
@@ -477,3 +481,32 @@ impl Default for SamplerBehavior {
         }
     }
 }
+
+/// A sampler that the backend can't sample with, instead of a sampler that silently samples
+/// differently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SamplerNotSupportedError {
+    /// A wrap function that the backend doesn't have, or a border color where `BorderClamp`
+    /// isn't supported. See the requirements of each `SamplerWrapFunction`.
+    WrapFunction(SamplerWrapFunction),
+
+    /// Anisotropic filtering (`max_anisotropy` above 1) without OpenGL 4.6,
+    /// `GL_ARB_texture_filter_anisotropic` or `GL_EXT_texture_filter_anisotropic`.
+    Anisotropy,
+}
+
+impl std::fmt::Display for SamplerNotSupportedError {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SamplerNotSupportedError::WrapFunction(function) => {
+                write!(fmt, "The wrap function {:?} is not supported by the backend", function)
+            }
+            SamplerNotSupportedError::Anisotropy => {
+                fmt.write_str("Anisotropic filtering is not supported by the backend")
+            }
+        }
+    }
+}
+
+impl std::error::Error for SamplerNotSupportedError {}

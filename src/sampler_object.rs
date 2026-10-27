@@ -1,6 +1,6 @@
 use crate::DrawError;
 
-use crate::uniforms::{SamplerBehavior, SamplerWrapFunction};
+use crate::uniforms::{SamplerBehavior, SamplerNotSupportedError, SamplerWrapFunction};
 #[cfg(any(safegl_desktop, safegl_gles32))]
 use crate::version::{Api, Version};
 
@@ -26,17 +26,17 @@ impl SamplerObject {
             ctxt.glow.sampler_parameter_i32(
                 sampler,
                 glow::TEXTURE_WRAP_S,
-                wrap_mode(ctxt, behavior.wrap_function.0) as gl::types::GLint,
+                behavior.wrap_function.0.to_glenum() as gl::types::GLint,
             );
             ctxt.glow.sampler_parameter_i32(
                 sampler,
                 glow::TEXTURE_WRAP_T,
-                wrap_mode(ctxt, behavior.wrap_function.1) as gl::types::GLint,
+                behavior.wrap_function.1.to_glenum() as gl::types::GLint,
             );
             ctxt.glow.sampler_parameter_i32(
                 sampler,
                 glow::TEXTURE_WRAP_R,
-                wrap_mode(ctxt, behavior.wrap_function.2) as gl::types::GLint,
+                behavior.wrap_function.2.to_glenum() as gl::types::GLint,
             );
             ctxt.glow.sampler_parameter_i32(
                 sampler,
@@ -62,11 +62,10 @@ impl SamplerObject {
                 );
             }
 
+            // `check_support` made sure that border colors are supported
             #[cfg(any(safegl_desktop, safegl_gles32))]
             if let Some(color) = behavior.border_color {
-                if is_border_clamp_supported(ctxt) {
-                    set_border_color(ctxt, sampler, color);
-                }
+                set_border_color(ctxt, sampler, color);
             }
 
             let lod = behavior.level_of_detail;
@@ -128,11 +127,6 @@ impl Drop for SamplerObject {
     }
 }
 
-/// Returns the OpenGL wrap mode of `function`.
-///
-/// Like the anisotropy, which is clamped to the maximum the backend supports, a wrap function
-/// that OpenGL ES (or WebGL) doesn't support falls back to the closest supported one,
-/// `GL_CLAMP_TO_EDGE`, instead of failing.
 /// Sets the border color of `sampler`, with the entry point of its kind: integer border colors
 /// are given with `glSamplerParameterIiv` and `glSamplerParameterIuiv`, core in OpenGL 3.3 and
 /// OpenGL ES 3.2, and suffixed by the border clamp extensions of OpenGL ES.
@@ -188,8 +182,9 @@ fn is_border_clamp_supported(ctxt: &CommandContext<'_>) -> bool {
         || ctxt.extensions.gl_oes_texture_border_clamp
 }
 
-fn wrap_mode(ctxt: &CommandContext<'_>, function: SamplerWrapFunction) -> gl::types::GLenum {
-    let supported = match function {
+/// Returns true if the backend has the wrap function.
+fn is_wrap_function_supported(ctxt: &CommandContext<'_>, function: SamplerWrapFunction) -> bool {
+    match function {
         #[cfg(any(safegl_desktop, safegl_gles32))]
         SamplerWrapFunction::BorderClamp => is_border_clamp_supported(ctxt),
         #[cfg(safegl_gl44)]
@@ -201,13 +196,31 @@ fn wrap_mode(ctxt: &CommandContext<'_>, function: SamplerWrapFunction) -> gl::ty
         SamplerWrapFunction::Repeat | SamplerWrapFunction::Mirror | SamplerWrapFunction::Clamp => {
             true
         }
-    };
-
-    if supported {
-        function.to_glenum()
-    } else {
-        gl::CLAMP_TO_EDGE
     }
+}
+
+/// Checks that the backend can sample with `behavior`: its wrap functions, its border color
+/// and its anisotropy. The anisotropy above the maximum of the backend is clamped.
+pub fn check_support(
+    ctxt: &CommandContext<'_>,
+    behavior: &SamplerBehavior,
+) -> Result<(), SamplerNotSupportedError> {
+    let (s, t, r) = behavior.wrap_function;
+    for function in [s, t, r] {
+        if !is_wrap_function_supported(ctxt, function) {
+            return Err(SamplerNotSupportedError::WrapFunction(function));
+        }
+    }
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    if behavior.border_color.is_some() && !is_border_clamp_supported(ctxt) {
+        return Err(SamplerNotSupportedError::WrapFunction(
+            SamplerWrapFunction::BorderClamp,
+        ));
+    }
+    if behavior.max_anisotropy > 1 && ctxt.capabilities.max_texture_max_anisotropy.is_none() {
+        return Err(SamplerNotSupportedError::Anisotropy);
+    }
+    Ok(())
 }
 
 /// Returns the sampler corresponding to the given behavior, or a draw error if
@@ -222,6 +235,7 @@ pub fn get_sampler(
     }
 
     // builds a new sampler
+    check_support(ctxt, behavior).map_err(DrawError::SamplerNotSupported)?;
     let sampler = SamplerObject::new(ctxt, behavior);
     let id = sampler.get_id();
     ctxt.samplers.insert(*behavior, sampler);

@@ -169,3 +169,75 @@ fn anisotropy_in_core_opengl_46() {
 
     display.assert_no_error(None);
 }
+
+/// Draws a texture sampled with `sampler` and returns the result of the draw.
+fn draw_sampled(
+    display: &support::WindowDisplay,
+    sampler: safegl::uniforms::Sampler<'_, safegl::Texture2d>,
+) -> Result<(), safegl::DrawError> {
+    let (vb, ib) = support::build_rectangle_vb_ib(display);
+    let program = support::program_from_legacy(
+        display,
+        "attribute vec2 position; varying vec2 v; \
+         void main() { v = position; gl_Position = vec4(position, 0.0, 1.0); }",
+        "uniform sampler2D tex; varying vec2 v; void main() { gl_FragColor = texture2D(tex, v); }",
+    )
+    .unwrap();
+    let output = support::build_renderable_texture(display);
+    output.as_surface().draw(
+        &vb,
+        &ib,
+        &program,
+        &uniform! { tex: sampler },
+        &Default::default(),
+    )
+}
+
+/// Anisotropic filtering where the backend doesn't have it is an error, not a sampler without
+/// it; above the maximum of the backend, it is clamped.
+#[test]
+fn anisotropy_needs_support() {
+    let display = support::build_display();
+    let texture = support::build_unicolor_texture2d(&display, 1.0, 0.0, 0.0);
+    let result = draw_sampled(&display, texture.sampled().anisotropy(u16::MAX));
+    if display.get_capabilities().max_texture_max_anisotropy.is_some() {
+        result.unwrap();
+    } else {
+        assert!(matches!(
+            result,
+            Err(safegl::DrawError::SamplerNotSupported(
+                safegl::uniforms::SamplerNotSupportedError::Anisotropy
+            ))
+        ));
+    }
+    display.assert_no_error(None);
+}
+
+/// Mirroring once is an error where the backend doesn't have it, not a clamp.
+#[cfg(safegl_gl44)]
+#[test]
+fn mirror_clamp_needs_support() {
+    use safegl::uniforms::{SamplerNotSupportedError, SamplerWrapFunction};
+
+    let display = support::build_display();
+    let texture = support::build_unicolor_texture2d(&display, 1.0, 0.0, 0.0);
+    let result = draw_sampled(
+        &display,
+        texture.sampled().wrap_function(SamplerWrapFunction::MirrorClamp),
+    );
+    let extensions = support::extensions(&display);
+    if support::gl_at_least(&display, 4, 4)
+        || extensions.gl_arb_texture_mirror_clamp_to_edge
+        || extensions.gl_ext_texture_mirror_clamp_to_edge
+    {
+        result.unwrap();
+    } else {
+        assert!(matches!(
+            result,
+            Err(safegl::DrawError::SamplerNotSupported(
+                SamplerNotSupportedError::WrapFunction(SamplerWrapFunction::MirrorClamp)
+            ))
+        ));
+    }
+    display.assert_no_error(None);
+}
