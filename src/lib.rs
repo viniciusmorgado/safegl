@@ -813,7 +813,7 @@ impl ToGlEnum for BlitMask {
 /// The vertex attributes that were interpolated at the previous step are passed to the fragment
 /// shader.
 ///
-/// The fragment shader must return the color to write by setting the value of `gl_FragColor`.
+/// The fragment shader returns the color to write through its output variables (`out vec4`).
 ///
 /// If the target framebuffer has multisampling enabled, then each pixel of the target image is
 /// in turn split into four subpixels. The output of the fragment shader is copied and written into

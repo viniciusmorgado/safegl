@@ -49,9 +49,9 @@ can link the buffer to the name of the block, just like any other uniform.
 #     where T: SurfaceTypeTrait + ResizeableSurface {
 let program = safegl::Program::from_source(&display,
     "
-        #version 110
+        #version 330
 
-        attribute vec2 position;
+        in vec2 position;
 
         void main() {
             gl_Position = vec4(position, 0.0, 1.0);
@@ -59,14 +59,15 @@ let program = safegl::Program::from_source(&display,
     ",
     "
         #version 330
-        uniform layout(std140);
 
-        uniform MyBlock {
+        layout(std140) uniform MyBlock {
             vec3 color;
         };
 
+        out vec4 f_color;
+
         void main() {
-            gl_FragColor = vec4(color, 1.0);
+            f_color = vec4(color, 1.0);
         }
     ",
     None);
@@ -93,15 +94,14 @@ A subroutine uniform is unique per shader stage, and not per program.
 #     where T: SurfaceTypeTrait + ResizeableSurface {
 let program = safegl::Program::from_source(&display,
     "
-        #version 150
+        #version 400
         in vec2 position;
         void main() {
             gl_Position = vec4(position, 0.0, 1.0);
         }
     ",
     "
-        #version 150
-        #extension GL_ARB_shader_subroutine : require
+        #version 400
         out vec4 fragColor;
         subroutine vec4 modify_t(vec4 color);
         subroutine uniform modify_t modify_color;

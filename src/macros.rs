@@ -727,52 +727,44 @@ macro_rules! implement_uniform_block {
 /// # use glutin::surface::{ResizeableSurface, SurfaceTypeTrait};
 /// # fn example<T>(display: safegl::Display<T>) where T: SurfaceTypeTrait + ResizeableSurface {
 /// let program = program!(&display,
-///     300 => {
+///     330 => {
 ///         vertex: r#"
-///             #version 300
+///             #version 330
+///
+///             in vec2 position;
 ///
 ///             void main() {
-///                 gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+///                 gl_Position = vec4(position, 0.0, 1.0);
 ///             }
 ///         "#,
 ///         fragment: r#"
-///             #version 300
+///             #version 330
 ///
 ///             out vec4 color;
+///
 ///             void main() {
 ///                 color = vec4(1.0, 1.0, 0.0, 1.0);
 ///             }
 ///         "#,
 ///     },
-///     110 => {
-///         vertex: r#"
-///             #version 110
-///
-///             void main() {
-///                 gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
-///             }
-///         "#,
-///         fragment: r#"
-///             #version 110
-///
-///             void main() {
-///                 gl_FragColor = vec4(1.0, 1.0, 0.0, 1.0);
-///             }
-///         "#,
-///     },
 ///     300 es => {
 ///         vertex: r#"
-///             #version 110
+///             #version 300 es
+///
+///             in vec2 position;
 ///
 ///             void main() {
-///                 gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+///                 gl_Position = vec4(position, 0.0, 1.0);
 ///             }
 ///         "#,
 ///         fragment: r#"
-///             #version 110
+///             #version 300 es
+///
+///             precision mediump float;
+///             out vec4 color;
 ///
 ///             void main() {
-///                 gl_FragColor = vec4(1.0, 1.0, 0.0, 1.0);
+///                 color = vec4(1.0, 1.0, 0.0, 1.0);
 ///             }
 ///         "#,
 ///     },

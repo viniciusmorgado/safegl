@@ -2,7 +2,7 @@
 Framebuffers allow you to customize the color, depth and stencil buffers you will draw on.
 
 In order to draw on a texture, use a `SimpleFrameBuffer`. This framebuffer is compatible with
-shaders that write to `gl_FragColor`.
+shaders that have a single output.
 
 ```no_run
 # use safegl::texture::Texture2d;
