@@ -672,8 +672,8 @@ fn inverted_conditional_render() {
         Err(safegl::DrawError::ConditionalRenderingInvertedNotSupported) => {
             use safegl::CapabilitiesSource;
             assert!(
-                display.get_opengl_version() < &safegl::Version(safegl::Api::Gl, 4, 5)
-                    && !display.get_extensions().gl_arb_conditional_render_inverted
+                !(display.get_opengl_version() >= &safegl::Version(safegl::Api::Gl, 4, 5)
+                    || display.get_extensions().gl_arb_conditional_render_inverted)
             );
             return;
         }
