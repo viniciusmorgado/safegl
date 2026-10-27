@@ -506,6 +506,12 @@ Additions:
 
 Fixes:
 
+- Stencil and depth-stencil textures have the `write` methods of the other textures, and
+  stencil textures are given stencil indices (`GL_STENCIL_INDEX`), where creating one with data
+  made an OpenGL error. Depth-stencil textures are given `u32`s that pack a 24-bit depth above
+  an 8-bit stencil index. Uploading data of another client format to a depth, stencil or
+  depth-stencil texture returns `UploadError::FormatNotSupported` or
+  `TextureCreationError::FormatNotSupported` instead of panicking or reaching `unimplemented!()`.
 - Binding a texture to an image unit returns `ImageUnitError::FormatClassMismatch` when the
   texture is only compatible with the image formats of its class
   (`GL_IMAGE_FORMAT_COMPATIBILITY_BY_CLASS`) and the format has the same size but another

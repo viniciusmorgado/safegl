@@ -1473,6 +1473,8 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
             | TextureType::Integral
             | TextureType::Unsigned
             | TextureType::Depth
+            | TextureType::Stencil
+            | TextureType::DepthStencil
     );
 
     // writing the `write` function of one-dimensional and three-dimensional textures

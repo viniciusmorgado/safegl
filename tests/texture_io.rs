@@ -293,3 +293,128 @@ fn texture_from_id_with_mipmaps() {
     assert_eq!(read_image(level.into())[0][0], (255, 0, 0, 255));
     display.assert_no_error(None);
 }
+
+/// Depth-stencil textures are written with `u32`s that pack a 24-bit depth above an 8-bit
+/// stencil index; other client formats are refused instead of panicking.
+#[test]
+fn write_depth_stencil() {
+    let display = support::build_display();
+    let texture = DepthStencilTexture2d::empty_with_format(
+        &display,
+        DepthStencilFormat::I24I8,
+        MipmapsOption::NoMipmap,
+        2,
+        2,
+    )
+    .unwrap();
+    let value = (0x80_0000u32 << 8) | 9;
+    texture
+        .main_level()
+        .write(rect(0, 0, 2, 2), vec![vec![value; 2]; 2])
+        .unwrap();
+    assert!(texture
+        .main_level()
+        .write(rect(0, 0, 2, 2), vec![vec![0.5f32; 2]; 2])
+        .is_err());
+    // depth textures are given floats
+    let depth = safegl::texture::DepthTexture2d::empty(&display, 2, 2).unwrap();
+    assert!(depth
+        .main_level()
+        .write(rect(0, 0, 2, 2), vec![vec![1u8; 2]; 2])
+        .is_err());
+
+    // the stencil index written is the one sampled, where it can be
+    #[cfg(any(safegl_gl43, safegl_gles31))]
+    {
+        use safegl::texture::DepthStencilTextureMode;
+        if texture
+            .set_depth_stencil_mode(DepthStencilTextureMode::Stencil)
+            .is_ok()
+        {
+            let (vb, ib) = support::build_rectangle_vb_ib(&display);
+            let header = if support::is_gles(&display) {
+                "#version 310 es\nprecision highp float;\nprecision highp usampler2D;\n"
+            } else {
+                "#version 330 core\n"
+            };
+            let program = safegl::Program::from_source(
+                &display,
+                &format!("{header}in vec2 position;\nvoid main() {{ gl_Position = vec4(position, 0.0, 1.0); }}"),
+                &format!(
+                    "{header}uniform usampler2D tex;\nout vec4 color;\n\
+                     void main() {{ color = vec4(float(texelFetch(tex, ivec2(0), 0).r) / 255.0); }}"
+                ),
+                None,
+            )
+            .unwrap();
+            let target = Texture2d::empty(&display, 2, 2).unwrap();
+            target
+                .as_surface()
+                .draw(
+                    &vb,
+                    &ib,
+                    &program,
+                    &safegl::uniform! { tex: &texture },
+                    &Default::default(),
+                )
+                .unwrap();
+            let data: Vec<Vec<(u8, u8, u8, u8)>> = target.read().unwrap();
+            assert_eq!(data[0][0].0, 9);
+        }
+    }
+
+    display.assert_no_error(None);
+}
+
+/// Stencil textures are written with stencil indices.
+#[cfg(any(safegl_gl44, safegl_gles32))]
+#[test]
+fn write_stencil() {
+    let display = support::build_display();
+    let texture = match StencilTexture2d::empty_with_format(
+        &display,
+        StencilFormat::I8,
+        MipmapsOption::NoMipmap,
+        2,
+        2,
+    ) {
+        Ok(texture) => texture,
+        Err(safegl::texture::TextureCreationError::TypeNotSupported)
+        | Err(safegl::texture::TextureCreationError::FormatNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
+    };
+    texture
+        .main_level()
+        .write(rect(0, 0, 2, 2), vec![vec![5u8; 2]; 2])
+        .unwrap();
+
+    // read back through a stencil test: only the texels whose stencil is 5 are drawn
+    let color = Texture2d::empty(&display, 2, 2).unwrap();
+    let mut framebuffer =
+        SimpleFrameBuffer::with_stencil_buffer(&display, &color, &texture).unwrap();
+    framebuffer.clear_color(0.0, 0.0, 0.0, 1.0);
+    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+    let parameters = safegl::DrawParameters {
+        stencil: safegl::draw_parameters::Stencil {
+            test_clockwise: safegl::StencilTest::IfEqual { mask: 0xff },
+            test_counter_clockwise: safegl::StencilTest::IfEqual { mask: 0xff },
+            reference_value_clockwise: 5,
+            reference_value_counter_clockwise: 5,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    framebuffer
+        .draw(
+            &vb,
+            &ib,
+            &program,
+            &safegl::uniforms::EmptyUniforms,
+            &parameters,
+        )
+        .unwrap();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = color.read().unwrap();
+    assert_eq!(data[1][1], (255, 0, 0, 255));
+
+    display.assert_no_error(None);
+}

@@ -2331,8 +2331,9 @@ pub fn client_format_to_glenum(
 
         TextureFormatRequest::AnyDepth
         | TextureFormatRequest::Specific(TextureFormat::DepthFormat(_)) => {
+            // depth textures are given floats
             if client != ClientFormatAny::ClientFormat(ClientFormat::F32) {
-                panic!("Only ClientFormatAny::ClientFormat(ClientFormat::F32) can be used to upload on a depth texture");
+                return Err(FormatNotSupportedError);
             }
 
             Ok((gl::DEPTH_COMPONENT, gl::FLOAT))
@@ -2341,28 +2342,34 @@ pub fn client_format_to_glenum(
         TextureFormatRequest::AnyStencil
         | TextureFormatRequest::Specific(TextureFormat::StencilFormat(_)) => match client {
             ClientFormatAny::ClientFormat(ClientFormat::U8) => {
-                Ok((gl::RED_INTEGER, gl::UNSIGNED_BYTE))
+                Ok((gl::STENCIL_INDEX, gl::UNSIGNED_BYTE))
             }
-            ClientFormatAny::ClientFormat(ClientFormat::I8) => Ok((gl::RED_INTEGER, gl::BYTE)),
+            ClientFormatAny::ClientFormat(ClientFormat::I8) => Ok((gl::STENCIL_INDEX, gl::BYTE)),
             ClientFormatAny::ClientFormat(ClientFormat::U16) => {
-                Ok((gl::RED_INTEGER, gl::UNSIGNED_SHORT))
+                Ok((gl::STENCIL_INDEX, gl::UNSIGNED_SHORT))
             }
-            ClientFormatAny::ClientFormat(ClientFormat::I16) => Ok((gl::RED_INTEGER, gl::SHORT)),
+            ClientFormatAny::ClientFormat(ClientFormat::I16) => Ok((gl::STENCIL_INDEX, gl::SHORT)),
             ClientFormatAny::ClientFormat(ClientFormat::U32) => {
-                Ok((gl::RED_INTEGER, gl::UNSIGNED_INT))
+                Ok((gl::STENCIL_INDEX, gl::UNSIGNED_INT))
             }
-            ClientFormatAny::ClientFormat(ClientFormat::I32) => Ok((gl::RED_INTEGER, gl::INT)),
+            ClientFormatAny::ClientFormat(ClientFormat::I32) => Ok((gl::STENCIL_INDEX, gl::INT)),
             ClientFormatAny::ClientFormat(ClientFormat::F16) => {
-                Ok((gl::RED_INTEGER, gl::HALF_FLOAT))
+                Ok((gl::STENCIL_INDEX, gl::HALF_FLOAT))
             }
-            ClientFormatAny::ClientFormat(ClientFormat::F32) => Ok((gl::RED_INTEGER, gl::FLOAT)),
-            _ => panic!("Can't upload to a stencil texture with more than one channel"),
+            ClientFormatAny::ClientFormat(ClientFormat::F32) => Ok((gl::STENCIL_INDEX, gl::FLOAT)),
+            // stencil indices have a single channel
+            _ => Err(FormatNotSupportedError),
         },
 
+        // depth-stencil textures are given `u32`s that pack a 24-bit normalized depth above an 8-bit
+        // stencil index
         TextureFormatRequest::AnyDepthStencil
-        | TextureFormatRequest::Specific(TextureFormat::DepthStencilFormat(_)) => {
-            unimplemented!();
-        }
+        | TextureFormatRequest::Specific(TextureFormat::DepthStencilFormat(_)) => match client {
+            ClientFormatAny::ClientFormat(ClientFormat::U32) => {
+                Ok((gl::DEPTH_STENCIL, gl::UNSIGNED_INT_24_8))
+            }
+            _ => Err(FormatNotSupportedError),
+        },
     };
 
     if inverted && context.get_opengl_version().0 != Api::Gl {
