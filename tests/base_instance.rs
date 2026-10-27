@@ -191,3 +191,83 @@ fn base_instance_without_per_instance_buffers_draws_one_instance() {
 
     display.assert_no_error(None);
 }
+
+/// Ranges are drawn one by one with the base instance, which `glMultiDrawArrays` and
+/// `glMultiDrawElementsBaseVertex` don't have.
+#[test]
+fn base_instance_applies_to_draw_ranges() {
+    use safegl::index::NoIndicesRanges;
+
+    let display = support::build_display();
+    // OpenGL ES has no draws of ranges
+    if support::is_gles(&display) {
+        return;
+    }
+    let program = program(&display, true);
+    let (positions, colors) = buffers(&display, 0);
+    let indices = IndexBuffer::new(&display, PrimitiveType::TrianglesList, &[0u16, 1, 2]).unwrap();
+    let texture = support::build_renderable_texture(&display);
+    let ranges = [0..3];
+
+    for base_instance in [0u32, 4] {
+        let instances = colors.slice(0..1).unwrap();
+        texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+        let result = texture.as_surface().draw(
+            (&positions, instances.per_instance()),
+            NoIndicesRanges(PrimitiveType::TrianglesList, &ranges),
+            &program,
+            &uniform! {},
+            &parameters(base_instance),
+        );
+        if !drawn(result) {
+            return;
+        }
+        let expected = (red(base_instance as usize), 0, 255, 255);
+        assert_eq!(center(&texture), expected, "arrays, base instance {base_instance}");
+
+        let instances = colors.slice(0..1).unwrap();
+        texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+        let result = texture.as_surface().draw(
+            (&positions, instances.per_instance()),
+            indices.ranges(&ranges),
+            &program,
+            &uniform! {},
+            &parameters(base_instance),
+        );
+        drawn(result);
+        assert_eq!(center(&texture), expected, "elements, base instance {base_instance}");
+    }
+
+    display.assert_no_error(None);
+}
+
+/// The commands of multidraw buffers give their own base instance: one in the parameters too
+/// is an error instead of being ignored. Multidraw buffers are drawn from the gl43 level.
+#[cfg(safegl_gl43)]
+#[test]
+fn base_instance_of_commands_is_not_overridden() {
+    use safegl::index::{DrawCommandsNoIndicesBuffer, IndicesSource};
+
+    let display = support::build_display();
+    let program = program(&display, true);
+    let (positions, colors) = buffers(&display, 0);
+    let commands = match DrawCommandsNoIndicesBuffer::empty(&display, 1) {
+        Ok(commands) => commands,
+        Err(_) => return,
+    };
+    let texture = support::build_renderable_texture(&display);
+    let source: IndicesSource<'_> = commands.with_primitive_type(PrimitiveType::TrianglesList);
+    let result = texture.as_surface().draw(
+        (&positions, colors.per_instance()),
+        source,
+        &program,
+        &uniform! {},
+        &parameters(1),
+    );
+    match result {
+        Err(DrawError::BaseInstanceNotApplicable) | Err(DrawError::BaseInstanceNotSupported) => (),
+        other => panic!("{other:?}"),
+    }
+
+    display.assert_no_error(None);
+}

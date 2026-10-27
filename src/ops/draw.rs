@@ -63,6 +63,19 @@ where
     if parameters_base_instance != 0 && !supports_base_instance {
         return Err(DrawError::BaseInstanceNotSupported);
     }
+    // the commands of multidraws give their own base instance, and captured vertices are drawn
+    // without one
+    #[cfg(safegl_gl42)]
+    if parameters_base_instance != 0 {
+        match indices {
+            IndicesSource::MultidrawArray { .. }
+            | IndicesSource::MultidrawElement { .. }
+            | IndicesSource::TransformFeedback { .. } => {
+                return Err(DrawError::BaseInstanceNotApplicable)
+            }
+            _ => (),
+        }
+    }
 
     if !draw_parameters::check_queries(draw_parameters)? {
         return Ok(());
@@ -116,14 +129,14 @@ where
             }
         };
 
-        // the commands of multidraws have their own base instance
+        // the commands of multidraws have their own base instance; draws of ranges and of
+        // captured vertices take the base instance of the parameters only
         let use_base_instance = supports_base_instance
             && match indices {
                 #[cfg(any(safegl_desktop, safegl_gles31))]
                 IndicesSource::MultidrawArray { .. } | IndicesSource::MultidrawElement { .. } => {
                     false
                 }
-                // drawing ranges and captured vertices has no base instance
                 #[cfg(safegl_desktop)]
                 IndicesSource::NoIndicesRanges { .. }
                 | IndicesSource::IndexBufferRanges { .. }
@@ -630,12 +643,25 @@ where
                     .map(|range| (range.end - range.start) as gl::types::GLsizei)
                     .collect();
                 unsafe {
-                    ctxt.extra.MultiDrawArrays(
-                        primitives.to_glenum(),
-                        firsts.as_ptr(),
-                        counts.as_ptr(),
-                        ranges.len() as gl::types::GLsizei,
-                    );
+                    // `glMultiDrawArrays` has no base instance: each range is drawn with it
+                    if base_instance != 0 {
+                        for (&first, &count) in firsts.iter().zip(counts.iter()) {
+                            ctxt.glow.draw_arrays_instanced_base_instance(
+                                primitives.to_glenum(),
+                                first,
+                                count,
+                                1,
+                                base_instance,
+                            );
+                        }
+                    } else {
+                        ctxt.extra.MultiDrawArrays(
+                            primitives.to_glenum(),
+                            firsts.as_ptr(),
+                            counts.as_ptr(),
+                            ranges.len() as gl::types::GLsizei,
+                        );
+                    }
                 }
             }
 
@@ -667,14 +693,30 @@ where
                     .map(|i| base_vertices.map_or(0, |bases| bases[i]) + base_vertex)
                     .collect();
                 unsafe {
-                    ctxt.extra.MultiDrawElementsBaseVertex(
-                        primitives.to_glenum(),
-                        counts.as_ptr(),
-                        data_type.to_glenum(),
-                        offsets.as_ptr(),
-                        ranges.len() as gl::types::GLsizei,
-                        base_vertices.as_ptr(),
-                    );
+                    // `glMultiDrawElementsBaseVertex` has no base instance: each range is drawn
+                    // with it
+                    if base_instance != 0 {
+                        for i in 0..ranges.len() {
+                            ctxt.glow.draw_elements_instanced_base_vertex_base_instance(
+                                primitives.to_glenum(),
+                                counts[i],
+                                data_type.to_glenum(),
+                                offsets[i] as i32,
+                                1,
+                                base_vertices[i],
+                                base_instance,
+                            );
+                        }
+                    } else {
+                        ctxt.extra.MultiDrawElementsBaseVertex(
+                            primitives.to_glenum(),
+                            counts.as_ptr(),
+                            data_type.to_glenum(),
+                            offsets.as_ptr(),
+                            ranges.len() as gl::types::GLsizei,
+                            base_vertices.as_ptr(),
+                        );
+                    }
                 }
             }
 
