@@ -175,6 +175,44 @@ fn mipmap_range() {
     display.assert_no_error(None);
 }
 
+#[test]
+fn level_of_detail() {
+    let display = support::build_display();
+    let texture = levels(&display);
+    let program = program(
+        &display,
+        330,
+        300,
+        "uniform sampler2D tex;",
+        // the target and the level 0 have the same size: the level of detail is 0
+        "color = texture(tex, uv);",
+    );
+    let sampler = texture
+        .sampled()
+        .minify_filter(MinifySamplerFilter::NearestMipmapNearest)
+        .magnify_filter(MagnifySamplerFilter::Nearest);
+    let sample = |sampler| {
+        draw(&display, &program, &uniform! { tex: sampler })
+            .unwrap()
+            .0
+    };
+
+    assert_eq!(sample(sampler), 0);
+    assert_eq!(sample(sampler.lod_range(1.0, 2.0)), 100);
+    assert_eq!(sample(sampler.lod_range(-1.0, 0.0)), 0);
+    assert_eq!(sample(sampler.lod_range(2.0, 1000.0)), 200);
+
+    #[cfg(safegl_desktop)]
+    if !support::is_gles(&display) {
+        assert_eq!(sample(sampler.lod_bias(2.0)), 200);
+        // clamped by the range afterwards
+        assert_eq!(sample(sampler.lod_bias(2.0).lod_range(0.0, 1.0)), 100);
+    }
+
+    display.assert_no_error(None);
+}
+
+
 /// Sampling a depth-stencil texture returns its depth or its stencil index.
 #[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]

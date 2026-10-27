@@ -248,6 +248,10 @@ Breaking changes:
   `enabled` (formerly `multisampling`), `alpha_to_coverage`, `sample_shading` and `sample_mask`:
   write `multisample: MultisampleState { alpha_to_coverage: true, ..Default::default() }`.
   `DrawError` has an `AlphaToOneNotSupported` variant at the desktop levels.
+- `SamplerBehavior` has a `level_of_detail` field, a `uniforms::LevelOfDetail` with the lowest
+  and highest levels of detail (`GL_TEXTURE_MIN_LOD` and `GL_TEXTURE_MAX_LOD`) and, on desktop
+  OpenGL, the bias added to them (`GL_TEXTURE_LOD_BIAS`), set with `Sampler::lod_range` and
+  `Sampler::lod_bias`: struct literals of `SamplerBehavior` need it, or `..Default::default()`.
 - `framebuffer::ValidationError` is `#[non_exhaustive]` too.
 - `DrawError` is `#[non_exhaustive]`: matches on it need a wildcard arm. It has the new variants
   `LogicOpNotSupported`, `LogicOpWithBlending` and `PointCoordOriginNotSupported` at the desktop

@@ -73,6 +73,20 @@ impl SamplerObject {
                 }
             }
 
+            let lod = behavior.level_of_detail;
+            if lod != Default::default() {
+                ctxt.glow
+                    .sampler_parameter_f32(sampler, glow::TEXTURE_MIN_LOD, lod.min);
+                ctxt.glow
+                    .sampler_parameter_f32(sampler, glow::TEXTURE_MAX_LOD, lod.max);
+                // `GL_TEXTURE_LOD_BIAS` is a sampler parameter of desktop OpenGL only
+                #[cfg(safegl_desktop)]
+                if ctxt.version.0 == Api::Gl {
+                    ctxt.glow
+                        .sampler_parameter_f32(sampler, glow::TEXTURE_LOD_BIAS, lod.bias);
+                }
+            }
+
             if let Some(max_value) = ctxt.capabilities.max_texture_max_anisotropy {
                 let value = if behavior.max_anisotropy as f32 > max_value {
                     max_value

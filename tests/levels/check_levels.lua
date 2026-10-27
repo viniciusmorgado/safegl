@@ -64,6 +64,16 @@ local cases = {
         safegl::DrawParameters { viewports: v, ..Default::default() }
     }
   ]] },
+  { "gl40_has_lod_bias", { "gl40" }, nil, [[
+    pub fn f(t: &safegl::texture::Texture2d) -> safegl::uniforms::Sampler<'_, safegl::texture::Texture2d> {
+        t.sampled().lod_range(0.0, 2.0).lod_bias(1.0)
+    }
+  ]] },
+  { "gles32_has_no_lod_bias", { "gles32" }, "lod_bias", [[
+    pub fn f(t: &safegl::texture::Texture2d) -> safegl::uniforms::Sampler<'_, safegl::texture::Texture2d> {
+        t.sampled().lod_bias(1.0)
+    }
+  ]] },
   { "gl42_has_image_units", { "gl42" }, nil, [[
     pub use safegl::uniforms::ImageUnitFormat;
   ]] },

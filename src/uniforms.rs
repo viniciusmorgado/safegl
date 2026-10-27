@@ -145,7 +145,7 @@ pub use self::sampler::{
 #[cfg(any(safegl_desktop, safegl_gles32))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
 pub use self::sampler::BorderColor;
-pub use self::sampler::{Sampler, SamplerBehavior};
+pub use self::sampler::{LevelOfDetail, Sampler, SamplerBehavior};
 pub use self::uniforms::{DynamicUniforms, EmptyUniforms, UniformsStorage};
 pub(crate) use self::value::{is_opaque, is_shadow_sampler};
 pub use self::value::Keep;

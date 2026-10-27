@@ -195,6 +195,22 @@ impl<'t, T: 't> Sampler<'t, T> {
         self
     }
 
+    /// Sets the lowest and the highest level of detail that the sampler uses. See
+    /// `LevelOfDetail`.
+    pub fn lod_range(mut self, min: f32, max: f32) -> Sampler<'t, T> {
+        self.1.level_of_detail.min = min;
+        self.1.level_of_detail.max = max;
+        self
+    }
+
+    /// Sets the bias added to the level of detail. See `LevelOfDetail::bias`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    pub fn lod_bias(mut self, bias: f32) -> Sampler<'t, T> {
+        self.1.level_of_detail.bias = bias;
+        self
+    }
+
     /// Sets the color returned outside the texture with `SamplerWrapFunction::BorderClamp`,
     /// which is often white for shadow maps.
     #[cfg(any(safegl_desktop, safegl_gles32))]
@@ -248,7 +264,6 @@ impl<'t, T: 't> Clone for Sampler<'t, T> {
 /// A texture used as a uniform without a sampler (`uniform! { tex: &texture }`) keeps its own
 /// parameters instead, which repeat the texture and filter it linearly, or with the nearest
 /// filters for integer, depth and stencil textures.
-// TODO: GL_TEXTURE_MIN_LOD, GL_TEXTURE_MAX_LOD, GL_TEXTURE_LOD_BIAS
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct SamplerBehavior {
     /// Functions to use for the X, Y, and Z coordinates.
@@ -283,6 +298,65 @@ pub struct SamplerBehavior {
     #[cfg(any(safegl_desktop, safegl_gles32))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     pub border_color: Option<BorderColor>,
+
+    /// The levels of detail that the sampler can use, and the bias added to the level it
+    /// computes. Default value is every level and no bias.
+    pub level_of_detail: LevelOfDetail,
+}
+
+/// The levels of detail of a sampler (`GL_TEXTURE_MIN_LOD`, `GL_TEXTURE_MAX_LOD` and
+/// `GL_TEXTURE_LOD_BIAS`).
+///
+/// The level of detail is the mipmap level that sampling reads, in fractions of levels relative
+/// to the base level of the texture. It is clamped to `min..=max` after the bias is added.
+#[derive(Debug, Clone, Copy)]
+pub struct LevelOfDetail {
+    /// The lowest level of detail, `-1000.0` by default.
+    pub min: f32,
+    /// The highest level of detail, `1000.0` by default.
+    pub max: f32,
+    /// The bias added to the level of detail that the GPU computes, `0.0` by default. Positive
+    /// values sample smaller levels, which blurs; negative ones sharpen. It is clamped to
+    /// `Limits::max_texture_lod_bias`. Shaders can add their own bias on every API.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    pub bias: f32,
+}
+
+impl LevelOfDetail {
+    fn bits(&self) -> [u32; 3] {
+        #[cfg(safegl_desktop)]
+        let bias = self.bias;
+        #[cfg(not(safegl_desktop))]
+        let bias = 0.0f32;
+        [self.min.to_bits(), self.max.to_bits(), bias.to_bits()]
+    }
+}
+
+impl Default for LevelOfDetail {
+    fn default() -> LevelOfDetail {
+        LevelOfDetail {
+            min: -1000.0,
+            max: 1000.0,
+            #[cfg(safegl_desktop)]
+            bias: 0.0,
+        }
+    }
+}
+
+// compared bit by bit, so that `SamplerBehavior` can be hashed and compared
+impl PartialEq for LevelOfDetail {
+    fn eq(&self, other: &LevelOfDetail) -> bool {
+        self.bits() == other.bits()
+    }
+}
+
+impl Eq for LevelOfDetail {}
+
+impl std::hash::Hash for LevelOfDetail {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.bits().hash(state);
+    }
 }
 
 impl Default for SamplerBehavior {
@@ -300,6 +374,7 @@ impl Default for SamplerBehavior {
             max_anisotropy: 1,
             #[cfg(any(safegl_desktop, safegl_gles32))]
             border_color: None,
+            level_of_detail: Default::default(),
         }
     }
 }
