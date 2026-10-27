@@ -154,7 +154,7 @@ pub struct Context {
 
     /// List of texture handles that are resident. We need to call `MakeTextureHandleResidentARB`
     /// when rebuilding the context.
-    resident_texture_handles: RefCell<Vec<gl::types::GLuint64>>,
+    resident_texture_handles: RefCell<Vec<ResidentHandle>>,
 
     /// List of images handles that are resident. We need to call `MakeImageHandleResidentARB`
     /// when rebuilding the context.
@@ -162,6 +162,19 @@ pub struct Context {
 }
 
 /// This struct is a guard that is returned when you want to access the OpenGL backend.
+/// A bindless texture handle that a `ResidentTexture` made resident, with what draw commands
+/// check when it is the value of a sampler uniform.
+pub struct ResidentHandle {
+    /// The handle.
+    pub handle: gl::types::GLuint64,
+    /// The types of the samplers that can sample the texture.
+    pub sampler_types: &'static [crate::uniforms::UniformType],
+    /// Whether the sampler of the handle compares depths.
+    pub compares: bool,
+    /// The draw call that last wrote the texture through an image unit.
+    pub latest_shader_write: Rc<Cell<u64>>,
+}
+
 pub struct CommandContext<'a> {
     /// The context that is current.
     pub context: &'a Context,
@@ -206,7 +219,7 @@ pub struct CommandContext<'a> {
     >,
 
     /// List of texture handles that need to be made resident.
-    pub resident_texture_handles: RefMut<'a, Vec<gl::types::GLuint64>>,
+    pub resident_texture_handles: RefMut<'a, Vec<ResidentHandle>>,
 
     /// List of image handles and their access that need to be made resident.
     pub resident_image_handles: RefMut<'a, Vec<(gl::types::GLuint64, gl::types::GLenum)>>,
@@ -476,8 +489,8 @@ impl Context {
 
         // making textures resident
         let textures = self.resident_texture_handles.borrow();
-        for &texture in textures.iter() {
-            self.extra.MakeTextureHandleResidentARB(texture);
+        for texture in textures.iter() {
+            self.extra.MakeTextureHandleResidentARB(texture.handle);
         }
 
         // making images resident

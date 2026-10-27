@@ -1140,6 +1140,13 @@ pub unsafe fn from_id<F: Facade + ?Sized>(
 }
 
 impl TextureAny {
+    /// Returns the draw call that last wrote the texture through an image unit, shared with its
+    /// views.
+    #[cfg(safegl_desktop)]
+    pub(crate) fn latest_shader_write(&self) -> Rc<Cell<u64>> {
+        self.latest_shader_write.clone()
+    }
+
     /// Returns the width of the texture.
     #[inline]
     pub fn get_width(&self) -> u32 {
@@ -1465,50 +1472,7 @@ impl TextureExt for TextureAny {
     }
 
     fn prepare_for_access(&self, ctxt: &mut CommandContext<'_>, access_type: crate::TextureAccess) {
-        match access_type {
-            crate::TextureAccess::TextureFetch => {
-                if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_texture_fetch
-                {
-                    unsafe {
-                        ctxt.glow.memory_barrier(glow::TEXTURE_FETCH_BARRIER_BIT);
-                    }
-                    ctxt.state.latest_memory_barrier_texture_fetch = ctxt.state.next_draw_call_id;
-                }
-            }
-            crate::TextureAccess::ImageUnit { will_write } => {
-                if self.latest_shader_write.get()
-                    >= ctxt.state.latest_memory_barrier_shader_image_access
-                {
-                    unsafe {
-                        ctxt.glow
-                            .memory_barrier(glow::SHADER_IMAGE_ACCESS_BARRIER_BIT);
-                    }
-                    ctxt.state.latest_memory_barrier_shader_image_access =
-                        ctxt.state.next_draw_call_id;
-                }
-
-                if will_write {
-                    self.latest_shader_write.set(ctxt.state.next_draw_call_id);
-                }
-            }
-            crate::TextureAccess::Framebuffer => {
-                if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_framebuffer {
-                    unsafe {
-                        ctxt.glow.memory_barrier(glow::FRAMEBUFFER_BARRIER_BIT);
-                    }
-                    ctxt.state.latest_memory_barrier_framebuffer = ctxt.state.next_draw_call_id;
-                }
-            }
-            crate::TextureAccess::Update => {
-                if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_texture_update
-                {
-                    unsafe {
-                        ctxt.glow.memory_barrier(glow::TEXTURE_UPDATE_BARRIER_BIT);
-                    }
-                    ctxt.state.latest_memory_barrier_texture_update = ctxt.state.next_draw_call_id;
-                }
-            }
-        }
+        prepare_for_access(&self.latest_shader_write, ctxt, access_type)
     }
 }
 
@@ -2579,6 +2543,54 @@ impl<'a> TextureAnyImage<'a> {
             let mut ctxt = self.texture.context.make_current();
             let attachment = fbo::RegularAttachment::Texture(*self);
             fbo::FramebuffersContainer::clear_buffer(&mut ctxt, &attachment, data.into())
+        }
+    }
+}
+
+/// Adds the memory barrier that an access to a texture needs after the shader writes made
+/// through image units, `latest_shader_write` being the draw call that last made one.
+pub(crate) fn prepare_for_access(
+    latest_shader_write: &Cell<u64>,
+    ctxt: &mut CommandContext<'_>,
+    access_type: crate::TextureAccess,
+) {
+    match access_type {
+        crate::TextureAccess::TextureFetch => {
+            if latest_shader_write.get() >= ctxt.state.latest_memory_barrier_texture_fetch {
+                unsafe {
+                    ctxt.glow.memory_barrier(glow::TEXTURE_FETCH_BARRIER_BIT);
+                }
+                ctxt.state.latest_memory_barrier_texture_fetch = ctxt.state.next_draw_call_id;
+            }
+        }
+        crate::TextureAccess::ImageUnit { will_write } => {
+            if latest_shader_write.get() >= ctxt.state.latest_memory_barrier_shader_image_access {
+                unsafe {
+                    ctxt.glow
+                        .memory_barrier(glow::SHADER_IMAGE_ACCESS_BARRIER_BIT);
+                }
+                ctxt.state.latest_memory_barrier_shader_image_access = ctxt.state.next_draw_call_id;
+            }
+
+            if will_write {
+                latest_shader_write.set(ctxt.state.next_draw_call_id);
+            }
+        }
+        crate::TextureAccess::Framebuffer => {
+            if latest_shader_write.get() >= ctxt.state.latest_memory_barrier_framebuffer {
+                unsafe {
+                    ctxt.glow.memory_barrier(glow::FRAMEBUFFER_BARRIER_BIT);
+                }
+                ctxt.state.latest_memory_barrier_framebuffer = ctxt.state.next_draw_call_id;
+            }
+        }
+        crate::TextureAccess::Update => {
+            if latest_shader_write.get() >= ctxt.state.latest_memory_barrier_texture_update {
+                unsafe {
+                    ctxt.glow.memory_barrier(glow::TEXTURE_UPDATE_BARRIER_BIT);
+                }
+                ctxt.state.latest_memory_barrier_texture_update = ctxt.state.next_draw_call_id;
+            }
         }
     }
 }

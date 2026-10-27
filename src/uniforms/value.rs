@@ -548,10 +548,9 @@ impl<'a> UniformValue<'a> {
             #[cfg(safegl_desktop)]
             (&UniformValue::DoubleMat4x3(_), UniformType::DoubleMat4x3) => true,
             (&UniformValue::Texture(texture, _), ty) => sampler_types(texture).contains(&ty),
+            // the texture of the handle is checked when it is bound
             #[cfg(safegl_desktop)]
-            (&UniformValue::TextureHandle(handle), ty) => {
-                sampler_types(handle.texture()).contains(&ty)
-            }
+            (&UniformValue::TextureHandle(_), ty) => is_opaque(ty),
             #[cfg(any(safegl_desktop, safegl_gles32))]
             (&UniformValue::BufferTexture(tex), UniformType::SamplerBuffer) => {
                 tex.get_texture_type() == texture::buffer_texture::BufferTextureType::Float
@@ -582,7 +581,7 @@ impl<'a> UniformValue<'a> {
 }
 
 /// The types of the samplers that can sample a texture.
-fn sampler_types(texture: &texture::TextureAny) -> &'static [UniformType] {
+pub(crate) fn sampler_types(texture: &texture::TextureAny) -> &'static [UniformType] {
     use crate::texture::Dimensions as D;
     use crate::texture::TextureKind as K;
     use UniformType::*;

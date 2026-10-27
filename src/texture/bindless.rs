@@ -71,6 +71,7 @@ use crate::ContextExt;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
 use crate::program::BlockLayout;
@@ -104,7 +105,8 @@ impl ResidentTexture {
 
             let handle = unsafe { ctxt.extra.GetTextureHandleARB(texture.get_id().raw_name()) };
             unsafe { ctxt.extra.MakeTextureHandleResidentARB(handle) };
-            ctxt.resident_texture_handles.push(handle);
+            ctxt.resident_texture_handles
+                .push(resident_handle(&texture, handle, false));
             handle
         };
 
@@ -165,7 +167,11 @@ impl ResidentTexture {
             ctxt.extra.MakeTextureHandleResidentARB(handle);
             handle
         };
-        ctxt.resident_texture_handles.push(handle);
+        ctxt.resident_texture_handles.push(resident_handle(
+            texture,
+            handle,
+            key.depth_texture_comparison.is_some(),
+        ));
         self.sampler_handles.borrow_mut().insert(key, handle);
         handle
     }
@@ -185,7 +191,7 @@ impl ResidentTexture {
             let sampler_handles = std::mem::take(&mut *self.sampler_handles.borrow_mut());
             for handle in std::iter::once(self.handle).chain(sampler_handles.into_values()) {
                 unsafe { ctxt.extra.MakeTextureHandleNonResidentARB(handle) };
-                ctxt.resident_texture_handles.retain(|&t| t != handle);
+                ctxt.resident_texture_handles.retain(|t| t.handle != handle);
             }
         }
 
@@ -219,12 +225,13 @@ impl Drop for ResidentTexture {
 /// Represents a handle to a texture. Contains a raw pointer to a texture that is hidden from you.
 ///
 /// It is given to `sampler*` uniforms declared with `layout(bindless_sampler)` as a uniform
-/// value, whose type is checked against the texture, or put in uniform and storage buffers.
+/// value, whose type is checked against the texture, or put in uniform and storage buffers, where
+/// it is the 64-bit handle that shaders read.
 #[derive(Copy, Clone)]
+#[repr(transparent)]
 pub struct TextureHandle<'a> {
     value: gl::types::GLuint64,
-    texture: &'a TextureAny,
-    compares: bool,
+    marker: PhantomData<&'a ResidentTexture>,
 }
 
 impl<'a> TextureHandle<'a> {
@@ -234,8 +241,7 @@ impl<'a> TextureHandle<'a> {
     pub fn new(texture: &'a ResidentTexture, sampler: &SamplerBehavior) -> TextureHandle<'a> {
         TextureHandle {
             value: texture.sampler_handle(sampler),
-            texture,
-            compares: sampler.depth_texture_comparison.is_some(),
+            marker: PhantomData,
         }
     }
 
@@ -249,15 +255,19 @@ impl<'a> TextureHandle<'a> {
     pub(crate) fn value(&self) -> gl::types::GLuint64 {
         self.value
     }
+}
 
-    /// Returns the texture of the handle.
-    pub(crate) fn texture(&self) -> &'a TextureAny {
-        self.texture
-    }
-
-    /// Returns true if the sampler of the handle compares depths.
-    pub(crate) fn compares(&self) -> bool {
-        self.compares
+/// The entry of the list of the resident handles of the context for a handle of `texture`.
+fn resident_handle(
+    texture: &TextureAny,
+    handle: gl::types::GLuint64,
+    compares: bool,
+) -> crate::context::ResidentHandle {
+    crate::context::ResidentHandle {
+        handle,
+        sampler_types: crate::uniforms::sampler_types(texture),
+        compares,
+        latest_shader_write: texture.latest_shader_write(),
     }
 }
 

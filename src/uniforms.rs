@@ -148,6 +148,8 @@ pub use self::sampler::{BorderColor, BorderColorValue};
 pub use self::sampler::{LevelOfDetail, Sampler, SamplerBehavior};
 pub use self::uniforms::{DynamicUniforms, EmptyUniforms, UniformsStorage};
 pub(crate) use self::value::{is_opaque, is_shadow_sampler};
+#[cfg(safegl_desktop)]
+pub(crate) use self::value::sampler_types;
 pub use self::value::Keep;
 pub use self::value::{UniformArray, UniformType, UniformValue};
 

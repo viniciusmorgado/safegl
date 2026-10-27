@@ -135,6 +135,8 @@ use std::fmt;
 
 use crate::image_format::FormatNotSupportedError;
 
+#[cfg(safegl_desktop)]
+pub(crate) use self::any::prepare_for_access;
 pub use self::any::{Dimensions, TextureAnyImage};
 pub use self::any::{TextureAny, TextureAnyLayer, TextureAnyLayerMipmap, TextureAnyMipmap};
 #[cfg(safegl_desktop)]

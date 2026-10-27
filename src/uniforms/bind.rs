@@ -148,9 +148,26 @@ impl<'a> CollectedUniforms<'a> {
 
                 // shadow samplers return undefined values without a depth comparison, and
                 // other samplers with one
+                // the textures of bindless handles are the ones that the resident textures of
+                // the context made resident
                 #[cfg(safegl_desktop)]
                 if let UniformValue::TextureHandle(handle) = value {
-                    if handle.compares() != crate::uniforms::is_shadow_sampler(uniform.ty) {
+                    let resident = ctxt
+                        .resident_texture_handles
+                        .iter()
+                        .find(|resident| resident.handle == handle.value());
+                    let Some(resident) = resident else {
+                        return Err(DrawError::ContextMismatch {
+                            object: format!("uniform `{}`", name),
+                        });
+                    };
+                    if !resident.sampler_types.contains(&uniform.ty) {
+                        return Err(DrawError::UniformTypeMismatch {
+                            name: name.to_owned(),
+                            expected: uniform.ty,
+                        });
+                    }
+                    if resident.compares != crate::uniforms::is_shadow_sampler(uniform.ty) {
                         return Err(DrawError::DepthComparisonMismatch {
                             name: name.to_owned(),
                         });
@@ -691,8 +708,6 @@ where
     // textures can only be used with the context that created them
     let texture_context = match *value {
         UniformValue::Texture(texture, _) => Some(TextureExt::get_context(texture)),
-        #[cfg(safegl_desktop)]
-        UniformValue::TextureHandle(handle) => Some(TextureExt::get_context(handle.texture())),
         #[cfg(any(safegl_desktop, safegl_gles32))]
         UniformValue::BufferTexture(ref texture) => Some(TextureExt::get_context(texture)),
         #[cfg(any(safegl_gl42, safegl_gles32))]
@@ -720,10 +735,23 @@ where
         #[cfg(safegl_desktop)]
         UniformValue::TextureHandle(handle) => {
             // shader writes made through image units must be done before the texture is sampled
-            handle
-                .texture()
-                .prepare_for_access(ctxt, crate::TextureAccess::TextureFetch);
-            program.set_uniform(ctxt, location, &RawUniformValue::TextureHandle(handle.value()));
+            let latest_shader_write = ctxt
+                .resident_texture_handles
+                .iter()
+                .find(|resident| resident.handle == handle.value())
+                .map(|resident| resident.latest_shader_write.clone());
+            if let Some(latest_shader_write) = latest_shader_write {
+                crate::texture::prepare_for_access(
+                    &latest_shader_write,
+                    ctxt,
+                    crate::TextureAccess::TextureFetch,
+                );
+            }
+            program.set_uniform(
+                ctxt,
+                location,
+                &RawUniformValue::TextureHandle(handle.value()),
+            );
             Ok(())
         }
         UniformValue::Bool(val) => {
