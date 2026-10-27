@@ -17,7 +17,11 @@ fn format_info() {
     let rgba8 = TextureFormat::UncompressedFloat(UncompressedFloatFormat::U8U8U8U8);
     let info = match context.format_info(FormatTarget::Texture2d, rgba8) {
         Err(FormatInfoNotSupportedError) => {
-            assert!(support::is_gles(&display));
+            assert!(
+                support::is_gles(&display)
+                    || !(support::gl_at_least(&display, 4, 3)
+                        || support::extensions(&display).gl_arb_internalformat_query2)
+            );
             return;
         }
         Ok(info) => info,

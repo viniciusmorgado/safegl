@@ -294,6 +294,51 @@ pub fn glsl_supported(display: &safegl::Display<WindowSurface>, desktop: u32, es
     display.is_glsl_version_supported(&version)
 }
 
+/// The first lines of a desktop shader that needs GLSL `desktop` or the GLSL `extensions` that
+/// give the same functionality: `#version desktop` when the context compiles that version,
+/// otherwise the highest GLSL 4.x version of the context with an `#extension ... : require`
+/// line for each extension, when the context has all of them.
+///
+/// The flags of `extensions` come from `get_extensions()`. Returns `None` on OpenGL ES, and when
+/// the context has neither the version nor the extensions.
+pub fn glsl_header(
+    display: &safegl::Display<WindowSurface>,
+    desktop: u32,
+    extensions: &[(&str, bool)],
+) -> Option<String> {
+    if is_gles(display) {
+        return None;
+    }
+    if glsl_supported(display, desktop, 0) {
+        return Some(format!("#version {desktop}\n"));
+    }
+    if extensions.is_empty() || extensions.iter().any(|&(_, supported)| !supported) {
+        return None;
+    }
+    let base = (400..desktop)
+        .step_by(10)
+        .rev()
+        .find(|&version| glsl_supported(display, version, 0))?;
+    let mut header = format!("#version {base}\n");
+    for (name, _) in extensions {
+        header.push_str(&format!("#extension {name} : require\n"));
+    }
+    Some(header)
+}
+
+/// Returns true on desktop OpenGL `major.minor` or above, for the tests of features that a lower
+/// driver can only have through an extension.
+pub fn gl_at_least(display: &safegl::Display<WindowSurface>, major: u8, minor: u8) -> bool {
+    *display.get_opengl_version() >= safegl::Version(safegl::Api::Gl, major, minor)
+}
+
+/// The extensions of the context, as SafeGL sees them (without the ones that
+/// `SAFEGL_DISABLE_EXTENSIONS` hides).
+pub fn extensions(display: &safegl::Display<WindowSurface>) -> safegl::ExtensionsList {
+    use safegl::CapabilitiesSource;
+    *display.get_context().get_extensions()
+}
+
 /// Returns true if the display uses OpenGL ES, for the few tests of features it doesn't have.
 pub fn is_gles(display: &safegl::Display<WindowSurface>) -> bool {
     display.get_opengl_version().0 == safegl::Api::GlEs

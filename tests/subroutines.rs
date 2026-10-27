@@ -135,6 +135,10 @@ fn subroutine_bindings_explicit_location() {
         println!("Backend does not support subroutines");
         return;
     };
+    // the shader gives the location through the extension, which OpenGL 4.3 has
+    if !support::extensions(&display).gl_arb_explicit_uniform_location {
+        return;
+    }
 
     let program = program!(&display,
         150 => {

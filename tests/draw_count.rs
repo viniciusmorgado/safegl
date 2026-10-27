@@ -115,12 +115,13 @@ fn commands(display: &Display) -> Option<DrawCommandsNoIndicesBuffer> {
     Some(commands)
 }
 
-/// The buffer of the number of commands to draw, which compute shaders can write too.
+/// The buffer of the number of commands to draw. Any kind of buffer can hold it; an array buffer
+/// exists on every driver, unlike the shader storage buffers that compute shaders would write.
 fn count(display: &Display, count: u32) -> Buffer<u32> {
     Buffer::new(
         display,
         &count,
-        BufferType::ShaderStorageBuffer,
+        BufferType::ArrayBuffer,
         BufferMode::Default,
     )
     .unwrap()

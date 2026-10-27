@@ -13,11 +13,20 @@ mod support;
 
 /// A display whose context has `robustness`, or `None` if the driver can't create one.
 fn display_with(robustness: Robustness) -> Option<support::WindowDisplay> {
-    support::context_apis().into_iter().find_map(|api| {
+    let display = support::context_apis().into_iter().find_map(|api| {
         let attributes =
             safegl::backend::glutin::context_attributes_builder(api).with_robustness(robustness);
         support::try_build_display_with(attributes).map(|display| display.unwrap())
-    })
+    })?;
+    // the robustness of a context is only known with OpenGL 4.5 or a robustness extension: a
+    // driver without them doesn't make robust contexts, and Mesa makes them anyway when tests
+    // hide the extensions
+    let extensions = support::extensions(&display);
+    let known = support::is_gles(&display)
+        || support::gl_at_least(&display, 4, 5)
+        || extensions.gl_khr_robustness
+        || extensions.gl_arb_robustness;
+    known.then_some(display)
 }
 
 #[test]

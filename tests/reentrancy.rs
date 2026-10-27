@@ -5,7 +5,7 @@
 extern crate safegl;
 
 use safegl::uniforms::{UniformValue, Uniforms};
-use safegl::Surface;
+use safegl::{CapabilitiesSource, Surface};
 use std::cell::RefCell;
 
 mod support;
@@ -92,6 +92,18 @@ fn safegl_inside_uniforms() {
 fn panicking_debug_callback() {
     if !support::contexts_check_errors() {
         return;
+    }
+    {
+        // with only `GL_ARB_debug_output`, the driver may keep the messages of contexts that
+        // aren't debug contexts, and nothing can turn them on
+        let display = support::build_display();
+        if !support::gl_at_least(&display, 4, 3)
+            && !support::is_gles(&display)
+            && !support::extensions(&display).gl_khr_debug
+            && !display.get_capabilities().debug
+        {
+            return;
+        }
     }
     let display = support::build_display_with_debug(
         safegl::debug::DebugCallbackBehavior::Custom {
