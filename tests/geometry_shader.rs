@@ -50,6 +50,7 @@ fn geometry_program(display: &Display, layout: &str, body: &str) -> Option<safeg
             transform_feedback_varyings: None,
             outputs_srgb: true,
             uses_point_size: false,
+            locations: Default::default(),
         },
     )
     .unwrap();

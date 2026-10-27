@@ -423,6 +423,7 @@ fn get_transform_feedback_varyings() {
         geometry_shader: None,
         outputs_srgb: false,
         uses_point_size: false,
+        locations: Default::default(),
 
         vertex_shader,
         fragment_shader,
@@ -486,6 +487,7 @@ fn get_transform_feedback_skipped_components_and_buffers() {
         geometry_shader: None,
         outputs_srgb: false,
         uses_point_size: false,
+        locations: Default::default(),
 
         vertex_shader: "
             #version 400

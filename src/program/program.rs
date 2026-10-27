@@ -66,6 +66,7 @@ impl Program {
                 transform_feedback_varyings,
                 outputs_srgb,
                 uses_point_size,
+                locations,
             } => {
                 let mut has_geometry_shader = false;
                 let mut has_tessellation_control_shader = false;
@@ -110,6 +111,7 @@ impl Program {
                         has_tessellation_evaluation_shader,
                         transform_feedback_varyings,
                         Some(fragment_shader),
+                        locations,
                     )?,
                     outputs_srgb,
                     uses_point_size,
@@ -181,6 +183,7 @@ impl Program {
                         has_tessellation_evaluation_shader,
                         transform_feedback_varyings,
                         None,
+                        Default::default(),
                     )?,
                     outputs_srgb,
                     uses_point_size,
@@ -236,6 +239,7 @@ impl Program {
                 transform_feedback_varyings: None,
                 outputs_srgb: true,
                 uses_point_size: false,
+                locations: Default::default(),
             },
         )
     }

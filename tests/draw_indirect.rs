@@ -271,6 +271,7 @@ fn indirect_draws_with_transform_feedback_on_opengl_es() {
             )),
             outputs_srgb: false,
             uses_point_size: false,
+            locations: Default::default(),
         },
     )
     .unwrap();

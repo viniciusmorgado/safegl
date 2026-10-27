@@ -75,6 +75,7 @@ fn capturing_program(display: &Display, varyings: &[&str], mode: TransformFeedba
             )),
             outputs_srgb: false,
             uses_point_size: support::is_gles(display),
+            locations: Default::default(),
         },
     )
     .unwrap()
@@ -490,6 +491,7 @@ fn vertex_streams() {
             )),
             outputs_srgb: false,
             uses_point_size: false,
+            locations: Default::default(),
         },
     )
     .unwrap();
@@ -629,6 +631,7 @@ fn layouts_of_the_shader() {
             transform_feedback_varyings: None,
             outputs_srgb: false,
             uses_point_size: false,
+            locations: Default::default(),
         },
     )
     .unwrap();

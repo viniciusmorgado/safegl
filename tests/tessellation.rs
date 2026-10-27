@@ -72,6 +72,7 @@ fn tessellation_program(display: &Display) -> Option<safegl::Program> {
             transform_feedback_varyings: None,
             outputs_srgb: true,
             uses_point_size: false,
+            locations: Default::default(),
         },
     )
     .unwrap();
@@ -204,6 +205,7 @@ fn isolines(display: &Display, levels: safegl::draw_parameters::PatchDefaultLeve
         transform_feedback_varyings: None,
         outputs_srgb: false,
         uses_point_size: false,
+        locations: Default::default(),
     };
     let program = safegl::Program::new(display, source).unwrap();
     let vertices = VertexBuffer::new(

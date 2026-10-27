@@ -180,7 +180,10 @@ impl ShaderType {
 }
 
 /// Error that can be triggered when creating a `Program`.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum ProgramCreationError {
     /// Error while compiling one of the shaders.
     CompilationError(String, ShaderType),
@@ -203,6 +206,18 @@ pub enum ProgramCreationError {
 
     /// The backend doesn't support loading program binaries (WebGL). See `is_binary_supported`.
     BinaryNotSupported,
+
+    /// A location of `LinkLocations` can't be given: it is too large for the implementation,
+    /// the index of a fragment output isn't 0 or 1, or the name starts with `gl_` or holds a nul
+    /// character.
+    InvalidLinkLocation {
+        /// The name of the attribute or output.
+        name: String,
+    },
+
+    /// Locations of fragment outputs can't be given before linking: OpenGL ES needs
+    /// `GL_EXT_blend_func_extended`, and WebGL can't. Declare them with `layout(location = N)`.
+    LinkLocationsNotSupported,
 }
 
 impl fmt::Display for ProgramCreationError {
@@ -227,10 +242,15 @@ impl fmt::Display for ProgramCreationError {
             #[cfg(any(safegl_gl41, safegl_gles30))]
             BinaryHeaderError => "The SafeGL-specific binary header was not found or is corrupt.",
             BinaryNotSupported => "Program binaries are not supported by the backend.",
+            InvalidLinkLocation { .. } => "A location given before linking is invalid",
+            LinkLocationsNotSupported => {
+                "Fragment output locations can't be given before linking by the backend"
+            }
         };
         match *self {
             CompilationError(ref s, _) => write!(fmt, "{}: {}", desc, s),
             LinkingError(ref s) => write!(fmt, "{}: {}", desc, s),
+            InvalidLinkLocation { ref name } => write!(fmt, "{}: `{}`", desc, name),
             _ => write!(fmt, "{}", desc),
         }
     }
@@ -375,6 +395,10 @@ pub enum ProgramCreationInput<'a> {
 
         /// Whether the shader uses point size.
         uses_point_size: bool,
+
+        /// The locations that the linker gives to attributes and fragment outputs that the
+        /// shaders don't declare with `layout(location = N)`. See [`LinkLocations`].
+        locations: LinkLocations<'a>,
     },
 
     /// Use a precompiled binary.
@@ -495,6 +519,50 @@ impl<'a> SpirvProgram<'a> {
     }
 }
 
+/// Locations that the linker gives to the attributes and the fragment outputs of a program whose
+/// shaders don't declare them with `layout(location = N)` (`glBindAttribLocation` and
+/// `glBindFragDataLocationIndexed`). The locations declared in the shaders win.
+///
+/// ```no_run
+/// # fn example(display: &safegl::Display<safegl::glutin::surface::WindowSurface>,
+/// #            vertex_shader: &str, fragment_shader: &str) {
+/// use safegl::program::{LinkLocations, ProgramCreationInput};
+///
+/// let input = ProgramCreationInput::SourceCode {
+///     vertex_shader,
+///     fragment_shader,
+///     tessellation_control_shader: None,
+///     tessellation_evaluation_shader: None,
+///     geometry_shader: None,
+///     transform_feedback_varyings: None,
+///     outputs_srgb: true,
+///     uses_point_size: false,
+///     locations: LinkLocations {
+///         attributes: &[("position", 0), ("normal", 1)],
+///         // the two colors of dual-source blending
+///         fragment_outputs: &[("color", 0, 0), ("blend_factor", 0, 1)],
+///     },
+/// };
+/// let program = safegl::Program::new(display, input).unwrap();
+/// # }
+/// ```
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct LinkLocations<'a> {
+    /// The names of attributes and their locations, smaller than
+    /// `Limits::max_vertex_attribs`. A matrix takes a location per column.
+    pub attributes: &'a [(&'a str, u32)],
+
+    /// The names of fragment outputs, their locations and their indices: index 1 is the second
+    /// color of dual-source blending, at a location smaller than
+    /// `Limits::max_dual_source_draw_buffers`, and index 0 the other outputs, at locations
+    /// smaller than the number of draw buffers. An array takes a location per element.
+    ///
+    /// The outputs that have no location get the free ones, in their declaration order.
+    /// OpenGL ES needs `GL_EXT_blend_func_extended`, which a GLSL ES fragment shader with
+    /// several outputs without a location enables with `#extension`, and WebGL can't give them.
+    pub fragment_outputs: &'a [(&'a str, u32, u32)],
+}
+
 /// Represents an entry point of a binary SPIR-V module.
 #[cfg(safegl_gl46)]
 #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
@@ -545,6 +613,7 @@ impl<'a> From<SourceCode<'a>> for ProgramCreationInput<'a> {
             transform_feedback_varyings: None,
             outputs_srgb: true,
             uses_point_size: false,
+            locations: LinkLocations::default(),
         }
     }
 }

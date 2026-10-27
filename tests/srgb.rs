@@ -43,6 +43,7 @@ fn program(display: &Display, fragment_body: &str, outputs_srgb: bool) -> safegl
             transform_feedback_varyings: None,
             outputs_srgb,
             uses_point_size: false,
+            locations: Default::default(),
         },
     )
     .unwrap()

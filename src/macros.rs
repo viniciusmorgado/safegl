@@ -875,6 +875,7 @@ macro_rules! program {
                 transform_feedback_varyings: None,
                 outputs_srgb: __outputs_srgb,
                 uses_point_size: __uses_point_size,
+                locations: ::std::default::Default::default(),
             };
 
             $crate::program::Program::new($context, input)

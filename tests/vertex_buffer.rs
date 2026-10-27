@@ -68,6 +68,7 @@ fn transform_feedback() {
         geometry_shader: None,
         outputs_srgb: false,
         uses_point_size: false,
+        locations: Default::default(),
 
         vertex_shader,
         fragment_shader,
@@ -155,6 +156,7 @@ fn capturing_program(display: &safegl::Display<safegl::glutin::surface::WindowSu
         geometry_shader: None,
         outputs_srgb: false,
         uses_point_size: false,
+        locations: Default::default(),
         vertex_shader,
         fragment_shader,
         transform_feedback_varyings: Some((

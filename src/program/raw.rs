@@ -45,9 +45,9 @@ use crate::BufferExt;
 use crate::BufferSliceExt;
 
 use crate::program::uniforms_storage::UniformsStorage;
-use crate::program::ProgramCreationError;
 #[cfg(any(safegl_gl41, safegl_gles30))]
 use crate::program::{is_binary_supported, Binary, GetBinaryError};
+use crate::program::{LinkLocations, ProgramCreationError};
 
 #[cfg(any(safegl_gl41, safegl_gles30))]
 use crate::program::binary_header::{attach_safegl_header, process_safegl_header};
@@ -100,12 +100,14 @@ impl RawProgram {
         has_tessellation_evaluation_shader: bool,
         transform_feedback: Option<(Vec<String>, TransformFeedbackMode)>,
         fragment_source: Option<&str>,
+        locations: LinkLocations<'_>,
     ) -> Result<RawProgram, ProgramCreationError>
     where
         F: Facade,
         I: IntoIterator<Item = &'a Shader>,
     {
         let mut ctxt = facade.get_context().make_current();
+        check_link_locations(&ctxt, &locations)?;
 
         let shaders_ids = shaders.into_iter().map(|s| s.get_id()).collect::<Vec<_>>();
 
@@ -129,13 +131,22 @@ impl RawProgram {
                 ctxt.glow.transform_feedback_varyings(id, &names, mode);
             }
 
+            for &(name, location) in locations.attributes {
+                ctxt.glow.bind_attrib_location(id, location, name);
+            }
+
             // the fragment outputs without a location get locations in their declaration order,
             // so that the first one goes to the first draw buffer on every driver; OpenGL ES
-            // requires a location when there are several outputs
-            if ctxt.version.0 == crate::version::Api::Gl {
+            // requires a location when there are several outputs, unless the locations of some
+            // of them are given here
+            let given = locations.fragment_outputs;
+            if ctxt.version.0 == crate::version::Api::Gl || !given.is_empty() {
                 if let Some(source) = fragment_source {
-                    bind_fragment_output_locations(&ctxt, id, source);
+                    bind_fragment_output_locations(&ctxt, id, source, given);
                 }
+            }
+            for &(name, location, index) in given {
+                bind_frag_data_location(&ctxt, id, location, index, name);
             }
 
             // the binaries of programs can be retrieved after they are linked with this hint,
@@ -952,25 +963,109 @@ fn is_compute_supported(ctxt: &CommandContext<'_>) -> bool {
         || ctxt.extensions.gl_arb_compute_shader
 }
 
+/// Gives a location and an index to a fragment output before linking. OpenGL ES needs
+/// `GL_EXT_blend_func_extended`.
+unsafe fn bind_frag_data_location(
+    ctxt: &CommandContext<'_>,
+    program: glow::Program,
+    location: u32,
+    index: u32,
+    name: &str,
+) {
+    // `check_link_locations` checked the names given by the user, and GLSL names have no nul
+    let Ok(name) = std::ffi::CString::new(name) else {
+        return;
+    };
+    if ctxt.version.0 == crate::version::Api::Gl {
+        ctxt.extra
+            .BindFragDataLocationIndexed(program.raw_name(), location, index, name.as_ptr());
+    } else {
+        ctxt.extra.BindFragDataLocationIndexedEXT(
+            program.raw_name(),
+            location,
+            index,
+            name.as_ptr(),
+        );
+    }
+}
+
+/// Checks the locations given before linking, which OpenGL would refuse with an error.
+fn check_link_locations(
+    ctxt: &CommandContext<'_>,
+    locations: &LinkLocations<'_>,
+) -> Result<(), ProgramCreationError> {
+    let invalid = |name: &str| name.starts_with("gl_") || name.contains('\0') || name.is_empty();
+    let error = |name: &str| ProgramCreationError::InvalidLinkLocation {
+        name: name.to_owned(),
+    };
+
+    let limits = &ctxt.capabilities.limits;
+    for &(name, location) in locations.attributes {
+        if invalid(name) || location >= limits.max_vertex_attribs.max(0) as u32 {
+            return Err(error(name));
+        }
+    }
+
+    if locations.fragment_outputs.is_empty() {
+        return Ok(());
+    }
+    if !(ctxt.version.0 == crate::version::Api::Gl || ctxt.extensions.gl_ext_blend_func_extended) {
+        return Err(ProgramCreationError::LinkLocationsNotSupported);
+    }
+    let draw_buffers = ctxt.capabilities.max_draw_buffers.max(0) as u32;
+    let dual_source = limits.max_dual_source_draw_buffers.unwrap_or(0).max(0) as u32;
+    for &(name, location, index) in locations.fragment_outputs {
+        let max = match index {
+            0 => draw_buffers,
+            1 => dual_source,
+            _ => 0,
+        };
+        if invalid(name) || location >= max {
+            return Err(error(name));
+        }
+    }
+    Ok(())
+}
+
 /// Binds the outputs of a fragment shader that have no location to locations in their
-/// declaration order, skipping the locations given in the shader.
+/// declaration order, skipping the locations given in the shader and in `given`, the locations
+/// and indices given before linking.
 unsafe fn bind_fragment_output_locations(
     ctxt: &CommandContext<'_>,
     program: glow::Program,
     source: &str,
+    given: &[(&str, u32, u32)],
 ) {
     let outputs = crate::program::shader::fragment_outputs(source);
+
+    // the locations of index 0 given before linking, with the sizes of their outputs
+    let given_locations: Vec<(u32, u32)> = given
+        .iter()
+        .filter(|&&(_, _, index)| index == 0)
+        .map(|&(name, location, _)| {
+            let size = outputs
+                .iter()
+                .find(|output| output.name == name)
+                .map_or(1, |output| output.size);
+            (location, size)
+        })
+        .collect();
 
     let is_free = |location: u32, size: u32| {
         outputs.iter().all(|output| match output.location {
             Some(taken) => location + size <= taken || taken + output.size <= location,
             None => true,
-        })
+        }) && given_locations
+            .iter()
+            .all(|&(taken, taken_size)| location + size <= taken || taken + taken_size <= location)
     };
 
     let mut next = 0;
     let mut assigned: Vec<(u32, u32)> = Vec::new();
-    for output in outputs.iter().filter(|output| output.location.is_none()) {
+    let unplaced = outputs.iter().filter(|output| {
+        output.location.is_none() && !given.iter().any(|&(name, _, _)| name == output.name)
+    });
+    for output in unplaced {
         while !is_free(next, output.size)
             || assigned
                 .iter()
@@ -978,8 +1073,7 @@ unsafe fn bind_fragment_output_locations(
         {
             next += 1;
         }
-        ctxt.glow
-            .bind_frag_data_location(program, next, &output.name);
+        bind_frag_data_location(ctxt, program, next, 0, &output.name);
         assigned.push((next, output.size));
         next += output.size;
     }

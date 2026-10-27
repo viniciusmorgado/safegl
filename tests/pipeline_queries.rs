@@ -61,6 +61,7 @@ fn program(display: &Display) -> Program {
         )),
         outputs_srgb: false,
         uses_point_size: false,
+        locations: Default::default(),
     };
     Program::new(display, source).unwrap()
 }

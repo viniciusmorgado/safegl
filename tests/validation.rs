@@ -183,6 +183,7 @@ fn geometry_shader_input() {
             transform_feedback_varyings: None,
             outputs_srgb: false,
             uses_point_size: false,
+            locations: Default::default(),
         },
     );
     let program = program.unwrap();

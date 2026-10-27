@@ -34,6 +34,7 @@ fn create_program(display: &Display<WindowSurface>, outputs_srgb: bool) -> safeg
         geometry_shader: None,
         outputs_srgb,
         uses_point_size: false,
+        locations: Default::default(),
 
         vertex_shader: "
             #version 330

@@ -249,6 +249,7 @@ fn transform_feedback_generic_binding_does_not_change_indexed_binding() {
             )),
             outputs_srgb: false,
             uses_point_size: false,
+            locations: Default::default(),
         },
     )
     .unwrap();
