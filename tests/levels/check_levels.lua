@@ -32,6 +32,11 @@ local cases = {
   { "gles31_has_indirect_draws", { "gles31" }, nil, [[
     pub use safegl::index::{DrawCommandLayout, DrawCommandsIndicesBuffer};
   ]] },
+  { "gl40_has_draw_ranges", { "gl40" }, nil, [[
+    pub fn f(r: &[std::ops::Range<usize>]) -> safegl::index::IndicesSource<'_> {
+        safegl::index::NoIndicesRanges(safegl::index::PrimitiveType::Points, r).into()
+    }
+  ]] },
   { "gl42_has_image_units", { "gl42" }, nil, [[
     pub use safegl::uniforms::ImageUnitFormat;
   ]] },
@@ -213,6 +218,9 @@ local cases = {
   ]] },
   { "gles32_has_no_primitive_restart_index", { "gles32" }, "no variant", [[
     pub const R: safegl::draw_parameters::PrimitiveRestart = safegl::draw_parameters::PrimitiveRestart::Index(7);
+  ]] },
+  { "gles32_has_no_draw_ranges", { "gles32" }, "NoIndicesRanges", [[
+    pub use safegl::index::NoIndicesRanges;
   ]] },
   { "gles32_has_no_bgra_attributes", { "gles32" }, "Bgra8", [[
     pub use safegl::vertex::Bgra8;

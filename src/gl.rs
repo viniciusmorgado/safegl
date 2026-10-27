@@ -221,6 +221,8 @@ extra_functions! {
     fn PrimitiveBoundingBoxEXT(minX: GLfloat, minY: GLfloat, minZ: GLfloat, minW: GLfloat, maxX: GLfloat, maxY: GLfloat, maxZ: GLfloat, maxW: GLfloat) -> ();
     fn PrimitiveBoundingBoxOES(minX: GLfloat, minY: GLfloat, minZ: GLfloat, minW: GLfloat, maxX: GLfloat, maxY: GLfloat, maxZ: GLfloat, maxW: GLfloat) -> ();
     fn VertexAttribL4d(index: GLuint, x: GLdouble, y: GLdouble, z: GLdouble, w: GLdouble) -> ();
+    fn MultiDrawArrays(mode: GLenum, first: *const GLint, count: *const GLsizei, drawcount: GLsizei) -> ();
+    fn MultiDrawElementsBaseVertex(mode: GLenum, count: *const GLsizei, type_: GLenum, indices: *const *const c_void, drawcount: GLsizei, basevertex: *const GLint) -> ();
     fn PatchParameterfv(pname: GLenum, values: *const GLfloat) -> ();
     fn PrimitiveRestartIndex(index: GLuint) -> ();
     fn ProvokingVertex(mode: GLenum) -> ();

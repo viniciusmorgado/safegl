@@ -81,6 +81,7 @@ extensions! {
     "GL_ARB_robustness" => gl_arb_robustness,
     "GL_ARB_robust_buffer_access_behavior" => gl_arb_robust_buffer_access_behavior,
     "GL_ARB_shader_atomic_counters" => gl_arb_shader_atomic_counters,
+    "GL_ARB_shader_draw_parameters" => gl_arb_shader_draw_parameters,
     "GL_ARB_shader_image_load_store" => gl_arb_shader_image_load_store,
     "GL_ARB_shader_storage_buffer_object" => gl_arb_shader_storage_buffer_object,
     "GL_ARB_texture_barrier" => gl_arb_texture_barrier,

@@ -1,5 +1,8 @@
 use std::ptr;
 
+#[cfg(safegl_desktop)]
+use smallvec::SmallVec;
+
 use glow::HasContext;
 
 use crate::BufferExt;
@@ -87,6 +90,10 @@ where
             #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawElement { indices, .. } => Some(indices),
             IndicesSource::NoIndices { .. } => None,
+            #[cfg(safegl_desktop)]
+            IndicesSource::NoIndicesRanges { .. } => None,
+            #[cfg(safegl_desktop)]
+            IndicesSource::IndexBufferRanges { buffer, .. } => Some(buffer),
         };
 
         // determining whether we can use the `base_vertex` variants for drawing
@@ -96,6 +103,9 @@ where
             #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawElement { .. } => false,
             IndicesSource::NoIndices { .. } => true,
+            // the base vertex is added to the first vertex of each range
+            #[cfg(safegl_desktop)]
+            IndicesSource::NoIndicesRanges { .. } => true,
             _ => {
                 ctxt.version.0 == Api::Gl
                     || ctxt.version >= &Version(Api::GlEs, 3, 2)
@@ -108,6 +118,11 @@ where
             && match indices {
                 #[cfg(any(safegl_desktop, safegl_gles31))]
                 IndicesSource::MultidrawArray { .. } | IndicesSource::MultidrawElement { .. } => {
+                    false
+                }
+                // drawing ranges has no base instance
+                #[cfg(safegl_desktop)]
+                IndicesSource::NoIndicesRanges { .. } | IndicesSource::IndexBufferRanges { .. } => {
                     false
                 }
                 _ => true,
@@ -240,6 +255,8 @@ where
             IndicesSource::IndexBuffer { data_type, .. } => Some(data_type),
             #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawElement { data_type, .. } => Some(data_type),
+            #[cfg(safegl_desktop)]
+            IndicesSource::IndexBufferRanges { data_type, .. } => Some(data_type),
             _ => None,
         };
         draw_parameters::sync(
@@ -529,6 +546,71 @@ where
                 }
             }
 
+            #[cfg(safegl_desktop)]
+            IndicesSource::NoIndicesRanges { primitives, ranges } => {
+                let vertices_count = match vertices_count {
+                    Some(c) => c,
+                    None => return Err(DrawError::VerticesSourcesLengthMismatch),
+                };
+                check_ranges(&ctxt, ranges, vertices_count, instances_count)?;
+
+                let firsts: SmallVec<[gl::types::GLint; 8]> = ranges
+                    .iter()
+                    .map(|range| range.start as gl::types::GLint + base_vertex)
+                    .collect();
+                let counts: SmallVec<[gl::types::GLsizei; 8]> = ranges
+                    .iter()
+                    .map(|range| (range.end - range.start) as gl::types::GLsizei)
+                    .collect();
+                unsafe {
+                    ctxt.extra.MultiDrawArrays(
+                        primitives.to_glenum(),
+                        firsts.as_ptr(),
+                        counts.as_ptr(),
+                        ranges.len() as gl::types::GLsizei,
+                    );
+                }
+            }
+
+            #[cfg(safegl_desktop)]
+            IndicesSource::IndexBufferRanges {
+                ref buffer,
+                data_type,
+                primitives,
+                ranges,
+                base_vertices,
+            } => {
+                check_ranges(&ctxt, ranges, buffer.get_elements_count(), instances_count)?;
+
+                if let Some(fence) = buffer.add_fence() {
+                    fences.push(fence);
+                }
+
+                let offsets: SmallVec<[*const std::os::raw::c_void; 8]> = ranges
+                    .iter()
+                    .map(|range| {
+                        (buffer.get_offset_bytes() + range.start * data_type.get_size()) as *const _
+                    })
+                    .collect();
+                let counts: SmallVec<[gl::types::GLsizei; 8]> = ranges
+                    .iter()
+                    .map(|range| (range.end - range.start) as gl::types::GLsizei)
+                    .collect();
+                let base_vertices: SmallVec<[gl::types::GLint; 8]> = (0..ranges.len())
+                    .map(|i| base_vertices.map_or(0, |bases| bases[i]) + base_vertex)
+                    .collect();
+                unsafe {
+                    ctxt.extra.MultiDrawElementsBaseVertex(
+                        primitives.to_glenum(),
+                        counts.as_ptr(),
+                        data_type.to_glenum(),
+                        offsets.as_ptr(),
+                        ranges.len() as gl::types::GLsizei,
+                        base_vertices.as_ptr(),
+                    );
+                }
+            }
+
             IndicesSource::NoIndices { primitives } => {
                 let vertices_count = match vertices_count {
                     Some(c) => c,
@@ -593,6 +675,31 @@ fn draw_count<'a>(indices: &IndicesSource<'a>) -> Option<index::DrawCount<'a>> {
         | IndicesSource::MultidrawElement { draw_count, .. } => draw_count,
         _ => None,
     }
+}
+
+/// Checks that the backend can draw ranges of vertices or indices with one call, which only
+/// desktop OpenGL has, that the ranges are in the `len` vertices or indices, and that the draw
+/// has no instances.
+#[cfg(safegl_desktop)]
+fn check_ranges(
+    ctxt: &context::CommandContext<'_>,
+    ranges: &[std::ops::Range<usize>],
+    len: usize,
+    instances_count: Option<usize>,
+) -> Result<(), DrawError> {
+    if ctxt.version.0 != Api::Gl {
+        return Err(DrawError::DrawRangesNotSupported);
+    }
+    if instances_count.is_some_and(|instances| instances != 1) {
+        return Err(DrawError::InstancedDrawRangesNotSupported);
+    }
+    if ranges
+        .iter()
+        .any(|range| range.start > range.end || range.end > len)
+    {
+        return Err(DrawError::DrawRangeOutOfBounds);
+    }
+    Ok(())
 }
 
 /// Checks that the backend can draw the commands of an indirect draw: one command needs OpenGL
@@ -797,6 +904,12 @@ fn check_contexts(
                 return mismatch("index buffer");
             }
         }
+        #[cfg(safegl_desktop)]
+        IndicesSource::IndexBufferRanges { ref buffer, .. } => {
+            if !ctxt.owns(buffer.get_context()) {
+                return mismatch("index buffer");
+            }
+        }
         #[cfg(any(safegl_desktop, safegl_gles31))]
         IndicesSource::MultidrawArray { ref buffer, .. } => {
             if !ctxt.owns(buffer.get_context()) {
@@ -817,6 +930,8 @@ fn check_contexts(
             }
         }
         IndicesSource::NoIndices { .. } => (),
+        #[cfg(safegl_desktop)]
+        IndicesSource::NoIndicesRanges { .. } => (),
     }
 
     if let Some(session) = draw_parameters.transform_feedback {

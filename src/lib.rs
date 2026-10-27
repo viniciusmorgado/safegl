@@ -1369,6 +1369,23 @@ pub enum DrawError {
     /// given two constant values.
     AttributeProvidedTwice,
 
+    /// Drawing ranges of vertices or indices with one call (`index::NoIndicesRanges`,
+    /// `IndexBuffer::ranges`) needs desktop OpenGL.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    DrawRangesNotSupported,
+
+    /// A range of vertices or indices drawn with one call is outside the vertices source or the
+    /// index buffer.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    DrawRangeOutOfBounds,
+
+    /// Ranges of vertices or indices drawn with one call can't have several instances.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    InstancedDrawRangesNotSupported,
+
     /// Indirect draws aren't supported by the backend: they need OpenGL 4.0 or OpenGL ES 3.1.
     #[cfg(any(safegl_desktop, safegl_gles31))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
@@ -1715,6 +1732,12 @@ impl fmt::Display for DrawError {
             #[cfg(any(safegl_desktop, safegl_gles31))]
             IndirectDrawWithTransformFeedback =>
                 "OpenGL ES doesn't draw indirectly while transform feedback records",
+            #[cfg(safegl_desktop)]
+            DrawRangesNotSupported => "Drawing ranges with one call is not supported by the backend",
+            #[cfg(safegl_desktop)]
+            DrawRangeOutOfBounds => "A drawn range is outside the vertices or the indices",
+            #[cfg(safegl_desktop)]
+            InstancedDrawRangesNotSupported => "Drawn ranges can't have several instances",
             AttributeProvidedTwice =>
                 "An attribute has a constant value and is provided by another vertex source too",
             AttributeMissing =>

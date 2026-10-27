@@ -228,7 +228,9 @@ Breaking changes:
   commands of a buffer with `with_primitive_type` and `with_index_buffer` stays at `gl43`.
   `DrawError` has `IndirectDrawsNotSupported`, `MultidrawNotSupported` and
   `IndirectDrawWithTransformFeedback` variants, and indirect buffers can be created on OpenGL 4.0
-  to 4.2 and OpenGL ES 3.1 without multidraw.
+  to 4.2 and OpenGL ES 3.1 without multidraw. `IndicesSource` also has `NoIndicesRanges` and
+  `IndexBufferRanges` variants at the desktop levels, and `DrawError` `DrawRangesNotSupported`,
+  `DrawRangeOutOfBounds` and `InstancedDrawRangesNotSupported` variants.
 
 Additions:
 
@@ -353,6 +355,9 @@ Additions:
   values: `implement_draw_command!` implements `index::DrawCommandLayout` for a struct with a
   command field, and `from_buffer` makes a buffer of such structs a buffer of draw commands, read
   with the size of the struct as stride.
+- Several ranges of vertices or indices drawn with one call (`desktop`): `index::NoIndicesRanges`
+  (`glMultiDrawArrays`), and `IndexBuffer::ranges` and `ranges_with_base_vertices`
+  (`glMultiDrawElementsBaseVertex`). The ranges are checked against the vertices and the indices.
 
 Fixes:
 
