@@ -1,5 +1,6 @@
-//! Operations on whole images of textures: copying (OpenGL 4.3, OpenGL ES 3.2), clearing (OpenGL
-//! 4.4) and the texture barrier (OpenGL 4.5), compiled from these levels.
+//! Operations on whole images of textures: copying (OpenGL 4.3, OpenGL ES 3.2), invalidating
+//! (OpenGL 4.3), clearing (OpenGL 4.4) and the texture barrier (OpenGL 4.5), compiled from these
+//! levels.
 
 use std::error::Error;
 use std::fmt;
@@ -14,6 +15,8 @@ use crate::backend::Facade;
 use crate::context::CommandContext;
 use crate::framebuffer::RenderBufferAny;
 use crate::gl;
+#[cfg(safegl_gl43)]
+use crate::handles::RawName;
 #[cfg(safegl_gl44)]
 use crate::image_format::{ClientFormat, TextureFormat, TextureFormatRequest};
 use crate::texture::{Dimensions, TextureAnyMipmap};
@@ -239,6 +242,28 @@ where
         || context.get_extensions().gl_ext_clear_texture
 }
 
+/// Returns true if textures can be invalidated: OpenGL 4.3 or `GL_ARB_invalidate_subdata`.
+#[cfg(safegl_gl43)]
+fn is_invalidate_supported(ctxt: &CommandContext<'_>) -> bool {
+    ctxt.version >= &Version(Api::Gl, 4, 3) || ctxt.extensions.gl_arb_invalidate_subdata
+}
+
+/// A region isn't inside its mipmap level.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+pub struct RegionOutOfBoundsError;
+
+#[cfg(safegl_gl43)]
+impl fmt::Display for RegionOutOfBoundsError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.write_str("The region isn't inside its mipmap level")
+    }
+}
+
+#[cfg(safegl_gl43)]
+impl Error for RegionOutOfBoundsError {}
+
 /// Returns true if images can be copied with `copy_image`: OpenGL 4.3, OpenGL ES 3.2 or
 /// `GL_ARB_copy_image`.
 pub fn is_copy_image_supported<C>(context: &C) -> bool
@@ -251,6 +276,58 @@ where
 }
 
 impl<'a> TextureAnyMipmap<'a> {
+    /// Discards the content of this mipmap level (`glInvalidateTexImage`), like
+    /// `SimpleFrameBuffer::invalidate` for framebuffers: the GPU doesn't have to keep it, and
+    /// it is undefined until it is written again. A typical use is an intermediate target once it
+    /// has been read.
+    ///
+    /// This is only a hint: it does nothing without OpenGL 4.3 or `GL_ARB_invalidate_subdata`.
+    #[cfg(safegl_gl43)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+    pub fn invalidate(&self) {
+        let texture = self.get_texture();
+        let ctxt = texture.get_context().make_current();
+        if is_invalidate_supported(&ctxt) {
+            unsafe {
+                ctxt.extra
+                    .InvalidateTexImage(texture.get_id().raw_name(), self.get_level() as i32)
+            };
+        }
+    }
+
+    /// Discards the content of a box of this mipmap level (`glInvalidateTexSubImage`). `offset`
+    /// and `size` are in texels and address layers and faces like `clear_region`.
+    ///
+    /// Returns an error if the box isn't inside the level. Like `invalidate`, this is only a hint.
+    #[cfg(safegl_gl43)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+    pub fn invalidate_region(
+        &self,
+        offset: (u32, u32, u32),
+        size: (u32, u32, u32),
+    ) -> Result<(), RegionOutOfBoundsError> {
+        if !fits(offset, size, image_extent(self)) {
+            return Err(RegionOutOfBoundsError);
+        }
+        let texture = self.get_texture();
+        let ctxt = texture.get_context().make_current();
+        if is_invalidate_supported(&ctxt) {
+            unsafe {
+                ctxt.extra.InvalidateTexSubImage(
+                    texture.get_id().raw_name(),
+                    self.get_level() as i32,
+                    offset.0 as i32,
+                    offset.1 as i32,
+                    offset.2 as i32,
+                    size.0 as i32,
+                    size.1 as i32,
+                    size.2 as i32,
+                )
+            };
+        }
+        Ok(())
+    }
+
     /// Sets every texel of this mipmap level to `value` (`glClearTexImage`), without going
     /// through a framebuffer. All the layers of array textures and faces of cubemaps are
     /// cleared.

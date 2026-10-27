@@ -152,6 +152,9 @@ pub use self::ops::{is_clear_texture_supported, ClearTextureError};
 pub use self::ops::{
     is_texture_barrier_supported, texture_barrier, TextureBarrierNotSupportedError,
 };
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+pub use self::ops::RegionOutOfBoundsError;
 pub use self::parameters::MipmapRangeError;
 #[cfg(any(safegl_desktop, safegl_gles30))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles30))))]

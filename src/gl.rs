@@ -200,6 +200,8 @@ extra_functions! {
     fn InsertEventMarkerEXT(length: GLsizei, marker: *const GLchar) -> ();
     fn InvalidateBufferData(buffer: GLuint) -> ();
     fn InvalidateBufferSubData(buffer: GLuint, offset: GLintptr, length: GLsizeiptr) -> ();
+    fn InvalidateTexImage(texture: GLuint, level: GLint) -> ();
+    fn InvalidateTexSubImage(texture: GLuint, level: GLint, xoffset: GLint, yoffset: GLint, zoffset: GLint, width: GLsizei, height: GLsizei, depth: GLsizei) -> ();
     fn LogicOp(opcode: GLenum) -> ();
     fn BeginQueryIndexed(target: GLenum, index: GLuint, id: GLuint) -> ();
     fn EndQueryIndexed(target: GLenum, index: GLuint) -> ();

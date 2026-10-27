@@ -331,6 +331,12 @@ local cases = {
   { "gles30_has_etc2", { "gles30" }, nil, [[
     pub const F: safegl::texture::CompressedFormat = safegl::texture::CompressedFormat::Etc2Rgba8Eac;
   ]] },
+  { "gl43_has_texture_invalidation", { "gl43" }, nil, [[
+    pub fn f(t: &safegl::texture::Texture2d) { t.main_level().invalidate(); }
+  ]] },
+  { "gles32_has_no_texture_invalidation", { "gles32" }, "invalidate", [[
+    pub fn f(t: &safegl::texture::Texture2d) { t.main_level().invalidate(); }
+  ]] },
   { "gl42_has_no_etc2", { "gl42" }, "Etc2Rgb8", [[
     pub const F: safegl::texture::CompressedFormat = safegl::texture::CompressedFormat::Etc2Rgb8;
   ]] },

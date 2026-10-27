@@ -220,3 +220,51 @@ fn variable_sample_locations() {
 
     display.assert_no_error(None);
 }
+
+/// Invalidating a texture keeps it usable: it is only a hint.
+#[cfg(safegl_gl43)]
+#[test]
+fn texture_invalidation() {
+    use safegl::texture::{RegionOutOfBoundsError, Texture2dArray};
+
+    let display = support::build_display();
+    let texture = Texture2dArray::empty(&display, 4, 4, 3).unwrap();
+    texture.main_level().invalidate();
+    texture
+        .main_level()
+        .invalidate_region((1, 1, 2), (3, 3, 1))
+        .unwrap();
+    assert_eq!(
+        texture.main_level().invalidate_region((1, 1, 2), (3, 3, 2)),
+        Err(RegionOutOfBoundsError)
+    );
+    assert_eq!(
+        texture.main_level().invalidate_region((5, 0, 0), (0, 0, 0)),
+        Err(RegionOutOfBoundsError)
+    );
+
+    // the texture is written and read as usual afterwards
+    let layer = texture.main_level().layer(1).unwrap();
+    layer
+        .write(
+            safegl::Rect {
+                left: 0,
+                bottom: 0,
+                width: 4,
+                height: 4,
+            },
+            vec![vec![(1u8, 2u8, 3u8, 4u8); 4]; 4],
+        )
+        .unwrap();
+    let image: safegl::texture::TextureAnyImage<'_> = layer.into();
+    let rect = safegl::Rect {
+        left: 0,
+        bottom: 0,
+        width: 4,
+        height: 4,
+    };
+    let data: Vec<Vec<Pixel>> = image.raw_read(&rect).unwrap();
+    assert_eq!(data[3][3], (1, 2, 3, 4));
+
+    display.assert_no_error(None);
+}

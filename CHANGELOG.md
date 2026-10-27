@@ -424,6 +424,9 @@ Additions:
   `border_color_uint`, `glSamplerParameterIiv` and `glSamplerParameterIuiv`;
   `any(desktop, gles32)`), and `BorderColor::value` with `uniforms::BorderColorValue`. A border
   color of another kind than its texture returns `DrawError::BorderColorMismatch`.
+- `TextureAnyMipmap::invalidate` and `invalidate_region` discard the content of a mipmap level
+  or of a box of it, a hint like framebuffer invalidation (`gl43`, `glInvalidateTexImage`,
+  `glInvalidateTexSubImage`, `texture::RegionOutOfBoundsError`).
 - Multisample textures can place their samples differently in each texel
   (`empty_with_sample_locations` with `fixed_sample_locations: false`,
   `GL_TEXTURE_FIXED_SAMPLE_LOCATIONS`), and `TextureAny::has_fixed_sample_locations` tells how
