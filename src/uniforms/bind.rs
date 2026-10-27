@@ -15,6 +15,8 @@ use fnv::FnvHasher;
 
 use crate::BufferExt;
 use crate::BufferSliceExt;
+use std::borrow::Cow;
+
 use crate::DrawError;
 use crate::ProgramExt;
 use crate::RawUniformValue;
@@ -41,17 +43,33 @@ use crate::program;
 /// They are collected before SafeGL starts to issue OpenGL commands, so that the implementations
 /// of `Uniforms` and `AsUniformValue` can use SafeGL.
 pub(crate) struct CollectedUniforms<'a> {
-    values: smallvec::SmallVec<[(&'a str, UniformValue<'a>); 16]>,
+    values: smallvec::SmallVec<[(Cow<'a, str>, UniformValue<'a>); 16]>,
 }
 
 impl<'a> CollectedUniforms<'a> {
-    /// Collects the values of `uniforms`.
+    /// Collects the values of `uniforms`. The elements of arrays are collected under the names
+    /// of the elements, `name[i]`.
     pub fn new<U>(uniforms: &'a U) -> CollectedUniforms<'a>
     where
         U: Uniforms,
     {
+        fn collect<'a>(
+            values: &mut smallvec::SmallVec<[(Cow<'a, str>, UniformValue<'a>); 16]>,
+            name: Cow<'a, str>,
+            value: UniformValue<'a>,
+        ) {
+            if let UniformValue::Array(array) = value {
+                for index in 0..array.len() {
+                    let element = Cow::Owned(format!("{name}[{index}]"));
+                    collect(values, element, array.element(index));
+                }
+            } else {
+                values.push((name, value));
+            }
+        }
+
         let mut values = smallvec::SmallVec::new();
-        uniforms.visit_values(|name, value| values.push((name, value)));
+        uniforms.visit_values(|name, value| collect(&mut values, Cow::Borrowed(name), value));
         CollectedUniforms { values }
     }
 
@@ -93,7 +111,8 @@ impl<'a> CollectedUniforms<'a> {
             smallvec::SmallVec::new();
         let mut bound_blocks: smallvec::SmallVec<[&str; 8]> = smallvec::SmallVec::new();
 
-        for &(name, value) in self.values.iter() {
+        for (name, value) in self.values.iter() {
+            let (name, value) = (&**name, *value);
             if let Some(uniform) = program.get_uniform(name) {
                 // members of blocks are reflected with the location -1
                 if uniform.location == -1 {
@@ -150,6 +169,12 @@ impl<'a> CollectedUniforms<'a> {
 
                 given_locations.push(uniform.location);
                 if let UniformValue::Keep = value {
+                    // keeping the value of an array keeps all its elements
+                    if !name.ends_with(']') {
+                        let elements = (1..)
+                            .map_while(|index| program.get_uniform(&format!("{name}[{index}]")));
+                        given_locations.extend(elements.map(|element| element.location));
+                    }
                     continue;
                 }
 
@@ -879,6 +904,8 @@ where
             image_unit_bind_points,
             name,
         ),
+        // `CollectedUniforms` gives arrays element by element
+        UniformValue::Array(_) => unreachable!(),
     }
 }
 

@@ -291,6 +291,116 @@ pub enum UniformValue<'a> {
     #[cfg(any(safegl_gl42, safegl_gles32))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_gles32))))]
     BufferImage(texture::buffer_texture::BufferTextureRef<'a>, ImageUnitBehavior),
+    /// The values of the elements of a uniform array: element `i` is given to the uniform
+    /// `name[i]`. Built from slices, arrays and vectors of values, see `UniformArray`.
+    Array(&'a dyn UniformArray),
+}
+
+/// The values of the elements of a uniform array, given to a uniform with `UniformValue::Array`.
+///
+/// It is implemented by slices, arrays and vectors of values. Their element `i` is given to the
+/// uniform `name[i]`, so the elements can be samplers, images or arrays themselves, for arrays
+/// of arrays. References to slices and arrays, and vectors, can be given to a uniform array
+/// directly:
+///
+/// ```no_run
+/// # #[macro_use] extern crate safegl;
+/// # fn example(first: &safegl::Texture2d, second: &safegl::Texture2d) {
+/// // `uniform float weights[3];` and `uniform sampler2D textures[2];` in the shader
+/// let weights = [0.25f32, 0.5, 0.25];
+/// let textures = [first.sampled(), second.sampled()];
+/// let uniforms = uniform! { weights: &weights, textures: &textures };
+/// # }
+/// ```
+///
+/// Elements past the end of the array of the program are ignored, like the uniforms that the
+/// program doesn't have: the compiler can shorten the arrays whose last elements aren't used.
+pub trait UniformArray {
+    /// Returns the number of elements.
+    fn len(&self) -> usize;
+
+    /// Returns true if there are no elements.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the value of an element. `index` is smaller than `len()`.
+    fn element(&self, index: usize) -> UniformValue<'_>;
+}
+
+impl<T> UniformArray for &[T]
+where
+    T: AsUniformValue,
+{
+    #[inline]
+    fn len(&self) -> usize {
+        <[T]>::len(self)
+    }
+
+    #[inline]
+    fn element(&self, index: usize) -> UniformValue<'_> {
+        self[index].as_uniform_value()
+    }
+}
+
+impl<T, const N: usize> UniformArray for [T; N]
+where
+    T: AsUniformValue,
+{
+    #[inline]
+    fn len(&self) -> usize {
+        N
+    }
+
+    #[inline]
+    fn element(&self, index: usize) -> UniformValue<'_> {
+        self[index].as_uniform_value()
+    }
+}
+
+impl<T> UniformArray for Vec<T>
+where
+    T: AsUniformValue,
+{
+    #[inline]
+    fn len(&self) -> usize {
+        Vec::len(self)
+    }
+
+    #[inline]
+    fn element(&self, index: usize) -> UniformValue<'_> {
+        self[index].as_uniform_value()
+    }
+}
+
+impl<T> AsUniformValue for &[T]
+where
+    T: AsUniformValue,
+{
+    #[inline]
+    fn as_uniform_value(&self) -> UniformValue<'_> {
+        UniformValue::Array(self)
+    }
+}
+
+impl<T, const N: usize> AsUniformValue for &[T; N]
+where
+    T: AsUniformValue,
+{
+    #[inline]
+    fn as_uniform_value(&self) -> UniformValue<'_> {
+        UniformValue::Array(*self)
+    }
+}
+
+impl<T> AsUniformValue for Vec<T>
+where
+    T: AsUniformValue,
+{
+    #[inline]
+    fn as_uniform_value(&self) -> UniformValue<'_> {
+        UniformValue::Array(self)
+    }
 }
 
 /// Keeps the value that a uniform has in the program, instead of giving it a new one: the value

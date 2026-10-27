@@ -149,7 +149,7 @@ pub use self::sampler::{LevelOfDetail, Sampler, SamplerBehavior};
 pub use self::uniforms::{DynamicUniforms, EmptyUniforms, UniformsStorage};
 pub(crate) use self::value::{is_opaque, is_shadow_sampler};
 pub use self::value::Keep;
-pub use self::value::{UniformType, UniformValue};
+pub use self::value::{UniformArray, UniformType, UniformValue};
 
 use std::error::Error;
 use std::fmt;
