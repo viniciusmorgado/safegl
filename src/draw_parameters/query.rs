@@ -321,7 +321,9 @@ pub(crate) fn write_query_to_buffer<T: QueryBufferValue>(
         return Ok(());
     }
 
-    assert!(target.get_offset_bytes() % std::mem::size_of::<T>() == 0);
+    assert!(target
+        .get_offset_bytes()
+        .is_multiple_of(std::mem::size_of::<T>()));
 
     target.prepare_and_bind_for_query(&mut ctxt);
     unsafe {

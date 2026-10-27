@@ -523,12 +523,12 @@ fn query_to_buffers_of_each_type() {
         .to_buffer(i64s.as_slice(), QueryBufferMode::Result)
         .unwrap();
 
-    let samples = 1024 * 1024;
+    let samples: u64 = 1024 * 1024;
     assert_eq!(u32s.read().unwrap(), samples as u32);
     assert_eq!(i32s.read().unwrap(), samples as i32);
-    assert_eq!(u64s.read().unwrap(), samples as u64);
+    assert_eq!(u64s.read().unwrap(), samples);
     assert_eq!(i64s.read().unwrap(), samples as i64);
-    assert_eq!(query.get().unwrap(), samples as u64);
+    assert_eq!(query.get().unwrap(), samples);
 
     display.assert_no_error(None);
 }
