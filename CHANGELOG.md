@@ -467,6 +467,8 @@ Additions:
   `border_color_uint`, `glSamplerParameterIiv` and `glSamplerParameterIuiv`;
   `any(desktop, gles32)`), and `BorderColor::value` with `uniforms::BorderColorValue`. A border
   color of another kind than its texture returns `DrawError::BorderColorMismatch`.
+- `ComputeShader::work_group_size` returns the size of the local work groups of the compute
+  shader (`GL_COMPUTE_WORK_GROUP_SIZE`).
 - `DefaultFramebuffer::new` returns a framebuffer that draws into, clears and is blitted from
   one of the color buffers of the default framebuffer, back or front, left or right
   (`glDrawBuffer` and `glReadBuffer`; `DefaultFramebufferAttachmentMissingError` if the buffer

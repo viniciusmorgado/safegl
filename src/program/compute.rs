@@ -104,6 +104,14 @@ impl ComputeShader {
         })
     }
 
+    /// Returns the size of the local work groups of the compute shader, from its
+    /// `layout(local_size_x = ..., local_size_y = ..., local_size_z = ...) in;` declaration
+    /// (`GL_COMPUTE_WORK_GROUP_SIZE`).
+    #[inline]
+    pub fn work_group_size(&self) -> [u32; 3] {
+        self.raw.compute_work_group_size()
+    }
+
     /// Executes the compute shader.
     ///
     /// `x * y * z` work groups will be started. The current work group can be retrieved with

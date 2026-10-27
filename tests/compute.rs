@@ -285,3 +285,21 @@ fn images_with_the_same_binding() {
 
     display.assert_no_error(None);
 }
+
+#[test]
+fn work_group_size() {
+    let display = support::build_display();
+    let Some(shader) = compute_shader(
+        &display,
+        "layout(local_size_x = 4, local_size_y = 2, local_size_z = 3) in;\nvoid main() {}",
+    ) else {
+        return;
+    };
+    assert_eq!(shader.work_group_size(), [4, 2, 3]);
+    let Some(shader) = compute_shader(&display, DOUBLE_INDICES) else {
+        return;
+    };
+    assert_eq!(shader.work_group_size(), [8, 1, 1]);
+
+    display.assert_no_error(None);
+}

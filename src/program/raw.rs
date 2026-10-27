@@ -405,6 +405,22 @@ impl RawProgram {
         u32::try_from(index).ok()
     }
 
+    /// Returns the size of the local work groups of a compute program
+    /// (`GL_COMPUTE_WORK_GROUP_SIZE`).
+    #[cfg(any(safegl_gl43, safegl_gles31))]
+    pub fn compute_work_group_size(&self) -> [u32; 3] {
+        let ctxt = self.context.make_current();
+        let mut size = [0i32; 3];
+        unsafe {
+            ctxt.extra.GetProgramiv(
+                self.id.raw_name(),
+                gl::COMPUTE_WORK_GROUP_SIZE,
+                size.as_mut_ptr(),
+            )
+        };
+        size.map(|s| s.max(0) as u32)
+    }
+
     /// Returns informations about a uniform variable, if it exists.
     #[inline]
     pub fn get_uniform(&self, name: &str) -> Option<&Uniform> {
