@@ -879,10 +879,12 @@ impl Context {
     pub fn insert_debug_marker(&self, marker: &str) -> Result<(), ()> {
         let ctxt = self.make_current();
 
-        // `glDebugMessageInsert` is core in OpenGL 4.3 and OpenGL ES 3.2
-        if ctxt.version >= &Version(Api::Gl, 4, 3)
-            || ctxt.version >= &Version(Api::GlEs, 3, 2)
-            || (ctxt.version.0 == Api::Gl && ctxt.extensions.gl_khr_debug)
+        // `glDebugMessageInsert` is core in OpenGL 4.3 and OpenGL ES 3.2, and glow calls
+        // `glDebugMessageInsertKHR` on OpenGL ES with `GL_KHR_debug`
+        if !is_webgl()
+            && (ctxt.version >= &Version(Api::Gl, 4, 3)
+                || ctxt.version >= &Version(Api::GlEs, 3, 2)
+                || ctxt.extensions.gl_khr_debug)
         {
             unsafe {
                 ctxt.glow.debug_message_insert(
@@ -1280,7 +1282,7 @@ fn init_debug_callback(context: &Context) {
         ty: gl::types::GLenum,
         id: gl::types::GLuint,
         severity: gl::types::GLenum,
-        _length: gl::types::GLsizei,
+        length: gl::types::GLsizei,
         message: *const gl::types::GLchar,
         user_param: *mut raw::c_void,
     ) {
@@ -1288,8 +1290,16 @@ fn init_debug_callback(context: &Context) {
         // destructor, so that it outlives the messages
         let context: &Context = unsafe { &*(user_param as *const Context) };
 
-        let message =
-            unsafe { String::from_utf8(CStr::from_ptr(message).to_bytes().to_vec()).unwrap() };
+        // the message has `length` bytes: drivers pass the messages of debug groups and of
+        // inserted messages as they were given, without a null terminator
+        let message = unsafe {
+            let bytes = if length >= 0 {
+                std::slice::from_raw_parts(message as *const u8, length as usize)
+            } else {
+                CStr::from_ptr(message).to_bytes()
+            };
+            String::from_utf8_lossy(bytes).into_owned()
+        };
 
         let severity = match severity {
             gl::DEBUG_SEVERITY_NOTIFICATION => debug::Severity::Notification,

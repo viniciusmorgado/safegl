@@ -422,6 +422,11 @@ Fixes:
 - Programs whose interleaved transform feedback varyings contain `gl_SkipComponents1` to `4` or
   `gl_NextBuffer` are created, with their buffers, offsets and strides reflected, instead of
   panicking on these names.
+- The debug callback receives the messages with the length the driver gives: the messages of
+  debug groups and inserted messages aren't null-terminated with some drivers, which made the
+  callback read past them.
+- `Context::insert_debug_marker` works on OpenGL ES 3.0 and 3.1 with `GL_KHR_debug`, instead of
+  returning `Err` there.
 
 ## [0.2.0]
 
