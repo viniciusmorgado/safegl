@@ -113,6 +113,12 @@ pub enum ReadError {
     /// The box to read from a compressed texture doesn't start on the blocks of its format, or
     /// doesn't end on them or on the edge of the image.
     MisalignedBlocks,
+
+    /// The image can't be read through a framebuffer, because its format can't be rendered to:
+    /// compressed formats, `F9F9F9`, and the formats that OpenGL ES doesn't render. Desktop
+    /// OpenGL reads whole levels of every format with `TextureAnyMipmap::read_volume`, and the
+    /// whole-texture reads of 2D textures use it there.
+    NotRenderable,
 }
 
 impl fmt::Display for ReadError {
@@ -141,6 +147,8 @@ impl fmt::Display for ReadError {
                 "Reading this way is not supported by the backend",
             MisalignedBlocks =>
                 "The box to read doesn't fit the blocks of the compressed format",
+            NotRenderable =>
+                "The image can't be read through a framebuffer, since it can't be rendered to",
         };
         fmt.write_str(desc)
     }
@@ -238,6 +246,12 @@ where
     match source {
         Source::Attachment(attachment) => {
             unsafe { FramebuffersContainer::bind_framebuffer_for_reading(&mut ctxt, attachment) };
+            // a framebuffer of an image that can't be rendered to is incomplete, and reading
+            // from it raises an error and returns nothing
+            let status = unsafe { ctxt.glow.check_framebuffer_status(gl::READ_FRAMEBUFFER) };
+            if status != gl::FRAMEBUFFER_COMPLETE {
+                return Err(ReadError::NotRenderable);
+            }
         }
         Source::DefaultFramebuffer(read_buffer) => {
             // selecting a buffer that the default framebuffer doesn't have, such as the front
