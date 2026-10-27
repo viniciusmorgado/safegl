@@ -40,9 +40,9 @@ use safegl::winit::platform::x11::EventLoopBuilderExtX11;
 #[derive(Debug)]
 enum DisplayRequest {
     /// A hidden window, with a context and a surface for it.
-    Display(Sender<(Window, NotCurrentContext, Surface<WindowSurface>)>),
+    Display(Sender<Result<(Window, NotCurrentContext, Surface<WindowSurface>), String>>),
     /// A hidden window, with a surface and the configuration of the contexts that can use it.
-    Window(Sender<(Window, glutin::config::Config, Surface<WindowSurface>)>),
+    Window(Sender<Result<(Window, glutin::config::Config, Surface<WindowSurface>), String>>),
 }
 
 struct Tests {}
@@ -58,26 +58,44 @@ impl ApplicationHandler<DisplayRequest> for Tests {
     ) {
     }
 
+    // a failure is sent to the test that made the request: a panic would end the event loop,
+    // and with it every test that comes after
     fn user_event(&mut self, event_loop: &ActiveEventLoop, request: DisplayRequest) {
-        let (window, gl_config, surface) = create_window(event_loop);
+        let window = create_window(event_loop);
         match request {
             DisplayRequest::Display(sender) => {
-                let raw_window_handle = window.window_handle().unwrap().as_raw();
-                let context = create_context(&gl_config, raw_window_handle, None, parse_version())
-                    .expect("failed to create context");
-                sender.send((window, context, surface)).unwrap();
+                let display = window.and_then(|(window, gl_config, surface)| {
+                    let raw_window_handle = window.window_handle().unwrap().as_raw();
+                    let context =
+                        create_context(&gl_config, raw_window_handle, None, parse_version())
+                            .ok_or("failed to create a context")?;
+                    Ok((window, context, surface))
+                });
+                // the test may have ended already
+                let _ = sender.send(display);
             }
             DisplayRequest::Window(sender) => {
-                sender.send((window, gl_config, surface)).unwrap();
+                let _ = sender.send(window);
             }
         }
     }
 }
 
+/// Sends `request` to the event loop and waits for its answer, panicking with the error that
+/// the event loop gave.
+fn request<T>(request: impl FnOnce(Sender<Result<T, String>>) -> DisplayRequest) -> T {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    event_loop_proxy().send_event(request(sender)).unwrap();
+    receiver
+        .recv()
+        .expect("the event loop of the tests has stopped")
+        .unwrap_or_else(|error| panic!("{error}"))
+}
+
 /// Creates a hidden window, its surface, and the configuration of the contexts that can use it.
 fn create_window(
     event_loop: &ActiveEventLoop,
-) -> (Window, glutin::config::Config, Surface<WindowSurface>) {
+) -> Result<(Window, glutin::config::Config, Surface<WindowSurface>), String> {
     {
         let window_attributes = Window::default_attributes().with_visible(false);
         let config_template_builder = ConfigTemplateBuilder::new();
@@ -88,8 +106,8 @@ fn create_window(
                 // Just use the first configuration since we don't have any special preferences here
                 configs.next().unwrap()
             })
-            .unwrap();
-        let window = window.unwrap();
+            .map_err(|error| format!("failed to create a window: {error}"))?;
+        let window = window.ok_or("failed to create a window")?;
         let raw_window_handle = window.window_handle().unwrap().as_raw();
 
         let attrs = SurfaceAttributesBuilder::<WindowSurface>::new().build(
@@ -102,10 +120,10 @@ fn create_window(
             gl_config
                 .display()
                 .create_window_surface(&gl_config, &attrs)
-                .unwrap()
+                .map_err(|error| format!("failed to create a window surface: {error}"))?
         };
 
-        (window, gl_config, surface)
+        Ok((window, gl_config, surface))
     }
 }
 
@@ -193,15 +211,8 @@ fn event_loop_proxy() -> EventLoopProxy<DisplayRequest> {
 
 /// Builds a display for tests, with the given debug callback.
 pub fn build_display_with_debug(debug: safegl::debug::DebugCallbackBehavior) -> WindowDisplay {
-    let (sender, receiver) = std::sync::mpsc::channel();
-
-    // Request event loop create display building pieces and send them back
-    event_loop_proxy()
-        .send_event(DisplayRequest::Display(sender))
-        .unwrap();
-
-    // Block until required display building pieces are received
-    let (window, not_current_gl_context, surface) = receiver.recv().unwrap();
+    // the event loop creates the window and the context
+    let (window, not_current_gl_context, surface) = request(DisplayRequest::Display);
 
     // Now use our surface to make our context current and finally create our display
     let current_context = not_current_gl_context.make_current(&surface).unwrap();
@@ -220,11 +231,7 @@ pub fn build_display_with_debug(debug: safegl::debug::DebugCallbackBehavior) -> 
 pub fn try_build_display_with(
     attributes: glutin::context::ContextAttributesBuilder,
 ) -> Option<Result<WindowDisplay, safegl::IncompatibleOpenGl>> {
-    let (sender, receiver) = std::sync::mpsc::channel();
-    event_loop_proxy()
-        .send_event(DisplayRequest::Window(sender))
-        .unwrap();
-    let (window, gl_config, surface) = receiver.recv().unwrap();
+    let (window, gl_config, surface) = request(DisplayRequest::Window);
 
     let raw_window_handle = window.window_handle().unwrap().as_raw();
     let context = unsafe {
@@ -279,11 +286,7 @@ pub fn try_rebuild_display(
     display: &mut WindowDisplay,
     apis: Vec<glutin::context::ContextApi>,
 ) -> Option<Result<(), safegl::IncompatibleOpenGl>> {
-    let (sender, receiver) = std::sync::mpsc::channel();
-    event_loop_proxy()
-        .send_event(DisplayRequest::Window(sender))
-        .unwrap();
-    let (window, gl_config, surface) = receiver.recv().unwrap();
+    let (window, gl_config, surface) = request(DisplayRequest::Window);
 
     let raw_window_handle = window.window_handle().unwrap().as_raw();
     let context = create_context(
