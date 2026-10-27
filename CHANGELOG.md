@@ -328,6 +328,25 @@ Breaking changes:
 - Two members of a vertex format with the same location return
   `DrawError::AttributeProvidedTwice` instead of panicking, and `DrawError` has the new variants
   `AttributeComponentsMismatch` and `IncompleteProgram`.
+- Samplers that the backend can't sample with are refused instead of sampling differently: a
+  `MirrorClamp` or `BorderClamp` wrap function or a border color where they're unsupported fell
+  back to clamping to the edge, and an anisotropy above 1 without anisotropic filtering was
+  ignored. Draws return `DrawError::SamplerNotSupported` with a
+  `uniforms::SamplerNotSupportedError`, and `TextureHandle::new` and `TextureHandle::set` of
+  bindless textures return a `Result`. An anisotropy above the maximum of the backend is still
+  clamped.
+- Multisample textures with a sample count that their format doesn't have return
+  `TextureCreationError::DimensionsNotSupported` instead of raising an OpenGL error.
+  `FormatInfos` is `#[non_exhaustive]`, with `array_multisamples`, the sample counts of 2D
+  multisample array textures.
+- Double vertex attributes (`AttributeType::F64*`) need the `gl41` level,
+  `AttributeType::FixedFloatI16U16` the `gl41` or `gles30` level,
+  `AttributeType::F10F11F11UnsignedIntReversed` the `gl44` level, and RGB565 textures
+  (`UncompressedFloatFormat::U5U6U5`) the `gl41`, `gles30` or `webgl` level: the versions that
+  made them core. They compiled at every desktop level.
+- `DrawParameters::base_instance` given to a draw of multidraw commands, which give their own
+  base instance, or of captured vertices, which are drawn without one, returns
+  `DrawError::BaseInstanceNotApplicable` instead of being ignored.
 
 Additions:
 
@@ -583,6 +602,11 @@ Additions:
   uniforms of the draw are given to every program, which share the units of textures, buffers
   and images, their subroutine uniforms are set once the pipeline is bound, transform feedback
   captures the last stage before rasterization, and the fragment program gives the outputs.
+- `Capabilities::robust_buffer_access` tells whether the out-of-bounds buffer accesses of a robust
+  context are defined (OpenGL 4.3, OpenGL ES 3.2 or `GL_*_robust_buffer_access_behavior`).
+- `Content::alignment` gives the alignment that pointers to a buffer content need.
+- Debug builds read `SAFEGL_DISABLE_EXTENSIONS`, a list of extension names that the context
+  treats as missing, so that tests run the paths of drivers without them.
 
 Fixes:
 
@@ -781,6 +805,26 @@ Fixes:
 - Fragment shaders that redeclare a built-in output, like `layout(depth_greater) out float
   gl_FragDepth`, link: SafeGL gave the built-in output a location like the other outputs, which
   OpenGL refuses.
+- On drivers below the version of a feature that have it through an extension, or without it:
+  - atomic counters are reflected without the program interface query, where the first
+    `atomic_uint` panicked;
+  - textures made without `GL_ARB_texture_storage` get every face of cube maps, where
+    `glTexImage2D(GL_TEXTURE_CUBE_MAP)` left them without storage, and every level of empty
+    mipmaps;
+  - SPIR-V shaders are specialized with `glSpecializeShaderARB`, where the core function panicked
+    on its unloaded pointer;
+  - the debug callback is installed with the core functions from OpenGL 4.3 instead of 4.5;
+  - the robust access of desktop contexts with `GL_KHR_robustness` is read from the context
+    flags, and the release behavior is queried from OpenGL 4.5 and never panics on its value;
+  - buffers use `glNamedBufferStorage` only with buffer storage, a persistent mapping that fails
+    returns `BufferCreationError::OutOfMemory` instead of panicking, and a mapping whose pointer
+    isn't aligned for its content is copied to aligned memory;
+  - an empty buffer of commands draws nothing instead of asking for multidraw.
+- The levels of cube maps are queried through their faces, so their formats are found without
+  direct state access, and their compressed data is read face by face, sized by its blocks
+  (NVIDIA gives the size of the whole cube map for each face).
+- Draws of ranges use `DrawParameters::base_instance`, drawing the ranges one by one.
+- Render buffers can be outputs of `MultiOutputFrameBuffer`, where they reached `panic!()`.
 
 ## [0.2.0]
 
