@@ -852,7 +852,8 @@ pub unsafe fn reflect_transform_feedback(
     // the NVIDIA driver only lists the buffers of these qualifiers there, and the varyings given
     // when linking are reflected below
     if ctxt.version >= &Version(Api::Gl, 4, 4)
-        || (ctxt.extensions.gl_arb_enhanced_layouts
+        || (ctxt.version.0 == Api::Gl
+            && ctxt.extensions.gl_arb_enhanced_layouts
             && ctxt.extensions.gl_arb_program_interface_query)
     {
         if let Some(buffers) = reflect_transform_feedback_interface(ctxt, program) {
