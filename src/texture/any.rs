@@ -1133,6 +1133,8 @@ impl TextureAny {
         }
 
         let mut ctxt = self.context.make_current();
+        // shader writes made through image units must be done before the levels are generated
+        self.prepare_for_access(&mut ctxt, crate::TextureAccess::Update);
         let bind_point = self.bind_to_current(&mut ctxt);
         unsafe { generate_mipmaps(&ctxt, bind_point) };
         Ok(())
@@ -1207,7 +1209,6 @@ impl TextureExt for TextureAny {
                     ctxt.state.latest_memory_barrier_framebuffer = ctxt.state.next_draw_call_id;
                 }
             }
-            #[cfg(any(safegl_gl43, safegl_gles32))]
             crate::TextureAccess::Update => {
                 if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_texture_update
                 {
@@ -1550,6 +1551,10 @@ impl<'a> TextureAnyMipmap<'a> {
 
         let mut ctxt = self.texture.context.make_current();
 
+        // shader writes made through image units must be done before the image is changed
+        self.texture
+            .prepare_for_access(&mut ctxt, crate::TextureAccess::Update);
+
         // binds the pixel buffer
         source.prepare_and_bind_for_pixel_unpack(&mut ctxt);
         let offset = source.get_offset_bytes();
@@ -1695,6 +1700,10 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
 
         let mut ctxt = self.texture.context.make_current();
 
+        // shader writes made through image units must be done before the image is changed
+        self.texture
+            .prepare_for_access(&mut ctxt, crate::TextureAccess::Update);
+
         unsafe {
             if ctxt.state.pixel_store_unpack_alignment != 1 {
                 ctxt.state.pixel_store_unpack_alignment = 1;
@@ -1806,6 +1815,8 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
         let level = self.level as i32;
 
         let mut ctxt = texture.context.make_current();
+        // shader writes made through image units must be done before the image is read
+        texture.prepare_for_access(&mut ctxt, crate::TextureAccess::Update);
 
         // `glGetCompressedTexImage` only exists on desktop OpenGL, and the compression
         // parameters of `glGetTexLevelParameteriv` aren't available on OpenGL ES and WebGL
@@ -2066,6 +2077,10 @@ impl<'a> TextureAnyImage<'a> {
         let data = unsafe { slice::from_raw_parts(data.as_ptr() as *const u8, data_size) };
 
         let mut ctxt = self.texture.context.make_current();
+
+        // shader writes made through image units must be done before the image is changed
+        self.texture
+            .prepare_for_access(&mut ctxt, crate::TextureAccess::Update);
 
         unsafe {
             if ctxt.state.pixel_store_unpack_alignment != 1 {

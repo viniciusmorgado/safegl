@@ -68,6 +68,7 @@ use crate::TextureExt;
 use crate::framebuffer::InvalidateAttachments;
 use crate::framebuffer::RenderBufferAny;
 use crate::texture::CubeLayer;
+use crate::texture::TextureAny;
 use crate::texture::TextureAnyImage;
 use crate::texture::TextureAnyMipmap;
 use crate::texture::TextureKind;
@@ -138,6 +139,23 @@ impl<'a> LayeredAttachment<'a> {
 }
 
 impl<T> FramebufferSpecificAttachments<T> {
+    /// Returns the values that `f` gives for the attachments.
+    fn collect<R>(&self, mut f: impl FnMut(&T) -> Option<R>) -> SmallVec<[R; 5]> {
+        let mut values = SmallVec::new();
+        match self.depth_stencil {
+            DepthStencilAttachments::None => (),
+            DepthStencilAttachments::DepthAttachment(ref a)
+            | DepthStencilAttachments::StencilAttachment(ref a)
+            | DepthStencilAttachments::DepthStencilAttachment(ref a) => values.extend(f(a)),
+            DepthStencilAttachments::DepthAndStencilAttachments(ref a, ref b) => {
+                values.extend(f(a));
+                values.extend(f(b));
+            }
+        }
+        values.extend(self.colors.iter().filter_map(|(_, a)| f(a)));
+        values
+    }
+
     /// Returns true if `f` returns true for all the attachments.
     fn all(&self, mut f: impl FnMut(&T) -> bool) -> bool {
         let depth_stencil = match self.depth_stencil {
@@ -202,6 +220,27 @@ impl<'a> FramebufferAttachments<'a> {
         if !owned {
             return Err(ValidationError::ContextMismatch);
         }
+
+        // the textures, whose shader writes must be visible to the framebuffer
+        let textures = match self {
+            FramebufferAttachments::Regular(ref a) => a.collect(|a| match *a {
+                RegularAttachment::Texture(image) => Some(image.get_texture()),
+                RegularAttachment::RenderBuffer(_) => None,
+            }),
+            FramebufferAttachments::Layered(ref a) => a.collect(|a| Some(a.0.get_texture())),
+            FramebufferAttachments::Empty { .. } => SmallVec::new(),
+        };
+        let mut validated = self.validate_attachments(ctxt)?;
+        validated.textures = textures.into_vec();
+        Ok(validated)
+    }
+
+    /// Validates the attachments, after checking that they belong to the current context.
+    fn validate_attachments(
+        self,
+        ctxt: &mut CommandContext<'_>,
+    ) -> Result<ValidatedAttachments<'a>, ValidationError> {
+        let context: &Context = ctxt.context;
 
         match self {
             FramebufferAttachments::Regular(a) => {
@@ -271,6 +310,7 @@ impl<'a> FramebufferAttachments<'a> {
                         layers,
                         depth_buffer_bits: None,
                         stencil_buffer_bits: None,
+                        textures: Vec::new(),
                         marker: PhantomData,
                     })
                 } else {
@@ -420,6 +460,7 @@ impl<'a> FramebufferAttachments<'a> {
             layers: None, // FIXME: count layers
             depth_buffer_bits: depth_bits,
             stencil_buffer_bits: stencil_bits,
+            textures: Vec::new(),
             marker: PhantomData,
         })
     }
@@ -616,6 +657,7 @@ impl<'a> FramebufferAttachments<'a> {
             layers: None,
             depth_buffer_bits: depth_bits,
             stencil_buffer_bits: stencil_bits,
+            textures: Vec::new(),
             marker: PhantomData,
         })
     }
@@ -640,10 +682,20 @@ pub struct ValidatedAttachments<'a> {
     layers: Option<u32>,
     depth_buffer_bits: Option<u16>,
     stencil_buffer_bits: Option<u16>,
+    // the attached textures
+    textures: Vec<&'a TextureAny>,
     marker: PhantomData<&'a ()>,
 }
 
 impl<'a> ValidatedAttachments<'a> {
+    /// Calls `glMemoryBarrier(GL_FRAMEBUFFER_BARRIER_BIT)` if a shader wrote an attached texture
+    /// through an image unit since the last barrier, before the framebuffer reads or writes it.
+    pub fn prepare_for_framebuffer_access(&self, ctxt: &mut CommandContext<'_>) {
+        for texture in &self.textures {
+            texture.prepare_for_access(ctxt, crate::TextureAccess::Framebuffer);
+        }
+    }
+
     /// Returns the fragment output location and the kind of each color attachment.
     #[inline]
     pub fn get_color_kinds(&self) -> &[(u32, TextureKind)] {
@@ -943,6 +995,7 @@ impl FramebuffersContainer {
         match target {
             FramebufferTarget::Raw(framebuffer) => framebuffer,
             FramebufferTarget::Attachments(attachments) => {
+                attachments.prepare_for_framebuffer_access(ctxt);
                 Some(FramebuffersContainer::get_framebuffer(ctxt, attachments))
             }
         }
@@ -986,6 +1039,12 @@ impl FramebuffersContainer {
                 }
             }
         }*/
+
+        if let RegularAttachment::Texture(image) = attachment {
+            image
+                .get_texture()
+                .prepare_for_access(ctxt, crate::TextureAccess::Framebuffer);
+        }
 
         // depth and stencil images are read through their own attachment points
         let kind = match attachment {
@@ -1050,6 +1109,7 @@ impl FramebuffersContainer {
             layers: None,
             depth_buffer_bits: None,
             stencil_buffer_bits: None,
+            textures: Vec::new(),
             marker: PhantomData,
         };
 

@@ -458,6 +458,11 @@ Fixes:
   a buffer, they made OpenGL write the timestamp in that buffer and returned 0.
 - `is_ready` returns `true` for a query that never began, whose result `get` returns at once,
   instead of `false` forever.
+- Memory barriers cover every use of what shaders write: buffer copies, transform feedback
+  buffers and buffer textures after storage writes, textures drawn to or read through
+  framebuffers, uploaded, downloaded or given mipmaps after image stores (also at the `gl42` and
+  `gles31` levels, where only clears and copies had the barrier), and persistent mappings, which
+  now wait for their barrier before the CPU reads them.
 
 ## [0.2.0]
 
