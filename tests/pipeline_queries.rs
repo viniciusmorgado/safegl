@@ -183,7 +183,8 @@ fn a_query_ends_when_a_command_is_not_given_it() {
 #[test]
 fn compute_shader_invocations() {
     let display = support::build_display();
-    if !ComputeShader::is_supported(&display) {
+    // a driver below OpenGL 4.3 can have compute shaders without GLSL 4.30
+    if !ComputeShader::is_supported(&display) || !support::glsl_supported(&display, 430, 310) {
         return;
     }
     let query = match statistic(&display, PipelineStatistic::ComputeShaderInvocations) {
