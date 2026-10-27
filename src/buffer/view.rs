@@ -800,6 +800,26 @@ where
             marker: PhantomData,
         })
     }
+
+    /// Builds a slice of the element at `index`, for the operations that take a single value,
+    /// such as writing the result of a query. Returns `None` if out of range.
+    #[inline]
+    pub fn get(&self, index: usize) -> Option<BufferSlice<'a, T>>
+    where
+        T: Content,
+    {
+        if index >= self.len() {
+            return None;
+        }
+
+        Some(BufferSlice {
+            alloc: self.alloc,
+            bytes_start: self.bytes_start + index * mem::size_of::<T>(),
+            bytes_end: self.bytes_start + (index + 1) * mem::size_of::<T>(),
+            fence: self.fence,
+            marker: PhantomData,
+        })
+    }
 }
 
 impl<'a, T> BufferSlice<'a, [T]>
