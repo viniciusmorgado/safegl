@@ -248,6 +248,13 @@ Breaking changes:
   `enabled` (formerly `multisampling`), `alpha_to_coverage`, `sample_shading` and `sample_mask`:
   write `multisample: MultisampleState { alpha_to_coverage: true, ..Default::default() }`.
   `DrawError` has an `AlphaToOneNotSupported` variant at the desktop levels.
+- `ReadError` is `#[non_exhaustive]`, with the `NotSupported` and `MisalignedBlocks` variants.
+  `TextureAnyMipmap::read_box` reads a box of a level of any texture but a multisample one,
+  depth, stencil, integer and compressed (decompressed) ones included, converted to a pixel type
+  (`gl45`, `glGetTextureSubImage`; OpenGL 4.5 or `GL_ARB_get_texture_sub_image` at runtime),
+  `read_volume` a whole level into a `Texture3dDataSink`, whose `Vec<Vec<Vec<P>>>`
+  implementation reached `unimplemented!()`, and `read_compressed_box` the blocks of a box of a
+  compressed texture as they are stored (`glGetCompressedTextureSubImage`).
 - `BlitError` is `#[non_exhaustive]`, and blitting the color of an `EmptyFrameBuffer` returns
   its new `NoColorBuffer` variant instead of reaching `unimplemented!()`.
 - `TextureAnyImage::raw_clear_buffer` returns `Result<(), framebuffer::ClearBufferError>`

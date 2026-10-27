@@ -418,3 +418,96 @@ fn write_stencil() {
 
     display.assert_no_error(None);
 }
+
+/// Boxes of every kind of texture are read without framebuffers.
+#[cfg(safegl_gl45)]
+#[test]
+fn read_boxes() {
+    use safegl::ReadError;
+
+    let display = support::build_display();
+    // texel (x, y, z) is (x, y, z, 255)
+    let data: Vec<Vec<Vec<(u8, u8, u8, u8)>>> = (0..4u8)
+        .map(|z| (0..4u8).map(|y| (0..4u8).map(|x| (x, y, z, 255)).collect()).collect())
+        .collect();
+    let texture = Texture3d::with_format(
+        &display,
+        data.clone(),
+        UncompressedFloatFormat::U8U8U8U8,
+        MipmapsOption::NoMipmap,
+    )
+    .unwrap();
+    let level = texture.main_level();
+    match level.read_box::<(u8, u8, u8, u8)>((1, 2, 3), (2, 1, 1)) {
+        Err(ReadError::NotSupported) => return,
+        result => assert_eq!(result.unwrap(), vec![(1, 2, 3, 255), (2, 2, 3, 255)]),
+    }
+    let volume: Vec<Vec<Vec<(u8, u8, u8, u8)>>> = level.read_volume().unwrap();
+    assert_eq!(volume, data);
+    assert!(matches!(
+        level.read_box::<(u8, u8, u8, u8)>((3, 0, 0), (2, 1, 1)),
+        Err(ReadError::OutOfBounds)
+    ));
+
+    // depth and integer textures, which framebuffers read only partly on OpenGL ES
+    let depth = DepthTexture2d::empty(&display, 2, 2).unwrap();
+    depth
+        .main_level()
+        .write(rect(0, 0, 2, 2), vec![vec![0.25f32, 0.75]; 2])
+        .unwrap();
+    let depths = depth.main_level().read_box::<f32>((0, 0, 0), (2, 1, 1)).unwrap();
+    // stored as 24-bit normalized integers
+    assert!((depths[0] - 0.25).abs() < 1e-6 && (depths[1] - 0.75).abs() < 1e-6);
+    let texels = vec![vec![(1u8, 2u8, 3u8, 4u8); 2]; 2];
+    let unsigned = UnsignedTexture2d::new(&display, texels).unwrap();
+    let texels = unsigned
+        .main_level()
+        .read_box::<(u8, u8, u8, u8)>((1, 1, 0), (1, 1, 1))
+        .unwrap();
+    assert_eq!(texels, vec![(1, 2, 3, 4)]);
+
+    display.assert_no_error(None);
+}
+
+/// The blocks of compressed textures are read as they are stored.
+#[cfg(safegl_gl45)]
+#[test]
+fn read_compressed_boxes() {
+    use safegl::texture::{CompressedFormat, CompressedMipmapsOption, CompressedTexture2d};
+    use safegl::ReadError;
+
+    let display = support::build_display();
+    if support::is_gles(&display) {
+        return;
+    }
+    // a 6 × 6 texture in RGTC1 has 2 × 2 blocks of 8 bytes, each filled with its index
+    let blocks: Vec<u8> = (0..4u8).flat_map(|block| [block; 8]).collect();
+    let texture = CompressedTexture2d::with_compressed_data(
+        &display,
+        &blocks,
+        6,
+        6,
+        CompressedFormat::RgtcFormatU,
+        CompressedMipmapsOption::NoMipmap,
+    )
+    .unwrap();
+    let level = texture.main_level();
+    match level.read_compressed_box((4, 0, 0), (2, 4, 1)) {
+        Err(ReadError::NotSupported) => return,
+        result => assert_eq!(result.unwrap(), vec![1; 8]),
+    }
+    assert_eq!(
+        level.read_compressed_box((0, 4, 0), (6, 2, 1)).unwrap(),
+        [[2; 8], [3; 8]].concat()
+    );
+    assert!(matches!(
+        level.read_compressed_box((2, 0, 0), (4, 4, 1)),
+        Err(ReadError::MisalignedBlocks)
+    ));
+    assert!(matches!(
+        level.read_compressed_box((0, 0, 0), (2, 4, 1)),
+        Err(ReadError::MisalignedBlocks)
+    ));
+
+    display.assert_no_error(None);
+}

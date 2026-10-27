@@ -196,6 +196,8 @@ mod get_format;
 #[cfg(any(safegl_gl43, safegl_gles32))]
 mod ops;
 mod parameters;
+#[cfg(safegl_gl45)]
+mod sub_image;
 #[cfg(safegl_gl43)]
 mod view;
 mod pixel;
@@ -911,9 +913,12 @@ impl<P> Texture3dDataSink<P> for Vec<Vec<Vec<P>>>
 where
     P: Copy + Clone,
 {
+    /// The slices from the first to the last, each made of its rows from the bottom.
     #[inline]
-    fn from_raw(_data: Cow<'_, [P]>, _width: u32, _height: u32, _depth: u32) -> Self {
-        unimplemented!()
+    fn from_raw(data: Cow<'_, [P]>, width: u32, height: u32, _depth: u32) -> Self {
+        data.chunks((width * height) as usize)
+            .map(|slice| slice.chunks(width as usize).map(|row| row.to_vec()).collect())
+            .collect()
     }
 }
 

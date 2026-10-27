@@ -67,7 +67,10 @@ where
 }
 
 /// Error that can happen while reading.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ReadError {
     /// The implementation doesn't support converting to the requested output format.
     ///
@@ -102,6 +105,14 @@ pub enum ReadError {
     /// The pixel buffer to read into belongs to another context than the image. OpenGL objects
     /// can only be used with the context that created them.
     ContextMismatch,
+
+    /// Reading this way isn't supported: boxes of textures need OpenGL 4.5 or
+    /// `GL_ARB_get_texture_sub_image`, and multisample textures can't be read.
+    NotSupported,
+
+    /// The box to read from a compressed texture doesn't start on the blocks of its format, or
+    /// doesn't end on them or on the edge of the image.
+    MisalignedBlocks,
 }
 
 impl fmt::Display for ReadError {
@@ -126,6 +137,10 @@ impl fmt::Display for ReadError {
                 "The pixel buffer to read into is too small for the rectangle",
             ContextMismatch =>
                 "The pixel buffer belongs to another context than the image",
+            NotSupported =>
+                "Reading this way is not supported by the backend",
+            MisalignedBlocks =>
+                "The box to read doesn't fit the blocks of the compressed format",
         };
         fmt.write_str(desc)
     }

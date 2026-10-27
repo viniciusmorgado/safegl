@@ -71,6 +71,7 @@ extensions! {
     "GL_ARB_gpu_shader_int64" => gl_arb_gpu_shader_int64,
     "GL_ARB_internalformat_query" => gl_arb_internalformat_query,
     "GL_ARB_map_buffer_alignment" => gl_arb_map_buffer_alignment,
+    "GL_ARB_get_texture_sub_image" => gl_arb_get_texture_sub_image,
     "GL_ARB_invalidate_subdata" => gl_arb_invalidate_subdata,
     "GL_ARB_polygon_offset_clamp" => gl_arb_polygon_offset_clamp,
     "GL_ARB_program_interface_query" => gl_arb_program_interface_query,

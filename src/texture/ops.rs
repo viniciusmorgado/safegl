@@ -133,7 +133,7 @@ impl Error for TextureBarrierNotSupportedError {}
 
 /// Size of a mipmap as `glClearTexSubImage` and `glCopyImageSubData` address it: the layers of
 /// array textures and the faces of cubemaps count along the last used dimension.
-fn image_extent(mipmap: &TextureAnyMipmap<'_>) -> (u32, u32, u32) {
+pub(crate) fn image_extent(mipmap: &TextureAnyMipmap<'_>) -> (u32, u32, u32) {
     let width = mipmap.get_width();
     let height = mipmap.get_height().unwrap_or(1);
     match mipmap.get_texture().dimensions() {
@@ -148,7 +148,11 @@ fn image_extent(mipmap: &TextureAnyMipmap<'_>) -> (u32, u32, u32) {
 }
 
 /// Whether the box at `offset` of `size` fits in `extent`.
-fn fits(offset: (u32, u32, u32), size: (u32, u32, u32), extent: (u32, u32, u32)) -> bool {
+pub(crate) fn fits(
+    offset: (u32, u32, u32),
+    size: (u32, u32, u32),
+    extent: (u32, u32, u32),
+) -> bool {
     let fits = |offset: u32, size: u32, extent: u32| {
         offset.checked_add(size).is_some_and(|end| end <= extent)
     };
