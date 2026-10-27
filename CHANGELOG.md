@@ -442,6 +442,10 @@ Fixes:
   callback read past them.
 - `Context::insert_debug_marker` works on OpenGL ES 3.0 and 3.1 with `GL_KHR_debug`, instead of
   returning `Err` there.
+- `debug::TimestampQuery::get` and `is_ready` unbind the query buffer first: after a query wrote to
+  a buffer, they made OpenGL write the timestamp in that buffer and returned 0.
+- `is_ready` returns `true` for a query that never began, whose result `get` returns at once,
+  instead of `false` forever.
 
 ## [0.2.0]
 

@@ -316,8 +316,9 @@ impl RawQuery {
         let mut ctxt = self.context.make_current();
         self.deactivate(&mut ctxt);
 
+        // the result of a query that never began is 0, which `get` returns at once
         if !self.has_been_used.get() {
-            return false;
+            return true;
         }
 
         #[cfg(safegl_gl44)]

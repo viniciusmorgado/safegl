@@ -342,8 +342,11 @@ impl TimestampQuery {
             return false;
         }
 
-        let ctxt = self.context.make_current();
-
+        #[cfg_attr(not(safegl_gl44), allow(unused_mut))]
+        let mut ctxt = self.context.make_current();
+        // with a query buffer bound, OpenGL would take the destination as an offset in it
+        #[cfg(safegl_gl44)]
+        <crate::buffer::Buffer<u8> as crate::BufferExt>::unbind_query(&mut ctxt);
         if ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_disjoint_timer_query {
             unsafe {
                 ctxt.glow
@@ -365,8 +368,11 @@ impl TimestampQuery {
             return Err(QueryResultError::ContextLost);
         }
 
-        let ctxt = self.context.make_current();
-
+        #[cfg_attr(not(safegl_gl44), allow(unused_mut))]
+        let mut ctxt = self.context.make_current();
+        // with a query buffer bound, OpenGL would take the destination as an offset in it
+        #[cfg(safegl_gl44)]
+        <crate::buffer::Buffer<u8> as crate::BufferExt>::unbind_query(&mut ctxt);
         if ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_disjoint_timer_query {
             unsafe {
                 Ok(ctxt
