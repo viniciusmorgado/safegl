@@ -458,7 +458,7 @@ fn unused_query_to_buffer() {
 }
 
 /// Draws the fullscreen red quad on a 1024x1024 texture with `parameters`.
-#[cfg(safegl_desktop)]
+#[cfg(safegl_gl44)]
 fn draw_quad(display: &support::WindowDisplay, parameters: &safegl::DrawParameters<'_>) {
     let (vb, ib, program) = support::build_fullscreen_red_pipeline(display);
     let texture = support::build_renderable_texture(display);
