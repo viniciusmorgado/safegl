@@ -429,6 +429,10 @@ Additions:
 
 Fixes:
 
+- The color of the fragment output at location n is attached at `GL_COLOR_ATTACHMENTn`. A
+  `MultiOutputFrameBuffer` whose outputs weren't listed in the order of their locations made
+  `glDrawBuffers` fail on OpenGL ES, which only accepts `GL_COLOR_ATTACHMENTn` or `GL_NONE` as the
+  n-th draw buffer, and drew nothing.
 - Dual-source blending (the `*SourceOne*` factors of `LinearBlendingFactor`) returns
   `DrawError::DualSourceBlendingNotSupported` on OpenGL ES without `GL_EXT_blend_func_extended`
   and on WebGL, and `DrawError::DualSourceBlendingTooManyDrawBuffers` when the framebuffer has

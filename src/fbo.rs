@@ -1226,8 +1226,13 @@ impl FramebuffersContainer {
             FramebufferTarget::Attachments(attachments) => {
                 let raw = &attachments.raw;
                 if which.color {
-                    // `FrameBufferObject::new` attaches the n-th color at `COLOR_ATTACHMENTn`
-                    list.extend((0..raw.color.len() as u32).map(|i| gl::COLOR_ATTACHMENT0 + i));
+                    // `FrameBufferObject::new` attaches the color of location n at
+                    // `COLOR_ATTACHMENTn`
+                    list.extend(
+                        raw.color
+                            .iter()
+                            .map(|&(location, _)| gl::COLOR_ATTACHMENT0 + location),
+                    );
                 }
                 if which.depth && raw.depth.is_some() {
                     list.push(gl::DEPTH_ATTACHMENT);
@@ -1476,28 +1481,21 @@ impl FrameBufferObject {
             }
         }
 
-        // attaching the attachments, and building the list of enums to pass to `glDrawBuffers`
+        // attaching the attachments, and building the list of enums to pass to `glDrawBuffers`:
+        // the color written by the output at location `n` goes to `GL_COLOR_ATTACHMENTn`, since
+        // OpenGL ES only accepts `GL_COLOR_ATTACHMENTn` or `GL_NONE` as the n-th draw buffer
         let mut raw_attachments = Vec::with_capacity(attachments.color.len());
-        for (attachment_pos, &(pos_in_drawbuffers, atchmnt)) in attachments.color.iter().enumerate()
-        {
-            if attachment_pos >= ctxt.capabilities.max_color_attachments as usize {
+        for &(location, atchmnt) in attachments.color.iter() {
+            if location >= ctxt.capabilities.max_color_attachments as u32 {
                 panic!("Trying to attach a color buffer to slot {}, but the hardware only supports {} bind points",
-                    attachment_pos, ctxt.capabilities.max_color_attachments);
+                    location, ctxt.capabilities.max_color_attachments);
             }
-            unsafe {
-                attach(
-                    &mut ctxt,
-                    gl::COLOR_ATTACHMENT0 + attachment_pos as u32,
-                    id,
-                    atchmnt,
-                )
-            };
+            unsafe { attach(&mut ctxt, gl::COLOR_ATTACHMENT0 + location, id, atchmnt) };
 
-            while raw_attachments.len() <= pos_in_drawbuffers as usize {
+            while raw_attachments.len() <= location as usize {
                 raw_attachments.push(gl::NONE);
             }
-            raw_attachments[pos_in_drawbuffers as usize] =
-                gl::COLOR_ATTACHMENT0 + attachment_pos as u32;
+            raw_attachments[location as usize] = gl::COLOR_ATTACHMENT0 + location;
         }
         if let Some(depth) = attachments.depth {
             unsafe { attach(&mut ctxt, gl::DEPTH_ATTACHMENT, id, depth) };

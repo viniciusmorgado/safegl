@@ -550,3 +550,58 @@ fn empty_framebuffer_simple_draw() {
 
     display.assert_no_error(None);
 }
+
+/// The outputs can be listed in any order: each color is written by the output of its name,
+/// whatever its location. OpenGL ES only accepts the color attachment n as the draw buffer n.
+#[test]
+fn multioutput_in_another_order() {
+    use safegl::framebuffer::MultiOutputFrameBuffer;
+
+    let display = support::build_display();
+    let program = safegl::program!(&display,
+        330 => {
+            vertex: "#version 330 core
+                in vec2 position;
+                void main() { gl_Position = vec4(position, 0.0, 1.0); }",
+            fragment: "#version 330 core
+                layout(location = 0) out vec4 first;
+                layout(location = 1) out vec4 second;
+                void main() {
+                    first = vec4(1.0, 0.0, 0.0, 1.0);
+                    second = vec4(0.0, 1.0, 0.0, 1.0);
+                }",
+        },
+        300 es => {
+            vertex: "#version 300 es
+                in vec2 position;
+                void main() { gl_Position = vec4(position, 0.0, 1.0); }",
+            fragment: "#version 300 es
+                precision mediump float;
+                layout(location = 0) out vec4 first;
+                layout(location = 1) out vec4 second;
+                void main() {
+                    first = vec4(1.0, 0.0, 0.0, 1.0);
+                    second = vec4(0.0, 1.0, 0.0, 1.0);
+                }",
+        },
+    )
+    .unwrap();
+    let (vb, ib) = support::build_rectangle_vb_ib(&display);
+    let first = safegl::Texture2d::empty(&display, 4, 4).unwrap();
+    let second = safegl::Texture2d::empty(&display, 4, 4).unwrap();
+    let mut framebuffer =
+        MultiOutputFrameBuffer::new(&display, [("second", &second), ("first", &first)]).unwrap();
+    framebuffer.clear_color(0.0, 0.0, 0.0, 0.0);
+    framebuffer
+        .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &Default::default())
+        .unwrap();
+
+    let read = |texture: &safegl::Texture2d| {
+        let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
+        data[2][2]
+    };
+    assert_eq!(read(&first), (255, 0, 0, 255));
+    assert_eq!(read(&second), (0, 255, 0, 255));
+
+    display.assert_no_error(None);
+}
