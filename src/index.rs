@@ -32,7 +32,7 @@ Multidraw indirect is core in OpenGL 4.3, so it requires the `gl46` Cargo featur
 
 */
 use crate::gl;
-use crate::version::Api;
+use crate::version::{Api, Version};
 use crate::CapabilitiesSource;
 use crate::ToGlEnum;
 
@@ -223,10 +223,20 @@ impl PrimitiveType {
             | &PrimitiveType::LineStripAdjacency
             | &PrimitiveType::TrianglesListAdjacency
             | &PrimitiveType::TriangleStripAdjacency => {
-                caps.get_version().0 == Api::Gl || caps.get_extensions().gl_ext_geometry_shader
+                // geometry shaders are core in OpenGL 3.2 and OpenGL ES 3.2
+                caps.get_version().0 == Api::Gl
+                    || caps.get_version() >= &Version(Api::GlEs, 3, 2)
+                    || caps.get_extensions().gl_ext_geometry_shader
+                    || caps.get_extensions().gl_oes_geometry_shader
             }
 
-            &PrimitiveType::Patches { .. } => caps.get_version().0 == Api::Gl,
+            // tessellation is core in OpenGL 4.0 and OpenGL ES 3.2
+            &PrimitiveType::Patches { .. } => {
+                caps.get_version().0 == Api::Gl
+                    || caps.get_version() >= &Version(Api::GlEs, 3, 2)
+                    || caps.get_extensions().gl_ext_tessellation_shader
+                    || caps.get_extensions().gl_oes_tessellation_shader
+            }
         }
     }
 }

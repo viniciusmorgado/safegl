@@ -252,6 +252,9 @@ Fixes:
   `GL_ARB_vertex_attrib_64bit`, instead of being accepted by every desktop context. Fixed-point
   attributes (`FixedFloatI16U16`) and program binaries require OpenGL 4.1 or one of
   `GL_ARB_ES2_compatibility` / `GL_ARB_get_program_binary` on desktop OpenGL.
+- On OpenGL ES 3.2, or with the geometry shader and tessellation extensions, index buffers of
+  adjacency primitives and patches are accepted, and tessellation shaders are created with
+  `GL_EXT_tessellation_shader` too: only `GL_OES_tessellation_shader` was checked.
 
 ## [0.2.0]
 

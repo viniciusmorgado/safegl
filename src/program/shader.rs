@@ -183,8 +183,6 @@ where
         gl::GEOMETRY_SHADER => {
             if ctxt.get_version().0 != Api::Gl
                 && !(ctxt.get_version() >= &Version(Api::GlEs, 3, 2))
-                && !ctxt.get_extensions().gl_arb_geometry_shader4
-                && !ctxt.get_extensions().gl_ext_geometry_shader4
                 && !ctxt.get_extensions().gl_ext_geometry_shader
                 && !ctxt.get_extensions().gl_oes_geometry_shader
             {
@@ -194,7 +192,7 @@ where
         gl::TESS_CONTROL_SHADER | gl::TESS_EVALUATION_SHADER => {
             if ctxt.get_version().0 != Api::Gl
                 && !(ctxt.get_version() >= &Version(Api::GlEs, 3, 2))
-                && !ctxt.get_extensions().gl_arb_tessellation_shader
+                && !ctxt.get_extensions().gl_ext_tessellation_shader
                 && !ctxt.get_extensions().gl_oes_tessellation_shader
             {
                 return false;
