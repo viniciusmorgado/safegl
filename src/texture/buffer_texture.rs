@@ -81,6 +81,8 @@ use crate::BufferExt;
 
 use crate::uniforms::AsUniformValue;
 use crate::uniforms::UniformValue;
+#[cfg(any(safegl_gl42, safegl_gles32))]
+use crate::uniforms::{ImageUnitAccess, ImageUnitBehavior, ImageUnitError, ImageUnitFormat};
 
 /// Error that can happen while building the texture part of a buffer texture.
 ///
@@ -666,6 +668,58 @@ where
     pub fn range(&self) -> Range<usize> {
         self.range.clone()
     }
+
+    /// Builds a marker that binds the buffer texture to an image unit, which `imageBuffer`,
+    /// `iimageBuffer` and `uimageBuffer` uniforms read and write with `imageLoad`,
+    /// `imageStore` and the image atomic functions.
+    ///
+    /// `format` must have the size of the elements of the buffer, or
+    /// `ImageUnitError::BadFormatClass` is returned. Shader writes to the buffer are made visible
+    /// to the later uses of the buffer, like those of storage buffers.
+    #[cfg(any(safegl_gl42, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_gles32))))]
+    pub fn image_unit(
+        &self,
+        format: ImageUnitFormat,
+    ) -> Result<BufferImageUnit<'_>, ImageUnitError> {
+        let bits = mem::size_of::<T>() * 8;
+        if bits != format.get_total_bits() {
+            return Err(ImageUnitError::BadFormatClass(bits, format.get_total_bits()));
+        }
+        Ok(BufferImageUnit {
+            texture: self.as_buffer_texture_ref(),
+            behavior: ImageUnitBehavior {
+                format,
+                ..Default::default()
+            },
+        })
+    }
+}
+
+/// A buffer texture bound to an image unit. See `BufferTexture::image_unit`.
+#[cfg(any(safegl_gl42, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_gles32))))]
+#[derive(Copy, Clone)]
+pub struct BufferImageUnit<'a> {
+    texture: BufferTextureRef<'a>,
+    behavior: ImageUnitBehavior,
+}
+
+#[cfg(any(safegl_gl42, safegl_gles32))]
+impl<'a> BufferImageUnit<'a> {
+    /// Sets how the shader accesses the image. By default it reads and writes it.
+    pub fn set_access(mut self, access: ImageUnitAccess) -> BufferImageUnit<'a> {
+        self.behavior.access = access;
+        self
+    }
+}
+
+#[cfg(any(safegl_gl42, safegl_gles32))]
+impl<'a> AsUniformValue for BufferImageUnit<'a> {
+    #[inline]
+    fn as_uniform_value(&self) -> UniformValue<'_> {
+        UniformValue::BufferImage(self.texture, self.behavior)
+    }
 }
 
 impl<T> AsUniformValue for BufferTexture<T>
@@ -736,9 +790,14 @@ impl<'a> TextureExt for BufferTextureRef<'a> {
     }
 
     fn prepare_for_access(&self, ctxt: &mut CommandContext<'_>, access_type: crate::TextureAccess) {
-        // buffer textures can only be sampled, not used as images or attachments
-        if let crate::TextureAccess::TextureFetch = access_type {
-            self.buffer.prepare_for_texture_fetch(ctxt);
+        // buffer textures are sampled or bound to image units, never attached to framebuffers
+        match access_type {
+            crate::TextureAccess::TextureFetch => self.buffer.prepare_for_texture_fetch(ctxt),
+            #[cfg(any(safegl_gl42, safegl_gles32))]
+            crate::TextureAccess::ImageUnit { will_write } => {
+                self.buffer.prepare_for_image_access(ctxt, will_write)
+            }
+            _ => (),
         }
     }
 }

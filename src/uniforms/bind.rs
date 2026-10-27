@@ -587,6 +587,8 @@ where
         UniformValue::Texture(texture, _) => Some(TextureExt::get_context(texture)),
         #[cfg(any(safegl_desktop, safegl_gles32))]
         UniformValue::BufferTexture(ref texture) => Some(TextureExt::get_context(texture)),
+        #[cfg(any(safegl_gl42, safegl_gles32))]
+        UniformValue::BufferImage(ref texture, _) => Some(TextureExt::get_context(texture)),
         #[cfg(any(safegl_gl42, safegl_gles31))]
         UniformValue::Image(texture, _) => Some(TextureExt::get_context(texture)),
         _ => None,
@@ -832,6 +834,16 @@ where
         UniformValue::Image(texture, unit) => bind_image_uniform(
             ctxt,
             texture,
+            unit,
+            uniform,
+            program,
+            image_unit_bind_points,
+            name,
+        ),
+        #[cfg(any(safegl_gl42, safegl_gles32))]
+        UniformValue::BufferImage(texture, unit) => bind_image_uniform(
+            ctxt,
+            &texture,
             unit,
             uniform,
             program,

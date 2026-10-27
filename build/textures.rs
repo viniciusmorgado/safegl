@@ -715,13 +715,16 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         }
     }
 
-    // Generate implementations of image_unit
-    if (ty == TextureType::Regular || ty == TextureType::Integral || ty == TextureType::Unsigned)
-        && (dimensions != TextureDimensions::Texture2dMultisample
-            && dimensions != TextureDimensions::Texture2dMultisampleArray)
-    {
+    // Generate implementations of image_unit: multisample images (`image2DMS`) only exist on
+    // desktop OpenGL
+    if ty == TextureType::Regular || ty == TextureType::Integral || ty == TextureType::Unsigned {
+        let gate = if dimensions.is_multisample() {
+            "safegl_gl42"
+        } else {
+            "any(safegl_gl42, safegl_gles31)"
+        };
         writeln!(dest, "
-                    #[cfg(any(safegl_gl42, safegl_gles31))]
+                    #[cfg({gate})]
                     impl<'a> AsUniformValue for ImageUnit<'a, {myname}> {{
                         #[inline]
                         fn as_uniform_value(&self) -> UniformValue<'_>  {{
@@ -729,17 +732,17 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                         }}
                     }}
 
-                    #[cfg(any(safegl_gl42, safegl_gles31))]
+                    #[cfg({gate})]
                     impl {myname} {{
                         /// Builds an image unit marker object that allows you to indicate how the
                         /// texture should be bound to an image unit.
-                        #[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_gles31))))]
+                        #[cfg_attr(docsrs, doc(cfg({gate})))]
                         #[inline]
                         pub fn image_unit(&self, format: ImageUnitFormat) -> Result<ImageUnit<'_, {myname}>, ImageUnitError> {{
                              ImageUnit::new(self, format)
                         }}
                     }}
-                ", myname = name).unwrap();
+                ", myname = name, gate = gate).unwrap();
     }
 
     // `ToXXXAttachment` trait impl

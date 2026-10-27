@@ -1674,6 +1674,14 @@ impl<'a> BufferAnySlice<'a> {
     pub(crate) fn prepare_for_texture_fetch(&self, ctxt: &mut CommandContext<'_>) {
         self.alloc.prepare_for_texture_fetch(ctxt);
     }
+
+    /// Calls `glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)` if a shader wrote the buffer
+    /// since the last barrier, before a buffer texture of it is bound to an image unit.
+    #[cfg(any(safegl_gl42, safegl_gles32))]
+    #[inline]
+    pub(crate) fn prepare_for_image_access(&self, ctxt: &mut CommandContext<'_>, will_write: bool) {
+        self.alloc.prepare_for_image_access(ctxt, will_write);
+    }
 }
 
 #[cfg(any(safegl_gl43, safegl_gles32))]

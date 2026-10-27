@@ -4,8 +4,11 @@ use crate::texture;
 use crate::texture::GetFormatError;
 use crate::ToGlEnum;
 
-#[derive(Debug)]
 /// Represents an error related to the use of an Image Unit
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
+#[derive(Debug)]
+#[non_exhaustive]
 pub enum ImageUnitError {
     /// The texture does not contain a mipmap at the requested level
     NoMipmapAtLevel(u32),
@@ -17,6 +20,16 @@ pub enum ImageUnitError {
     BadFormatClass(usize, usize),
     /// Error while trying to get the format of the passed texture
     GetFormat(GetFormatError),
+    /// The multisample texture has more samples than images can have
+    /// (`Limits::max_image_samples`), or multisample images aren't supported.
+    #[cfg(safegl_gl42)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl42)))]
+    TooManySamples {
+        /// The number of samples of the texture.
+        samples: u32,
+        /// The largest number of samples of images, 0 without multisample images.
+        maximum: u32,
+    },
 }
 
 impl std::fmt::Display for ImageUnitError {
@@ -37,6 +50,12 @@ impl std::fmt::Display for ImageUnitError {
                 tbits, ibits
             ),
             GetFormat(error) => write!(f, "{}", error),
+            #[cfg(safegl_gl42)]
+            TooManySamples { samples, maximum } => write!(
+                f,
+                "The texture has {} samples, but images can have {} at most",
+                samples, maximum
+            ),
         };
         Ok(())
     }
@@ -80,7 +99,24 @@ impl<'t, T: 't + core::ops::Deref<Target = crate::texture::TextureAny>> ImageUni
         texture: &'t T,
         format: ImageUnitFormat,
     ) -> Result<ImageUnit<'t, T>, ImageUnitError> {
-        let tbits = texture.get_internal_format().unwrap().get_total_bits();
+        #[cfg(safegl_gl42)]
+        if let Some(samples) = texture.get_samples() {
+            use crate::CapabilitiesSource;
+            let maximum = crate::TextureExt::get_context(&**texture)
+                .get_capabilities()
+                .limits
+                .max_image_samples
+                .unwrap_or(0)
+                .max(0) as u32;
+            if samples > maximum {
+                return Err(ImageUnitError::TooManySamples { samples, maximum });
+            }
+        }
+
+        let tbits = texture
+            .get_internal_format()
+            .map_err(ImageUnitError::GetFormat)?
+            .get_total_bits();
         if tbits != format.get_total_bits() {
             return Err(ImageUnitError::BadFormatClass(
                 tbits,
@@ -303,7 +339,7 @@ pub enum ImageUnitFormat {
 }
 
 impl ImageUnitFormat {
-    fn get_total_bits(&self) -> usize {
+    pub(crate) fn get_total_bits(&self) -> usize {
         match self {
             ImageUnitFormat::RGBA32F => 4 * 32,
             ImageUnitFormat::RGBA16F => 4 * 16,

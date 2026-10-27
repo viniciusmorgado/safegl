@@ -347,3 +347,132 @@ fn buffer_texture_range() {
 
     display.assert_no_error(None);
 }
+
+/// A program like `program`, or `None` if the context can't compile it, such as OpenGL ES
+/// contexts without images in fragment shaders.
+fn try_program(
+    display: &Display,
+    desktop: u32,
+    es: u32,
+    declarations: &str,
+    body: &str,
+) -> Option<Program> {
+    if !support::glsl_supported(display, desktop, es) {
+        return None;
+    }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        program(display, desktop, es, declarations, body)
+    }))
+    .ok()
+}
+
+/// Shaders write single samples of multisample textures through `image2DMS`.
+#[cfg(safegl_gl42)]
+#[test]
+fn multisample_images() {
+    use safegl::framebuffer::SimpleFrameBuffer;
+    use safegl::texture::{Texture2dMultisample, UncompressedFloatFormat};
+    use safegl::uniforms::{ImageUnitAccess, ImageUnitError, ImageUnitFormat};
+    use safegl::CapabilitiesSource;
+
+    let display = support::build_display();
+    if support::is_gles(&display) || !safegl::texture::is_texture_2d_multisample_supported(&display)
+    {
+        return;
+    }
+    let texture = Texture2dMultisample::empty_with_format(
+        &display,
+        UncompressedFloatFormat::U8U8U8U8,
+        safegl::texture::MipmapsOption::NoMipmap,
+        4,
+        4,
+        4,
+    )
+    .unwrap();
+    let maximum = display
+        .get_capabilities()
+        .limits
+        .max_image_samples
+        .unwrap_or(0);
+    let unit = match texture.image_unit(ImageUnitFormat::RGBA8) {
+        Ok(unit) => unit.set_access(ImageUnitAccess::Write),
+        Err(ImageUnitError::TooManySamples { samples: 4, .. }) => {
+            assert!(maximum < 4);
+            return;
+        }
+        Err(error) => panic!("{error}"),
+    };
+    let Some(write) = try_program(
+        &display,
+        430,
+        0,
+        "layout(rgba8) writeonly uniform image2DMS img;",
+        "imageStore(img, ivec2(gl_FragCoord.xy), 2, vec4(0.0, 1.0, 0.0, 1.0)); color = vec4(0.0);",
+    ) else {
+        return;
+    };
+    SimpleFrameBuffer::new(&display, &texture)
+        .unwrap()
+        .clear_color(1.0, 0.0, 0.0, 1.0);
+    draw(&display, &write, &uniform! { img: unit }).unwrap();
+
+    let read = program(
+        &display,
+        430,
+        0,
+        "uniform sampler2DMS tex;\nuniform int sample_index;",
+        "color = texelFetch(tex, ivec2(gl_FragCoord.xy), sample_index);",
+    );
+    let sample = |index: i32| {
+        draw(
+            &display,
+            &read,
+            &uniform! { tex: &texture, sample_index: index },
+        )
+        .unwrap()[1][1]
+    };
+    assert_eq!(sample(2), (0, 255, 0, 255));
+    assert_eq!(sample(0), (255, 0, 0, 255));
+
+    display.assert_no_error(None);
+}
+
+/// Shaders read and write buffer textures through `imageBuffer` uniforms.
+#[cfg(any(safegl_gl42, safegl_gles32))]
+#[test]
+fn buffer_images() {
+    use safegl::texture::buffer_texture::{BufferTexture, BufferTextureType};
+    use safegl::uniforms::{ImageUnitError, ImageUnitFormat};
+
+    let display = support::build_display();
+    let texture = match BufferTexture::new(&display, &[0u32; 4], BufferTextureType::Unsigned) {
+        Ok(texture) => texture,
+        Err(_) => return,
+    };
+    let precision = if support::is_gles(&display) {
+        "precision highp uimageBuffer;\n"
+    } else {
+        ""
+    };
+    let Some(count) = try_program(
+        &display,
+        430,
+        320,
+        &format!("{precision}layout(r32ui) uniform coherent uimageBuffer img;"),
+        "imageAtomicAdd(img, 2, 1u); color = vec4(0.0);",
+    ) else {
+        return;
+    };
+    assert!(matches!(
+        texture.image_unit(ImageUnitFormat::RGBA32UI),
+        Err(ImageUnitError::BadFormatClass(32, 128))
+    ));
+    let unit = texture.image_unit(ImageUnitFormat::R32UI).unwrap();
+    draw(&display, &count, &uniform! { img: unit }).unwrap();
+
+    // every fragment of the 4 × 4 target added 1, which a read of the buffer sees
+    let data = texture.read().unwrap();
+    assert_eq!(data, vec![0, 0, 16, 0]);
+
+    display.assert_no_error(None);
+}

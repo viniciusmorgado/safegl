@@ -248,6 +248,14 @@ Breaking changes:
   `enabled` (formerly `multisampling`), `alpha_to_coverage`, `sample_shading` and `sample_mask`:
   write `multisample: MultisampleState { alpha_to_coverage: true, ..Default::default() }`.
   `DrawError` has an `AlphaToOneNotSupported` variant at the desktop levels.
+- `UniformValue` and `uniforms::ImageUnitError` are `#[non_exhaustive]`. Multisample textures
+  can be bound to image units (`image_unit()`, `image2DMS` uniforms, `gl42`; up to
+  `Limits::max_image_samples` samples, beyond which `ImageUnitError::TooManySamples` is
+  returned), and buffer textures too (`BufferTexture::image_unit`, `BufferImageUnit`,
+  `UniformValue::BufferImage`, `imageBuffer` uniforms; `any(gl42, gles32)`), whose shader
+  writes are made visible to the later uses of the buffer. `ImageUnit::new` returns
+  `ImageUnitError::GetFormat` instead of panicking when the format of the texture can't be
+  queried.
 - `texture::buffer_texture::TextureCreationError` is `#[non_exhaustive]`, and
   `BufferTexture::from_buffer_range` builds a buffer texture that reads a range of its buffer
   (`any(gl43, gles32)`, `glTexBufferRange`; OpenGL 4.3, OpenGL ES 3.2,

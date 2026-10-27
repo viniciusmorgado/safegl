@@ -143,8 +143,11 @@ pub enum UniformType {
 }
 
 /// Represents a value to bind to a uniform.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[allow(missing_docs)]
 #[derive(Copy)]
+#[non_exhaustive]
 pub enum UniformValue<'a> {
     /// Contains a handle to the buffer, and a function that indicates whether this buffer
     /// can be bound on a block with the given layout.
@@ -278,6 +281,11 @@ pub enum UniformValue<'a> {
     #[cfg(any(safegl_gl42, safegl_gles31))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_gles31))))]
     Image(&'a texture::TextureAny, ImageUnitBehavior),
+    /// A buffer texture bound to an image unit, with how to bind it. See
+    /// `BufferTexture::image_unit`.
+    #[cfg(any(safegl_gl42, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_gles32))))]
+    BufferImage(texture::buffer_texture::BufferTextureRef<'a>, ImageUnitBehavior),
 }
 
 /// Keeps the value that a uniform has in the program, instead of giving it a new one: the value
@@ -439,6 +447,16 @@ impl<'a> UniformValue<'a> {
             }
             #[cfg(any(safegl_gl42, safegl_gles31))]
             (&UniformValue::Image(texture, _), ty) => image_types(texture).contains(&ty),
+            #[cfg(any(safegl_gl42, safegl_gles32))]
+            (&UniformValue::BufferImage(texture, _), ty) => {
+                use crate::texture::buffer_texture::BufferTextureType;
+                let expected = match texture.get_texture_type() {
+                    BufferTextureType::Float => UniformType::ImageBuffer,
+                    BufferTextureType::Integral => UniformType::IImageBuffer,
+                    BufferTextureType::Unsigned => UniformType::UImageBuffer,
+                };
+                ty == expected
+            }
             _ => false,
         }
     }

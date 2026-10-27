@@ -331,6 +331,22 @@ local cases = {
   { "gles30_has_etc2", { "gles30" }, nil, [[
     pub const F: safegl::texture::CompressedFormat = safegl::texture::CompressedFormat::Etc2Rgba8Eac;
   ]] },
+  { "gl42_has_multisample_images", { "gl42" }, nil, [[
+    pub fn f(t: &safegl::texture::Texture2dMultisample) -> bool {
+        t.image_unit(safegl::uniforms::ImageUnitFormat::RGBA8).is_ok()
+    }
+  ]] },
+  { "gles32_has_no_multisample_images", { "gles32" }, "image_unit", [[
+    pub fn f(t: &safegl::texture::Texture2dMultisample) -> bool {
+        t.image_unit(safegl::uniforms::ImageUnitFormat::RGBA8).is_ok()
+    }
+  ]] },
+  { "gles32_has_buffer_images", { "gles32" }, nil, [[
+    pub use safegl::texture::buffer_texture::BufferImageUnit;
+  ]] },
+  { "gles31_has_no_buffer_images", { "gles31" }, "BufferImageUnit", [[
+    pub use safegl::texture::buffer_texture::BufferImageUnit;
+  ]] },
   { "gles32_has_buffer_texture_ranges", { "gles32" }, nil, [[
     pub use safegl::texture::buffer_texture::TextureCreationError::RangeOutOfBounds;
   ]] },

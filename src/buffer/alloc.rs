@@ -502,6 +502,23 @@ impl Alloc {
         ctxt.state.transform_feedback_buffer_binding = Some(self.id);
     }
 
+    /// Calls `glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)` if necessary, before a buffer
+    /// texture of the buffer is bound to an image unit, and records the shader write that the
+    /// image unit may make.
+    #[cfg(any(safegl_gl42, safegl_gles32))]
+    pub fn prepare_for_image_access(&self, ctxt: &mut CommandContext<'_>, will_write: bool) {
+        self.assert_unmapped(ctxt);
+        if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_shader_image_access {
+            unsafe {
+                ctxt.glow.memory_barrier(glow::SHADER_IMAGE_ACCESS_BARRIER_BIT);
+            }
+            ctxt.state.latest_memory_barrier_shader_image_access = ctxt.state.next_draw_call_id;
+        }
+        if will_write {
+            self.latest_shader_write.set(ctxt.state.next_draw_call_id);
+        }
+    }
+
     /// Calls `glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT)` if necessary, before a buffer
     /// texture of the buffer is sampled.
     pub fn prepare_for_texture_fetch(&self, ctxt: &mut CommandContext<'_>) {
