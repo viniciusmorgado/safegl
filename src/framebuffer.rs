@@ -67,7 +67,11 @@ You can check whether they are supported by calling `EmptyFrameBuffer::is_suppor
 
 # Layered framebuffers
 
-Not yet supported
+A `LayeredFrameBuffer` attaches whole texture levels with their layers: the layers of array
+textures, the faces of cube maps and the slices of 3D textures. A geometry shader sends each
+primitive to a layer by writing `gl_Layer`, so that one draw renders into all of them, such as
+the six faces of a shadow cube map. It needs desktop OpenGL or OpenGL ES 3.2 (the `gles32`
+level), and `GL_EXT_geometry_shader` on OpenGL ES below 3.2.
 
 */
 use smallvec::SmallVec;
@@ -108,6 +112,17 @@ pub use crate::fbo::ValidationError;
 use crate::uniforms::MagnifySamplerFilter;
 
 mod default_fb;
+#[cfg(any(safegl_desktop, safegl_gles32))]
+mod layered;
+
+#[cfg(any(safegl_desktop, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+pub use self::layered::{
+    LayeredColorAttachment, LayeredDepthAttachment, LayeredDepthStencil,
+    LayeredDepthStencilAttachment, LayeredFrameBuffer, LayeredStencilAttachment,
+    ToLayeredColorAttachment, ToLayeredDepthAttachment, ToLayeredDepthStencilAttachment,
+    ToLayeredStencilAttachment,
+};
 mod external_fb;
 mod render_buffer;
 
@@ -657,6 +672,28 @@ impl<'a> Surface for SimpleFrameBuffer<'a> {
             filter.to_glenum(),
         )
     }
+
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    fn blit_buffers_from_layered_framebuffer(
+        &self,
+        source: &crate::framebuffer::LayeredFrameBuffer<'_>,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
 }
 
 impl<'a> FboAttachments for SimpleFrameBuffer<'a> {
@@ -1143,6 +1180,28 @@ impl<'a> Surface for MultiOutputFrameBuffer<'a> {
             filter.to_glenum(),
         )
     }
+
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    fn blit_buffers_from_layered_framebuffer(
+        &self,
+        source: &crate::framebuffer::LayeredFrameBuffer<'_>,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
 }
 
 impl<'a> FboAttachments for MultiOutputFrameBuffer<'a> {
@@ -1440,6 +1499,28 @@ impl Surface for EmptyFrameBuffer {
     fn blit_buffers_from_external_framebuffer(
         &self,
         source: &ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
+
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    fn blit_buffers_from_layered_framebuffer(
+        &self,
+        source: &crate::framebuffer::LayeredFrameBuffer<'_>,
         source_rect: &Rect,
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,

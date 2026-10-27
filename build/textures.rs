@@ -2065,6 +2065,41 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         }
     }
 
+    // implement the layered attachment traits for the levels of the textures with layers, and
+    // for the textures themselves, which attach their main level
+    if dimensions.is_array() || dimensions.is_cube() || dimensions == TextureDimensions::Texture3d
+    {
+        let (attachment, method) = match ty {
+            TextureType::Regular
+            | TextureType::Srgb
+            | TextureType::Integral
+            | TextureType::Unsigned => ("Color", "color"),
+            TextureType::Depth => ("Depth", "depth"),
+            TextureType::Stencil => ("Stencil", "stencil"),
+            TextureType::DepthStencil => ("DepthStencil", "depth_stencil"),
+            _ => ("", ""),
+        };
+        if !attachment.is_empty() {
+            (writeln!(dest, "
+                    #[cfg(any(safegl_desktop, safegl_gles32))]
+                    impl<'t> crate::framebuffer::ToLayered{attachment}Attachment<'t> for {name}Mipmap<'t> {{
+                        #[inline]
+                        fn to_layered_{method}_attachment(self) -> crate::framebuffer::Layered{attachment}Attachment<'t> {{
+                            crate::framebuffer::Layered{attachment}Attachment(self.0)
+                        }}
+                    }}
+
+                    #[cfg(any(safegl_desktop, safegl_gles32))]
+                    impl<'t> crate::framebuffer::ToLayered{attachment}Attachment<'t> for &'t {name} {{
+                        #[inline]
+                        fn to_layered_{method}_attachment(self) -> crate::framebuffer::Layered{attachment}Attachment<'t> {{
+                            crate::framebuffer::Layered{attachment}Attachment(self.main_level().0)
+                        }}
+                    }}
+                ", attachment = attachment, method = method, name = name)).unwrap();
+        }
+    }
+
     // closing `mod module {`
     writeln!(dest, "}}").unwrap();
 }

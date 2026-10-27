@@ -1136,6 +1136,26 @@ pub trait Surface {
         )
     }
 
+    /// Copies a rectangle of pixels from layer 0 of a layered framebuffer to this surface.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    #[inline]
+    fn blit_from_layered_framebuffer(
+        &self,
+        source: &framebuffer::LayeredFrameBuffer<'_>,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+    ) -> Result<(), BlitError> {
+        self.blit_buffers_from_layered_framebuffer(
+            source,
+            source_rect,
+            target_rect,
+            filter,
+            BlitMask::color(),
+        )
+    }
+
     /// Copies a rectangle of pixels from a framebuffer created outside SafeGL to this surface.
     #[inline]
     fn blit_from_external_framebuffer(
@@ -1191,6 +1211,24 @@ pub trait Surface {
     fn blit_buffers_from_external_framebuffer(
         &self,
         source: &framebuffer::ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        let _ = (source, source_rect, target_rect, filter, mask);
+        Err(BlitError::UnsupportedSource)
+    }
+
+    /// Blits from layer 0 of a layered framebuffer.
+    ///
+    /// Every surface of SafeGL implements it; the default implementation, for other surfaces,
+    /// returns `BlitError::UnsupportedSource`.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    fn blit_buffers_from_layered_framebuffer(
+        &self,
+        source: &framebuffer::LayeredFrameBuffer<'_>,
         source_rect: &Rect,
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,
@@ -2330,6 +2368,28 @@ impl Surface for Frame {
     fn blit_buffers_from_external_framebuffer(
         &self,
         source: &framebuffer::ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
+
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    fn blit_buffers_from_layered_framebuffer(
+        &self,
+        source: &framebuffer::LayeredFrameBuffer<'_>,
         source_rect: &Rect,
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,

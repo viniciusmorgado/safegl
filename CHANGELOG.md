@@ -416,6 +416,17 @@ Additions:
   scissor box, among which geometry shaders choose with `gl_ViewportIndex` (`gl41`,
   `glViewportArrayv`, `glDepthRangeArrayv`, `glScissorArrayv`, `ViewportState`; OpenGL 4.1 or
   `GL_ARB_viewport_array` at runtime). Viewports keep fractions of pixels.
+- `framebuffer::LayeredFrameBuffer` attaches whole texture levels with their layers (array
+  textures, cube maps, cube map arrays and 3D textures), into which geometry shaders send each
+  primitive with `gl_Layer`, such as the six faces of a shadow cube map in one draw
+  (`any(desktop, gles32)`, `glFramebufferTexture`; OpenGL ES 3.2 or `GL_EXT_geometry_shader` at
+  runtime). It has one color attachment, several named outputs (`with_outputs`), depth and
+  stencil attachments (`LayeredDepthStencil`) or only a depth attachment, and the layers of its
+  attachment that has the fewest (`layers`). Clears clear every layer and blits read layer 0
+  (`Surface::blit_from_layered_framebuffer`). The mipmaps of the textures with layers and the
+  textures themselves implement `ToLayeredColorAttachment` and its depth and stencil variants.
+  `ValidationError` has the `LayeredFramebuffersNotSupported` and `LayerTargetsMismatch`
+  variants: the color attachments must be textures of the same kind.
 - `sample_positions` on `SimpleFrameBuffer`, `MultiOutputFrameBuffer`, `DefaultFramebuffer`,
   `ExternalFramebuffer` and `Frame` returns where the GPU places the samples inside the pixels
   (`glGetMultisamplefv(GL_SAMPLE_POSITION)`, `any(desktop, gles31)`), or nothing if the

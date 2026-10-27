@@ -50,6 +50,15 @@ local cases = {
   { "gles30_has_transform_feedback_objects", { "gles30" }, nil, [[
     pub use safegl::vertex::{CapturedVertices, TransformFeedback};
   ]] },
+  { "gl40_has_layered_framebuffers", { "gl40" }, nil, [[
+    pub fn f<'a>(d: &impl safegl::backend::Facade, t: &'a safegl::texture::Cubemap)
+        -> Result<safegl::framebuffer::LayeredFrameBuffer<'a>, safegl::framebuffer::ValidationError> {
+        safegl::framebuffer::LayeredFrameBuffer::new(d, t)
+    }
+  ]] },
+  { "gles32_has_layered_framebuffers", { "gles32" }, nil, [[
+    pub use safegl::framebuffer::{LayeredFrameBuffer, ToLayeredDepthAttachment};
+  ]] },
   { "gl41_has_viewport_arrays", { "gl41" }, nil, [[
     pub fn f(v: &[safegl::ViewportState]) -> safegl::DrawParameters<'_> {
         safegl::DrawParameters { viewports: v, ..Default::default() }
@@ -292,6 +301,9 @@ local cases = {
     pub fn f<F: safegl::backend::Facade>(display: &F) {
         let _ = safegl::Program::from_source(display, "", "", Some(""));
     }
+  ]] },
+  { "gles31_has_no_layered_framebuffers", { "gles31" }, "LayeredFrameBuffer", [[
+    pub use safegl::framebuffer::LayeredFrameBuffer;
   ]] },
   { "gles30_has_no_sample_positions", { "gles30" }, "sample_positions", [[
     pub fn f(f: &safegl::Frame) { let _ = f.sample_positions(); }

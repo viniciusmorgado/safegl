@@ -166,6 +166,7 @@ extra_functions! {
     fn EndConditionalRender() -> ();
     fn EndConditionalRenderNV() -> ();
     fn FramebufferParameteri(target: GLenum, pname: GLenum, param: GLint) -> ();
+    fn FramebufferTextureEXT(target: GLenum, attachment: GLenum, texture: GLuint, level: GLint) -> ();
     fn GetActiveAtomicCounterBufferiv(program: GLuint, bufferIndex: GLuint, pname: GLenum, params: *mut GLint) -> ();
     fn GetActiveSubroutineName(program: GLuint, shadertype: GLenum, index: GLuint, bufsize: GLsizei, length: *mut GLsizei, name: *mut GLchar) -> ();
     fn GetActiveSubroutineUniformName(program: GLuint, shadertype: GLenum, index: GLuint, bufsize: GLsizei, length: *mut GLsizei, name: *mut GLchar) -> ();

@@ -127,15 +127,38 @@ impl<'a> RegularAttachment<'a> {
     }
 }
 
-/// Describes a single layered framebuffer attachment.
+/// Describes a single layered framebuffer attachment: a whole level of a texture with layers.
 #[derive(Copy, Clone)]
-pub struct LayeredAttachment<'a>(TextureAnyMipmap<'a>);
+pub struct LayeredAttachment<'a>(pub(crate) TextureAnyMipmap<'a>);
 
 impl<'a> LayeredAttachment<'a> {
     /// Returns true if the attachment was created by `context`.
     fn belongs_to(&self, context: &Context) -> bool {
         std::ptr::eq(&**TextureExt::get_context(self.0.get_texture()), context)
     }
+
+    /// Returns the number of layers of the attachment: the faces of cube maps are layers, and
+    /// so are the slices of 3D textures.
+    fn layers(&self) -> u32 {
+        use crate::texture::Dimensions;
+
+        match self.0.get_texture().get_texture_type() {
+            Dimensions::Texture1dArray { array_size, .. }
+            | Dimensions::Texture2dArray { array_size, .. }
+            | Dimensions::Texture2dMultisampleArray { array_size, .. } => array_size,
+            Dimensions::Cubemap { .. } => 6,
+            Dimensions::CubemapArray { array_size, .. } => 6 * array_size,
+            _ => self.0.get_depth().unwrap_or(1),
+        }
+    }
+}
+
+/// Returns true if the backend can attach whole textures with layers to framebuffers
+/// (`glFramebufferTexture`, core in OpenGL 3.2 and OpenGL ES 3.2).
+pub fn is_layered_supported(ctxt: &CommandContext<'_>) -> bool {
+    ctxt.version.0 == Api::Gl
+        || ctxt.version >= &Version(Api::GlEs, 3, 2)
+        || ctxt.extensions.gl_ext_geometry_shader
 }
 
 impl<T> FramebufferSpecificAttachments<T> {
@@ -329,7 +352,39 @@ impl<'a> FramebufferAttachments<'a> {
     ) -> Result<ValidatedAttachments<'a>, ValidationError> {
         let context: &Context = ctxt.context;
 
-        // TODO: make sure that all attachments are layered
+        if !is_layered_supported(ctxt) {
+            return Err(ValidationError::LayeredFramebuffersNotSupported);
+        }
+
+        // the color attachments must all be textures of the same kind
+        let mut targets = colors
+            .iter()
+            .map(|(_, attachment)| attachment.0.get_texture().get_bind_point());
+        if let Some(first) = targets.next() {
+            if targets.any(|target| target != first) {
+                return Err(ValidationError::LayerTargetsMismatch);
+            }
+        }
+
+        // the framebuffer has the layers of the attachment that has the fewest
+        let mut layers: Option<u32> = None;
+        {
+            let mut count = |attachment: &LayeredAttachment<'a>| {
+                let count = attachment.layers();
+                layers = Some(layers.map_or(count, |layers| layers.min(count)));
+            };
+            colors.iter().for_each(|(_, attachment)| count(attachment));
+            match depth_stencil {
+                DepthStencilAttachments::None => (),
+                DepthStencilAttachments::DepthAttachment(ref a)
+                | DepthStencilAttachments::StencilAttachment(ref a)
+                | DepthStencilAttachments::DepthStencilAttachment(ref a) => count(a),
+                DepthStencilAttachments::DepthAndStencilAttachments(ref a, ref b) => {
+                    count(a);
+                    count(b);
+                }
+            }
+        }
 
         macro_rules! handle_tex {
             ($tex:ident, $dim:ident, $samples:ident, $num_bits:ident) => {{
@@ -457,7 +512,7 @@ impl<'a> FramebufferAttachments<'a> {
             raw: raw_attachments,
             color_kinds,
             dimensions,
-            layers: None, // FIXME: count layers
+            layers,
             depth_buffer_bits: depth_bits,
             stencil_buffer_bits: stencil_bits,
             textures: Vec::new(),
@@ -708,6 +763,12 @@ impl<'a> ValidatedAttachments<'a> {
         self.layers.is_some()
     }
 
+    /// Returns the number of layers of a layered framebuffer.
+    #[inline]
+    pub fn get_layers(&self) -> Option<u32> {
+        self.layers
+    }
+
     /// Returns the dimensions that the framebuffer will have if you use these attachments.
     #[inline]
     pub fn get_dimensions(&self) -> (u32, u32) {
@@ -769,6 +830,14 @@ pub enum ValidationError {
     /// An attachment belongs to another context than the framebuffer. OpenGL objects can only be
     /// used with the context that created them.
     ContextMismatch,
+
+    /// Whole textures with layers can't be attached: OpenGL ES 3.2 or `GL_EXT_geometry_shader`
+    /// is needed.
+    LayeredFramebuffersNotSupported,
+
+    /// The layered color attachments aren't all textures of the same kind, such as 2D array
+    /// textures, cube maps or 3D textures.
+    LayerTargetsMismatch,
 }
 
 impl fmt::Display for ValidationError {
@@ -790,6 +859,8 @@ impl fmt::Display for ValidationError {
             }
             Incomplete { .. } => "OpenGL doesn't support this combination of attachments",
             ContextMismatch => "An attachment belongs to another context than the framebuffer",
+            LayeredFramebuffersNotSupported => "Layered framebuffers are not supported",
+            LayerTargetsMismatch => "The layered color attachments are textures of different kinds",
         };
         match self {
             TooManyColorAttachments {
@@ -1674,6 +1745,32 @@ pub unsafe fn bind_framebuffer(
 ///
 /// All parameters must be valid.
 ///
+/// Attaches a whole texture level with its layers on OpenGL ES, where `glFramebufferTexture` is
+/// core in OpenGL ES 3.2 and `glFramebufferTextureEXT` comes with `GL_EXT_geometry_shader`.
+/// `validate_layered` checked that one of them exists.
+unsafe fn attach_layered_es(
+    ctxt: &mut CommandContext<'_>,
+    slot: gl::types::GLenum,
+    id: glow::Framebuffer,
+    texture: glow::Texture,
+    level: u32,
+) {
+    use crate::handles::RawName;
+
+    bind_framebuffer(ctxt, Some(id), true, true);
+    if ctxt.version >= &Version(Api::GlEs, 3, 2) {
+        ctxt.glow
+            .framebuffer_texture(glow::FRAMEBUFFER, slot, Some(texture), level as gl::types::GLint);
+    } else {
+        ctxt.extra.FramebufferTextureEXT(
+            gl::FRAMEBUFFER,
+            slot,
+            texture.raw_name(),
+            level as gl::types::GLint,
+        );
+    }
+}
+
 unsafe fn attach(
     ctxt: &mut CommandContext<'_>,
     slot: gl::types::GLenum,
@@ -1825,8 +1922,7 @@ unsafe fn attach(
                             level as gl::types::GLint,
                         );
                     } else {
-                        // note that this should have been detected earlier
-                        panic!("Layered framebuffers are not supported");
+                        attach_layered_es(ctxt, slot, id, tex_id, level);
                     }
                 }
 
@@ -1876,8 +1972,7 @@ unsafe fn attach(
                             level as gl::types::GLint,
                         );
                     } else {
-                        // note that this should have been detected earlier
-                        panic!("Layered framebuffers are not supported");
+                        attach_layered_es(ctxt, slot, id, tex_id, level);
                     }
                 }
 
