@@ -309,6 +309,25 @@ Breaking changes:
 - `DrawError` is `#[non_exhaustive]`: matches on it need a wildcard arm. It has the new variants
   `LogicOpNotSupported`, `LogicOpWithBlending` and `PointCoordOriginNotSupported` at the desktop
   levels, and `DualSourceBlendingNotSupported` and `DualSourceBlendingTooManyDrawBuffers`.
+- `program::Attribute` is `#[non_exhaustive]`, with a `component` field: the first component of
+  its location that an attribute declared with `layout(component = N)` reads.
+- `ProgramCreationInput::SourceCode` has a `locations` field, the `program::LinkLocations` given
+  to the linker, which `locations: Default::default()` leaves empty, as before.
+  `ProgramCreationError` is `#[non_exhaustive]`, with the variants
+  `InvalidLinkLocation`, `LinkLocationsNotSupported`, `InvalidSpirvModule`,
+  `ProgramPipelinesNotSupported` and `NoShader`.
+- `program::SpirvEntryPoint` has a `specialization` field, the values of the specialization
+  constants of the module: build it with `SpirvEntryPoint::new(binary, entry_point)`.
+  `SpirvProgram` loses `transform_feedback_varyings` and its builder method, since SPIR-V
+  modules capture with `xfb_buffer` and `xfb_offset`. The resources of programs linked from
+  SPIR-V are reflected from their modules (see the additions): uniform blocks are named after
+  their block, like `Factors`, where some drivers named them after the instance too.
+- `Surface::draw` and `TransformFeedback::new` take `impl Into<program::DrawProgram>`, which
+  `&Program` and `&ProgramPipeline` convert into: callers are unchanged, implementations of
+  `Surface` outside SafeGL change their signature.
+- Two members of a vertex format with the same location return
+  `DrawError::AttributeProvidedTwice` instead of panicking, and `DrawError` has the new variants
+  `AttributeComponentsMismatch` and `IncompleteProgram`.
 
 Additions:
 
@@ -534,6 +553,36 @@ Additions:
 - `Program::get_frag_data_index` returns the index of a fragment output, 1 for the second color
   output of dual-source blending (`glGetFragDataIndex`), and `Limits::max_dual_source_draw_buffers`
   exists at every level, `Some` on OpenGL ES with `GL_EXT_blend_func_extended`.
+- Uniform arrays take slices, arrays and vectors of values (`uniforms::UniformArray`,
+  `UniformValue::Array`): `uniform! { weights: &[0.25f32, 0.5, 0.25], textures: &[&a, &b] }`.
+  Element `i` is given to `name[i]`, so the elements can be samplers, images, blocks of an array
+  of blocks or arrays themselves, for arrays of arrays. `Keep` keeps every element of an array.
+- Attributes that share a location with `layout(component = N)` (OpenGL 4.4 or
+  `GL_ARB_enhanced_layouts`) are given together: by members of the same vertex placed like the
+  components that they read, by one member with the location of the attributes, or by constant
+  attributes of the same kind. Members that can't feed them return
+  `DrawError::AttributeComponentsMismatch`.
+- `program::LinkLocations` gives locations to attributes (`glBindAttribLocation`) and locations
+  and indices to fragment outputs (`glBindFragDataLocationIndexed`, with
+  `GL_EXT_blend_func_extended` on OpenGL ES) before linking. The outputs without a location take
+  the free ones in their declaration order, on OpenGL ES too once some are given.
+- SPIR-V modules are read by SafeGL, which checks them, their entry point for the stage of the
+  shader and the values of their specialization constants before OpenGL sees them
+  (`SpirvEntryPoint::specialized`, `program::SpecializationConstant`). Since drivers can leave
+  out the names of the modules, the resources of SPIR-V programs are reflected from the program
+  interface queries with the names and block layouts of the modules, and also named after their
+  locations and bindings: `location=N` for uniforms, attributes and fragment outputs, and
+  `binding=N` for blocks and atomic counters. Stripped modules work, with the members of their
+  blocks named after their indices. `ProgramCreationInput` converts from `SpirvProgram`.
+- `Capabilities::spirv_extensions` lists the SPIR-V extensions that modules can use
+  (`GL_SPIR_V_EXTENSIONS`).
+- `program::SeparableProgram` links the shaders of one or several stages to be used in program
+  pipelines (`GL_PROGRAM_SEPARABLE`), from GLSL (`SeparableSource`, `from_source`) or SPIR-V
+  (`from_spirv`), and `program::ProgramPipeline` combines them (`glUseProgramStages`), validated
+  when it is built (`ProgramPipelineCreationError`). Pipelines are drawn with like programs: the
+  uniforms of the draw are given to every program, which share the units of textures, buffers
+  and images, their subroutine uniforms are set once the pipeline is bound, transform feedback
+  captures the last stage before rasterization, and the fragment program gives the outputs.
 
 Fixes:
 
@@ -720,6 +769,15 @@ Fixes:
   now wait for their barrier before the CPU reads them.
 - `restore_state` restores `GL_PRIMITIVE_RESTART_FIXED_INDEX` on OpenGL 4.0 to 4.2 with
   `GL_ARB_ES3_compatibility`, where SafeGL uses it.
+- Programs that don't write `gl_PointSize` disable `GL_PROGRAM_POINT_SIZE` again after a program
+  that writes it, where they kept it and drew points of an undefined size.
+- The resources of programs linked from SPIR-V on drivers that drop the names of the modules,
+  like Mesa, were all named with the empty string and overwrote each other: only one uniform,
+  block or attribute was left.
+- A SPIR-V entry point name with a nul character returns an error instead of panicking, and the
+  shader objects of SPIR-V modules that fail to compile are deleted.
+- Subroutine uniforms are reflected for programs with a single shader when it isn't a compute
+  shader.
 
 ## [0.2.0]
 
