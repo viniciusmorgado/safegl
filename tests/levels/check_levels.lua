@@ -85,6 +85,9 @@ local cases = {
   { "gl45_has_cull_limit", { "gl45" }, nil, [[
     pub fn f(l: &safegl::Limits) -> Option<i32> { l.max_cull_distances }
   ]] },
+  { "gles30_has_cull_limit", { "gles30" }, nil, [[
+    pub fn f(l: &safegl::Limits) -> Option<i32> { l.max_cull_distances }
+  ]] },
   { "gles31_has_compute_limits", { "gles31" }, nil, [[
     pub fn f(l: &safegl::Limits) -> Option<i32> {
         let _ = l.max_compute_work_group_size;

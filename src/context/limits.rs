@@ -216,15 +216,15 @@ pub struct Limits {
 
     /// Number of cull distances (`GL_MAX_CULL_DISTANCES`). `None` without OpenGL 4.5,
     /// `GL_ARB_cull_distance` or `GL_EXT_clip_cull_distance`.
-    #[cfg(safegl_gl45)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
+    #[cfg(any(safegl_gl45, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_gles30))))]
     pub max_cull_distances: Option<gl::types::GLint>,
 
     /// Number of clip and cull distances used together
     /// (`GL_MAX_COMBINED_CLIP_AND_CULL_DISTANCES`). `None` without OpenGL 4.5,
     /// `GL_ARB_cull_distance` or `GL_EXT_clip_cull_distance`.
-    #[cfg(safegl_gl45)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
+    #[cfg(any(safegl_gl45, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_gles30))))]
     pub max_combined_clip_and_cull_distances: Option<gl::types::GLint>,
 
     /// Smallest and largest size of points (`GL_POINT_SIZE_RANGE` on desktop OpenGL,
@@ -681,7 +681,7 @@ pub unsafe fn get_limits(
     let debug = version >= &Version(Api::Gl, 4, 3)
         || version >= &Version(Api::GlEs, 3, 2)
         || extensions.gl_khr_debug;
-    #[cfg(safegl_gl45)]
+    #[cfg(any(safegl_gl45, safegl_gles30))]
     let cull_distance = version >= &Version(Api::Gl, 4, 5)
         || extensions.gl_arb_cull_distance
         || extensions.gl_ext_clip_cull_distance;
@@ -928,9 +928,9 @@ pub unsafe fn get_limits(
             desktop || extensions.gl_ext_clip_cull_distance,
             gl::MAX_CLIP_DISTANCES,
         ),
-        #[cfg(safegl_gl45)]
+        #[cfg(any(safegl_gl45, safegl_gles30))]
         max_cull_distances: optional(cull_distance, gl::MAX_CULL_DISTANCES),
-        #[cfg(safegl_gl45)]
+        #[cfg(any(safegl_gl45, safegl_gles30))]
         max_combined_clip_and_cull_distances: optional(
             cull_distance,
             gl::MAX_COMBINED_CLIP_AND_CULL_DISTANCES,

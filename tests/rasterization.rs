@@ -640,3 +640,72 @@ fn sample_positions() {
 
     display.assert_no_error(None);
 }
+
+/// A triangle is culled when one of its cull distances is negative at all of its vertices.
+#[cfg(any(safegl_gl45, safegl_gles30))]
+#[test]
+fn cull_distances() {
+    let display = support::build_display();
+    if display.get_capabilities().limits.max_cull_distances.is_none() {
+        return;
+    }
+    let vertex = "
+        in vec2 position;
+        uniform float first;
+        uniform float others;
+        void main() {
+            gl_Position = vec4(position, 0.0, 1.0);
+            gl_CullDistance[0] = gl_VertexID == 0 ? first : others;
+        }";
+    let program = program!(&display,
+        450 => {
+            vertex: &format!("#version 450 core\n{vertex}"),
+            fragment: "#version 450 core
+                out vec4 color;
+                void main() { color = vec4(1.0); }",
+        },
+        400 => {
+            vertex: &format!(
+                "#version 400 core\n#extension GL_ARB_cull_distance : require\n{vertex}"
+            ),
+            fragment: "#version 400 core
+                out vec4 color;
+                void main() { color = vec4(1.0); }",
+        },
+        300 es => {
+            vertex: &format!(
+                "#version 300 es\n#extension GL_EXT_clip_cull_distance : require\n{vertex}"
+            ),
+            fragment: "#version 300 es
+                precision mediump float;
+                out vec4 color;
+                void main() { color = vec4(1.0); }",
+        },
+    )
+    .unwrap();
+    let triangle = fullscreen_triangle(&display, false);
+    let drawn = |first: f32, others: f32| {
+        let target = Texture2d::empty(&display, 4, 4).unwrap();
+        target.as_surface().clear_color(0.0, 0.0, 0.0, 1.0);
+        target
+            .as_surface()
+            .draw(
+                &triangle,
+                NoIndices(PrimitiveType::TrianglesList),
+                &program,
+                &uniform! { first: first, others: others },
+                &Default::default(),
+            )
+            .unwrap();
+        let data: Vec<Vec<(u8, u8, u8, u8)>> = target.read().unwrap();
+        data[0][0] != BLACK
+    };
+
+    assert!(drawn(1.0, 1.0));
+    assert!(!drawn(-1.0, -1.0));
+    // unlike a clip distance, a cull distance negative at some of the vertices cuts nothing
+    assert!(drawn(-1.0, 1.0));
+    assert!(drawn(1.0, -1.0));
+
+    display.assert_no_error(None);
+}

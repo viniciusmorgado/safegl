@@ -412,6 +412,9 @@ Additions:
   `ExternalFramebuffer` and `Frame` returns where the GPU places the samples inside the pixels
   (`glGetMultisamplefv(GL_SAMPLE_POSITION)`, `any(desktop, gles31)`), or nothing if the
   framebuffer isn't multisampled.
+- `Limits::max_cull_distances` and `max_combined_clip_and_cull_distances` exist at the OpenGL ES
+  levels too, `Some` with `GL_EXT_clip_cull_distance`, under which shaders write
+  `gl_CullDistance`.
 - `Program::get_frag_data_index` returns the index of a fragment output, 1 for the second color
   output of dual-source blending (`glGetFragDataIndex`), and `Limits::max_dual_source_draw_buffers`
   exists at every level, `Some` on OpenGL ES with `GL_EXT_blend_func_extended`.

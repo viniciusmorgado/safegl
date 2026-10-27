@@ -339,7 +339,7 @@ fn viewport_limits() {
     display.assert_no_error(None);
 }
 
-#[cfg(safegl_gl45)]
+#[cfg(any(safegl_gl45, safegl_gles30))]
 #[test]
 fn cull_distance_limits() {
     let display = support::build_display();
