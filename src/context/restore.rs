@@ -277,6 +277,12 @@ unsafe fn restore_fixed_function(ctxt: &mut CommandContext<'_>) {
     if desktop {
         ctxt.extra.PointSize(state.point_size);
         ctxt.extra.LogicOp(state.logic_op);
+        ctxt.extra.PointParameteri(
+            gl::POINT_SPRITE_COORD_ORIGIN,
+            state.point_coord_origin as gl::types::GLint,
+        );
+        ctxt.extra
+            .PointParameterf(gl::POINT_FADE_THRESHOLD_SIZE, state.point_fade_threshold);
         ctxt.glow
             .polygon_mode(gl::FRONT_AND_BACK, state.polygon_mode);
         ctxt.glow.hint(gl::LINE_SMOOTH_HINT, state.smooth.0);

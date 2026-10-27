@@ -162,6 +162,9 @@ pub use crate::draw_parameters::OutputState;
 pub use crate::draw_parameters::LogicOp;
 #[cfg(safegl_desktop)]
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+pub use crate::draw_parameters::PointCoordOrigin;
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub use crate::draw_parameters::PolygonMode;
 #[cfg(safegl_desktop)]
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
@@ -1622,6 +1625,12 @@ pub enum DrawError {
     #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     AlphaToOneNotSupported,
 
+    /// `DrawParameters::point_coord_origin` is `LowerLeft` while drawing into an OpenGL ES
+    /// context, where it is always `UpperLeft`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    PointCoordOriginNotSupported,
+
     /// Logic operations (`DrawParameters::logic_op`) aren't supported by the backend: only
     /// desktop OpenGL has them.
     #[cfg(safegl_desktop)]
@@ -1898,6 +1907,9 @@ impl fmt::Display for DrawError {
                 "Dual-source blending is not supported by the backend",
             DualSourceBlendingTooManyDrawBuffers =>
                 "Dual-source blending is used with too many draw buffers",
+            #[cfg(safegl_desktop)]
+            PointCoordOriginNotSupported =>
+                "The lower left origin of point coordinates is not supported by the backend",
             #[cfg(safegl_desktop)]
             LogicOpNotSupported => "Logic operations are not supported by the backend",
             #[cfg(safegl_desktop)]

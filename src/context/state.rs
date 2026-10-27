@@ -288,6 +288,12 @@ pub struct GlState {
     /// The latest value passed to `glPointSize`.
     pub point_size: gl::types::GLfloat,
 
+    /// The latest value of `GL_POINT_SPRITE_COORD_ORIGIN`.
+    pub point_coord_origin: gl::types::GLenum,
+
+    /// The latest value of `GL_POINT_FADE_THRESHOLD_SIZE`.
+    pub point_fade_threshold: gl::types::GLfloat,
+
     /// The latest value passed to `glCullFace`.
     pub cull_face: gl::types::GLenum,
 
@@ -568,6 +574,8 @@ impl Default for GlState {
             scissor: None,
             line_width: 1.0,
             point_size: 1.0,
+            point_coord_origin: gl::UPPER_LEFT,
+            point_fade_threshold: 1.0,
             cull_face: gl::BACK,
             front_face: gl::CCW,
             logic_op: gl::COPY,

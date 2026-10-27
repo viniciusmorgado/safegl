@@ -146,10 +146,12 @@ local cases = {
         }
     }
   ]], WASM },
-  { "gl40_has_logic_ops_and_alpha_to_one", { "gl40" }, nil, [[
+  { "gl40_has_logic_ops_points_and_alpha_to_one", { "gl40" }, nil, [[
     pub fn f() -> safegl::DrawParameters<'static> {
         safegl::DrawParameters {
             logic_op: Some(safegl::LogicOp::Xor),
+            point_coord_origin: safegl::PointCoordOrigin::LowerLeft,
+            point_fade_threshold: 2.0,
             multisample: safegl::draw_parameters::MultisampleState {
                 alpha_to_one: true,
                 ..Default::default()
@@ -291,6 +293,9 @@ local cases = {
     pub fn f() -> safegl::DrawParameters<'static> {
         safegl::DrawParameters { logic_op: None, ..Default::default() }
     }
+  ]] },
+  { "gles32_has_no_point_coord_origin", { "gles32" }, "PointCoordOrigin", [[
+    pub use safegl::PointCoordOrigin;
   ]] },
   { "gles32_has_no_alpha_to_one", { "gles32" }, "no field named `alpha_to_one`", [[
     pub fn f() -> safegl::draw_parameters::MultisampleState {

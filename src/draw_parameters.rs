@@ -223,6 +223,20 @@ impl ToGlEnum for PolygonMode {
     }
 }
 
+/// The corner of points where `gl_PointCoord` is `(0, 0)`. See
+/// `DrawParameters::point_coord_origin`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+pub enum PointCoordOrigin {
+    /// The upper left corner, so `gl_PointCoord.y` grows downwards. This is the default, and the
+    /// only origin of OpenGL ES.
+    #[default]
+    UpperLeft,
+    /// The lower left corner, so `gl_PointCoord.y` grows upwards like window coordinates.
+    LowerLeft,
+}
+
 /// A bitwise operation between the color that a fragment writes (`s`) and the color already in
 /// the target (`d`). See `DrawParameters::logic_op`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -424,6 +438,23 @@ pub struct DrawParameters<'a> {
     #[cfg(safegl_desktop)]
     #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     pub point_size: Option<f32>,
+
+    /// The corner of points where `gl_PointCoord` is `(0, 0)` (`GL_POINT_SPRITE_COORD_ORIGIN`).
+    /// Default value is `PointCoordOrigin::UpperLeft`.
+    ///
+    /// OpenGL ES always uses the upper left corner: `LowerLeft` returns
+    /// `DrawError::PointCoordOriginNotSupported` when drawing into an OpenGL ES context.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    pub point_coord_origin: PointCoordOrigin,
+
+    /// The size in pixels under which multisampled points fade instead of getting smaller
+    /// (`GL_POINT_FADE_THRESHOLD_SIZE`). Default value is `1.0`; negative values count as 0.
+    ///
+    /// Ignored on OpenGL ES, which doesn't fade points.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    pub point_fade_threshold: f32,
 
     /// If the bit corresponding to 2^i is 1 in the bitmask, then GL_CLIP_DISTANCEi is enabled.
     ///
@@ -1006,6 +1037,10 @@ impl<'a> Default for DrawParameters<'a> {
             line_width: None,
             #[cfg(safegl_desktop)]
             point_size: None,
+            #[cfg(safegl_desktop)]
+            point_coord_origin: PointCoordOrigin::UpperLeft,
+            #[cfg(safegl_desktop)]
+            point_fade_threshold: 1.0,
             backface_culling: BackfaceCullingMode::CullingDisabled,
             front_face: FrontFace::CounterClockwise,
             #[cfg(safegl_desktop)]
@@ -1096,6 +1131,12 @@ pub fn sync(
     sync_line_width(ctxt, draw_parameters.line_width)?;
     #[cfg(safegl_desktop)]
     sync_point_size(ctxt, draw_parameters.point_size);
+    #[cfg(safegl_desktop)]
+    sync_point_parameters(
+        ctxt,
+        draw_parameters.point_coord_origin,
+        draw_parameters.point_fade_threshold,
+    )?;
     sync_front_face(ctxt, draw_parameters.front_face);
     sync_backface_culling(ctxt, draw_parameters.backface_culling, draw_parameters.front_face);
     #[cfg(safegl_desktop)]
@@ -1299,6 +1340,42 @@ fn sync_line_width(
 }
 
 #[cfg(safegl_desktop)]
+#[cfg(safegl_desktop)]
+fn sync_point_parameters(
+    ctxt: &mut context::CommandContext<'_>,
+    origin: PointCoordOrigin,
+    fade_threshold: f32,
+) -> Result<(), DrawError> {
+    if ctxt.version.0 != Api::Gl {
+        return match origin {
+            PointCoordOrigin::UpperLeft => Ok(()),
+            PointCoordOrigin::LowerLeft => Err(DrawError::PointCoordOriginNotSupported),
+        };
+    }
+
+    let origin = match origin {
+        PointCoordOrigin::UpperLeft => gl::UPPER_LEFT,
+        PointCoordOrigin::LowerLeft => gl::LOWER_LEFT,
+    };
+    if ctxt.state.point_coord_origin != origin {
+        unsafe {
+            ctxt.extra
+                .PointParameteri(gl::POINT_SPRITE_COORD_ORIGIN, origin as gl::types::GLint)
+        };
+        ctxt.state.point_coord_origin = origin;
+    }
+    // also turns NaN into 0
+    let fade_threshold = fade_threshold.max(0.0);
+    if ctxt.state.point_fade_threshold != fade_threshold {
+        unsafe {
+            ctxt.extra
+                .PointParameterf(gl::POINT_FADE_THRESHOLD_SIZE, fade_threshold)
+        };
+        ctxt.state.point_fade_threshold = fade_threshold;
+    }
+    Ok(())
+}
+
 fn sync_point_size(ctxt: &mut context::CommandContext<'_>, point_size: Option<f32>) {
     // `glPointSize` doesn't exist on OpenGL ES and WebGL, where the size of points is the value
     // that the vertex shader writes to `gl_PointSize`

@@ -403,6 +403,11 @@ Additions:
   `LogicOp`). Since OpenGL disables blending on those buffers, a logic operation with blending
   returns `DrawError::LogicOpWithBlending`, and one drawn into an OpenGL ES context
   `DrawError::LogicOpNotSupported`.
+- `DrawParameters::point_coord_origin` chooses the corner of points where `gl_PointCoord` is
+  `(0, 0)` (`desktop`, `GL_POINT_SPRITE_COORD_ORIGIN`, `PointCoordOrigin`; `LowerLeft` returns
+  `DrawError::PointCoordOriginNotSupported` in an OpenGL ES context), and
+  `DrawParameters::point_fade_threshold` the size under which multisampled points fade
+  (`GL_POINT_FADE_THRESHOLD_SIZE`).
 - `Program::get_frag_data_index` returns the index of a fragment output, 1 for the second color
   output of dual-source blending (`glGetFragDataIndex`), and `Limits::max_dual_source_draw_buffers`
   exists at every level, `Some` on OpenGL ES with `GL_EXT_blend_func_extended`.

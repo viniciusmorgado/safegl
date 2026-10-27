@@ -504,3 +504,99 @@ fn dual_source_blending_limits_the_draw_buffers() {
 
     display.assert_no_error(None);
 }
+
+/// Draws a point of 4 pixels over a target of 4 × 4 pixels with `gl_PointCoord.y` as red, and
+/// returns the red of the bottom row.
+#[cfg(safegl_desktop)]
+fn point_coord_at_bottom(
+    display: &Display,
+    parameters: &DrawParameters<'_>,
+) -> Result<u8, safegl::DrawError> {
+    let program = program!(display,
+        330 => {
+            vertex: "#version 330 core
+                in vec2 position;
+                void main() { gl_Position = vec4(position, 0.0, 1.0); }",
+            fragment: "#version 330 core
+                out vec4 color;
+                void main() { color = vec4(gl_PointCoord.y, 0.0, 0.0, 1.0); }",
+        },
+        300 es => {
+            vertex: "#version 300 es
+                in vec2 position;
+                void main() { gl_Position = vec4(position, 0.0, 1.0); gl_PointSize = 4.0; }",
+            fragment: "#version 300 es
+                precision mediump float;
+                out vec4 color;
+                void main() { color = vec4(gl_PointCoord.y, 0.0, 0.0, 1.0); }",
+        },
+    )
+    .unwrap();
+    let point = VertexBuffer::new(display, &[Vertex { position: [0.0, 0.0] }]).unwrap();
+    let target = Texture2d::empty(display, 4, 4).unwrap();
+    target.as_surface().clear_color(0.0, 0.0, 0.0, 1.0);
+    target.as_surface().draw(
+        &point,
+        NoIndices(PrimitiveType::Points),
+        &program,
+        &uniform! {},
+        &DrawParameters {
+            point_size: Some(4.0),
+            ..parameters.clone()
+        },
+    )?;
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = target.read().unwrap();
+    Ok(data[0][0].0)
+}
+
+#[cfg(safegl_desktop)]
+#[test]
+fn point_coord_origin() {
+    use safegl::PointCoordOrigin;
+
+    let display = support::build_display();
+    let with = |point_coord_origin| DrawParameters {
+        point_coord_origin,
+        ..Default::default()
+    };
+
+    // `gl_PointCoord.y` is 0.875 at the bottom from the upper left, 0.125 from the lower left
+    let upper_left = point_coord_at_bottom(&display, &with(PointCoordOrigin::UpperLeft)).unwrap();
+    assert!(upper_left > 200, "{upper_left}");
+    match point_coord_at_bottom(&display, &with(PointCoordOrigin::LowerLeft)) {
+        Ok(lower_left) => assert!(lower_left < 55, "{lower_left}"),
+        Err(safegl::DrawError::PointCoordOriginNotSupported) => assert!(support::is_gles(&display)),
+        Err(error) => panic!("{error}"),
+    }
+
+    display.assert_no_error(None);
+}
+
+#[cfg(safegl_desktop)]
+#[test]
+fn point_fade_threshold() {
+    use safegl::glow::HasContext;
+
+    let display = support::build_display();
+    if support::is_gles(&display) {
+        return;
+    }
+    let threshold = |display: &Display| unsafe {
+        display
+            .glow_context()
+            .get_parameter_f32(safegl::glow::POINT_FADE_THRESHOLD_SIZE)
+    };
+    for (value, expected) in [(4.5, 4.5), (-2.0, 0.0), (1.0, 1.0)] {
+        point_coord_at_bottom(
+            &display,
+            &DrawParameters {
+                point_fade_threshold: value,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(threshold(&display), expected);
+    }
+
+    display.assert_no_error(None);
+}
