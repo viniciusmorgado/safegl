@@ -123,6 +123,9 @@ Breaking changes:
   `Capabilities::profile` and `Context::get_opengl_profile` are removed. The minimum desktop
   version is OpenGL 4.0 instead of 4.1, and `IncompatibleOpenGl` displays why the context was
   refused.
+- SafeGL uses desktop contexts as forward-compatible ones, which have no wide lines: a
+  `line_width` above 1 pixel returns the new `DrawError::LineWidthNotSupported` on desktop
+  OpenGL, and so does a width that isn't positive everywhere. OpenGL ES still draws wider lines.
 
 Additions:
 

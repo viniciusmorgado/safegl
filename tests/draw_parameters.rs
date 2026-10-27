@@ -1594,3 +1594,32 @@ fn primitive_restart_index() {
 
     display.assert_no_error(None);
 }
+
+#[test]
+fn line_width() {
+    let display = support::build_display();
+    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+    let texture = support::build_renderable_texture(&display);
+    let draw = |width| {
+        texture.as_surface().draw(
+            &vb,
+            &ib,
+            &program,
+            &uniform! {},
+            &safegl::DrawParameters {
+                line_width: Some(width),
+                ..Default::default()
+            },
+        )
+    };
+
+    draw(1.0).unwrap();
+    assert!(matches!(draw(0.0), Err(safegl::DrawError::LineWidthNotSupported)));
+    assert!(matches!(draw(-1.0), Err(safegl::DrawError::LineWidthNotSupported)));
+    // forward-compatible desktop contexts have no wide lines
+    if !support::is_gles(&display) {
+        assert!(matches!(draw(2.0), Err(safegl::DrawError::LineWidthNotSupported)));
+    }
+
+    display.assert_no_error(None);
+}

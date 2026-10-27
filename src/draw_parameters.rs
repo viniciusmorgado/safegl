@@ -298,6 +298,10 @@ pub struct DrawParameters<'a> {
     /// Width in pixels of the lines to draw when drawing lines.
     ///
     /// `None` means "don't care". Use this when you don't draw lines.
+    ///
+    /// Desktop OpenGL only draws lines of 1 pixel: wide lines are deprecated, and removed from
+    /// forward-compatible contexts, so a width above 1 returns `DrawError::LineWidthNotSupported`.
+    /// OpenGL ES draws wider lines up to a maximum of the implementation.
     pub line_width: Option<f32>,
 
     /// Diameter in pixels of the points to draw when drawing points.
@@ -781,7 +785,7 @@ pub fn sync(
     stencil::sync_stencil(ctxt, &draw_parameters.stencil);
     blend::sync_blending(ctxt, draw_parameters.blend, draw_parameters.outputs)?;
     sync_color_mask(ctxt, draw_parameters.color_mask, draw_parameters.outputs);
-    sync_line_width(ctxt, draw_parameters.line_width);
+    sync_line_width(ctxt, draw_parameters.line_width)?;
     sync_point_size(ctxt, draw_parameters.point_size);
     sync_polygon_mode(
         ctxt,
@@ -895,8 +899,16 @@ fn sync_color_mask(
     ctxt.state.indexed_color_mask = indexed;
 }
 
-fn sync_line_width(ctxt: &mut context::CommandContext<'_>, line_width: Option<f32>) {
+fn sync_line_width(
+    ctxt: &mut context::CommandContext<'_>,
+    line_width: Option<f32>,
+) -> Result<(), DrawError> {
     if let Some(line_width) = line_width {
+        // forward-compatible desktop contexts have no wide lines
+        if !(line_width > 0.0) || (ctxt.version.0 == Api::Gl && line_width > 1.0) {
+            return Err(DrawError::LineWidthNotSupported);
+        }
+
         if ctxt.state.line_width != line_width {
             unsafe {
                 ctxt.glow.line_width(line_width);
@@ -904,6 +916,8 @@ fn sync_line_width(ctxt: &mut context::CommandContext<'_>, line_width: Option<f3
             }
         }
     }
+
+    Ok(())
 }
 
 fn sync_point_size(ctxt: &mut context::CommandContext<'_>, point_size: Option<f32>) {

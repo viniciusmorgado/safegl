@@ -1311,6 +1311,10 @@ pub enum DrawError {
     /// The depth range is outside of the `(0, 1)` range.
     InvalidDepthRange,
 
+    /// The line width isn't positive, or is above 1 pixel on desktop OpenGL, which SafeGL uses
+    /// as forward-compatible contexts do: they have no wide lines.
+    LineWidthNotSupported,
+
     /// The type of a uniform doesn't match what the program requires.
     UniformTypeMismatch {
         /// Name of the uniform you are trying to bind.
@@ -1568,6 +1572,8 @@ impl fmt::Display for DrawError {
                 "The viewport's dimensions are not supported by the backend",
             InvalidDepthRange =>
                 "The depth range is outside of the `(0, 1)` range",
+            LineWidthNotSupported =>
+                "The line width isn't positive, or is above 1 pixel on desktop OpenGL",
             UniformTypeMismatch { .. } =>
                 "The type of a uniform doesn't match what the program requires",
             UniformBufferToValue { .. } =>
