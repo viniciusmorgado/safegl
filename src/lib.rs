@@ -1351,6 +1351,12 @@ pub enum DrawError {
     /// as forward-compatible contexts do: they have no wide lines.
     LineWidthNotSupported,
 
+    /// `DrawParameters::base_instance` isn't 0, and the backend doesn't support base instances
+    /// (OpenGL 4.2 or `GL_ARB_base_instance`).
+    #[cfg(safegl_gl42)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl42)))]
+    BaseInstanceNotSupported,
+
     /// The type of a uniform doesn't match what the program requires.
     UniformTypeMismatch {
         /// Name of the uniform you are trying to bind.
@@ -1649,6 +1655,9 @@ impl fmt::Display for DrawError {
                 "The depth range is outside of the `(0, 1)` range",
             LineWidthNotSupported =>
                 "The line width isn't positive, or is above 1 pixel on desktop OpenGL",
+            #[cfg(safegl_gl42)]
+            BaseInstanceNotSupported =>
+                "The backend doesn't support drawing from a base instance",
             UniformTypeMismatch { .. } =>
                 "The type of a uniform doesn't match what the program requires",
             UniformBufferToValue { .. } =>

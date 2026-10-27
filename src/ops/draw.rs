@@ -3,6 +3,7 @@ use std::ptr;
 use glow::HasContext;
 
 use crate::BufferExt;
+use crate::CapabilitiesSource;
 use crate::BufferSliceExt;
 use crate::DrawError;
 use crate::GlObject;
@@ -48,6 +49,17 @@ where
 
     let vertices_per_patch = check_stages(context, program, indices.get_primitives_type())?;
 
+    // the base instance given in the draw parameters
+    let supports_base_instance = is_base_instance_supported(context);
+    #[cfg(safegl_gl42)]
+    let parameters_base_instance = draw_parameters.base_instance;
+    #[cfg(not(safegl_gl42))]
+    let parameters_base_instance = 0u32;
+    #[cfg(safegl_gl42)]
+    if parameters_base_instance != 0 && !supports_base_instance {
+        return Err(DrawError::BaseInstanceNotSupported);
+    }
+
     if !draw_parameters::check_queries(draw_parameters)? {
         return Ok(());
     }
@@ -63,7 +75,7 @@ where
     check_contexts(&ctxt, program, &indices, draw_parameters)?;
 
     // handling vertices source
-    let (vertices_count, instances_count, base_vertex) = {
+    let (vertices_count, instances_count, base_vertex, base_instance) = {
         let index_buffer = match indices {
             IndicesSource::IndexBuffer { buffer, .. } => Some(buffer),
             #[cfg(safegl_gl43)]
@@ -87,9 +99,24 @@ where
             }
         };
 
+        // the commands of multidraws have their own base instance
+        let use_base_instance = supports_base_instance
+            && match indices {
+                #[cfg(safegl_gl43)]
+                IndicesSource::MultidrawArray { .. } | IndicesSource::MultidrawElement { .. } => {
+                    false
+                }
+                _ => true,
+            };
+
         // object that is used to build the bindings
-        let mut binder =
-            VertexAttributesSystem::start(&mut ctxt, program, index_buffer, use_base_vertex);
+        let mut binder = VertexAttributesSystem::start(
+            &mut ctxt,
+            program,
+            index_buffer,
+            use_base_vertex,
+            use_base_instance,
+        );
         // number of vertices in the vertices sources, and whether they have different numbers
         let mut vertices_count: Option<usize> = None;
         let mut vertices_mismatch = false;
@@ -163,7 +190,13 @@ where
         } else {
             vertices_count
         };
-        (vertices_count, instances_count, binder.bind()?.unwrap_or(0))
+        let (base_vertex, base_instance) = binder.bind()?;
+        (
+            vertices_count,
+            instances_count,
+            base_vertex.unwrap_or(0),
+            base_instance + parameters_base_instance,
+        )
     };
 
     // binding the FBO to draw upon
@@ -219,7 +252,41 @@ where
                 }
 
                 unsafe {
-                    if let Some(instances_count) = instances_count {
+                    if base_instance != 0 {
+                        // a draw without per-instance buffers draws one instance
+                        let instances_count = instances_count.unwrap_or(1) as gl::types::GLsizei;
+                        let count = buffer.get_elements_count() as gl::types::GLsizei;
+                        if ctxt.version.0 == Api::Gl {
+                            ctxt.glow.draw_elements_instanced_base_vertex_base_instance(
+                                primitives.to_glenum(),
+                                count,
+                                data_type.to_glenum(),
+                                offset,
+                                instances_count,
+                                base_vertex,
+                                base_instance,
+                            );
+                        } else if base_vertex != 0 {
+                            ctxt.extra.DrawElementsInstancedBaseVertexBaseInstanceEXT(
+                                primitives.to_glenum(),
+                                count,
+                                data_type.to_glenum(),
+                                ptr as *const _,
+                                instances_count,
+                                base_vertex,
+                                base_instance,
+                            );
+                        } else {
+                            ctxt.extra.DrawElementsInstancedBaseInstanceEXT(
+                                primitives.to_glenum(),
+                                count,
+                                data_type.to_glenum(),
+                                ptr as *const _,
+                                instances_count,
+                                base_instance,
+                            );
+                        }
+                    } else if let Some(instances_count) = instances_count {
                         if base_vertex != 0 {
                             if ctxt.version.0 == Api::Gl
                                 || ctxt.version >= &Version(Api::GlEs, 3, 2)
@@ -370,7 +437,27 @@ where
                 };
 
                 unsafe {
-                    if let Some(instances_count) = instances_count {
+                    if base_instance != 0 {
+                        // a draw without per-instance buffers draws one instance
+                        let instances_count = instances_count.unwrap_or(1) as gl::types::GLsizei;
+                        if ctxt.version.0 == Api::Gl {
+                            ctxt.glow.draw_arrays_instanced_base_instance(
+                                primitives.to_glenum(),
+                                base_vertex,
+                                vertices_count as gl::types::GLsizei,
+                                instances_count,
+                                base_instance,
+                            );
+                        } else {
+                            ctxt.extra.DrawArraysInstancedBaseInstanceEXT(
+                                primitives.to_glenum(),
+                                base_vertex,
+                                vertices_count as gl::types::GLsizei,
+                                instances_count,
+                                base_instance,
+                            );
+                        }
+                    } else if let Some(instances_count) = instances_count {
                         ctxt.glow.draw_arrays_instanced(
                             primitives.to_glenum(),
                             base_vertex,
@@ -397,6 +484,17 @@ where
     }
 
     Ok(())
+}
+
+/// Returns true if draws can start from a base instance: OpenGL 4.2, `GL_ARB_base_instance`, or
+/// `GL_EXT_base_instance` on OpenGL ES.
+fn is_base_instance_supported(context: &Context) -> bool {
+    let version = context.get_opengl_version();
+    let extensions = context.get_extensions();
+    match version.0 {
+        Api::Gl => version >= &Version(Api::Gl, 4, 2) || extensions.gl_arb_base_instance,
+        Api::GlEs => extensions.gl_ext_base_instance,
+    }
 }
 
 /// Checks that the primitives fit the tessellation and geometry stages of the program, and

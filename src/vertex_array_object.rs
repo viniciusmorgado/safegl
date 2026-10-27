@@ -51,6 +51,7 @@ pub struct Binder<'a, 'b, 'c> {
     element_array_buffer: Option<BufferAnySlice<'a>>,
     vertex_buffers: SmallVec<[VertexSource; 2]>,
     base_vertex: bool,
+    base_instance: bool,
 }
 
 impl VertexAttributesSystem {
@@ -66,12 +67,15 @@ impl VertexAttributesSystem {
     ///
     /// `base_vertex` should be set to true if the backend supports the `glDraw*BaseVertex`
     /// functions. If `base_vertex` is true, then `bind` will return the base vertex to use.
+    /// Likewise, `base_instance` tells whether the draw can start from a base instance, which
+    /// `bind` returns then.
     #[inline]
     pub fn start<'a, 'b, 'c: 'b>(
         ctxt: &'b mut CommandContext<'c>,
         program: &'a Program,
         indices: Option<BufferAnySlice<'a>>,
         base_vertex: bool,
+        base_instance: bool,
     ) -> Binder<'a, 'b, 'c> {
         if let Some(indices) = indices {
             indices.prepare_for_element_array(ctxt);
@@ -83,6 +87,7 @@ impl VertexAttributesSystem {
             element_array_buffer: indices,
             vertex_buffers: SmallVec::new(),
             base_vertex,
+            base_instance,
         }
     }
 
@@ -187,9 +192,10 @@ impl<'a, 'b, 'c> Binder<'a, 'b, 'c> {
 
     /// Finish binding the vertex attributes.
     ///
-    /// If `base_vertex` was set to true, returns the base vertex to use when drawing. Returns an
-    /// error if the vertex format doesn't match the attributes of the program.
-    pub fn bind(mut self) -> Result<Option<gl::types::GLint>, DrawError> {
+    /// Returns the base vertex to use when drawing if `base_vertex` was set to true, and the base
+    /// instance, which is 0 unless `base_instance` was set to true. Returns an error if the
+    /// vertex format doesn't match the attributes of the program.
+    pub fn bind(mut self) -> Result<(Option<gl::types::GLint>, u32), DrawError> {
         let ctxt = self.context;
 
         // VAOs are core in OpenGL 3.0 and OpenGL ES 3.0
@@ -218,6 +224,27 @@ impl<'a, 'b, 'c> Binder<'a, 'b, 'c> {
             }
         }
 
+        // the base instance does the same for the per-instance buffers: OpenGL adds it to the
+        // element of every instance, whatever the divisor
+        let base_instance = if self.base_instance {
+            self.vertex_buffers
+                .iter()
+                .filter(|&&(_, _, _, _, div)| div.is_some())
+                .map(|&(_, _, off, stride, _)| off / stride)
+                .min()
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        if base_instance != 0 {
+            for &mut (_, _, ref mut off, stride, div) in self.vertex_buffers.iter_mut() {
+                if div.is_some() {
+                    *off -= base_instance * stride;
+                }
+            }
+        }
+        let base_instance = base_instance as u32;
+
         let separate_bindings = uses_vertex_bindings(ctxt, self.program, &self.vertex_buffers);
 
         let mut buffers_list: SmallVec<[_; 3]> = self
@@ -242,7 +269,7 @@ impl<'a, 'b, 'c> Binder<'a, 'b, 'c> {
             if separate_bindings {
                 value.bind_vertex_buffers(ctxt, &self.vertex_buffers);
             }
-            return Ok(base_vertex.map(|v| v as gl::types::GLint));
+            return Ok((base_vertex.map(|v| v as gl::types::GLint), base_instance));
         }
 
         // if not found, building a new one
@@ -291,7 +318,7 @@ impl<'a, 'b, 'c> Binder<'a, 'b, 'c> {
             .borrow_mut()
             .insert(key, new_vao);
 
-        Ok(base_vertex.map(|v| v as gl::types::GLint))
+        Ok((base_vertex.map(|v| v as gl::types::GLint), base_instance))
     }
 }
 

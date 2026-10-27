@@ -198,6 +198,14 @@ Breaking changes:
 
 Additions:
 
+- `DrawParameters::base_instance` (`gl42`) draws from a base instance: the per-instance
+  attributes start at this element after the start of their slices, and the shaders read it in
+  `gl_BaseInstance`. It needs OpenGL 4.2 or `GL_ARB_base_instance`, or returns the new
+  `DrawError::BaseInstanceNotSupported`; a draw without per-instance buffers draws one instance.
+- Draws from per-instance slices that don't start at the beginning of their buffers use the
+  start of the slices as base instance where the backend has base instances (OpenGL 4.2,
+  `GL_ARB_base_instance` or, on OpenGL ES, `GL_EXT_base_instance`), like per-vertex slices use a
+  base vertex, instead of binding the buffers at other offsets.
 - With OpenGL 4.3, OpenGL ES 3.1 or `GL_ARB_vertex_attrib_binding`, vertex array objects set the
   formats of the attributes once and bind their vertex buffers with `glBindVertexBuffer`, so that
   drawing from other offsets of the same buffers reuses them and only binds the buffers again,

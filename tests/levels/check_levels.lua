@@ -24,6 +24,11 @@ local cases = {
   { "gl42_has_image_units", { "gl42" }, nil, [[
     pub use safegl::uniforms::ImageUnitFormat;
   ]] },
+  { "gl42_has_base_instances", { "gl42" }, nil, [[
+    pub fn f() -> safegl::DrawParameters<'static> {
+        safegl::DrawParameters { base_instance: 1, ..Default::default() }
+    }
+  ]] },
   { "gl43_has_compute_shaders", { "gl43" }, nil, [[
     pub use safegl::program::ComputeShader;
   ]] },
@@ -66,6 +71,11 @@ local cases = {
   ]] },
   { "gl41_has_no_image_units", { "gl41" }, "ImageUnitFormat", [[
     pub use safegl::uniforms::ImageUnitFormat;
+  ]] },
+  { "gl41_has_no_base_instances", { "gl41" }, "no field named `base_instance`", [[
+    pub fn f() -> safegl::DrawParameters<'static> {
+        safegl::DrawParameters { base_instance: 1, ..Default::default() }
+    }
   ]] },
   { "gl41_has_no_compute_shaders", { "gl41" }, "ComputeShader", [[
     pub use safegl::program::ComputeShader;

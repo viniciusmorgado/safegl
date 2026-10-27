@@ -553,6 +553,19 @@ pub struct DrawParameters<'a> {
     #[cfg(safegl_gl45)]
     #[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
     pub clip_control_depth: ClipControlDepth,
+
+    /// Index of the first instance of the draw. The default value is 0.
+    ///
+    /// The per-instance attributes start at this element of their buffers (added to the
+    /// start of their slices), and the shader reads it in `gl_BaseInstance` (OpenGL 4.6 or
+    /// `GL_ARB_shader_draw_parameters`), while `gl_InstanceID` still starts at 0. A draw without
+    /// per-instance buffers draws one instance.
+    ///
+    /// Needs OpenGL 4.2 or `GL_ARB_base_instance`, otherwise a value other than 0 returns
+    /// `DrawError::BaseInstanceNotSupported`.
+    #[cfg(safegl_gl42)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl42)))]
+    pub base_instance: u32,
 }
 
 /// Blending and color mask of one output of the fragment shader. See `DrawParameters::outputs`.
@@ -849,6 +862,8 @@ impl<'a> Default for DrawParameters<'a> {
             clip_control_origin: ClipControlOrigin::LowerLeft,
             #[cfg(safegl_gl45)]
             clip_control_depth: ClipControlDepth::NegativeOneToOne,
+            #[cfg(safegl_gl42)]
+            base_instance: 0,
         }
     }
 }

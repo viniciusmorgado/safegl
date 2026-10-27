@@ -47,6 +47,7 @@ macro_rules! extensions {
 extensions! {
     "GL_AMD_depth_clamp_separate" => gl_amd_depth_clamp_separate,
     "GL_AMD_query_buffer_object" => gl_amd_query_buffer_object,
+    "GL_ARB_base_instance" => gl_arb_base_instance,
     "GL_ARB_bindless_texture" => gl_arb_bindless_texture,
     "GL_ARB_buffer_storage" => gl_arb_buffer_storage,
     "GL_ARB_clear_texture" => gl_arb_clear_texture,
@@ -83,6 +84,7 @@ extensions! {
     "GL_ARB_vertex_attrib_binding" => gl_arb_vertex_attrib_binding,
     "GL_ARB_vertex_type_10f_11f_11f_rev" => gl_arb_vertex_type_10f_11f_11f_rev,
     "GL_ATI_meminfo" => gl_ati_meminfo,
+    "GL_EXT_base_instance" => gl_ext_base_instance,
     "GL_EXT_buffer_storage" => gl_ext_buffer_storage,
     "GL_EXT_clear_texture" => gl_ext_clear_texture,
     "GL_EXT_clip_cull_distance" => gl_ext_clip_cull_distance,
