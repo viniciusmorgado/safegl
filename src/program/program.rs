@@ -480,6 +480,39 @@ impl Program {
     }
 }
 
+/// Enables `GL_PROGRAM_POINT_SIZE` for the programs that write `gl_PointSize` and disables it for
+/// the others, and converts the colors that the programs write to sRGB targets unless they
+/// output sRGB themselves.
+pub(crate) fn apply_output_state(
+    ctxt: &mut CommandContext<'_>,
+    uses_point_size: bool,
+    outputs_srgb: bool,
+) {
+    // compatibility was checked at program creation
+    if ctxt.version.0 == Api::Gl && ctxt.state.enabled_program_point_size != uses_point_size {
+        ctxt.state.enabled_program_point_size = uses_point_size;
+        unsafe {
+            if uses_point_size {
+                ctxt.glow.enable(glow::PROGRAM_POINT_SIZE);
+            } else {
+                ctxt.glow.disable(glow::PROGRAM_POINT_SIZE);
+            }
+        }
+    }
+
+    if (ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_srgb_write_control)
+        && ctxt.state.enabled_framebuffer_srgb == outputs_srgb
+    {
+        ctxt.state.enabled_framebuffer_srgb = !outputs_srgb;
+
+        if outputs_srgb {
+            unsafe { ctxt.glow.disable(glow::FRAMEBUFFER_SRGB) };
+        } else {
+            unsafe { ctxt.glow.enable(glow::FRAMEBUFFER_SRGB) };
+        }
+    }
+}
+
 impl fmt::Debug for Program {
     #[inline]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -515,31 +548,7 @@ impl ProgramExt for Program {
     }
 
     fn use_program(&self, ctxt: &mut CommandContext<'_>) {
-        // compatibility was checked at program creation
-        if ctxt.version.0 == Api::Gl {
-            if self.uses_point_size && !ctxt.state.enabled_program_point_size {
-                unsafe {
-                    ctxt.glow.enable(glow::PROGRAM_POINT_SIZE);
-                }
-            } else if !self.uses_point_size && ctxt.state.enabled_program_point_size {
-                unsafe {
-                    ctxt.glow.disable(glow::PROGRAM_POINT_SIZE);
-                }
-            }
-        }
-
-        if (ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_srgb_write_control)
-            && ctxt.state.enabled_framebuffer_srgb == self.outputs_srgb
-        {
-            ctxt.state.enabled_framebuffer_srgb = !self.outputs_srgb;
-
-            if self.outputs_srgb {
-                unsafe { ctxt.glow.disable(glow::FRAMEBUFFER_SRGB) };
-            } else {
-                unsafe { ctxt.glow.enable(glow::FRAMEBUFFER_SRGB) };
-            }
-        }
-
+        apply_output_state(ctxt, self.uses_point_size, self.outputs_srgb);
         self.raw.use_program(ctxt)
     }
 

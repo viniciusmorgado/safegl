@@ -709,3 +709,63 @@ fn cull_distances() {
 
     display.assert_no_error(None);
 }
+
+/// Draws a point at the center of an 8x8 target with `program`, and returns the number of
+/// pixels that it covers.
+fn point_pixels(display: &Display, program: &Program) -> usize {
+    let target = Texture2d::empty(display, 8, 8).unwrap();
+    target.as_surface().clear_color(0.0, 0.0, 0.0, 1.0);
+    let point = VertexBuffer::new(display, &[Vertex { position: [0.0, 0.0] }]).unwrap();
+    target
+        .as_surface()
+        .draw(
+            &point,
+            NoIndices(PrimitiveType::Points),
+            program,
+            &uniform! {},
+            &Default::default(),
+        )
+        .unwrap();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = target.read().unwrap();
+    data.iter().flatten().filter(|pixel| pixel.1 == 255).count()
+}
+
+#[test]
+fn program_point_size_follows_the_program() {
+    let display = support::build_display();
+    if support::is_gles(&display) {
+        // OpenGL ES always takes the size of points from the shader
+        return;
+    }
+    let program = |size: &str, uses_point_size| {
+        Program::new(
+            &display,
+            safegl::program::ProgramCreationInput::SourceCode {
+                vertex_shader: &format!(
+                    "#version 330 core\nin vec2 position;\n\
+                     void main() {{ {size} gl_Position = vec4(position, 0.0, 1.0); }}"
+                ),
+                fragment_shader: "#version 330 core\nout vec4 color;\n\
+                                  void main() { color = vec4(0.0, 1.0, 0.0, 1.0); }",
+                tessellation_control_shader: None,
+                tessellation_evaluation_shader: None,
+                geometry_shader: None,
+                transform_feedback_varyings: None,
+                outputs_srgb: true,
+                uses_point_size,
+                locations: Default::default(),
+            },
+        )
+        .unwrap()
+    };
+    let large = program("gl_PointSize = 4.0;", true);
+    let fixed = program("", false);
+
+    // a program that doesn't write `gl_PointSize` draws points of the fixed size, 1, even after
+    // a program that writes it
+    assert_eq!(point_pixels(&display, &fixed), 1);
+    assert_eq!(point_pixels(&display, &large), 16);
+    assert_eq!(point_pixels(&display, &fixed), 1);
+
+    display.assert_no_error(None);
+}
