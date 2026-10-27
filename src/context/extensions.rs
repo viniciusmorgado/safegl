@@ -60,6 +60,7 @@ extensions! {
     "GL_ARB_clear_buffer_object" => gl_arb_clear_buffer_object,
     "GL_ARB_direct_state_access" => gl_arb_direct_state_access,
     "GL_ARB_ES2_compatibility" => gl_arb_es2_compatibility,
+    "GL_ARB_enhanced_layouts" => gl_arb_enhanced_layouts,
     "GL_ARB_ES3_compatibility" => gl_arb_es3_compatibility,
     "GL_ARB_explicit_uniform_location" => gl_arb_explicit_uniform_location,
     "GL_ARB_ES3_1_compatibility" => gl_arb_es3_1_compatibility,

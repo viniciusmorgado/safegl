@@ -549,6 +549,19 @@ pub unsafe fn reflect_transform_feedback(
     ctxt: &mut CommandContext<'_>,
     program: glow::Program,
 ) -> Vec<TransformFeedbackBuffer> {
+    // with enhanced layouts, the program interface gives the buffers, offsets and strides of the
+    // varyings, including those of the `xfb_buffer`, `xfb_offset` and `xfb_stride` qualifiers;
+    // the NVIDIA driver only lists the buffers of these qualifiers there, and the varyings given
+    // when linking are reflected below
+    if ctxt.version >= &Version(Api::Gl, 4, 4)
+        || (ctxt.extensions.gl_arb_enhanced_layouts
+            && ctxt.extensions.gl_arb_program_interface_query)
+    {
+        if let Some(buffers) = reflect_transform_feedback_interface(ctxt, program) {
+            return buffers;
+        }
+    }
+
     // querying the number of varying
     let num_varyings = ctxt
         .glow
@@ -702,6 +715,111 @@ pub unsafe fn reflect_tess_eval_output_type(
 }
 
 /// Returns the list of shader storage blocks of a program.
+/// Reflects the buffers of transform feedback and their varyings through the program interface
+/// (OpenGL 4.4, or `GL_ARB_enhanced_layouts` with `GL_ARB_program_interface_query`), or returns
+/// `None` if the interface has varyings but no buffers.
+unsafe fn reflect_transform_feedback_interface(
+    ctxt: &mut CommandContext<'_>,
+    program: glow::Program,
+) -> Option<Vec<TransformFeedbackBuffer>> {
+    let count = |interface| {
+        let mut count: gl::types::GLint = 0;
+        ctxt.extra.GetProgramInterfaceiv(
+            program.raw_name(),
+            interface,
+            gl::ACTIVE_RESOURCES,
+            &mut count,
+        );
+        count.max(0) as gl::types::GLuint
+    };
+    let properties = |interface, index, properties: &[gl::types::GLenum]| {
+        let mut output: [gl::types::GLint; 5] = [0; 5];
+        ctxt.extra.GetProgramResourceiv(
+            program.raw_name(),
+            interface,
+            index,
+            properties.len() as gl::types::GLsizei,
+            properties.as_ptr(),
+            properties.len() as gl::types::GLsizei,
+            ptr::null_mut(),
+            output.as_mut_ptr(),
+        );
+        output
+    };
+
+    let varyings = count(gl::TRANSFORM_FEEDBACK_VARYING);
+    let buffers = count(gl::TRANSFORM_FEEDBACK_BUFFER);
+    if buffers == 0 && varyings != 0 {
+        return None;
+    }
+
+    let mut buffers: Vec<TransformFeedbackBuffer> = (0..buffers)
+        .map(|index| {
+            let [binding, stride, ..] = properties(
+                gl::TRANSFORM_FEEDBACK_BUFFER,
+                index,
+                &[gl::BUFFER_BINDING, gl::TRANSFORM_FEEDBACK_BUFFER_STRIDE],
+            );
+            TransformFeedbackBuffer {
+                id: binding,
+                elements: Vec::new(),
+                stride: stride as usize,
+            }
+        })
+        .collect();
+
+    for index in 0..varyings {
+        let [name_length, ty, array_size, offset, buffer] = properties(
+            gl::TRANSFORM_FEEDBACK_VARYING,
+            index,
+            &[
+                gl::NAME_LENGTH,
+                gl::TYPE,
+                gl::ARRAY_SIZE,
+                gl::OFFSET,
+                gl::TRANSFORM_FEEDBACK_BUFFER_INDEX,
+            ],
+        );
+
+        let name = {
+            let mut name: Vec<u8> = vec![0; name_length.max(1) as usize];
+            let mut length = 0;
+            ctxt.extra.GetProgramResourceName(
+                program.raw_name(),
+                gl::TRANSFORM_FEEDBACK_VARYING,
+                index,
+                name.len() as gl::types::GLsizei,
+                &mut length,
+                name.as_mut_ptr() as *mut _,
+            );
+            name.truncate(length.max(0) as usize);
+            String::from_utf8(name).unwrap()
+        };
+
+        // `gl_NextBuffer` and `gl_SkipComponents1` to `4` only move the varyings that follow
+        if name == "gl_NextBuffer" || name.starts_with("gl_SkipComponents") || buffer < 0 {
+            continue;
+        }
+        let ty = glenum_to_attribute_type(ty as gl::types::GLenum)
+            .expect("transform feedback varyings have standard types");
+        let size = array_size.max(1) as usize * ty.get_size_bytes();
+        if let Some(buffer) = buffers.get_mut(buffer as usize) {
+            buffer.elements.push(TransformFeedbackVarying {
+                name,
+                offset: offset as usize,
+                size,
+                ty,
+            });
+        }
+    }
+
+    for buffer in &mut buffers {
+        buffer.elements.sort_by_key(|element| element.offset);
+    }
+    buffers.sort_by_key(|buffer| buffer.id);
+    Some(buffers)
+}
+
 pub unsafe fn reflect_shader_storage_blocks(
     ctxt: &mut CommandContext<'_>,
     program: glow::Program,

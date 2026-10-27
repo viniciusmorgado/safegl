@@ -381,6 +381,9 @@ Additions:
   instanced at OpenGL 4.2 or with `GL_ARB_transform_feedback_instanced`): `indices(primitives)`
   for stream 0 and `stream_indices(stream, primitives)` for the others. Transform feedback
   objects are created again after `Display::rebuild`, which loses the captures.
+- Programs that place their captured varyings with the `xfb_buffer`, `xfb_offset` and `xfb_stride`
+  qualifiers (OpenGL 4.4 or `GL_ARB_enhanced_layouts`) reflect their transform feedback buffers,
+  offsets and strides, read from the program interface.
 
 Fixes:
 

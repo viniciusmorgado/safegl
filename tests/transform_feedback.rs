@@ -606,3 +606,119 @@ fn captures_lost_with_the_context() {
 
     display.assert_no_error(None);
 }
+
+/// Varyings placed by `xfb_buffer`, `xfb_offset` and `xfb_stride` in the shader (OpenGL 4.4).
+#[test]
+fn layouts_of_the_shader() {
+    let display = support::build_display();
+    if support::is_gles(&display) || !support::glsl_supported(&display, 440, 0) {
+        return;
+    }
+    let program = Program::new(
+        &display,
+        ProgramCreationInput::SourceCode {
+            vertex_shader: "#version 440\nin float index;\n\
+                            layout(xfb_buffer = 0, xfb_offset = 8) out float value;\n\
+                            layout(xfb_buffer = 1, xfb_stride = 16, xfb_offset = 4) out vec2 pair;\n\
+                            void main() { value = index * 10.0; pair = vec2(index, -index);\n\
+                            gl_Position = vec4(0.0, 0.0, 0.0, 1.0); }",
+            fragment_shader: "#version 440\nout vec4 color;\nvoid main() { color = vec4(1.0); }",
+            tessellation_control_shader: None,
+            tessellation_evaluation_shader: None,
+            geometry_shader: None,
+            transform_feedback_varyings: None,
+            outputs_srgb: false,
+            uses_point_size: false,
+        },
+    )
+    .unwrap();
+
+    #[repr(C)]
+    #[derive(Copy, Clone, Debug, PartialEq)]
+    struct First {
+        skipped: [f32; 2],
+        value: f32,
+    }
+    implement_vertex!(First, skipped, value);
+    implement_any_bit_pattern!(First, skipped, value);
+    #[repr(C)]
+    #[derive(Copy, Clone, Debug, PartialEq)]
+    struct Second {
+        before: f32,
+        pair: [f32; 2],
+        after: f32,
+    }
+    implement_vertex!(Second, before, pair, after);
+    implement_any_bit_pattern!(Second, before, pair, after);
+
+    let buffers = program.get_transform_feedback_buffers();
+    assert_eq!(buffers.len(), 2);
+    assert_eq!((buffers[0].stride, buffers[1].stride), (12, 16));
+
+    let mut first = VertexBuffer::new(
+        &display,
+        &[First {
+            skipped: [7.0; 2],
+            value: 7.0,
+        }; 2],
+    )
+    .unwrap();
+    let mut second = VertexBuffer::new(
+        &display,
+        &[Second {
+            before: 7.0,
+            pair: [7.0; 2],
+            after: 7.0,
+        }; 2],
+    )
+    .unwrap();
+    {
+        let transform_feedback = TransformFeedback::new(&display, &program)
+            .unwrap()
+            .with_buffer(&mut first)
+            .unwrap()
+            .with_buffer(&mut second)
+            .unwrap();
+        capture(
+            &display,
+            &points(&display, 2),
+            &program,
+            safegl::DrawParameters {
+                transform_feedback: Some(&transform_feedback),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+
+    assert_eq!(
+        first.read().unwrap(),
+        [
+            First {
+                skipped: [7.0; 2],
+                value: 0.0
+            },
+            First {
+                skipped: [7.0; 2],
+                value: 10.0
+            }
+        ]
+    );
+    assert_eq!(
+        second.read().unwrap(),
+        [
+            Second {
+                before: 7.0,
+                pair: [0.0, -0.0],
+                after: 7.0
+            },
+            Second {
+                before: 7.0,
+                pair: [1.0, -1.0],
+                after: 7.0
+            }
+        ]
+    );
+
+    display.assert_no_error(None);
+}
