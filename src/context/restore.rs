@@ -83,7 +83,9 @@ unsafe fn restore_capabilities(ctxt: &mut CommandContext<'_>) {
         if state.enabled_depth_clamp_near == state.enabled_depth_clamp_far {
             set(ctxt, gl::DEPTH_CLAMP, state.enabled_depth_clamp_near);
         }
+    }
 
+    if desktop || ctxt.extensions.gl_ext_clip_cull_distance {
         let max_clip_distances = ctxt.glow.get_parameter_i32(gl::MAX_CLIP_DISTANCES).max(0);
         for i in 0..max_clip_distances.min(32) as u32 {
             set(
@@ -283,7 +285,7 @@ unsafe fn restore_fixed_function(ctxt: &mut CommandContext<'_>) {
             .PrimitiveBoundingBoxEXT(bb.0, bb.1, bb.2, bb.3, bb.4, bb.5, bb.6, bb.7);
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl45)]
     if ctxt.version >= &Version(Api::Gl, 4, 5) || ctxt.extensions.gl_arb_clip_control {
         ctxt.extra
             .ClipControl(state.clip_control.0, state.clip_control.1);

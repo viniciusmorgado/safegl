@@ -2,7 +2,9 @@
 extern crate safegl;
 
 use glow::HasContext;
-use safegl::framebuffer::{ExternalFramebuffer, InvalidateAttachments, SimpleFrameBuffer};
+#[cfg(any(safegl_gl43, safegl_gles30))]
+use safegl::framebuffer::InvalidateAttachments;
+use safegl::framebuffer::{ExternalFramebuffer, SimpleFrameBuffer};
 use safegl::{GlObject, Surface, Texture2d};
 
 mod support;
@@ -78,6 +80,7 @@ fn draw_and_clear() {
     );
     assert!(matches!(result, Err(safegl::DrawError::NoDepthBuffer)));
 
+    #[cfg(any(safegl_gl43, safegl_gles30))]
     target.invalidate(InvalidateAttachments::ALL);
     display.assert_no_error(None);
 }

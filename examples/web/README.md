@@ -1,6 +1,7 @@
 # SafeGL WebGL example
 
-Draws a rotating triangle with SafeGL's `webgl` feature (the `gles30` tier) on a browser canvas.
+Draws a rotating triangle with SafeGL's `webgl` level, the OpenGL ES 3.0 API of WebGL 2, on a
+browser canvas.
 
 It is a separate crate because the main crate's examples depend on glutin, which doesn't build
 for `wasm32-unknown-unknown`.

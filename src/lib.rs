@@ -1,5 +1,5 @@
 /*!
-Easy-to-use, high-level, OpenGL3+ wrapper.
+Easy-to-use, high-level wrapper of OpenGL 4.0 to 4.6, OpenGL ES 3.0 to 3.2 and WebGL 2.
 
 SafeGL is based on glutin - a cross-platform crate for building an OpenGL window and handling
 application events.
@@ -32,6 +32,27 @@ meaning that you can't pass it to another thread.
 
 The display has ownership of both the window and context, and also provides some methods related to
 domains such as events handling.
+
+# Levels
+
+The API that SafeGL compiles is chosen with a Cargo feature per version, its level:
+
+ - desktop OpenGL, core profile: `gl40`, `gl41`, `gl42`, `gl43`, `gl44`, `gl45` and `gl46`;
+ - OpenGL ES: `gles30`, `gles31` and `gles32`;
+ - browsers: `webgl`, for WebGL 2 on `wasm32-unknown-unknown`.
+
+A level is a ceiling: the functions, types and fields of the versions above it don't compile,
+and those of its chain up to it do. At most one desktop level and one OpenGL ES level can be
+selected, to run on both; without any level, the level is `gl40`. A desktop OpenGL level gives
+the API that only exists in desktop OpenGL, and an OpenGL ES level the API that only exists in
+OpenGL ES. The documentation of an item that needs a level shows its condition: `safegl_gl43`
+means the `gl43` level or a higher one, `safegl_gles31` the `gles31` level or a higher one,
+`safegl_desktop` any desktop OpenGL level and `safegl_webgl` the `webgl` level.
+
+Whatever the level, SafeGL runs on the core profile of OpenGL 4.0 and above, and on OpenGL ES 3.0
+and above, and refuses other contexts. Extensions keep their checks at runtime, and the levels
+only remove what a version can't have. With glutin, `backend::glutin::level_context_apis` gives the
+versions to request when creating a context.
 
 # Overview
 
@@ -108,34 +129,27 @@ result to the user.
     clippy::wrong_self_convention,
 )]
 
-// macOS stops at OpenGL 4.1, so the 4.6 tier must never be compiled there.
-#[cfg(all(target_os = "macos", feature = "gl46"))]
-compile_error!(
-    "SafeGL: the `gl46` feature is not available on macOS, which supports OpenGL 4.1 at most. \
-     Use `default-features = false` and enable the `gl41` feature instead."
-);
-
-// WebGL 2 is the `gles30` tier, and the browser backend lives behind the `webgl` feature.
-#[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "gl41"))]
-compile_error!(
-    "SafeGL: WebGL 2 only supports the `gles30` tier. \
-     Use `default-features = false, features = [\"webgl\"]`."
-);
-#[cfg(all(target_arch = "wasm32", target_os = "unknown", not(feature = "webgl")))]
-compile_error!("SafeGL: building for the browser requires the `webgl` feature.");
+// the errors of the selected levels, see `build/levels.rs`
+include!(concat!(env!("OUT_DIR"), "/levels.rs"));
 
 #[cfg(feature = "glutin")]
 pub use crate::backend::glutin::glutin;
 #[cfg(feature = "simple_window_builder")]
 pub use crate::backend::winit;
-pub use crate::context::{Capabilities, ExtensionsList, Profile};
+pub use crate::context::{Capabilities, ExtensionsList};
+#[cfg(any(safegl_desktop, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+pub use crate::draw_parameters::OutputState;
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+pub use crate::draw_parameters::PolygonMode;
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub use crate::draw_parameters::Smooth;
 pub use crate::draw_parameters::{
     BackfaceCullingMode, Blend, BlendingFunction, LinearBlendingFactor,
 };
-pub use crate::draw_parameters::{
-    Depth, DepthTest, DrawParameters, OutputState, PolygonMode, StencilOperation, StencilTest,
-};
+pub use crate::draw_parameters::{Depth, DepthTest, DrawParameters, StencilOperation, StencilTest};
 pub use crate::index::IndexBuffer;
 pub use crate::ops::ReadError;
 pub use crate::program::ProgramCreationError::{
@@ -262,20 +276,25 @@ trait BufferExt {
 
     /// Makes sure that the buffer is bound to the `GL_QUERY_BUFFER` and calls
     /// `glMemoryBarrier(GL_PIXEL_BUFFER_BARRIER_BIT)` if necessary.
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl44)]
     fn prepare_and_bind_for_query(&self, _: &mut CommandContext<'_>);
 
     /// Makes sure that nothing is bound to `GL_QUERY_BUFFER`.
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl44)]
     fn unbind_query(_: &mut CommandContext<'_>);
 
     /// Makes sure that the buffer is bound to the `GL_DRAW_INDIRECT_BUFFER` and calls
     /// `glMemoryBarrier(GL_COMMAND_BARRIER_BIT)` if necessary.
     fn prepare_and_bind_for_draw_indirect(&self, _: &mut CommandContext<'_>);
 
+    /// Makes sure that the buffer is bound to the `GL_PARAMETER_BUFFER` and calls
+    /// `glMemoryBarrier(GL_COMMAND_BARRIER_BIT)` if necessary.
+    #[cfg(safegl_gl46)]
+    fn prepare_and_bind_for_parameter(&self, _: &mut CommandContext<'_>);
+
     /// Makes sure that the buffer is bound to the `GL_DISPATCH_INDIRECT_BUFFER` and calls
     /// `glMemoryBarrier(GL_COMMAND_BARRIER_BIT)` if necessary.
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     fn prepare_and_bind_for_dispatch_indirect(&self, _: &mut CommandContext<'_>);
 
     /// Makes sure that the buffer is bound to the indexed `GL_UNIFORM_BUFFER` point and calls
@@ -284,7 +303,7 @@ trait BufferExt {
 
     /// Makes sure that the buffer is bound to the indexed `GL_SHARED_STORAGE_BUFFER` point and calls
     /// `glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT)` if necessary.
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     fn prepare_and_bind_for_shared_storage(
         &self,
         _: &mut CommandContext<'_>,
@@ -293,7 +312,7 @@ trait BufferExt {
 
     /// Makes sure that the buffer is bound to the indexed `GL_ATOMIC_COUNTER_BUFFER` point and calls
     /// `glMemoryBarrier(GL_ATOMIC_COUNTER_BARRIER_BIT)` if necessary.
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl42, safegl_gles31))]
     fn prepare_and_bind_for_atomic_counter(
         &self,
         _: &mut CommandContext<'_>,
@@ -402,6 +421,7 @@ trait QueryExt {
 
     fn end_transform_feedback_primitives_written_query(ctxt: &mut CommandContext<'_>);
 
+    #[cfg(safegl_desktop)]
     fn begin_conditional_render(
         &self,
         ctxt: &mut CommandContext<'_>,
@@ -452,7 +472,7 @@ enum TextureAccess {
     /// Texture being used as a framebuffer object
     Framebuffer,
     /// Texture being cleared or copied with `glClearTexImage` or `glCopyImageSubData`
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl43, safegl_gles32))]
     Update,
 }
 
@@ -541,32 +561,53 @@ pub enum RawUniformValue {
     UnsignedIntVec4([gl::types::GLuint; 4]),
 
     // Double precision primitives
+    #[cfg(safegl_desktop)]
     Double(gl::types::GLdouble),
+    #[cfg(safegl_desktop)]
     DoubleMat2([[gl::types::GLdouble; 2]; 2]),
+    #[cfg(safegl_desktop)]
     DoubleMat3([[gl::types::GLdouble; 3]; 3]),
+    #[cfg(safegl_desktop)]
     DoubleMat4([[gl::types::GLdouble; 4]; 4]),
     /// Column-major matrix with 2 columns and 3 rows.
+    #[cfg(safegl_desktop)]
     DoubleMat2x3([[gl::types::GLdouble; 3]; 2]),
     /// Column-major matrix with 2 columns and 4 rows.
+    #[cfg(safegl_desktop)]
     DoubleMat2x4([[gl::types::GLdouble; 4]; 2]),
     /// Column-major matrix with 3 columns and 2 rows.
+    #[cfg(safegl_desktop)]
     DoubleMat3x2([[gl::types::GLdouble; 2]; 3]),
     /// Column-major matrix with 3 columns and 4 rows.
+    #[cfg(safegl_desktop)]
     DoubleMat3x4([[gl::types::GLdouble; 4]; 3]),
     /// Column-major matrix with 4 columns and 2 rows.
+    #[cfg(safegl_desktop)]
     DoubleMat4x2([[gl::types::GLdouble; 2]; 4]),
     /// Column-major matrix with 4 columns and 3 rows.
+    #[cfg(safegl_desktop)]
     DoubleMat4x3([[gl::types::GLdouble; 3]; 4]),
+    #[cfg(safegl_desktop)]
     DoubleVec2([gl::types::GLdouble; 2]),
+    #[cfg(safegl_desktop)]
     DoubleVec3([gl::types::GLdouble; 3]),
+    #[cfg(safegl_desktop)]
     DoubleVec4([gl::types::GLdouble; 4]),
+    #[cfg(safegl_desktop)]
     Int64(gl::types::GLint64),
+    #[cfg(safegl_desktop)]
     Int64Vec2([gl::types::GLint64; 2]),
+    #[cfg(safegl_desktop)]
     Int64Vec3([gl::types::GLint64; 3]),
+    #[cfg(safegl_desktop)]
     Int64Vec4([gl::types::GLint64; 4]),
+    #[cfg(safegl_desktop)]
     UnsignedInt64(gl::types::GLuint64),
+    #[cfg(safegl_desktop)]
     UnsignedInt64Vec2([gl::types::GLuint64; 2]),
+    #[cfg(safegl_desktop)]
     UnsignedInt64Vec3([gl::types::GLuint64; 3]),
+    #[cfg(safegl_desktop)]
     UnsignedInt64Vec4([gl::types::GLuint64; 4]),
 }
 
@@ -813,7 +854,7 @@ impl ToGlEnum for BlitMask {
 /// The vertex attributes that were interpolated at the previous step are passed to the fragment
 /// shader.
 ///
-/// The fragment shader must return the color to write by setting the value of `gl_FragColor`.
+/// The fragment shader returns the color to write through its output variables (`out vec4`).
 ///
 /// If the target framebuffer has multisampling enabled, then each pixel of the target image is
 /// in turn split into four subpixels. The output of the fragment shader is copied and written into
@@ -1311,6 +1352,22 @@ pub enum DrawError {
     /// The depth range is outside of the `(0, 1)` range.
     InvalidDepthRange,
 
+    /// The line width isn't positive, or is above 1 pixel on desktop OpenGL, which SafeGL uses
+    /// as forward-compatible contexts do: they have no wide lines.
+    LineWidthNotSupported,
+
+    /// `DrawParameters::base_instance` isn't 0, and the backend doesn't support base instances
+    /// (OpenGL 4.2 or `GL_ARB_base_instance`).
+    #[cfg(safegl_gl42)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl42)))]
+    BaseInstanceNotSupported,
+
+    /// A multidraw reads its number of commands from a buffer, and the backend doesn't support it
+    /// (OpenGL 4.6 or `GL_ARB_indirect_parameters`).
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    DrawCountNotSupported,
+
     /// The type of a uniform doesn't match what the program requires.
     UniformTypeMismatch {
         /// Name of the uniform you are trying to bind.
@@ -1340,12 +1397,16 @@ pub enum DrawError {
     },
 
     /// Tried to bind a subroutine uniform like a regular uniform value.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     SubroutineUniformToValue {
         /// Name of the uniform you are trying to bind.
         name: String,
     },
 
     /// Not all subroutine uniforms of a shader stage were set.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     SubroutineUniformMissing {
         /// Shader stage with missing bindings.
         stage: program::ShaderStage,
@@ -1356,6 +1417,8 @@ pub enum DrawError {
     },
 
     /// A non-existent subroutine was referenced.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     SubroutineNotFound {
         /// The stage the subroutine was searched for.
         stage: program::ShaderStage,
@@ -1364,15 +1427,23 @@ pub enum DrawError {
     },
 
     /// The number of vertices per patch that has been requested is not supported.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     UnsupportedVerticesPerPatch,
 
     /// Trying to use tessellation, but this is not supported by the underlying hardware.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     TessellationNotSupported,
 
     /// Using a program which contains tessellation shaders, but without submitting patches.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     TessellationWithoutPatches,
 
     /// Drawing patches with a program that has no tessellation evaluation shader.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     PatchesWithoutTessellation,
 
     /// The program has no active fragment output with the name of an attachment of the
@@ -1384,10 +1455,9 @@ pub enum DrawError {
     },
 
     /// The geometry shader of the program takes another kind of primitives than the ones drawn.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     GeometryShaderInputMismatch,
-
-    /// Trying to use a sampler, but they are not supported by the backend.
-    SamplersNotSupported,
 
     /// When you use instancing, all vertices sources must have the same size.
     InstancesCountMismatch,
@@ -1395,19 +1465,22 @@ pub enum DrawError {
     /// If you don't use indices, then all vertices sources must have the same size.
     VerticesSourcesLengthMismatch,
 
-    /// You requested not to draw primitives, but this is not supported by the backend.
-    TransformFeedbackNotSupported,
-
     /// See the documentation of the `draw_parameters` module for infos.
     WrongQueryOperation,
 
     /// You requested smoothing, but this is not supported by the backend.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     SmoothingNotSupported,
 
     /// The requested provoking vertex is not supported by the backend.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     ProvokingVertexNotSupported,
 
     /// Depth clamping isn't supported by the backend.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     DepthClampNotSupported,
 
     /// One of the blending parameters is not supported by the backend.
@@ -1417,50 +1490,68 @@ pub enum DrawError {
     FixedIndexRestartingNotSupported,
 
     /// Changing the clip volume definition (origin and depth mode) is not supported by the backend.
-    #[cfg(feature = "gl46")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    #[cfg(safegl_gl45)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
     ClipControlNotSupported,
 
     /// Tried to enable a clip plane that does not exist.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     ClipPlaneIndexOutOfBounds,
 
     /// Tried to sample more textures than the backend has texture units.
     InsufficientTextureUnits,
 
     /// Tried to use too many image units simultaneously
-    #[cfg(feature = "gl46")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    #[cfg(any(safegl_gl42, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_gles31))))]
     InsufficientImageUnits,
 
     /// A polygon mode other than `Fill` was requested, but the backend doesn't support it.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     PolygonModeNotSupported,
 
     /// Disabling multisampling isn't supported by the backend.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     MultisamplingNotSupported,
 
     /// Offsetting the depth of points or lines isn't supported by the backend.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     PolygonOffsetNotSupported,
 
     /// Conditional rendering isn't supported by the backend.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     ConditionalRenderingNotSupported,
 
     /// Per-sample shading (`DrawParameters::sample_shading`) isn't supported by the backend.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     SampleShadingNotSupported,
 
     /// Masking samples (`DrawParameters::sample_mask`) isn't supported by the backend.
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
     SampleMaskNotSupported,
 
     /// Giving outputs their own blending or color mask (`DrawParameters::outputs`) isn't
     /// supported by the backend.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     PerOutputStateNotSupported,
 
     /// `DrawParameters::outputs` has more entries than the backend has draw buffers.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     OutputStateIndexOutOfBounds,
 
     /// Clamping the depth offset (`DrawParameters::polygon_offset_clamp`) isn't supported by the
     /// backend.
-    #[cfg(feature = "gl46")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
     PolygonOffsetClampNotSupported,
 
     /// A uniform block, shader storage block or atomic counter buffer needs a binding point
@@ -1491,6 +1582,11 @@ pub enum DrawError {
     /// The transform feedback session was built for another program than the one drawn with: it
     /// would capture the outputs of that program with the layout of the other.
     TransformFeedbackProgramMismatch,
+
+    /// Before OpenGL ES 3.2, without `GL_EXT_geometry_shader` or `GL_OES_geometry_shader`,
+    /// transform feedback only captures draws without indices of points, lines or triangles
+    /// lists: indexed draws, strips, fans and loops aren't.
+    TransformFeedbackDrawNotSupported,
 
     /// An active uniform of the program has never been given a value. Give it one, or pass
     /// `uniforms::Keep` to keep the initializer of the shader.
@@ -1568,6 +1664,14 @@ impl fmt::Display for DrawError {
                 "The viewport's dimensions are not supported by the backend",
             InvalidDepthRange =>
                 "The depth range is outside of the `(0, 1)` range",
+            LineWidthNotSupported =>
+                "The line width isn't positive, or is above 1 pixel on desktop OpenGL",
+            #[cfg(safegl_gl42)]
+            BaseInstanceNotSupported =>
+                "The backend doesn't support drawing from a base instance",
+            #[cfg(safegl_gl46)]
+            DrawCountNotSupported =>
+                "The backend doesn't support reading the number of draw commands from a buffer",
             UniformTypeMismatch { .. } =>
                 "The type of a uniform doesn't match what the program requires",
             UniformBufferToValue { .. } =>
@@ -1576,71 +1680,87 @@ impl fmt::Display for DrawError {
                 "Tried to bind a single uniform value to a uniform block",
             UniformBlockLayoutMismatch { .. } =>
                 "The layout of the content of the uniform buffer does not match the layout of the block",
+            #[cfg(safegl_desktop)]
             SubroutineUniformToValue { .. } =>
                 "Tried to bind a subroutine uniform like a regular uniform value",
+            #[cfg(safegl_desktop)]
             SubroutineUniformMissing { .. } =>
                 "Not all subroutine uniforms of a shader stage were set",
+            #[cfg(safegl_desktop)]
             SubroutineNotFound { .. } =>
                 "A non-existent subroutine was referenced",
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             UnsupportedVerticesPerPatch =>
                 "The number of vertices per patch that has been requested is not supported",
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             TessellationNotSupported =>
                 "Trying to use tessellation, but this is not supported by the underlying hardware",
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             TessellationWithoutPatches =>
                 "Using a program which contains tessellation shaders, but without submitting patches",
             FragmentOutputMissing { .. } =>
                 "The program has no active fragment output with the name of an attachment",
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             PatchesWithoutTessellation =>
                 "Drawing patches with a program that has no tessellation evaluation shader",
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             GeometryShaderInputMismatch =>
                 "The geometry shader of the program takes another kind of primitives than the ones drawn",
-            SamplersNotSupported => "
-                Trying to use a sampler, but they are not supported by the backend",
             InstancesCountMismatch =>
                 "When you use instancing, all vertices sources must have the same size",
             VerticesSourcesLengthMismatch =>
                 "If you don't use indices, then all vertices sources must have the same size",
-            TransformFeedbackNotSupported =>
-                "Requested not to draw primitives, but this is not supported by the backend",
             WrongQueryOperation =>
                 "Wrong query operation",
+            #[cfg(safegl_desktop)]
             SmoothingNotSupported =>
                 "Trying to use smoothing, but this is not supported by the backend",
+            #[cfg(safegl_desktop)]
             ProvokingVertexNotSupported =>
                 "Trying to set the provoking vertex, but this is not supported by the backend",
+            #[cfg(safegl_desktop)]
             DepthClampNotSupported =>
                 "The depth clamp mode is not supported by the backend",
             BlendingParameterNotSupported =>
                 "One the blending parameters is not supported by the backend",
             FixedIndexRestartingNotSupported =>
                 "Restarting indices (multiple objects per draw call) is not supported by the backend",
-            #[cfg(feature = "gl46")]
+            #[cfg(safegl_gl45)]
             ClipControlNotSupported =>
                 "Changing the clip volume definition (origin and depth mode) is not supported by the backend",
+            #[cfg(safegl_desktop)]
             ClipPlaneIndexOutOfBounds =>
                 "Tried to enable a clip plane that does not exist.",
             InsufficientTextureUnits =>
                 "Tried to sample more textures than the implementation has texture units",
-            #[cfg(feature = "gl46")]
+            #[cfg(any(safegl_gl42, safegl_gles31))]
             InsufficientImageUnits =>
                 "Tried to use more image uniforms that the implementation has support for",
+            #[cfg(safegl_desktop)]
             PolygonModeNotSupported =>
                 "A polygon mode other than `Fill` is not supported by the backend",
+            #[cfg(safegl_desktop)]
             MultisamplingNotSupported =>
                 "Disabling multisampling is not supported by the backend",
+            #[cfg(safegl_desktop)]
             PolygonOffsetNotSupported =>
                 "Offsetting the depth of points or lines is not supported by the backend",
+            #[cfg(safegl_desktop)]
             ConditionalRenderingNotSupported =>
                 "Conditional rendering is not supported by the backend",
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             SampleShadingNotSupported =>
                 "Per-sample shading is not supported by the backend",
+            #[cfg(any(safegl_desktop, safegl_gles31))]
             SampleMaskNotSupported =>
                 "Masking samples is not supported by the backend",
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             PerOutputStateNotSupported =>
                 "Giving outputs their own blending or color mask is not supported by the backend",
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             OutputStateIndexOutOfBounds =>
                 "There are more output states than draw buffers",
-            #[cfg(feature = "gl46")]
+            #[cfg(safegl_gl46)]
             PolygonOffsetClampNotSupported =>
                 "Clamping the depth offset is not supported by the backend",
             BufferBindingOutOfRange { .. } =>
@@ -1653,6 +1773,8 @@ impl fmt::Display for DrawError {
                 "A compute shader was executed with more work groups than the backend supports",
             TransformFeedbackProgramMismatch =>
                 "The transform feedback session was built for another program",
+            TransformFeedbackDrawNotSupported =>
+                "Transform feedback only captures draws of lists without indices on this context",
             UniformMissing { .. } =>
                 "An active uniform of the program has never been given a value",
             UniformBindingMissing { .. } =>
@@ -1760,6 +1882,8 @@ impl Frame {
     ///
     /// This is only a hint: it does nothing without OpenGL 4.3, OpenGL ES 3.0 or
     /// `GL_ARB_invalidate_subdata`.
+    #[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))))]
     pub fn invalidate(&self, which: framebuffer::InvalidateAttachments) {
         let mut ctxt = self.context.make_current();
         unsafe {
@@ -1768,6 +1892,8 @@ impl Frame {
     }
 
     /// Like `invalidate`, but only inside `rect` (`glInvalidateSubFramebuffer`).
+    #[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))))]
     pub fn invalidate_rect(&self, which: framebuffer::InvalidateAttachments, rect: &Rect) {
         let mut ctxt = self.context.make_current();
         unsafe {
@@ -2034,13 +2160,14 @@ impl Drop for Frame {
     }
 }
 
-/// Returned during Context creation if the OpenGL implementation is too old.
+/// Returned during Context creation if the OpenGL implementation is too old, or isn't a core
+/// profile context of desktop OpenGL.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IncompatibleOpenGl(pub String);
 
 impl fmt::Display for IncompatibleOpenGl {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.write_str("The OpenGL implementation is too old to work with SafeGL")
+        write!(fmt, "The OpenGL implementation can't be used by SafeGL: {}", self.0)
     }
 }
 

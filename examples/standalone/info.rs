@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate safegl;
 
-use safegl::{Api, Display, Profile, Version};
+use safegl::{Api, Display, Version};
 use glutin::surface::WindowSurface;
 use support::{ApplicationContext, State};
 
@@ -36,18 +36,6 @@ impl ApplicationContext for Application {
             print!(" robustness");
         }
         print!("\n");
-
-        if version >= Version(Api::Gl, 3, 2) {
-            println!(
-                "{} profile mask: {}",
-                api,
-                match display.get_opengl_profile() {
-                    Some(Profile::Core) => "core",
-                    Some(Profile::Compatibility) => "compatibility",
-                    None => "unknown",
-                }
-            );
-        }
 
         println!(
             "{} robustness strategy: {}",

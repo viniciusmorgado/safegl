@@ -141,21 +141,23 @@ fn depth_texture2d() {
 
     // the program returns a Z coordinate between 0 (left of screen) and 1 (right of screen)
     let program = program!(&display,
-    110 => {
+    330 => {
         vertex: "
-                #version 110
+                #version 330
 
-                attribute vec2 position;
+                in vec2 position;
 
                 void main() {
                     gl_Position = vec4(position, position.x, 1.0);
                 }
             ",
         fragment: "
-                #version 110
+                #version 330
+
+                out vec4 f_color;
 
                 void main() {
-                    gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
+                    f_color = vec4(1.0, 1.0, 1.0, 1.0);
                 }
             ",
     },
@@ -404,7 +406,7 @@ fn multi_color_attachments_maximum() {
     safegl::framebuffer::MultiOutputFrameBuffer::new(&display, colors).unwrap();
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
 fn empty_framebuffer_wrong_layers() {
     use safegl::framebuffer::{EmptyFrameBuffer, ValidationError};
@@ -423,7 +425,7 @@ fn empty_framebuffer_wrong_layers() {
     ));
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
 fn empty_framebuffer_wrong_samples() {
     use safegl::framebuffer::{EmptyFrameBuffer, ValidationError};
@@ -442,7 +444,7 @@ fn empty_framebuffer_wrong_samples() {
     ));
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
 fn empty_framebuffer_width_out_of_range() {
     use safegl::framebuffer::{EmptyFrameBuffer, ValidationError};
@@ -462,7 +464,7 @@ fn empty_framebuffer_width_out_of_range() {
     display.assert_no_error(None);
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
 fn empty_framebuffer_height_out_of_range() {
     use safegl::framebuffer::{EmptyFrameBuffer, ValidationError};
@@ -482,7 +484,7 @@ fn empty_framebuffer_height_out_of_range() {
     display.assert_no_error(None);
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
 fn empty_framebuffer_layers_out_of_range() {
     use safegl::framebuffer::{EmptyFrameBuffer, ValidationError};
@@ -502,7 +504,7 @@ fn empty_framebuffer_layers_out_of_range() {
     display.assert_no_error(None);
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
 fn empty_framebuffer_samples_out_of_range() {
     use safegl::framebuffer::{EmptyFrameBuffer, ValidationError};
@@ -522,7 +524,7 @@ fn empty_framebuffer_samples_out_of_range() {
     display.assert_no_error(None);
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
 fn empty_framebuffer_simple_draw() {
     use safegl::framebuffer::EmptyFrameBuffer;

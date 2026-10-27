@@ -20,6 +20,8 @@ use std::rc::Rc;
 
 use crate::buffer::alloc::Alloc;
 use crate::buffer::alloc::CopyError;
+#[cfg(safegl_gl43)]
+use crate::buffer::{ClearBufferError, ClearContent};
 use crate::buffer::alloc::Mapping;
 use crate::buffer::alloc::ReadError;
 use crate::buffer::alloc::ReadMapping;
@@ -530,14 +532,14 @@ where
         Alloc::unbind_pixel_unpack(ctxt)
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl44)]
     #[inline]
     fn prepare_and_bind_for_query(&self, ctxt: &mut CommandContext<'_>) {
         let alloc = self.alloc.as_ref().unwrap();
         alloc.prepare_and_bind_for_query(ctxt);
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl44)]
     #[inline]
     fn unbind_query(ctxt: &mut CommandContext<'_>) {
         Alloc::unbind_query(ctxt)
@@ -549,7 +551,13 @@ where
         alloc.prepare_and_bind_for_draw_indirect(ctxt);
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl46)]
+    fn prepare_and_bind_for_parameter(&self, ctxt: &mut CommandContext<'_>) {
+        let alloc = self.alloc.as_ref().unwrap();
+        alloc.prepare_and_bind_for_parameter(ctxt);
+    }
+
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     #[inline]
     fn prepare_and_bind_for_dispatch_indirect(&self, ctxt: &mut CommandContext<'_>) {
         let alloc = self.alloc.as_ref().unwrap();
@@ -566,7 +574,7 @@ where
         alloc.prepare_and_bind_for_uniform(ctxt, index, 0..alloc.get_size());
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     #[inline]
     fn prepare_and_bind_for_shared_storage(
         &self,
@@ -577,7 +585,7 @@ where
         alloc.prepare_and_bind_for_shared_storage(ctxt, index, 0..alloc.get_size());
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl42, safegl_gles31))]
     #[inline]
     fn prepare_and_bind_for_atomic_counter(
         &self,
@@ -855,6 +863,71 @@ where
     }
 }
 
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+impl<T: ?Sized> Buffer<T>
+where
+    T: ClearContent,
+{
+    /// Fills the buffer with copies of `value`, bit for bit, on the GPU
+    /// (`glClearBufferSubData`).
+    ///
+    /// Needs OpenGL 4.3 or `GL_ARB_clear_buffer_object`, otherwise returns
+    /// `ClearBufferError::NotSupported`.
+    #[inline]
+    pub fn clear(&self, value: T::Value) -> Result<(), ClearBufferError> {
+        self.as_slice().clear(value)
+    }
+}
+
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+impl<'a, T: ?Sized> BufferSlice<'a, T>
+where
+    T: ClearContent + 'a,
+{
+    /// Fills the slice with copies of `value`, bit for bit, on the GPU
+    /// (`glClearBufferSubData`).
+    ///
+    /// Needs OpenGL 4.3 or `GL_ARB_clear_buffer_object`, otherwise returns
+    /// `ClearBufferError::NotSupported`.
+    pub fn clear(&self, value: T::Value) -> Result<(), ClearBufferError> {
+        self.alloc
+            .clear(self.bytes_start..self.bytes_end, &value)?;
+
+        if let Some(inserter) = self.add_fence() {
+            let mut ctxt = self.alloc.get_context().make_current();
+            inserter.insert(&mut ctxt);
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+impl<'a, T: ?Sized> BufferMutSlice<'a, T>
+where
+    T: ClearContent + 'a,
+{
+    /// Fills the slice with copies of `value`, bit for bit, on the GPU
+    /// (`glClearBufferSubData`).
+    ///
+    /// Needs OpenGL 4.3 or `GL_ARB_clear_buffer_object`, otherwise returns
+    /// `ClearBufferError::NotSupported`.
+    pub fn clear(&self, value: T::Value) -> Result<(), ClearBufferError> {
+        self.alloc
+            .clear(self.bytes_start..self.bytes_end, &value)?;
+
+        if let Some(inserter) = self.add_fence() {
+            let mut ctxt = self.alloc.get_context().make_current();
+            inserter.insert(&mut ctxt);
+        }
+
+        Ok(())
+    }
+}
+
 impl<'a, T: ?Sized> BufferSliceExt<'a> for BufferSlice<'a, T>
 where
     T: Content,
@@ -913,13 +986,13 @@ where
         Alloc::unbind_pixel_unpack(ctxt)
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl44)]
     #[inline]
     fn prepare_and_bind_for_query(&self, ctxt: &mut CommandContext<'_>) {
         self.alloc.prepare_and_bind_for_query(ctxt);
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl44)]
     #[inline]
     fn unbind_query(ctxt: &mut CommandContext<'_>) {
         Alloc::unbind_query(ctxt)
@@ -930,7 +1003,12 @@ where
         self.alloc.prepare_and_bind_for_draw_indirect(ctxt);
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl46)]
+    fn prepare_and_bind_for_parameter(&self, ctxt: &mut CommandContext<'_>) {
+        self.alloc.prepare_and_bind_for_parameter(ctxt);
+    }
+
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     #[inline]
     fn prepare_and_bind_for_dispatch_indirect(&self, ctxt: &mut CommandContext<'_>) {
         self.alloc.prepare_and_bind_for_dispatch_indirect(ctxt);
@@ -946,7 +1024,7 @@ where
             .prepare_and_bind_for_uniform(ctxt, index, self.bytes_start..self.bytes_end);
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     #[inline]
     fn prepare_and_bind_for_shared_storage(
         &self,
@@ -960,7 +1038,7 @@ where
         );
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl42, safegl_gles31))]
     #[inline]
     fn prepare_and_bind_for_atomic_counter(
         &self,
@@ -1485,13 +1563,13 @@ impl BufferExt for BufferAny {
         Alloc::unbind_pixel_unpack(ctxt)
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl44)]
     #[inline]
     fn prepare_and_bind_for_query(&self, ctxt: &mut CommandContext<'_>) {
         self.alloc.prepare_and_bind_for_query(ctxt);
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl44)]
     #[inline]
     fn unbind_query(ctxt: &mut CommandContext<'_>) {
         Alloc::unbind_query(ctxt)
@@ -1502,7 +1580,12 @@ impl BufferExt for BufferAny {
         self.alloc.prepare_and_bind_for_draw_indirect(ctxt);
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl46)]
+    fn prepare_and_bind_for_parameter(&self, ctxt: &mut CommandContext<'_>) {
+        self.alloc.prepare_and_bind_for_parameter(ctxt);
+    }
+
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     #[inline]
     fn prepare_and_bind_for_dispatch_indirect(&self, ctxt: &mut CommandContext<'_>) {
         self.alloc.prepare_and_bind_for_dispatch_indirect(ctxt);
@@ -1518,7 +1601,7 @@ impl BufferExt for BufferAny {
             .prepare_and_bind_for_uniform(ctxt, index, 0..self.alloc.get_size());
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     #[inline]
     fn prepare_and_bind_for_shared_storage(
         &self,
@@ -1529,7 +1612,7 @@ impl BufferExt for BufferAny {
             .prepare_and_bind_for_shared_storage(ctxt, index, 0..self.alloc.get_size());
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl42, safegl_gles31))]
     #[inline]
     fn prepare_and_bind_for_atomic_counter(
         &self,
@@ -1671,13 +1754,13 @@ impl<'a> BufferExt for BufferAnySlice<'a> {
         Alloc::unbind_pixel_unpack(ctxt)
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl44)]
     #[inline]
     fn prepare_and_bind_for_query(&self, ctxt: &mut CommandContext<'_>) {
         self.alloc.prepare_and_bind_for_query(ctxt);
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl44)]
     #[inline]
     fn unbind_query(ctxt: &mut CommandContext<'_>) {
         Alloc::unbind_query(ctxt)
@@ -1688,7 +1771,12 @@ impl<'a> BufferExt for BufferAnySlice<'a> {
         self.alloc.prepare_and_bind_for_draw_indirect(ctxt);
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl46)]
+    fn prepare_and_bind_for_parameter(&self, ctxt: &mut CommandContext<'_>) {
+        self.alloc.prepare_and_bind_for_parameter(ctxt);
+    }
+
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     #[inline]
     fn prepare_and_bind_for_dispatch_indirect(&self, ctxt: &mut CommandContext<'_>) {
         self.alloc.prepare_and_bind_for_dispatch_indirect(ctxt);
@@ -1704,7 +1792,7 @@ impl<'a> BufferExt for BufferAnySlice<'a> {
             .prepare_and_bind_for_uniform(ctxt, index, self.bytes_start..self.bytes_end);
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     #[inline]
     fn prepare_and_bind_for_shared_storage(
         &self,
@@ -1718,7 +1806,7 @@ impl<'a> BufferExt for BufferAnySlice<'a> {
         );
     }
 
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl42, safegl_gles31))]
     #[inline]
     fn prepare_and_bind_for_atomic_counter(
         &self,

@@ -51,6 +51,34 @@ impl ApplicationContext for Application {
 
         // compiling shaders and linking them together
         let program = program!(display,
+            330 => {
+                vertex: "
+                    #version 330
+
+                    uniform lowp mat4 matrix;
+
+                    in lowp vec2 position;
+                    in lowp vec3 color;
+
+                    out lowp vec3 vColor;
+
+                    void main() {
+                        gl_Position = vec4(position, 0.0, 1.0) * matrix;
+                        vColor = color;
+                    }
+                ",
+
+                fragment: "
+                    #version 330
+
+                    out vec4 f_color;
+                    in lowp vec3 vColor;
+
+                    void main() {
+                        f_color = vec4(vColor, 1.0);
+                    }
+                "
+            },
             100 => {
                 vertex: "
                     #version 100

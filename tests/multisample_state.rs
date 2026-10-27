@@ -1,7 +1,11 @@
+#![cfg(any(safegl_desktop, safegl_gles31))]
+
 #[macro_use]
 extern crate safegl;
 
+#[cfg(any(safegl_desktop, safegl_gles32))]
 use safegl::backend::Facade;
+#[cfg(any(safegl_desktop, safegl_gles32))]
 use safegl::glow::{self, HasContext};
 use safegl::index::PrimitiveType;
 use safegl::texture::Texture2dMultisample;
@@ -136,6 +140,10 @@ fn multisample_texture(
 #[test]
 fn alpha_to_coverage_covers_part_of_the_samples() {
     let display = support::build_display();
+    // multisample textures need OpenGL ES 3.1
+    if !safegl::texture::is_texture_2d_multisample_supported(&display) {
+        return;
+    }
     let pipeline = Pipeline::new(&display);
 
     let texture = multisample_texture(&display);
@@ -182,6 +190,9 @@ fn alpha_to_coverage_covers_part_of_the_samples() {
 #[test]
 fn sample_mask_writes_only_the_selected_samples() {
     let display = support::build_display();
+    if !safegl::texture::is_texture_2d_multisample_supported(&display) {
+        return;
+    }
     let pipeline = Pipeline::new(&display);
 
     let texture = multisample_texture(&display);
@@ -225,9 +236,13 @@ fn sample_mask_writes_only_the_selected_samples() {
     display.assert_no_error(None);
 }
 
+#[cfg(any(safegl_desktop, safegl_gles32))]
 #[test]
 fn sample_shading_sets_the_minimum_fraction() {
     let display = support::build_display();
+    if !safegl::texture::is_texture_2d_multisample_supported(&display) {
+        return;
+    }
     let pipeline = Pipeline::new(&display);
     let texture = multisample_texture(&display);
 

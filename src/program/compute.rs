@@ -16,13 +16,17 @@ use crate::GlObject;
 use crate::ProgramExt;
 use crate::RawUniformValue;
 
-use crate::program::{
-    Binary, GetBinaryError, ProgramCreationError, SpirvEntryPoint, COMPILER_GLOBAL_LOCK,
-};
+#[cfg(safegl_gl46)]
+use crate::program::SpirvEntryPoint;
+#[cfg(any(safegl_gl41, safegl_gles30))]
+use crate::program::{Binary, GetBinaryError};
+use crate::program::{ProgramCreationError, COMPILER_GLOBAL_LOCK};
 
 use crate::program::reflection::{ShaderStage, SubroutineData};
 use crate::program::reflection::{Uniform, UniformBlock};
-use crate::program::shader::{build_shader, build_spirv_shader, check_shader_type_compatibility};
+#[cfg(safegl_gl46)]
+use crate::program::shader::build_spirv_shader;
+use crate::program::shader::{build_shader, check_shader_type_compatibility};
 
 use crate::program::raw::RawProgram;
 
@@ -63,6 +67,8 @@ impl ComputeShader {
     }
 
     /// Builds a new compute shader from SPIR-V module.
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
     #[inline]
     pub fn from_spirv<F: ?Sized>(
         facade: &F,
@@ -82,6 +88,8 @@ impl ComputeShader {
 
     /// Builds a new compute shader from some binary.
     #[inline]
+    #[cfg(any(safegl_gl41, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles30))))]
     pub fn from_binary<F: ?Sized>(
         facade: &F,
         data: Binary,
@@ -109,7 +117,7 @@ impl ComputeShader {
     where
         U: Uniforms,
     {
-        unsafe { self.raw.dispatch_compute(uniforms, x, y, z) }
+        unsafe { self.raw.dispatch_compute(uniforms, x, y, z, &[]) }
     }
 
     /// Executes the compute shader.
@@ -124,7 +132,29 @@ impl ComputeShader {
     where
         U: Uniforms,
     {
-        unsafe { self.raw.dispatch_compute_indirect(uniforms, buffer) }
+        unsafe { self.raw.dispatch_compute_indirect(uniforms, buffer, &[]) }
+    }
+
+    /// Executes the compute shader like `execute`, while the queries count their pipeline
+    /// statistics, such as `PipelineStatistic::ComputeShaderInvocations`. Like the queries of
+    /// draws, a query keeps counting through the dispatches and draws that follow each other
+    /// and are given it; each query must count another statistic, or this returns
+    /// `DrawError::WrongQueryOperation`.
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    #[inline]
+    pub fn execute_with_statistics<U>(
+        &self,
+        uniforms: U,
+        x: u32,
+        y: u32,
+        z: u32,
+        statistics: &[&crate::draw_parameters::PipelineStatisticsQuery],
+    ) -> Result<(), DrawError>
+    where
+        U: Uniforms,
+    {
+        unsafe { self.raw.dispatch_compute(uniforms, x, y, z, statistics) }
     }
 
     /// Returns the program's compiled binary.
@@ -132,6 +162,8 @@ impl ComputeShader {
     /// You can store the result in a file, then reload it later. This avoids having to compile
     /// the source code every time.
     #[inline]
+    #[cfg(any(safegl_gl41, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles30))))]
     pub fn get_binary(&self) -> Result<Binary, GetBinaryError> {
         self.raw.get_binary()
     }

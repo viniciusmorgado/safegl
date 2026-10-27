@@ -1,3 +1,5 @@
+#![cfg(any(safegl_desktop, safegl_gles32))]
+
 //! Geometry shaders that emit primitives (glium#544).
 
 #[macro_use]

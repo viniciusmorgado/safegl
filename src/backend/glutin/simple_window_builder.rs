@@ -126,8 +126,10 @@ impl SimpleWindowBuilder {
         self
     }
 
-    /// Can be used to configure OpenGL version and mode (core vs compatibility).
-    /// If this is not set, the builder requests the newest context version of the compiled tier.
+    /// Can be used to configure the OpenGL version and the other context attributes. Desktop
+    /// OpenGL contexts must use the core profile, the only one that SafeGL accepts.
+    /// If this is not set, the builder requests the versions of the selected levels: see
+    /// `level_context_apis`.
     pub fn with_context_attributes_builder(
         mut self,
         context_attributes_builder: ContextAttributesBuilder,
@@ -200,16 +202,12 @@ impl SimpleWindowBuilder {
             .window_handle()
             .expect("couldn't obtain raw window handle");
 
-        // Without a user-provided builder, try the context versions of SafeGL's tier in order
+        // Without a user-provided builder, try the versions of the selected levels in order
         let attribute_candidates = match self.context_attributes_builder {
             Some(builder) => vec![builder.build(Some(window_handle.into()))],
-            None => super::tier_context_apis()
+            None => super::level_context_apis()
                 .into_iter()
-                .map(|api| {
-                    ContextAttributesBuilder::new()
-                        .with_context_api(api)
-                        .build(Some(window_handle.into()))
-                })
+                .map(|api| super::context_attributes_builder(api).build(Some(window_handle.into())))
                 .collect(),
         };
 
@@ -221,7 +219,7 @@ impl SimpleWindowBuilder {
                     .create_context(&gl_config, context_attributes)
                     .ok()
             })
-            .expect("failed to create context");
+            .unwrap_or_else(|| panic!("{}", super::level_context_error(cfg!(target_os = "macos"))));
 
         let current_context = not_current_context.make_current(&surface).unwrap();
 

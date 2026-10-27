@@ -336,28 +336,38 @@ macro_rules! uniform_test(
             let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
             // Definition of multiple shader versions
+            let int64 = $glsl_ty.contains("64");
+            let extension = if int64 {
+                "#extension GL_ARB_gpu_shader_int64 : require"
+            } else {
+                ""
+            };
             let v400 = (
                 &format!("
                     #version 400
+                    {}
                     in vec2 position;
                     uniform {} my_uniform;
                     void main() {{
                         gl_Position = vec4(position, 0.0, 1.0);
                     }}
-                ", $glsl_ty),
+                ", extension, $glsl_ty),
                 &format!("
                     #version 400
+                    {}
                     uniform {} my_uniform;
                     out vec4 color;
                     void main() {{
                         color = vec4(1.0, 1.0, 1.0, 1.0);
                     }}
-                ", $glsl_ty)
+                ", extension, $glsl_ty)
             );
 
-            let v140 = (
+            let v300es = (
                 &format!("
-                    #version 140
+                    #version 300 es
+                    precision highp float;
+                    precision highp int;
                     in vec2 position;
                     uniform {} my_uniform;
                     void main() {{
@@ -365,7 +375,9 @@ macro_rules! uniform_test(
                     }}
                 ", $glsl_ty),
                 &format!("
-                    #version 140
+                    #version 300 es
+                    precision highp float;
+                    precision highp int;
                     uniform {} my_uniform;
                     out vec4 color;
                     void main() {{
@@ -374,53 +386,15 @@ macro_rules! uniform_test(
                 ", $glsl_ty)
             );
 
-            let v110 = (
-                &format!("
-                    #version 110
-                    attribute vec2 position;
-                    uniform {} my_uniform;
-                    void main() {{
-                        gl_Position = vec4(position, 0.0, 1.0);
-                    }}
-                ", $glsl_ty),
-                &format!("
-                    #version 110
-                    uniform {} my_uniform;
-                    void main() {{
-                        gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
-                    }}
-                ", $glsl_ty)
-            );
-
-            let v100 = (
-                &format!("
-                    #version 100
-                    attribute vec2 position;
-                    uniform {} my_uniform;
-                    void main() {{
-                        gl_Position = vec4(position, 0.0, 1.0);
-                    }}
-                ", $glsl_ty),
-                &format!("
-                    #version 100
-                    uniform {} my_uniform;
-                    void main() {{
-                        gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
-                    }}
-                ", $glsl_ty)
-            );
-
-            let program = if let Ok(program) = safegl::Program::from_source(&display, v400.0, v400.1, None) {
-                program
-            } else if let Ok(program) = safegl::Program::from_source(&display, v140.0, v140.1, None) {
-                program
-            } else if let Ok(program) = safegl::Program::from_source(&display, v110.0, v110.1, None) {
-                program
-            } else if let Ok(program) = safegl::Program::from_source(&display, v100.0, v100.1, None) {
-                program
-            } else {
-                return
-            };
+            // OpenGL ES has no double-precision values nor 64-bit integers
+            if support::is_gles(&display) && ($glsl_ty.starts_with('d') || int64) {
+                return;
+            }
+            if int64 && !safegl::CapabilitiesSource::get_extensions(&**display).gl_arb_gpu_shader_int64 {
+                return;
+            }
+            let (vertex, fragment) = if support::is_gles(&display) { v300es } else { v400 };
+            let program = safegl::Program::from_source(&display, vertex, fragment, None).unwrap();
 
             let uniforms = safegl::uniforms::UniformsStorage::new("my_uniform", $value);
             let mut target = display.draw();
@@ -474,34 +448,43 @@ uniform_test!(
 );
 
 // Doubles
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_f64_double, "double", 12.567f64);
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_f64arr_doublevec2, "dvec2", [1.0f64, 2.4]);
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_f64tup_doublevec2, "dvec2", (1.0f64, 2.4));
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_f64arr_doublevec3,
     "dvec3",
     [1.0f64, 2.4, 0.0003]
 );
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_f64tup_doublevec3,
     "dvec3",
     (1.0f64, 2.4, 0.0003)
 );
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_f64arr_doublevec4,
     "dvec4",
     [1.0f64, 2.4, 0.0003, 123456.0]
 );
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_f64tup_doublevec4,
     "dvec4",
     (1.0f64, 2.4, 0.0003, 123456.0)
 );
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_f64arr_doublemat2,
     "dmat2",
     [[1.0f64, 2.4], [-2.0f64, -7.8867]]
 );
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_f64arr_doublemat3,
     "dmat3",
@@ -511,6 +494,7 @@ uniform_test!(
         [1.1f64, 7.7, -6.1]
     ]
 );
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_f64arr_doublemat4,
     "dmat4",
@@ -553,20 +537,27 @@ uniform_test!(uniform_type_u32arr_uintvec4, "uvec4", [1u32, 24, 7, 123456]);
 uniform_test!(uniform_type_u32tup_uintvec4, "uvec4", (1u32, 24, 7, 123456));
 
 // Integer 64 bit
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_i64_int64_t,
     "int64_t",
     9_223_372_036_854_775_807i64
 );
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_i64arr_i64vec2, "i64vec2", [1i64, 24]);
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_i64tup_i64vec2, "i64vec2", (1i64, 24));
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_i64arr_i64vec3, "i64vec3", [1i64, 24, -7]);
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_i64tup_i64vec3, "i64vec3", (1i64, 24, -7));
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_i64arr_i64vec4,
     "i64vec4",
     [1i64, 24, -7, -123456]
 );
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_i64tup_i64vec4,
     "i64vec4",
@@ -574,20 +565,27 @@ uniform_test!(
 );
 
 // Unsigned integer 64 bit
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_u64_uint64_t,
     "uint64_t",
     9_223_372_036_854_775_807u64
 );
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_u64arr_u64vec2, "u64vec2", [1u64, 24]);
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_u64tup_u64vec2, "u64vec2", (1u64, 24));
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_u64arr_u64vec3, "u64vec3", [1u64, 24, 7]);
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_u64tup_u64vec3, "u64vec3", (1u64, 24, 7));
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_u64arr_u64vec4,
     "u64vec4",
     [1u64, 24, 7, 123456]
 );
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_u64tup_u64vec4,
     "u64vec4",

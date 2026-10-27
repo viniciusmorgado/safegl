@@ -312,7 +312,7 @@ impl Alloc {
 
     /// Makes sure that the buffer is bound to the `GL_QUERY_BUFFER` and calls
     /// `glMemoryBarrier(GL_QUERY_BUFFER_BARRIER_BIT)` if necessary.
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl44)]
     pub fn prepare_and_bind_for_query(&self, ctxt: &mut CommandContext<'_>) {
         assert!(
             ctxt.version >= &Version(Api::Gl, 4, 4)
@@ -336,7 +336,7 @@ impl Alloc {
     }
 
     /// Makes sure that nothing is bound to `GL_QUERY_BUFFER`.
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl44)]
     #[inline]
     pub fn unbind_query(ctxt: &mut CommandContext<'_>) {
         unsafe {
@@ -362,9 +362,28 @@ impl Alloc {
         }
     }
 
+    /// Makes sure that the buffer is bound to the `GL_PARAMETER_BUFFER` and calls
+    /// `glMemoryBarrier(GL_COMMAND_BARRIER_BIT)` if necessary.
+    #[cfg(safegl_gl46)]
+    pub fn prepare_and_bind_for_parameter(&self, ctxt: &mut CommandContext<'_>) {
+        self.assert_unmapped(ctxt);
+        self.assert_not_transform_feedback(ctxt);
+
+        if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_command {
+            unsafe {
+                ctxt.glow.memory_barrier(glow::COMMAND_BARRIER_BIT);
+            }
+            ctxt.state.latest_memory_barrier_command = ctxt.state.next_draw_call_id;
+        }
+
+        unsafe {
+            bind_buffer(ctxt, Some(self.id), BufferType::ParameterBuffer);
+        }
+    }
+
     /// Makes sure that the buffer is bound to the `GL_DISPATCH_INDIRECT_BUFFER` and calls
     /// `glMemoryBarrier(GL_COMMAND_BARRIER_BIT)` if necessary.
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     pub fn prepare_and_bind_for_dispatch_indirect(&self, ctxt: &mut CommandContext<'_>) {
         self.assert_unmapped(ctxt);
         self.assert_not_transform_feedback(ctxt);
@@ -404,7 +423,7 @@ impl Alloc {
 
     /// Makes sure that the buffer is bound to the indexed `GL_SHARED_STORAGE_BUFFER` point and calls
     /// `glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT)` if necessary.
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     pub fn prepare_and_bind_for_shared_storage(
         &self,
         ctxt: &mut CommandContext<'_>,
@@ -428,7 +447,7 @@ impl Alloc {
 
     /// Makes sure that the buffer is bound to the indexed `GL_ATOMIC_COUNTER_BUFFER` point and calls
     /// `glMemoryBarrier(GL_ATOMIC_COUNTER_BARRIER_BIT)` if necessary.
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl42, safegl_gles31))]
     pub fn prepare_and_bind_for_atomic_counter(
         &self,
         ctxt: &mut CommandContext<'_>,
@@ -1018,6 +1037,64 @@ impl Alloc {
         }
     }
 
+    /// Fills the bytes of `range` with copies of `value` (`glClearBufferSubData`).
+    ///
+    /// With persistent-mapped buffers you must create a sync fence *after* this operation.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the range is out of the buffer.
+    #[cfg(safegl_gl43)]
+    pub fn clear<V>(
+        &self,
+        range: Range<usize>,
+        value: &V,
+    ) -> Result<(), crate::buffer::ClearBufferError>
+    where
+        V: crate::buffer::ClearValue,
+    {
+        // the ranges come from slices, which are always inside their buffer
+        assert!(range.start <= range.end && range.end <= self.size);
+
+        let mut ctxt = self.context.make_current();
+        if !(ctxt.version >= &Version(Api::Gl, 4, 3) || ctxt.extensions.gl_arb_clear_buffer_object)
+        {
+            return Err(crate::buffer::ClearBufferError::NotSupported);
+        }
+        if range.is_empty() {
+            return Ok(());
+        }
+
+        // shader writes must be done before, and the buffer must be out of transform feedback
+        self.barrier_for_buffer_update(&mut ctxt);
+        self.assert_unmapped(&mut ctxt);
+        self.assert_not_transform_feedback(&mut ctxt);
+
+        let (internal_format, format, ty) = V::clear_format();
+        let offset = range.start as gl::types::GLintptr;
+        let size = (range.end - range.start) as gl::types::GLsizeiptr;
+        let data = value as *const V as *const raw::c_void;
+        unsafe {
+            if ctxt.version >= &Version(Api::Gl, 4, 5) || ctxt.extensions.gl_arb_direct_state_access {
+                ctxt.extra.ClearNamedBufferSubData(
+                    self.id.raw_name(),
+                    internal_format,
+                    offset,
+                    size,
+                    format,
+                    ty,
+                    data,
+                );
+            } else {
+                let bind = bind_buffer(&mut ctxt, Some(self.id), self.ty);
+                ctxt.extra
+                    .ClearBufferSubData(bind, internal_format, offset, size, format, ty, data);
+            }
+        }
+
+        Ok(())
+    }
+
     /// Copies data from this buffer to another one.
     ///
     /// With persistent-mapped buffers you must create a sync fence *after* this operation.
@@ -1543,7 +1620,7 @@ fn is_buffer_type_supported(ctxt: &mut CommandContext<'_>, ty: BufferType) -> bo
                 || ctxt.extensions.gl_ext_multi_draw_indirect
         }
 
-        #[cfg(feature = "gl46")]
+        #[cfg(any(safegl_gl43, safegl_gles31))]
         BufferType::DispatchIndirectBuffer => {
             ctxt.version >= &Version(Api::Gl, 4, 3)
                 || ctxt.version >= &Version(Api::GlEs, 3, 1)
@@ -1556,14 +1633,19 @@ fn is_buffer_type_supported(ctxt: &mut CommandContext<'_>, ty: BufferType) -> bo
                 || ctxt.extensions.gl_oes_texture_buffer
         }
 
-        #[cfg(feature = "gl46")]
+        #[cfg(safegl_gl44)]
         BufferType::QueryBuffer => {
             ctxt.version >= &Version(Api::Gl, 4, 4)
                 || ctxt.extensions.gl_arb_query_buffer_object
                 || ctxt.extensions.gl_amd_query_buffer_object
         }
 
-        #[cfg(feature = "gl46")]
+        #[cfg(safegl_gl46)]
+        BufferType::ParameterBuffer => {
+            ctxt.version >= &Version(Api::Gl, 4, 6) || ctxt.extensions.gl_arb_indirect_parameters
+        }
+
+        #[cfg(any(safegl_gl43, safegl_gles31))]
         BufferType::ShaderStorageBuffer => {
             ctxt.version >= &Version(Api::Gl, 4, 3)
                 || ctxt.version >= &Version(Api::GlEs, 3, 1)
@@ -1574,7 +1656,7 @@ fn is_buffer_type_supported(ctxt: &mut CommandContext<'_>, ty: BufferType) -> bo
         // core in OpenGL 3.0 and OpenGL ES 3.0
         BufferType::TransformFeedbackBuffer => true,
 
-        #[cfg(feature = "gl46")]
+        #[cfg(any(safegl_gl42, safegl_gles31))]
         BufferType::AtomicCounterBuffer => {
             ctxt.version >= &Version(Api::Gl, 4, 2)
                 || ctxt.version >= &Version(Api::GlEs, 3, 1)
@@ -1594,7 +1676,7 @@ fn is_buffer_type_supported(ctxt: &mut CommandContext<'_>, ty: BufferType) -> bo
 /// them, and forgets the cached indexed bindings, which SafeGL sets before each use.
 pub(crate) unsafe fn restore_bindings(ctxt: &mut CommandContext<'_>) {
     let state = &ctxt.state;
-    #[cfg_attr(not(feature = "gl46"), allow(unused_mut))]
+    #[allow(unused_mut)]
     let mut bindings = vec![
         (BufferType::ArrayBuffer, state.array_buffer_binding),
         (BufferType::PixelPackBuffer, state.pixel_pack_buffer_binding),
@@ -1615,22 +1697,26 @@ pub(crate) unsafe fn restore_bindings(ctxt: &mut CommandContext<'_>) {
             state.transform_feedback_buffer_binding,
         ),
     ];
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     bindings.extend([
         (
             BufferType::DispatchIndirectBuffer,
             state.dispatch_indirect_buffer_binding,
-        ),
-        (BufferType::QueryBuffer, state.query_buffer_binding),
-        (
-            BufferType::AtomicCounterBuffer,
-            state.atomic_counter_buffer_binding,
         ),
         (
             BufferType::ShaderStorageBuffer,
             state.shader_storage_buffer_binding,
         ),
     ]);
+    #[cfg(any(safegl_gl42, safegl_gles31))]
+    bindings.push((
+        BufferType::AtomicCounterBuffer,
+        state.atomic_counter_buffer_binding,
+    ));
+    #[cfg(safegl_gl44)]
+    bindings.push((BufferType::QueryBuffer, state.query_buffer_binding));
+    #[cfg(safegl_gl46)]
+    bindings.push((BufferType::ParameterBuffer, state.parameter_buffer_binding));
 
     for (ty, buffer) in bindings {
         if is_buffer_type_supported(ctxt, ty) {
@@ -1673,7 +1759,7 @@ unsafe fn bind_buffer(
     check!(ctxt, id, ty, UniformBuffer, uniform_buffer_binding);
     check!(ctxt, id, ty, CopyReadBuffer, copy_read_buffer_binding);
     check!(ctxt, id, ty, CopyWriteBuffer, copy_write_buffer_binding);
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     check!(
         ctxt,
         id,
@@ -1688,10 +1774,12 @@ unsafe fn bind_buffer(
         DrawIndirectBuffer,
         draw_indirect_buffer_binding
     );
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl44)]
     check!(ctxt, id, ty, QueryBuffer, query_buffer_binding);
+    #[cfg(safegl_gl46)]
+    check!(ctxt, id, ty, ParameterBuffer, parameter_buffer_binding);
     check!(ctxt, id, ty, TextureBuffer, texture_buffer_binding);
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl42, safegl_gles31))]
     check!(
         ctxt,
         id,
@@ -1699,7 +1787,7 @@ unsafe fn bind_buffer(
         AtomicCounterBuffer,
         atomic_counter_buffer_binding
     );
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     check!(
         ctxt,
         id,
@@ -1812,7 +1900,7 @@ unsafe fn indexed_bind_buffer(
         transform_feedback_buffer_binding,
         max_indexed_transform_feedback_buffer
     );
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl42, safegl_gles31))]
     check!(
         ctxt,
         id,
@@ -1823,7 +1911,7 @@ unsafe fn indexed_bind_buffer(
         atomic_counter_buffer_binding,
         max_indexed_atomic_counter_buffer
     );
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     check!(
         ctxt,
         id,
@@ -1949,6 +2037,10 @@ unsafe fn destroy_buffer(ctxt: &mut CommandContext<'_>, id: glow::Buffer) {
 
     if ctxt.state.query_buffer_binding == Some(id) {
         ctxt.state.query_buffer_binding = None;
+    }
+
+    if ctxt.state.parameter_buffer_binding == Some(id) {
+        ctxt.state.parameter_buffer_binding = None;
     }
 
     if ctxt.state.texture_buffer_binding == Some(id) {

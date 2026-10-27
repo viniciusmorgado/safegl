@@ -1,10 +1,10 @@
-#![cfg(feature = "gl41")]
-
 #[macro_use]
 extern crate safegl;
 
 use safegl::buffer::{Buffer, BufferMode, BufferType};
-use safegl::{CapabilitiesSource, Surface};
+#[cfg(any(safegl_desktop, safegl_gles32))]
+use safegl::CapabilitiesSource;
+use safegl::Surface;
 
 mod support;
 
@@ -35,6 +35,9 @@ implement_any_bit_pattern!(Data, value);
 
 fn indexed_binding_preserves_readback(ty: BufferType, qualifier: &str, version: u32, es: u32) {
     let display = support::build_display();
+    if !support::glsl_supported(&display, version, es) {
+        return;
+    }
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
     let output = safegl::texture::Texture2d::empty(&display, 1, 1).unwrap();
     let program = safegl::Program::from_source(
@@ -94,12 +97,13 @@ fn uniform_buffer_binding_cache() {
 }
 
 #[test]
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 fn shader_storage_binding_cache() {
     indexed_binding_preserves_readback(BufferType::ShaderStorageBuffer, "buffer", 430, 310);
 }
 
 #[test]
+#[cfg(any(safegl_desktop, safegl_gles32))]
 fn buffer_texture_binding_cache() {
     use safegl::texture::buffer_texture::{BufferTexture, BufferTextureType};
     use safegl::uniforms::UniformsStorage;
@@ -107,12 +111,18 @@ fn buffer_texture_binding_cache() {
     let display = support::build_display();
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
     let output = safegl::texture::Texture2d::empty(&display, 1, 1).unwrap();
-    let buffer = BufferTexture::new(
+    // buffer textures need OpenGL ES 3.2
+    let buffer = match BufferTexture::new(
         &display,
         &[(1.0f32, 0.0, 0.0, 1.0)],
         BufferTextureType::Float,
-    )
-    .unwrap();
+    ) {
+        Ok(buffer) => buffer,
+        Err(safegl::texture::buffer_texture::CreationError::TextureCreationError(
+            safegl::texture::buffer_texture::TextureCreationError::NotSupported,
+        )) => return,
+        Err(e) => panic!("{:?}", e),
+    };
     let source =
         safegl::texture::Texture2d::new(&display, vec![vec![(0u8, 255u8, 0u8, 255u8)]]).unwrap();
     let fragment = header(&display, 140, 320)
@@ -153,9 +163,12 @@ fn buffer_texture_binding_cache() {
 }
 
 #[test]
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 fn atomic_counter_binding_cache() {
     let display = support::build_display();
+    if !support::glsl_supported(&display, 430, 310) {
+        return;
+    }
     let shader = safegl::program::ComputeShader::from_source(&display,
         &(header(&display, 430, 310) + "layout(local_size_x = 1) in;\nlayout(binding = 0) uniform atomic_uint counter;\nvoid main() { atomicCounterIncrement(counter); }")).unwrap();
     let a = Buffer::new(
@@ -183,11 +196,14 @@ fn atomic_counter_binding_cache() {
 }
 
 #[test]
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 fn atomic_counter_high_binding_point() {
     // binding the first buffer of a new context at a point above 1 grows the cached bindings by
     // several entries at once
     let display = support::build_display();
+    if !support::glsl_supported(&display, 430, 310) {
+        return;
+    }
     let shader = safegl::program::ComputeShader::from_source(&display,
         &(header(&display, 430, 310) + "layout(local_size_x = 1) in;\nlayout(binding = 3) uniform atomic_uint counter;\nvoid main() { atomicCounterIncrement(counter); }")).unwrap();
     let counter = Buffer::new(
@@ -213,7 +229,7 @@ fn transform_feedback_generic_binding_does_not_change_indexed_binding() {
     implement_any_bit_pattern!(Vertex, output_val);
 
     let display = support::build_display();
-    let (vb, ib) = support::build_rectangle_vb_ib(&display);
+    let (vb, ib) = support::build_rectangle_triangles(&display);
     let output = safegl::texture::Texture2d::empty(&display, 1, 1).unwrap();
     let vertex_shader = header(&display, 140, 300)
         + "in vec2 position; out vec2 output_val; void main() { output_val = position; gl_Position = vec4(position, 0.0, 1.0); }";
@@ -263,7 +279,7 @@ fn transform_feedback_generic_binding_does_not_change_indexed_binding() {
             .as_surface()
             .draw(
                 &vb,
-                &ib,
+                ib,
                 &program,
                 &uniform! {},
                 &safegl::DrawParameters {

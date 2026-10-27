@@ -51,7 +51,7 @@ fn draw_with_objects_of_another_context() {
     );
 
     // nor does a query of another context
-    if let Ok(query) = safegl::draw_parameters::SamplesPassedQuery::new(&b) {
+    if let Ok(query) = safegl::draw_parameters::AnySamplesPassedQuery::new(&b, false) {
         let params = safegl::DrawParameters {
             samples_passed_query: Some((&query).into()),
             ..Default::default()
@@ -181,7 +181,7 @@ fn copies_between_contexts() {
 
     // images, which only the `gl46` tier copies
     let texture_a = safegl::Texture2d::empty(&a, 4, 4).unwrap();
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl43, safegl_gles32))]
     {
         let texture_b = safegl::Texture2d::empty(&b, 4, 4).unwrap();
         let result = texture_a.main_level().copy_to(&texture_b.main_level());

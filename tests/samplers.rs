@@ -17,23 +17,25 @@ fn magnify_nearest_filtering() {
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
     let program = program!(&display,
-    110 => {
+    330 => {
         vertex: "
-                #version 110
+                #version 330
 
-                attribute vec2 position;
+                in vec2 position;
 
                 void main() {
                     gl_Position = vec4(position, 0.0, 1.0);
                 }
             ",
         fragment: "
-                #version 110
+                #version 330
 
-                uniform sampler2D texture;
+                out vec4 f_color;
+
+                uniform sampler2D tex;
 
                 void main() {
-                    gl_FragColor = texture2D(texture, vec2(0.51, 0.0));
+                    f_color = texture(tex, vec2(0.51, 0.0));
                 }
             ",
     },
@@ -50,10 +52,10 @@ fn magnify_nearest_filtering() {
         fragment: "
                 #version 100
 
-                uniform lowp sampler2D texture;
+                uniform lowp sampler2D tex;
 
                 void main() {
-                    gl_FragColor = texture2D(texture, vec2(0.51, 0.0));
+                    gl_FragColor = texture2D(tex, vec2(0.51, 0.0));
                 }
             ",
     })
@@ -63,7 +65,7 @@ fn magnify_nearest_filtering() {
     let texture = safegl::texture::Texture2d::new(&display, texture_data).unwrap();
 
     let uniforms = uniform! {
-        texture: texture.sampled().magnify_filter(safegl::uniforms::MagnifySamplerFilter::Nearest)
+        tex: texture.sampled().magnify_filter(safegl::uniforms::MagnifySamplerFilter::Nearest)
     };
 
     let output = support::build_renderable_texture(&display);
@@ -74,7 +76,6 @@ fn magnify_nearest_filtering() {
         .draw(&vb, &ib, &program, &uniforms, &Default::default())
     {
         Ok(_) => (),
-        Err(safegl::DrawError::SamplersNotSupported) => return,
         Err(e) => panic!("{:?}", e),
     };
 
@@ -84,9 +85,14 @@ fn magnify_nearest_filtering() {
     display.assert_no_error(None);
 }
 
+#[cfg(any(safegl_desktop, safegl_gles32))]
 #[test]
 fn border_color() {
     let display = support::build_display();
+    // border colors need OpenGL ES 3.2
+    if !support::glsl_supported(&display, 330, 320) {
+        return;
+    }
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
     let header = if support::is_gles(&display) {
         "#version 320 es\nprecision highp float;\n"

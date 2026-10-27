@@ -56,7 +56,7 @@
 //!
 //! ```no_run
 //! # use glutin::surface::{ResizeableSurface, SurfaceTypeTrait};
-//! # #[cfg(feature = "gl46")]
+//! # #[cfg(any(safegl_gl43, safegl_gles31))]
 //! # fn example<T>(display: safegl::Display<T>, compute: safegl::program::ComputeShader)
 //! # where T: SurfaceTypeTrait + ResizeableSurface {
 //! #[derive(Copy, Clone)]
@@ -78,6 +78,9 @@
 pub use self::alloc::is_buffer_read_supported;
 pub(crate) use self::alloc::restore_bindings;
 pub use self::alloc::{CopyError, Mapping, ReadError, ReadMapping, WriteMapping};
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+pub use self::clear::{ClearBufferError, ClearContent, ClearValue};
 pub use self::fences::Inserter;
 
 /// The fences to insert after a draw or compute command, kept inline so that commands that use
@@ -109,6 +112,8 @@ use std::mem;
 use std::slice;
 
 mod alloc;
+#[cfg(safegl_gl43)]
+mod clear;
 mod fences;
 mod view;
 
@@ -410,18 +415,21 @@ pub enum BufferType {
     UniformBuffer,
     CopyReadBuffer,
     CopyWriteBuffer,
-    #[cfg(feature = "gl46")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    #[cfg(any(safegl_gl42, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_gles31))))]
     AtomicCounterBuffer,
-    #[cfg(feature = "gl46")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    #[cfg(any(safegl_gl43, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
     DispatchIndirectBuffer,
     DrawIndirectBuffer,
-    #[cfg(feature = "gl46")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    #[cfg(safegl_gl44)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
     QueryBuffer,
-    #[cfg(feature = "gl46")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    ParameterBuffer,
+    #[cfg(any(safegl_gl43, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
     ShaderStorageBuffer,
     TextureBuffer,
     TransformFeedbackBuffer,
@@ -437,14 +445,16 @@ impl BufferType {
             BufferType::UniformBuffer => gl::UNIFORM_BUFFER,
             BufferType::CopyReadBuffer => gl::COPY_READ_BUFFER,
             BufferType::CopyWriteBuffer => gl::COPY_WRITE_BUFFER,
-            #[cfg(feature = "gl46")]
+            #[cfg(any(safegl_gl42, safegl_gles31))]
             BufferType::AtomicCounterBuffer => gl::ATOMIC_COUNTER_BUFFER,
-            #[cfg(feature = "gl46")]
+            #[cfg(any(safegl_gl43, safegl_gles31))]
             BufferType::DispatchIndirectBuffer => gl::DISPATCH_INDIRECT_BUFFER,
             BufferType::DrawIndirectBuffer => gl::DRAW_INDIRECT_BUFFER,
-            #[cfg(feature = "gl46")]
+            #[cfg(safegl_gl44)]
             BufferType::QueryBuffer => gl::QUERY_BUFFER,
-            #[cfg(feature = "gl46")]
+            #[cfg(safegl_gl46)]
+            BufferType::ParameterBuffer => gl::PARAMETER_BUFFER,
+            #[cfg(any(safegl_gl43, safegl_gles31))]
             BufferType::ShaderStorageBuffer => gl::SHADER_STORAGE_BUFFER,
             BufferType::TextureBuffer => gl::TEXTURE_BUFFER,
             BufferType::TransformFeedbackBuffer => gl::TRANSFORM_FEEDBACK_BUFFER,

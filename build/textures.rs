@@ -54,6 +54,30 @@ impl TextureDimensions {
     }
 }
 
+/// The levels that have a kind of texture, as a `cfg` predicate, or `None` for every level.
+fn level_gate(ty: &TextureType, dimensions: &TextureDimensions) -> Option<String> {
+    let mut gates = Vec::new();
+    match *dimensions {
+        TextureDimensions::Texture1d | TextureDimensions::Texture1dArray => {
+            gates.push("safegl_desktop")
+        }
+        TextureDimensions::Texture2dMultisample => gates.push("any(safegl_desktop, safegl_gles31)"),
+        TextureDimensions::Texture2dMultisampleArray | TextureDimensions::CubemapArray => {
+            gates.push("any(safegl_desktop, safegl_gles32)")
+        }
+        _ => (),
+    }
+    // `GL_STENCIL_INDEX8` textures are core in OpenGL 4.4 and OpenGL ES 3.2
+    if let TextureType::Stencil = *ty {
+        gates.push("any(safegl_gl44, safegl_gles32)");
+    }
+    match gates.len() {
+        0 => None,
+        1 => Some(gates[0].to_owned()),
+        _ => Some(format!("all({})", gates.join(", "))),
+    }
+}
+
 pub fn build_texture_file<W: Write>(dest: &mut W) {
     build_texture(dest, TextureType::Regular, TextureDimensions::Texture1d);
     build_texture(dest, TextureType::Compressed, TextureDimensions::Texture1d);
@@ -449,8 +473,18 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         },
     };
 
+    // the attributes that compile the texture only at the levels that have it
+    let gate = match level_gate(&ty, &dimensions) {
+        Some(gate) => format!(
+            "#[cfg({})]\n#[cfg_attr(docsrs, doc(cfg({})))]\n",
+            gate, gate
+        ),
+        None => String::new(),
+    };
+
     // writing the `use module::*;` statement
-    writeln!(dest, "pub use self::{}::{};", module_name, name).unwrap();
+    writeln!(dest, "{}pub use self::{}::{};", gate, module_name, name).unwrap();
+    write!(dest, "{}", gate).unwrap();
 
     // opening `mod module {`
     writeln!(dest, "
@@ -463,7 +497,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
 
             use crate::texture::any::{{self, TextureAny, TextureAnyLayer, TextureAnyMipmap}};
             use crate::texture::any::{{TextureAnyLayerMipmap, TextureAnyImage, Dimensions}};
-            #[cfg(feature = \"gl46\")]
+            #[cfg(safegl_desktop)]
             use crate::texture::bindless::{{ResidentTexture, BindlessTexturesNotSupportedError}};
             use crate::texture::get_format::{{InternalFormat, InternalFormatType, GetFormatError}};
             use crate::texture::pixel_buffer::PixelBuffer;
@@ -480,7 +514,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
 
             use crate::backend::Facade;
             use crate::uniforms::{{UniformValue, AsUniformValue, Sampler}};
-            #[cfg(feature = \"gl46\")]
+            #[cfg(any(safegl_gl42, safegl_gles31))]
             use crate::uniforms::{{ImageUnit, ImageUnitError, ImageUnitFormat}};
             use crate::framebuffer;
 
@@ -686,7 +720,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
             && dimensions != TextureDimensions::Texture2dMultisampleArray)
     {
         writeln!(dest, "
-                    #[cfg(feature = \"gl46\")]
+                    #[cfg(any(safegl_gl42, safegl_gles31))]
                     impl<'a> AsUniformValue for ImageUnit<'a, {myname}> {{
                         #[inline]
                         fn as_uniform_value(&self) -> UniformValue<'_>  {{
@@ -694,11 +728,11 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                         }}
                     }}
 
-                    #[cfg(feature = \"gl46\")]
+                    #[cfg(any(safegl_gl42, safegl_gles31))]
                     impl {myname} {{
                         /// Builds an image unit marker object that allows you to indicate how the
                         /// texture should be bound to an image unit.
-                        #[cfg_attr(docsrs, doc(cfg(feature = \"gl46\")))]
+                        #[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_gles31))))]
                         #[inline]
                         pub fn image_unit(&self, format: ImageUnitFormat) -> Result<ImageUnit<'_, {myname}>, ImageUnitError> {{
                              ImageUnit::new(self, format)
@@ -1444,8 +1478,8 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
             /// a "reference to it" in a buffer (actually not a reference but a raw pointer).
             ///
             /// See the documentation of `ResidentTexture` for more infos.
-            #[cfg(feature = "gl46")]
-            #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+            #[cfg(safegl_desktop)]
+            #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
             #[inline]
             pub fn resident(self) -> Result<ResidentTexture, BindlessTexturesNotSupportedError> {{
                 ResidentTexture::new(self.0)
@@ -1810,7 +1844,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
 
         (writeln!(
             dest,
-            "#[cfg(feature = \"gl46\")]
+            "#[cfg(any(safegl_gl43, safegl_gles32))]
              impl<'t> From<{name}Mipmap<'t>> for crate::texture::CopyImageTarget<'t> {{
                  #[inline]
                  fn from(mipmap: {name}Mipmap<'t>) -> crate::texture::CopyImageTarget<'t> {{

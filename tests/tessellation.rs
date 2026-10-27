@@ -1,3 +1,5 @@
+#![cfg(any(safegl_desktop, safegl_gles32))]
+
 //! Tessellation shaders (glium#319).
 
 #[macro_use]

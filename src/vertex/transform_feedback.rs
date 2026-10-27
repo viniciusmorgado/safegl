@@ -98,9 +98,6 @@ pub struct TransformFeedbackSession<'a> {
 /// Error that can happen when creating a `TransformFeedbackSession`.
 #[derive(Debug, Clone)]
 pub enum TransformFeedbackSessionCreationError {
-    /// Transform feedback is not supported by the OpenGL implementation.
-    NotSupported,
-
     /// The format of the output doesn't match what the program is expected to output.
     WrongVertexFormat,
 
@@ -113,7 +110,6 @@ impl fmt::Display for TransformFeedbackSessionCreationError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::TransformFeedbackSessionCreationError::*;
         let desc = match *self {
-            NotSupported => "Transform feedback is not supported by the OpenGL implementation",
             WrongVertexFormat => {
                 "The format of the output doesn't match what the program is expected to output"
             }
@@ -124,17 +120,6 @@ impl fmt::Display for TransformFeedbackSessionCreationError {
 }
 
 impl Error for TransformFeedbackSessionCreationError {}
-
-/// Returns true if transform feedback is supported by the OpenGL implementation.
-#[inline]
-pub fn is_transform_feedback_supported<F: ?Sized>(facade: &F) -> bool
-where
-    F: Facade,
-{
-    // transform feedback is core in OpenGL 3.0 and OpenGL ES 3.0
-    let _ = facade;
-    true
-}
 
 impl<'a> TransformFeedbackSession<'a> {
     /// Builds a new transform feedback session.
@@ -150,10 +135,6 @@ impl<'a> TransformFeedbackSession<'a> {
         F: Facade,
         V: Vertex + Copy + Send + 'static,
     {
-        if !is_transform_feedback_supported(facade) {
-            return Err(TransformFeedbackSessionCreationError::NotSupported);
-        }
-
         // OpenGL objects can only be used with the context that created them
         let context: &Context = facade.get_context();
         if !std::ptr::eq(ProgramExt::get_context(program), context)
@@ -209,15 +190,20 @@ impl<'a> TransformFeedbackSessionExt for TransformFeedbackSession<'a> {
                 (Some(OutputPrimitives::Quads), _) => gl::TRIANGLES,
                 (None, PrimitiveType::Points) => gl::POINTS,
                 (None, PrimitiveType::LinesList) => gl::LINES,
+                #[cfg(any(safegl_desktop, safegl_gles32))]
                 (None, PrimitiveType::LinesListAdjacency) => gl::LINES,
                 (None, PrimitiveType::LineStrip) => gl::LINES,
+                #[cfg(any(safegl_desktop, safegl_gles32))]
                 (None, PrimitiveType::LineStripAdjacency) => gl::LINES,
                 (None, PrimitiveType::LineLoop) => gl::LINES,
                 (None, PrimitiveType::TrianglesList) => gl::TRIANGLES,
+                #[cfg(any(safegl_desktop, safegl_gles32))]
                 (None, PrimitiveType::TrianglesListAdjacency) => gl::TRIANGLES,
                 (None, PrimitiveType::TriangleStrip) => gl::TRIANGLES,
+                #[cfg(any(safegl_desktop, safegl_gles32))]
                 (None, PrimitiveType::TriangleStripAdjacency) => gl::TRIANGLES,
                 (None, PrimitiveType::TriangleFan) => gl::TRIANGLES,
+                #[cfg(any(safegl_desktop, safegl_gles32))]
                 (None, PrimitiveType::Patches { .. }) => unreachable!(),
             };
 

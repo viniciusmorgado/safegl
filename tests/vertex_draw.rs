@@ -153,7 +153,7 @@ fn instanced_draw_from_a_vertex_slice() {
         .draw(
             (
                 vertices.slice(2..8).unwrap(),
-                instances.slice(1..2).unwrap().per_instance().unwrap(),
+                instances.slice(1..2).unwrap().per_instance(),
             ),
             NoIndices(PrimitiveType::TrianglesList),
             &program,
@@ -279,7 +279,7 @@ fn many_instance_buffer_offsets() {
             texture
                 .as_surface()
                 .draw(
-                    (&vertices, instance.per_instance().unwrap()),
+                    (&vertices, instance.per_instance()),
                     NoIndices(PrimitiveType::TrianglesList),
                     &program,
                     &safegl::uniforms::EmptyUniforms,

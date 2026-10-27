@@ -357,24 +357,6 @@ fn cull_clockwise() {
                 }
             "
         },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec2 position;
-
-                void main() {
-                    gl_Position = vec4(position, 0.0, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-
-                void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            "
-        },
         100 => {
             vertex: "
                 #version 100
@@ -480,24 +462,6 @@ fn cull_counterclockwise() {
                 }
             "
         },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec2 position;
-
-                void main() {
-                    gl_Position = vec4(position, 0.0, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-
-                void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            "
-        },
         100 => {
             vertex: "
                 #version 100
@@ -595,24 +559,6 @@ fn cull_clockwise_trianglestrip() {
                 out vec4 color;
                 void main() {
                     color = vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            "
-        },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec2 position;
-
-                void main() {
-                    gl_Position = vec4(position, 0.0, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-
-                void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
                 }
             "
         },
@@ -716,24 +662,6 @@ fn cull_counterclockwise_trianglestrip() {
                 }
             "
         },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec2 position;
-
-                void main() {
-                    gl_Position = vec4(position, 0.0, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-
-                void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            "
-        },
         100 => {
             vertex: "
                 #version 100
@@ -815,24 +743,6 @@ macro_rules! blending_test {
                         }
                     "
                 },
-                110 => {
-                    vertex: "
-                        #version 110
-
-                        attribute vec2 position;
-
-                        void main() {
-                            gl_Position = vec4(position, 0.0, 1.0);
-                        }
-                    ",
-                    fragment: "
-                        #version 110
-
-                        void main() {
-                            gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-                        }
-                    "
-                },
                 100 => {
                     vertex: "
                         #version 100
@@ -897,6 +807,7 @@ blending_test!(
     (255, 255, 255, 255)
 );
 
+#[cfg(safegl_desktop)]
 /// A program that colors each triangle with the `value.y` of its provoking vertex.
 fn provoking_vertex_program(
     display: &safegl::Display<safegl::glutin::surface::WindowSurface>,
@@ -917,6 +828,7 @@ fn provoking_vertex_program(
     safegl::Program::from_source(display, &vertex, &fragment, None).unwrap()
 }
 
+#[cfg(safegl_desktop)]
 #[test]
 fn provoking_vertex_last() {
     let display = support::build_display();
@@ -971,6 +883,7 @@ fn provoking_vertex_last() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_desktop)]
 #[test]
 fn provoking_vertex_first() {
     let display = support::build_display();
@@ -1031,6 +944,7 @@ fn provoking_vertex_first() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_desktop)]
 #[test]
 fn depth_clamp_all() {
     let display = support::build_display();
@@ -1080,24 +994,6 @@ fn depth_clamp_all() {
                 out vec4 color;
                 void main() {
                     color = vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            "
-        },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec3 position;
-
-                void main() {
-                    gl_Position = vec4(position, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-
-                void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
                 }
             "
         },
@@ -1158,6 +1054,7 @@ fn depth_clamp_all() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_desktop)]
 #[test]
 fn depth_clamp_near() {
     let display = support::build_display();
@@ -1207,24 +1104,6 @@ fn depth_clamp_near() {
                 out vec4 color;
                 void main() {
                     color = vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            "
-        },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec3 position;
-
-                void main() {
-                    gl_Position = vec4(position, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-
-                void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
                 }
             "
         },
@@ -1293,6 +1172,7 @@ fn depth_clamp_near() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_desktop)]
 #[test]
 fn depth_clamp_far() {
     let display = support::build_display();
@@ -1342,24 +1222,6 @@ fn depth_clamp_far() {
                 out vec4 color;
                 void main() {
                     color = vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            "
-        },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec3 position;
-
-                void main() {
-                    gl_Position = vec4(position, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-
-                void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
                 }
             "
         },
@@ -1428,6 +1290,7 @@ fn depth_clamp_far() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_gles32)]
 #[test]
 fn primitive_bounding_box() {
     let display = support::build_display();
@@ -1512,24 +1375,6 @@ fn primitive_restart_index() {
                 }
             "
         },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec3 position;
-
-                void main() {
-                    gl_Position = vec4(position, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-
-                void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            "
-        },
         100 => {
             vertex: "
                 #version 100
@@ -1569,7 +1414,7 @@ fn primitive_restart_index() {
 
     match res {
         Ok(_) => (),
-        Err(safegl::DrawError::DepthClampNotSupported) => {
+        Err(safegl::DrawError::FixedIndexRestartingNotSupported) => {
             display.assert_no_error(None);
             return;
         }
@@ -1590,6 +1435,35 @@ fn primitive_restart_index() {
         for pixel in (mid_x - 2)..(mid_x + 2) {
             assert_eq!(data[row][pixel], (255, 255, 255, 255));
         }
+    }
+
+    display.assert_no_error(None);
+}
+
+#[test]
+fn line_width() {
+    let display = support::build_display();
+    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+    let texture = support::build_renderable_texture(&display);
+    let draw = |width| {
+        texture.as_surface().draw(
+            &vb,
+            &ib,
+            &program,
+            &uniform! {},
+            &safegl::DrawParameters {
+                line_width: Some(width),
+                ..Default::default()
+            },
+        )
+    };
+
+    draw(1.0).unwrap();
+    assert!(matches!(draw(0.0), Err(safegl::DrawError::LineWidthNotSupported)));
+    assert!(matches!(draw(-1.0), Err(safegl::DrawError::LineWidthNotSupported)));
+    // forward-compatible desktop contexts have no wide lines
+    if !support::is_gles(&display) {
+        assert!(matches!(draw(2.0), Err(safegl::DrawError::LineWidthNotSupported)));
     }
 
     display.assert_no_error(None);

@@ -32,23 +32,104 @@ use std::ops::Deref;
 use std::os::raw::c_void;
 use std::rc::Rc;
 
-/// Returns the context APIs to request from glutin, in order of preference, for the OpenGL tier
-/// SafeGL was compiled with.
+/// The version of the selected desktop level, if any.
+fn desktop_level() -> Option<(u8, u8)> {
+    let levels = [
+        cfg!(safegl_gl40),
+        cfg!(safegl_gl41),
+        cfg!(safegl_gl42),
+        cfg!(safegl_gl43),
+        cfg!(safegl_gl44),
+        cfg!(safegl_gl45),
+        cfg!(safegl_gl46),
+    ];
+    levels
+        .iter()
+        .rposition(|&level| level)
+        .map(|minor| (4, minor as u8))
+}
+
+/// The version of the selected OpenGL ES level, if any.
+fn embedded_level() -> Option<(u8, u8)> {
+    let levels = [
+        cfg!(safegl_gles30),
+        cfg!(safegl_gles31),
+        cfg!(safegl_gles32),
+    ];
+    levels
+        .iter()
+        .rposition(|&level| level)
+        .map(|minor| (3, minor as u8))
+}
+
+/// Returns the context APIs to request from glutin for the selected levels, in order: the
+/// desktop level, then the OpenGL ES level. Context creation code should try them in order and
+/// keep the first that succeeds.
 ///
-/// glutin requests an OpenGL 3.3 core context when no version is given, which is below SafeGL's
-/// minimum, so context creation code should try these in order and keep the first that succeeds.
-pub fn tier_context_apis() -> Vec<glutin::context::ContextApi> {
+/// Each one requests the version of its level, since the level is the version that the
+/// compiled API is written for. glutin would otherwise request OpenGL 3.3, below SafeGL's
+/// minimum.
+pub fn level_context_apis() -> Vec<glutin::context::ContextApi> {
     use glutin::context::{ContextApi, Version};
 
-    let mut apis = Vec::with_capacity(3);
-    if cfg!(feature = "gl46") {
-        apis.push(ContextApi::OpenGl(Some(Version::new(4, 6))));
+    let mut apis = Vec::with_capacity(2);
+    if let Some((major, minor)) = desktop_level() {
+        apis.push(ContextApi::OpenGl(Some(Version::new(major, minor))));
     }
-    if cfg!(feature = "gl41") {
-        apis.push(ContextApi::OpenGl(Some(Version::new(4, 1))));
+    if let Some((major, minor)) = embedded_level() {
+        apis.push(ContextApi::Gles(Some(Version::new(major, minor))));
     }
-    apis.push(ContextApi::Gles(Some(Version::new(3, 0))));
     apis
+}
+
+/// The error message when the driver can't create a context of the selected levels.
+fn level_context_error(macos: bool) -> String {
+    level_context_error_for(desktop_level(), embedded_level(), macos)
+}
+
+/// The error message when the driver can't create a context of the `desktop` and `embedded`
+/// levels.
+fn level_context_error_for(
+    desktop: Option<(u8, u8)>,
+    embedded: Option<(u8, u8)>,
+    macos: bool,
+) -> String {
+    let mut levels = Vec::new();
+    if let Some((major, minor)) = desktop {
+        levels.push(format!(
+            "`gl{}{}` (OpenGL {}.{} core)",
+            major, minor, major, minor
+        ));
+    }
+    if let Some((major, minor)) = embedded {
+        levels.push(format!(
+            "`gles{}{}` (OpenGL ES {}.{})",
+            major, minor, major, minor
+        ));
+    }
+    let mut message = format!(
+        "the driver can't create a context of the selected level {}",
+        levels.join(" or ")
+    );
+    // macOS stops at OpenGL 4.1
+    if macos && desktop.is_some_and(|version| version > (4, 1)) {
+        message += ": macOS provides OpenGL 4.1 at most, select the `gl41` level or a lower one";
+    }
+    message
+}
+
+/// Returns the context attributes for `api`, which request the core profile for desktop OpenGL,
+/// the only desktop profile that SafeGL accepts.
+pub fn context_attributes_builder(
+    api: glutin::context::ContextApi,
+) -> glutin::context::ContextAttributesBuilder {
+    use glutin::context::{ContextApi, ContextAttributesBuilder, GlProfile};
+
+    let builder = ContextAttributesBuilder::new().with_context_api(api);
+    match api {
+        ContextApi::OpenGl(_) => builder.with_profile(GlProfile::Core),
+        ContextApi::Gles(_) => builder,
+    }
 }
 
 #[cfg(feature = "simple_window_builder")]
@@ -407,5 +488,35 @@ unsafe impl<T: SurfaceTypeTrait + ResizeableSurface> Backend for GlutinBackend<T
             .context
             .make_current(&pair.as_ref().unwrap().surface)
             .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::level_context_error_for;
+
+    #[test]
+    fn macos_above_its_version_is_explained() {
+        assert_eq!(
+            level_context_error_for(Some((4, 6)), None, true),
+            "the driver can't create a context of the selected level `gl46` (OpenGL 4.6 core): \
+             macOS provides OpenGL 4.1 at most, select the `gl41` level or a lower one"
+        );
+        // macOS has OpenGL 4.1, and the other systems any version
+        assert!(!level_context_error_for(Some((4, 1)), None, true).contains("macOS"));
+        assert!(!level_context_error_for(Some((4, 6)), None, false).contains("macOS"));
+    }
+
+    #[test]
+    fn every_selected_level_is_named() {
+        assert_eq!(
+            level_context_error_for(Some((4, 3)), Some((3, 1)), false),
+            "the driver can't create a context of the selected level `gl43` (OpenGL 4.3 core) or \
+             `gles31` (OpenGL ES 3.1)"
+        );
+        assert_eq!(
+            level_context_error_for(None, Some((3, 0)), false),
+            "the driver can't create a context of the selected level `gles30` (OpenGL ES 3.0)"
+        );
     }
 }

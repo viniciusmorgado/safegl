@@ -1,3 +1,5 @@
+#![cfg(any(safegl_desktop, safegl_gles32))]
+
 #[macro_use]
 extern crate safegl;
 
@@ -41,15 +43,15 @@ fn sample() {
 
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
-    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::Gl, 1, 4)) {
+    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::Gl, 3, 3)) {
         return;
     }
     let program = safegl::Program::from_source(
         &display,
         "
-            #version 110
+            #version 330
 
-            attribute vec2 position;
+            in vec2 position;
 
             void main() {
                 gl_Position = vec4(position, 0.0, 1.0);
@@ -107,15 +109,15 @@ fn wrong_type() {
 
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
-    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::Gl, 1, 4)) {
+    if !display.is_glsl_version_supported(&safegl::Version(safegl::Api::Gl, 3, 3)) {
         return;
     }
     let program = safegl::Program::from_source(
         &display,
         "
-            #version 110
+            #version 330
 
-            attribute vec2 position;
+            in vec2 position;
 
             void main() {
                 gl_Position = vec4(position, 0.0, 1.0);

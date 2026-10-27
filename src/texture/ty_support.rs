@@ -13,29 +13,6 @@ where
     context.get_version().0 == Api::Gl
 }
 
-/// Returns true is two-dimensional textures are supported.
-///
-/// This is a dummy function that always returns true, as 2d textures are always supported. This
-/// function is just here for completeness.
-#[inline]
-pub fn is_texture_2d_supported<C: ?Sized>(_: &C) -> bool
-where
-    C: CapabilitiesSource,
-{
-    true
-}
-
-/// Returns true is three-dimensional textures are supported.
-///
-/// Always returns true, as 3d textures are core in all supported OpenGL and OpenGL ES versions.
-#[inline]
-pub fn is_texture_3d_supported<C: ?Sized>(_: &C) -> bool
-where
-    C: CapabilitiesSource,
-{
-    true
-}
-
 /// Returns true is one-dimensional texture arrays are supported.
 #[inline]
 pub fn is_texture_1d_array_supported<C: ?Sized>(context: &C) -> bool
@@ -43,18 +20,6 @@ where
     C: CapabilitiesSource,
 {
     context.get_version().0 == Api::Gl
-}
-
-/// Returns true is two-dimensional texture arrays are supported.
-///
-/// Always returns true, as 2d texture arrays are core in all supported OpenGL and OpenGL ES
-/// versions.
-#[inline]
-pub fn is_texture_2d_array_supported<C: ?Sized>(_: &C) -> bool
-where
-    C: CapabilitiesSource,
-{
-    true
 }
 
 /// Returns true is two-dimensional multisample textures are supported.
@@ -78,17 +43,6 @@ where
         || context
             .get_extensions()
             .gl_oes_texture_storage_multisample_2d_array
-}
-
-/// Returns true is cubemaps are supported.
-///
-/// Always returns true, as cubemaps are core in all supported OpenGL and OpenGL ES versions.
-#[inline]
-pub fn is_cubemaps_supported<C: ?Sized>(_: &C) -> bool
-where
-    C: CapabilitiesSource,
-{
-    true
 }
 
 /// Returns true is cubemap arrays are supported.

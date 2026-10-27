@@ -12,21 +12,23 @@ fn build_program<
     display: &safegl::Display<T>,
 ) -> safegl::Program {
     program!(display,
-        110 => {
+        330 => {
             vertex: "
-                #version 110
+                #version 330
 
-                attribute vec2 position;
+                in vec2 position;
 
                 void main() {
                     gl_Position = vec4(position, 0.0, 1.0);
                 }
             ",
             fragment: "
-                #version 110
+                #version 330
+
+                out vec4 f_color;
 
                 void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+                    f_color = vec4(1.0, 0.0, 0.0, 1.0);
                 }
             ",
         },
@@ -510,7 +512,7 @@ fn indexbuffer_slice_draw() {
     display.assert_no_error(None);
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl43)]
 #[test]
 fn multidraw_array() {
     let display = support::build_display();
@@ -572,7 +574,7 @@ fn multidraw_array() {
     display.assert_no_error(None);
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl43)]
 #[test]
 fn multidraw_elements() {
     let display = support::build_display();
@@ -616,6 +618,75 @@ fn multidraw_elements() {
         instance_count: 1,
         first_index: 0,
         base_vertex: 0,
+        base_instance: 0,
+    }]);
+
+    let texture = support::build_renderable_texture(&display);
+    texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+    texture
+        .as_surface()
+        .draw(
+            &vb,
+            multidraw.with_index_buffer(&indices),
+            &program,
+            &uniform! {},
+            &Default::default(),
+        )
+        .unwrap();
+
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
+    for row in data.iter() {
+        for pixel in row.iter() {
+            assert_eq!(pixel, &(255, 0, 0, 255));
+        }
+    }
+
+    display.assert_no_error(None);
+}
+
+#[cfg(safegl_gl43)]
+#[test]
+fn multidraw_elements_negative_base_vertex() {
+    let display = support::build_display();
+    let program = build_program(&display);
+
+    let vb = safegl::VertexBuffer::new(
+        &display,
+        &[
+            Vertex {
+                position: [-1.0, 1.0],
+            },
+            Vertex {
+                position: [1.0, 1.0],
+            },
+            Vertex {
+                position: [-1.0, -1.0],
+            },
+            Vertex {
+                position: [1.0, -1.0],
+            },
+        ],
+    )
+    .unwrap();
+
+    // the indices are 3 above the vertices, which the base vertex brings back
+    let indices = safegl::IndexBuffer::new(
+        &display,
+        PrimitiveType::TrianglesList,
+        &[3u16, 4, 5, 4, 6, 5],
+    )
+    .unwrap();
+
+    let multidraw = match safegl::index::DrawCommandsIndicesBuffer::empty(&display, 1) {
+        Ok(buf) => buf,
+        Err(safegl::buffer::BufferCreationError::BufferTypeNotSupported) => return,
+        Err(e) => panic!("{:?}", e),
+    };
+    multidraw.write(&[safegl::index::DrawCommandIndices {
+        count: 6,
+        instance_count: 1,
+        first_index: 0,
+        base_vertex: -3,
         base_instance: 0,
     }]);
 

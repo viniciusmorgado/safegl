@@ -268,7 +268,7 @@ impl ApplicationContext for Application {
                 .draw(
                     (
                         &self.vertex_buffer,
-                        per_instance_buffer.per_instance().unwrap(),
+                        per_instance_buffer.per_instance(),
                     ),
                     &safegl::index::NoIndices(safegl::index::PrimitiveType::TrianglesList),
                     &self.picking_program,
@@ -281,7 +281,7 @@ impl ApplicationContext for Application {
             .draw(
                 (
                     &self.vertex_buffer,
-                    per_instance_buffer.per_instance().unwrap(),
+                    per_instance_buffer.per_instance(),
                 ),
                 &safegl::index::NoIndices(safegl::index::PrimitiveType::TrianglesList),
                 &self.program,

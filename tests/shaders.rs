@@ -4,6 +4,7 @@
 #[macro_use]
 extern crate safegl;
 
+#[cfg(any(safegl_gl41, safegl_gles30))]
 use safegl::Surface;
 
 mod support;
@@ -57,11 +58,13 @@ fn program_compilation_error() {
         "invalid glsl code",
         // fragment shader
         "
-            #version 110
-            varying vec3 vColor;
+            #version 330
+
+            out vec4 f_color;
+            in vec3 vColor;
 
             void main() {
-                gl_FragColor = vec4(vColor, 1.0);
+                f_color = vec4(vColor, 1.0);
             }
         ",
         // geometry shader
@@ -155,7 +158,7 @@ fn get_uniform_blocks() {
             }
         ",
         "
-            #version 130
+            #version 330
 
             out vec4 color;
 
@@ -221,6 +224,7 @@ fn get_uniform_blocks() {
     display.assert_no_error(None);
 }
 
+#[cfg(any(safegl_gl41, safegl_gles30))]
 #[test]
 fn get_program_binary() {
     let display = support::build_display();
@@ -264,6 +268,7 @@ fn get_program_binary() {
     display.assert_no_error(None);
 }
 
+#[cfg(any(safegl_gl41, safegl_gles30))]
 #[test]
 fn program_binary_reload() {
     let display = support::build_display();
@@ -307,6 +312,7 @@ fn program_binary_reload() {
     display.assert_no_error(None);
 }
 
+#[cfg(any(safegl_gl41, safegl_gles30))]
 #[test]
 fn program_binary_working() {
     let display = support::build_display();
@@ -385,10 +391,10 @@ fn get_transform_feedback_varyings() {
     } else {
         (
             "
-            #version 110
+            #version 330
 
-            varying vec2 normal;
-            varying float color;
+            out vec2 normal;
+            out float color;
 
             void main() {
                 normal = vec2(0.0, 0.0);
@@ -398,7 +404,7 @@ fn get_transform_feedback_varyings() {
             }
         ",
             "
-            #version 130
+            #version 330
 
             out vec4 color;
 
@@ -427,7 +433,6 @@ fn get_transform_feedback_varyings() {
 
     let program = match safegl::Program::new(&display, source) {
         Ok(p) => p,
-        Err(safegl::program::ProgramCreationError::TransformFeedbackNotSupported) => return,
         Err(e) => panic!("{:?}", e),
     };
 
@@ -494,7 +499,7 @@ fn get_output_primitives_simple() {
 
 // TODO: add tests for get_output_primitives with geometry shader, TES, and both
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
 fn ssbos() {
     let display = support::build_display();
@@ -517,7 +522,7 @@ fn ssbos() {
             }
         ",
         "
-            #version 130
+            #version 330
 
             out vec4 color;
 
@@ -613,7 +618,7 @@ fn complex_layout() {
             }
         ",
         "
-            #version 130
+            #version 330
 
             out vec4 color;
 
@@ -745,7 +750,7 @@ fn complex_layout() {
     display.assert_no_error(None);
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
 fn unsized_array() {
     let display = support::build_display();

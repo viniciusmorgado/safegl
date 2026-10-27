@@ -1,19 +1,19 @@
 use crate::gl;
 
 use crate::context::CommandContext;
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::version::Api;
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::version::Version;
 
 use crate::backend::Facade;
 use crate::context::Context;
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::vertex::TransformFeedbackSession;
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::TransformFeedbackSessionExt;
 use crate::ContextExt;
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::uniforms::CollectedUniforms;
 
 use std::cell::RefCell;
@@ -25,29 +25,32 @@ use std::rc::Rc;
 use fnv::FnvHasher;
 use glow::HasContext;
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::DrawError;
 use crate::GlObject;
 use crate::ProgramExt;
 use crate::RawUniformValue;
 
-#[cfg(feature = "gl46")]
-use crate::draw_parameters::TimeElapsedQuery;
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
+use crate::draw_parameters::AnySamplesPassedQuery;
+#[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::QueryExt;
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::buffer::BufferSlice;
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::BufferExt;
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::BufferSliceExt;
 
 use crate::program::uniforms_storage::UniformsStorage;
-use crate::program::{is_binary_supported, Binary, GetBinaryError, ProgramCreationError};
+use crate::program::ProgramCreationError;
+#[cfg(any(safegl_gl41, safegl_gles30))]
+use crate::program::{is_binary_supported, Binary, GetBinaryError};
 
+#[cfg(any(safegl_gl41, safegl_gles30))]
 use crate::program::binary_header::{attach_safegl_header, process_safegl_header};
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::program::compute::ComputeCommand;
 use crate::program::reflection::reflect_subroutine_data;
 use crate::program::reflection::reflect_transform_feedback;
@@ -59,7 +62,7 @@ use crate::program::reflection::{OutputPrimitives, Uniform, UniformBlock};
 use crate::program::reflection::{ShaderStage, SubroutineData};
 use crate::program::shader::Shader;
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::uniforms::Uniforms;
 
 use crate::vertex::VertexFormat;
@@ -197,6 +200,7 @@ impl RawProgram {
     }
 
     /// Creates a program from binary.
+    #[cfg(any(safegl_gl41, safegl_gles30))]
     pub fn from_binary<F: ?Sized>(
         facade: &F,
         binary: Binary,
@@ -299,6 +303,7 @@ impl RawProgram {
     ///
     /// You can store the result in a file, then reload it later. This avoids having to compile
     /// the source code every time.
+    #[cfg(any(safegl_gl41, safegl_gles30))]
     pub fn get_binary(&self) -> Result<Binary, GetBinaryError> {
         if !is_binary_supported(&*self.context) {
             return Err(GetBinaryError::NotSupported);
@@ -519,7 +524,7 @@ impl RawProgram {
     /// ## Example
     ///
     /// ```no_run
-    /// # #[cfg(feature = "gl46")]
+    /// # #[cfg(any(safegl_gl43, safegl_gles31))]
     /// # fn example(program: safegl::Program) {
     /// for (name, uniform) in program.get_shader_storage_blocks() {
     ///     println!("Name: {}", name);
@@ -538,7 +543,7 @@ impl RawProgram {
     /// ## Example
     ///
     /// ```no_run
-    /// # #[cfg(feature = "gl46")]
+    /// # #[cfg(any(safegl_gl42, safegl_gles31))]
     /// # fn example(program: safegl::Program) {
     /// for (name, uniform) in program.get_atomic_counters() {
     ///     println!("Name: {}", name);
@@ -564,13 +569,14 @@ impl RawProgram {
     ///
     /// The program *must* contain a compute shader.
     /// TODO: check inside the program if it has a compute shader instead of being unsafe
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     pub unsafe fn dispatch_compute<U>(
         &self,
         uniforms: U,
         x: u32,
         y: u32,
         z: u32,
+        statistics: &[&StatisticsQuery],
     ) -> Result<(), DrawError>
     where
         U: Uniforms,
@@ -593,7 +599,7 @@ impl RawProgram {
             });
         }
 
-        TimeElapsedQuery::end_conditional_render(&mut ctxt);
+        AnySamplesPassedQuery::end_conditional_render(&mut ctxt);
         // `glUseProgram` is invalid while transform feedback is active
         TransformFeedbackSession::unbind(&mut ctxt);
 
@@ -601,6 +607,7 @@ impl RawProgram {
 
         self.use_program(&mut ctxt);
         uniforms.bind(&mut ctxt, self, &mut fences)?;
+        sync_statistics(&mut ctxt, statistics)?;
         ctxt.glow.dispatch_compute(x, y, z);
 
         for fence in fences {
@@ -618,11 +625,12 @@ impl RawProgram {
     ///
     /// The program *must* contain a compute shader.
     /// TODO: check inside the program if it has a compute shader instead of being unsafe
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     pub unsafe fn dispatch_compute_indirect<U>(
         &self,
         uniforms: U,
         buffer: BufferSlice<'_, ComputeCommand>,
+        statistics: &[&StatisticsQuery],
     ) -> Result<(), DrawError>
     where
         U: Uniforms,
@@ -652,7 +660,7 @@ impl RawProgram {
             });
         }
 
-        TimeElapsedQuery::end_conditional_render(&mut ctxt);
+        AnySamplesPassedQuery::end_conditional_render(&mut ctxt);
         // `glUseProgram` is invalid while transform feedback is active
         TransformFeedbackSession::unbind(&mut ctxt);
 
@@ -666,6 +674,7 @@ impl RawProgram {
 
         let mut fences = crate::buffer::FenceInserters::new();
         uniforms.bind(&mut ctxt, self, &mut fences)?;
+        sync_statistics(&mut ctxt, statistics)?;
 
         ctxt.glow.dispatch_compute_indirect(offset as i32);
 
@@ -675,6 +684,33 @@ impl RawProgram {
 
         ctxt.state.next_draw_call_id += 1;
 
+        Ok(())
+    }
+}
+
+/// The query of a pipeline statistic given to a dispatch, which only exists at the `gl46` level.
+#[cfg(safegl_gl46)]
+pub type StatisticsQuery = crate::draw_parameters::PipelineStatisticsQuery;
+
+/// The query of a pipeline statistic given to a dispatch, which only exists at the `gl46` level.
+#[cfg(not(safegl_gl46))]
+pub enum StatisticsQuery {}
+
+/// Makes the statistics queries active for the next dispatch, and ends the other pipeline
+/// statistics and transform feedback overflow queries.
+#[cfg(any(safegl_gl43, safegl_gles31))]
+fn sync_statistics(
+    ctxt: &mut CommandContext<'_>,
+    statistics: &[&StatisticsQuery],
+) -> Result<(), DrawError> {
+    #[cfg(safegl_gl46)]
+    {
+        let queries: smallvec::SmallVec<[_; 4]> = statistics.iter().map(|q| q.raw()).collect();
+        crate::draw_parameters::sync_indexed_queries(ctxt, &queries)
+    }
+    #[cfg(not(safegl_gl46))]
+    {
+        let _ = (ctxt, statistics);
         Ok(())
     }
 }
@@ -857,7 +893,7 @@ unsafe fn check_program_link_errors(
 }
 
 /// Returns true if compute shaders are supported.
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 fn is_compute_supported(ctxt: &CommandContext<'_>) -> bool {
     ctxt.version >= &Version(Api::Gl, 4, 3)
         || ctxt.version >= &Version(Api::GlEs, 3, 1)

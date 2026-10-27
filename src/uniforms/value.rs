@@ -1,5 +1,6 @@
 use crate::program;
 use crate::program::BlockLayout;
+#[cfg(safegl_desktop)]
 use crate::program::ShaderStage;
 use crate::texture;
 
@@ -9,7 +10,7 @@ use crate::uniforms::SamplerBehavior;
 use crate::uniforms::UniformBlock;
 
 use crate::buffer::BufferAnySlice;
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl42, safegl_gles31))]
 use crate::uniforms::ImageUnitBehavior;
 
 /// Type of a uniform in a program.
@@ -155,6 +156,8 @@ pub enum UniformValue<'a> {
         BufferAnySlice<'a>,
         fn(&program::UniformBlock) -> Result<(), LayoutMismatchError>,
     ),
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     Subroutine(ShaderStage, &'a str),
     /// Keeps the value that the uniform has in the program: the value of the previous draw
     /// command, or the initializer of the uniform in the shader. Only for uniforms that hold
@@ -194,42 +197,86 @@ pub enum UniformValue<'a> {
     BoolVec2([bool; 2]),
     BoolVec3([bool; 3]),
     BoolVec4([bool; 4]),
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     Double(f64),
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     DoubleVec2([f64; 2]),
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     DoubleVec3([f64; 3]),
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     DoubleVec4([f64; 4]),
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     DoubleMat2([[f64; 2]; 2]),
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     DoubleMat3([[f64; 3]; 3]),
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     DoubleMat4([[f64; 4]; 4]),
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     Int64(i64),
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     Int64Vec2([i64; 2]),
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     Int64Vec3([i64; 3]),
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     Int64Vec4([i64; 4]),
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     UnsignedInt64(u64),
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     UnsignedInt64Vec2([u64; 2]),
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     UnsignedInt64Vec3([u64; 3]),
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     UnsignedInt64Vec4([u64; 4]),
     /// Column-major double-precision matrix with 2 columns and 3 rows (`dmat2x3`).
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     DoubleMat2x3([[f64; 3]; 2]),
     /// Column-major double-precision matrix with 2 columns and 4 rows (`dmat2x4`).
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     DoubleMat2x4([[f64; 4]; 2]),
     /// Column-major double-precision matrix with 3 columns and 2 rows (`dmat3x2`).
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     DoubleMat3x2([[f64; 2]; 3]),
     /// Column-major double-precision matrix with 3 columns and 4 rows (`dmat3x4`).
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     DoubleMat3x4([[f64; 4]; 3]),
     /// Column-major double-precision matrix with 4 columns and 2 rows (`dmat4x2`).
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     DoubleMat4x2([[f64; 2]; 4]),
     /// Column-major double-precision matrix with 4 columns and 3 rows (`dmat4x3`).
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     DoubleMat4x3([[f64; 3]; 4]),
     /// A texture sampled by a sampler uniform, with the sampling parameters to use, or `None` to
     /// use the default ones. It can be bound to the samplers whose type matches the kind of the
     /// texture (floating-point, integral, unsigned or depth) and its dimensions.
     Texture(&'a texture::TextureAny, Option<SamplerBehavior>),
     /// A buffer texture.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     BufferTexture(texture::buffer_texture::BufferTextureRef<'a>),
     /// A texture bound to an image unit, with how to bind it.
-    #[cfg(feature = "gl46")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    #[cfg(any(safegl_gl42, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_gles31))))]
     Image(&'a texture::TextureAny, ImageUnitBehavior),
 }
 
@@ -335,38 +382,62 @@ impl<'a> UniformValue<'a> {
             (&UniformValue::BoolVec2(_), UniformType::BoolVec2) => true,
             (&UniformValue::BoolVec3(_), UniformType::BoolVec3) => true,
             (&UniformValue::BoolVec4(_), UniformType::BoolVec4) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::Double(_), UniformType::Double) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::DoubleMat2(_), UniformType::DoubleMat2) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::DoubleMat3(_), UniformType::DoubleMat3) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::DoubleMat4(_), UniformType::DoubleMat4) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::DoubleVec2(_), UniformType::DoubleVec2) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::DoubleVec3(_), UniformType::DoubleVec3) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::DoubleVec4(_), UniformType::DoubleVec4) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::Int64(_), UniformType::Int64) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::Int64Vec2(_), UniformType::Int64Vec2) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::Int64Vec3(_), UniformType::Int64Vec3) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::Int64Vec4(_), UniformType::Int64Vec4) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::UnsignedInt64(_), UniformType::UnsignedInt64) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::UnsignedInt64Vec2(_), UniformType::UnsignedInt64Vec2) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::UnsignedInt64Vec3(_), UniformType::UnsignedInt64Vec3) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::UnsignedInt64Vec4(_), UniformType::UnsignedInt64Vec4) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::DoubleMat2x3(_), UniformType::DoubleMat2x3) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::DoubleMat2x4(_), UniformType::DoubleMat2x4) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::DoubleMat3x2(_), UniformType::DoubleMat3x2) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::DoubleMat3x4(_), UniformType::DoubleMat3x4) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::DoubleMat4x2(_), UniformType::DoubleMat4x2) => true,
+            #[cfg(safegl_desktop)]
             (&UniformValue::DoubleMat4x3(_), UniformType::DoubleMat4x3) => true,
             (&UniformValue::Texture(texture, _), ty) => sampler_types(texture).contains(&ty),
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             (&UniformValue::BufferTexture(tex), UniformType::SamplerBuffer) => {
                 tex.get_texture_type() == texture::buffer_texture::BufferTextureType::Float
             }
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             (&UniformValue::BufferTexture(tex), UniformType::ISamplerBuffer) => {
                 tex.get_texture_type() == texture::buffer_texture::BufferTextureType::Integral
             }
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             (&UniformValue::BufferTexture(tex), UniformType::USamplerBuffer) => {
                 tex.get_texture_type() == texture::buffer_texture::BufferTextureType::Unsigned
             }
-            #[cfg(feature = "gl46")]
+            #[cfg(any(safegl_gl42, safegl_gles31))]
             (&UniformValue::Image(texture, _), ty) => image_types(texture).contains(&ty),
             _ => false,
         }
@@ -504,7 +575,7 @@ pub(crate) fn is_shadow_sampler(ty: UniformType) -> bool {
 }
 
 /// The types of the image uniforms that a texture can be bound to.
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl42, safegl_gles31))]
 fn image_types(texture: &texture::TextureAny) -> &'static [UniformType] {
     use crate::texture::Dimensions as D;
     use crate::texture::TextureKind as K;
@@ -953,6 +1024,7 @@ impl_uniform_block_basic!([f32; 4], UniformType::FloatVec4);
 
 //TODO bool, i32, u32 and f64 should also be implemented as cgmath and nalgebra variants (i.e. nalgebra::Vec3<f64>).
 // Start of double type variants
+#[cfg(safegl_desktop)]
 impl AsUniformValue for f64 {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -960,8 +1032,10 @@ impl AsUniformValue for f64 {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!(f64, UniformType::Double);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for [f64; 2] {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -969,8 +1043,10 @@ impl AsUniformValue for [f64; 2] {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!([f64; 2], UniformType::DoubleVec2);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for (f64, f64) {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -978,8 +1054,10 @@ impl AsUniformValue for (f64, f64) {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!((f64, f64), UniformType::DoubleVec2);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for [f64; 3] {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -987,8 +1065,10 @@ impl AsUniformValue for [f64; 3] {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!([f64; 3], UniformType::DoubleVec3);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for (f64, f64, f64) {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -996,8 +1076,10 @@ impl AsUniformValue for (f64, f64, f64) {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!((f64, f64, f64), UniformType::DoubleVec3);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for [f64; 4] {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1005,8 +1087,10 @@ impl AsUniformValue for [f64; 4] {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!([f64; 4], UniformType::DoubleVec4);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for (f64, f64, f64, f64) {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1014,8 +1098,10 @@ impl AsUniformValue for (f64, f64, f64, f64) {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!((f64, f64, f64, f64), UniformType::DoubleVec4);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for [[f64; 2]; 2] {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1023,8 +1109,10 @@ impl AsUniformValue for [[f64; 2]; 2] {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!([[f64; 2]; 2], UniformType::DoubleMat2);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for [[f64; 3]; 3] {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1032,8 +1120,10 @@ impl AsUniformValue for [[f64; 3]; 3] {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!([[f64; 3]; 3], UniformType::DoubleMat3);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for [[f64; 4]; 4] {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1041,8 +1131,10 @@ impl AsUniformValue for [[f64; 4]; 4] {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!([[f64; 4]; 4], UniformType::DoubleMat4);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for [[f64; 3]; 2] {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1050,6 +1142,7 @@ impl AsUniformValue for [[f64; 3]; 2] {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for [[f64; 4]; 2] {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1057,6 +1150,7 @@ impl AsUniformValue for [[f64; 4]; 2] {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for [[f64; 2]; 3] {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1064,6 +1158,7 @@ impl AsUniformValue for [[f64; 2]; 3] {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for [[f64; 4]; 3] {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1071,6 +1166,7 @@ impl AsUniformValue for [[f64; 4]; 3] {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for [[f64; 2]; 4] {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1078,12 +1174,14 @@ impl AsUniformValue for [[f64; 2]; 4] {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for [[f64; 3]; 4] {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
         UniformValue::DoubleMat4x3(*self)
     }
 }
+#[cfg(safegl_desktop)]
 impl AsUniformValue for i64 {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1091,8 +1189,10 @@ impl AsUniformValue for i64 {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!(i64, UniformType::Int);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for [i64; 2] {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1100,8 +1200,10 @@ impl AsUniformValue for [i64; 2] {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!([i64; 2], UniformType::Int64Vec2);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for (i64, i64) {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1109,8 +1211,10 @@ impl AsUniformValue for (i64, i64) {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!((i64, i64), UniformType::Int64Vec2);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for [i64; 3] {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1118,8 +1222,10 @@ impl AsUniformValue for [i64; 3] {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!([i64; 3], UniformType::Int64Vec3);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for (i64, i64, i64) {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1127,8 +1233,10 @@ impl AsUniformValue for (i64, i64, i64) {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!((i64, i64, i64), UniformType::Int64Vec3);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for [i64; 4] {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1136,8 +1244,10 @@ impl AsUniformValue for [i64; 4] {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!([i64; 4], UniformType::Int64Vec4);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for (i64, i64, i64, i64) {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1145,8 +1255,10 @@ impl AsUniformValue for (i64, i64, i64, i64) {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!((i64, i64, i64, i64), UniformType::Int64Vec4);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for u64 {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1154,8 +1266,10 @@ impl AsUniformValue for u64 {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!(u64, UniformType::UnsignedInt64);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for [u64; 2] {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1163,8 +1277,10 @@ impl AsUniformValue for [u64; 2] {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!([u64; 2], UniformType::UnsignedInt64Vec2);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for (u64, u64) {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1172,8 +1288,10 @@ impl AsUniformValue for (u64, u64) {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!((u64, u64), UniformType::UnsignedInt64Vec2);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for [u64; 3] {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1181,8 +1299,10 @@ impl AsUniformValue for [u64; 3] {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!([u64; 3], UniformType::UnsignedInt64Vec3);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for (u64, u64, u64) {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1190,8 +1310,10 @@ impl AsUniformValue for (u64, u64, u64) {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!((u64, u64, u64), UniformType::UnsignedInt64Vec3);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for [u64; 4] {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1199,8 +1321,10 @@ impl AsUniformValue for [u64; 4] {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!([u64; 4], UniformType::UnsignedInt64Vec4);
 
+#[cfg(safegl_desktop)]
 impl AsUniformValue for (u64, u64, u64, u64) {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {
@@ -1208,9 +1332,11 @@ impl AsUniformValue for (u64, u64, u64, u64) {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_uniform_block_basic!((u64, u64, u64, u64), UniformType::UnsignedInt64Vec4);
 
 // Subroutines
+#[cfg(safegl_desktop)]
 impl<'a> AsUniformValue for (&'a str, ShaderStage) {
     #[inline]
     fn as_uniform_value(&self) -> UniformValue<'_> {

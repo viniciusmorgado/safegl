@@ -135,46 +135,6 @@ impl ApplicationContext for Application {
                 "
             },
 
-            110 => {
-                vertex: "
-                    #version 110
-
-                    in vec2 i_position;
-                    in uint i_tex_id;
-
-                    varying vec2 v_tex_coords;
-                    flat varying uint v_tex_id;
-
-                    void main() {
-                        gl_Position = vec4(i_position, 0.0, 1.0);
-
-                        if (gl_VertexID % 4 == 0) {
-                            v_tex_coords = vec2(0.0, 1.0);
-                        } else if (gl_VertexID % 4 == 1) {
-                            v_tex_coords = vec2(1.0, 1.0);
-                        } else if (gl_VertexID % 4 == 2) {
-                            v_tex_coords = vec2(0.0, 0.0);
-                        } else {
-                            v_tex_coords = vec2(1.0, 0.0);
-                        }
-
-                        v_tex_id = i_tex_id;
-                    }
-                ",
-
-                fragment: "
-                    #version 110
-
-                    uniform sampler2DArray tex;
-
-                    varying vec2 v_tex_coords;
-                    flat varying uint v_tex_id;
-
-                    void main() {
-                        gl_FragColor = texture2DArray(tex, vec3(v_tex_coords, float(v_tex_id)));
-                    }
-                "
-            },
 
             100 => {
                 vertex: "

@@ -117,9 +117,126 @@ Breaking changes:
   `glUniform1i`, which raised `GL_INVALID_OPERATION` and left the image unbound. Two image
   uniforms with the same binding return `DrawError::SharedBindingPoint` there. The reflected
   `Uniform` gets the `binding` field, the unit of the shader for images.
+- SafeGL only supports the core profile of desktop OpenGL: a compatibility profile context is
+  refused with `IncompatibleOpenGl`. `SimpleWindowBuilder`, and the new
+  `backend::glutin::context_attributes_builder`, request the core profile explicitly. `Profile`,
+  `Capabilities::profile` and `Context::get_opengl_profile` are removed. The minimum desktop
+  version is OpenGL 4.0 instead of 4.1, and `IncompatibleOpenGl` displays why the context was
+  refused.
+- SafeGL uses desktop contexts as forward-compatible ones, which have no wide lines: a
+  `line_width` above 1 pixel returns the new `DrawError::LineWidthNotSupported` on desktop
+  OpenGL, and so does a width that isn't positive everywhere. OpenGL ES still draws wider lines.
+- The code and APIs of OpenGL versions below 4.0 and of OpenGL ES 2 are removed:
+  - `texture::{is_texture_2d_supported, is_texture_3d_supported, is_texture_2d_array_supported,
+    is_cubemaps_supported}`, `framebuffer::is_dimensions_mismatch_supported` and
+    `vertex::is_transform_feedback_supported`, which always returned `true`, and
+    `TransformFeedbackSessionCreationError::NotSupported`;
+  - `SyncFence::new` returns the fence and `per_instance()` the `PerInstance` directly, without
+    `SyncNotSupportedError` and `InstancingNotSupported`, which never happened;
+  - `DrawError::SamplersNotSupported`, `DrawError::TransformFeedbackNotSupported`,
+    `ProgramCreationError::TransformFeedbackNotSupported` and `PointSizeNotSupported`, which
+    nothing returned;
+  - `AttributeType::I10I10I10I2` and `U10U10U10U2`, which only existed on OpenGL ES 2;
+  - the `ExtensionsList` fields of 84 extensions that are core in every supported version, or
+    only existed for OpenGL ES 2 and the compatibility profile;
+  - GLSL 1.10 to 1.30, which the core profile doesn't accept, from the supported versions.
+
+  `Context::insert_debug_marker` uses `glDebugMessageInsert` (OpenGL 4.3, OpenGL ES 3.2 or
+  `GL_KHR_debug`) instead of `GL_GREMEDY_string_marker`.
+- Before OpenGL ES 3.2, without `GL_EXT_geometry_shader` or `GL_OES_geometry_shader`, a draw
+  with a transform feedback session must be a draw without indices of points, lines or
+  triangles lists, or it returns the new `DrawError::TransformFeedbackDrawNotSupported`:
+  OpenGL ES raised `GL_INVALID_OPERATION` and captured nothing.
+- The Cargo features are levels, one per version: `gl40` to `gl46` for desktop OpenGL (core
+  profile), `gles30` to `gles32` for OpenGL ES, and `webgl` for WebGL 2 in browsers. A level is a
+  ceiling: the API of the versions above it doesn't compile, the API that only desktop OpenGL has
+  needs a desktop level, and the API that only OpenGL ES has needs an OpenGL ES level. At most one
+  level of each chain can be selected, a desktop and an OpenGL ES level together give both APIs,
+  and without any level the level is `gl40`; no level implies another. Two levels of a chain, a
+  desktop or OpenGL ES level for `wasm32-unknown-unknown`, or no `webgl` level there are compile
+  errors that name the levels. The previous features change meaning: `gl46`, the default, enabled
+  every API, and `gl41` and `gles30` were fallbacks. `gl46` compiles for macOS, where creating its
+  context fails with a message that explains that macOS stops at OpenGL 4.1.
+- `backend::glutin::level_context_apis()` replaces `tier_context_apis()`: it returns the versions
+  of the selected levels, the desktop one then the OpenGL ES one, instead of falling back from
+  OpenGL 4.6 to 4.1 and to OpenGL ES 3.0. `SimpleWindowBuilder` requests them.
+- The API is gated by the levels that have it:
+  - the desktop levels: `DrawParameters::{point_size, clip_planes_bitmask, polygon_mode,
+    multisampling, time_elapsed_query, condition, smooth, provoking_vertex}`, `Depth::clamp`,
+    `PolygonOffset::{point, line}`, `PolygonMode`, `Smooth`, `ProvokingVertex`, `DepthClamp`,
+    `ConditionalRendering`, `SamplesPassedQuery`, `TimeElapsedQuery`, 1D textures and their
+    support checks, subroutines (`UniformValue::Subroutine`, `Program::get_subroutine_uniforms`,
+    `program::is_subroutine_supported`, `SubroutineData`, `SubroutineUniform`), double-precision
+    and 64-bit integer uniforms and `RawUniformValue`s, 64-bit and
+    `F10F11F11UnsignedIntReversed` vertex attributes, and bindless textures;
+  - `gl41`: `f64` vertex attributes;
+  - `gl41` or `gles30`: program binaries (`Program::get_binary`, `ComputeShader::get_binary` and
+    `from_binary`, `ProgramCreationInput::Binary`, `program::Binary`, `GetBinaryError`,
+    `program::is_binary_supported`);
+  - a desktop level or `gles32`: geometry and tessellation shaders, the adjacency and `Patches`
+    primitives, `DrawParameters::{outputs, sample_shading, primitives_generated_query}`,
+    `OutputState`, `PrimitivesGeneratedQuery`, `SamplerWrapFunction::BorderClamp`,
+    `Sampler::border_color`, `BorderColor`, buffer textures, and cube map array and 2D
+    multisample array textures. At the other levels, the geometry and tessellation sources of
+    `ProgramCreationInput::SourceCode` and `Program::from_source` have the type
+    `program::NotInLevel` (see the new `program::StageSource`), which only accepts `None`;
+  - a desktop level or `gles31`: `DrawParameters::sample_mask` and 2D multisample textures;
+  - `gl44` or `gles32`: stencil textures; `gl44`: `SamplerWrapFunction::MirrorClamp`;
+  - `gles32`: `DrawParameters::primitive_bounding_box`;
+  - `gl43`, `gles30` or `webgl`: framebuffer invalidation (`invalidate`, `invalidate_rect` and
+    `InvalidateAttachments`);
+  - the API that needed the `gl46` feature: atomic counters and image units at `gl42` or
+    `gles31`; compute shaders, shader storage blocks and `EmptyFrameBuffer` at `gl43` or `gles31`;
+    multidraw indirect at `gl43`; `copy_image` at `gl43` or `gles32`; texture clears and query
+    buffers at `gl44`; texture barriers and clip control at `gl45`; SPIR-V and the polygon offset
+    clamp at `gl46`.
+
+  The `DrawError`s of these features exist at the same levels. Texture formats and the other
+  values that describe what the driver has stay checked at runtime, and so do the extensions.
+- `DrawCommandIndices::base_vertex` is an `i32`, like the base vertex of OpenGL, so that it can
+  be negative.
+- At the `gl46` level, `IndicesSource::MultidrawArray` and `IndicesSource::MultidrawElement` have
+  a `draw_count` field.
+- The query of `ConditionalRendering` is a `ConditionQuery`, which can also be a transform
+  feedback overflow query; `(&query).into()` still builds it from the samples queries, and from a
+  `SamplesQueryParam`.
 
 Additions:
 
+- `PipelineStatisticsQuery` counts one of the 11 statistics of `PipelineStatistic`, such as the
+  invocations of the fragment shader, during the draws of
+  `DrawParameters::pipeline_statistics_queries` and the dispatches of the new
+  `ComputeShader::execute_with_statistics`. `TransformFeedbackOverflowQuery`, of every vertex
+  stream or of one, tells whether transform feedback overflowed during the draws of
+  `DrawParameters::transform_feedback_overflow_query`, and can be the condition of a draw. Both
+  are at the `gl46` level and need OpenGL 4.6, `GL_ARB_pipeline_statistics_query` or
+  `GL_ARB_transform_feedback_overflow_query`.
+- Buffers and their slices can be filled with a value on the GPU (`glClearBufferSubData`,
+  `gl43`): `clear(value)` on `Buffer`, `BufferSlice` and `BufferMutSlice`, whose content is the
+  new `buffer::ClearValue`, writes its bits: integers of 8, 16 and 32 bits, `f32`, and arrays of
+  2 or 4 of them or of 3 of the 32-bit ones. It needs OpenGL 4.3 or `GL_ARB_clear_buffer_object`,
+  or returns `buffer::ClearBufferError::NotSupported`.
+- Multidraws can read their number of commands from a buffer, which a compute shader can write
+  (`glMultiDraw*IndirectCount`, `gl46`): `DrawCommandsNoIndicesBuffer::with_draw_count` and
+  `DrawCommandsIndicesBuffer::with_index_buffer_and_draw_count` take a `BufferSlice<u32>` and a
+  maximum number of commands, and give an `IndicesSource` whose `draw_count` is the new
+  `index::DrawCount`. They need OpenGL 4.6 or `GL_ARB_indirect_parameters`, otherwise the draw
+  returns the new `DrawError::DrawCountNotSupported`. `BufferType::ParameterBuffer` is the target
+  of these buffers.
+- `DrawParameters::base_instance` (`gl42`) draws from a base instance: the per-instance
+  attributes start at this element after the start of their slices, and the shaders read it in
+  `gl_BaseInstance`. It needs OpenGL 4.2 or `GL_ARB_base_instance`, or returns the new
+  `DrawError::BaseInstanceNotSupported`; a draw without per-instance buffers draws one instance.
+- Draws from per-instance slices that don't start at the beginning of their buffers use the
+  start of the slices as base instance where the backend has base instances (OpenGL 4.2,
+  `GL_ARB_base_instance` or, on OpenGL ES, `GL_EXT_base_instance`), like per-vertex slices use a
+  base vertex, instead of binding the buffers at other offsets.
+- With OpenGL 4.3, OpenGL ES 3.1 or `GL_ARB_vertex_attrib_binding`, vertex array objects set the
+  formats of the attributes once and bind their vertex buffers with `glBindVertexBuffer`, so that
+  drawing from other offsets of the same buffers reuses them and only binds the buffers again,
+  instead of building a VAO per offset. `Capabilities` gives `max_vertex_attrib_bindings`,
+  `max_vertex_attrib_relative_offset` and `max_vertex_attrib_stride`; formats beyond these
+  limits, and WebGL, use attribute pointers as before.
 - `UniformValue::DoubleMat2x3` and the other non-square double-precision matrices, from
   `[[f64; R]; C]` arrays, and 64-bit integer uniform values are bound to their GLSL types.
 - `UniformValue` implements `AsUniformValue`, so a value built in advance, for example from a
@@ -145,6 +262,14 @@ Additions:
 
 Fixes:
 
+- The columns of a matrix attribute whose components aren't 32-bit floats, such as
+  `AttributeType::F16x4x4` fed to a `mat4`, are read at the offsets of their components instead of
+  4 bytes per component.
+- On OpenGL ES, `clip_planes_bitmask` enables clip distances with `GL_EXT_clip_cull_distance`,
+  and enabling a plane without it returns `DrawError::ClipPlaneIndexOutOfBounds` instead of being
+  ignored.
+- `SamplerWrapFunction::MirrorClamp` falls back to `Clamp` on desktop OpenGL below 4.4 without
+  `GL_ARB_texture_mirror_clamp_to_edge`, instead of raising `GL_INVALID_ENUM`.
 - Buffer slices are bound with their own range to uniform blocks, shader storage blocks, atomic
   counter buffers and transform feedback, instead of the whole buffer.
 - Programs using cube map array images, `samplerCubeArrayShadow`, `usampler1DArray`, 64-bit
@@ -241,6 +366,23 @@ Fixes:
   debug messages of low severity and the notifications, which the callback ignores: the NVIDIA
   driver formatted one for every buffer it created, and crashed doing it once while another thread
   created a context.
+- Vertex attributes of type `F10F11F11UnsignedIntReversed` require OpenGL 4.4 or
+  `GL_ARB_vertex_type_10f_11f_11f_rev`, and double-precision attributes OpenGL 4.1 or
+  `GL_ARB_vertex_attrib_64bit`, instead of being accepted by every desktop context. Fixed-point
+  attributes (`FixedFloatI16U16`) and program binaries require OpenGL 4.1 or one of
+  `GL_ARB_ES2_compatibility` / `GL_ARB_get_program_binary` on desktop OpenGL.
+- On OpenGL ES 3.2, or with the geometry shader and tessellation extensions, index buffers of
+  adjacency primitives and patches are accepted, and tessellation shaders are created with
+  `GL_EXT_tessellation_shader` too: only `GL_OES_tessellation_shader` was checked.
+- Multi-draw indirect draws use the `...EXT` entry points of `GL_EXT_multi_draw_indirect` on
+  OpenGL ES, instead of the desktop ones that the driver doesn't have.
+- GLSL 4.60 is among the supported GLSL versions on OpenGL 4.6, so `program!` can choose it.
+- `Capabilities::max_texture_buffer_size` is given on OpenGL ES 3.2, where buffer textures are
+  core, and the sRGB encoding of the default framebuffer is read from its attachment on every
+  context, instead of `GL_FRAMEBUFFER_SRGB_CAPABLE_EXT`, which the core profile doesn't have.
+- Creating a `BufferTexture` without buffer texture support (OpenGL ES 3.0 and 3.1 without
+  `GL_EXT_texture_buffer`) returns `TextureCreationError::NotSupported`, instead of the
+  `BufferTypeNotSupported` of the buffer it starts with.
 
 ## [0.2.0]
 

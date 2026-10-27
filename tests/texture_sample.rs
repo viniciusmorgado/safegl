@@ -96,7 +96,7 @@ texture_sample_test!(
     ]
 );
 
-#[cfg(feature = "gl46")]
+#[cfg(safegl_desktop)]
 #[test]
 fn bindless_texture() {
     let display = support::build_display();

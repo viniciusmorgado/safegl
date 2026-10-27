@@ -6,7 +6,7 @@ use crate::context::Context;
 use crate::ContextExt;
 use crate::Rect;
 
-use crate::draw_parameters::TimeElapsedQuery;
+use crate::draw_parameters::AnySamplesPassedQuery;
 use crate::QueryExt;
 
 use crate::gl;
@@ -51,7 +51,7 @@ pub fn clear(
             }
         }
 
-        TimeElapsedQuery::end_conditional_render(&mut ctxt);
+        AnySamplesPassedQuery::end_conditional_render(&mut ctxt);
 
         if let Some(rect) = rect {
             let rect = (

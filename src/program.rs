@@ -6,20 +6,29 @@ use std::fmt;
 use std::sync::Mutex;
 
 use crate::gl;
+#[cfg(any(safegl_desktop, safegl_gles30))]
 use crate::version::Api;
+#[cfg(any(safegl_gl41, safegl_gles30))]
+use crate::version::Version;
 
-#[cfg(feature = "gl46")]
-#[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+#[cfg(any(safegl_gl43, safegl_gles31))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
 pub use self::compute::{ComputeCommand, ComputeShader};
 pub use self::program::Program;
+pub use self::reflection::ShaderStage;
+#[cfg(not(safegl_desktop))]
+pub(crate) use self::reflection::SubroutineData;
 pub use self::reflection::{
     Attribute, TransformFeedbackBuffer, TransformFeedbackMode, TransformFeedbackVarying,
 };
 pub use self::reflection::{BlockLayout, OutputPrimitives, Uniform, UniformBlock};
-pub use self::reflection::{ShaderStage, SubroutineData, SubroutineUniform};
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+pub use self::reflection::{SubroutineData, SubroutineUniform};
 
+#[cfg(any(safegl_gl41, safegl_gles30))]
 mod binary_header;
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 mod compute;
 mod program;
 mod raw;
@@ -47,21 +56,29 @@ where
 
 /// Returns true if the backend supports creating and retrieving binary format.
 #[inline]
-pub fn is_binary_supported<C: ?Sized>(_ctxt: &C) -> bool
+#[cfg(any(safegl_gl41, safegl_gles30))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles30))))]
+pub fn is_binary_supported<C: ?Sized>(ctxt: &C) -> bool
 where
     C: CapabilitiesSource,
 {
     // program binaries are core in OpenGL 4.1 and OpenGL ES 3.0, but don't exist on WebGL
     !crate::version::is_webgl()
+        && (ctxt.get_version().0 == Api::GlEs
+            || ctxt.get_version() >= &Version(Api::Gl, 4, 1)
+            || ctxt.get_extensions().gl_arb_get_program_binary)
 }
 
 /// Returns true if the backend supports shader subroutines.
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 #[inline]
 pub fn is_subroutine_supported<C: ?Sized>(ctxt: &C) -> bool
 where
     C: CapabilitiesSource,
 {
-    ctxt.get_version().0 == Api::Gl || ctxt.get_extensions().gl_arb_shader_subroutine
+    // core in OpenGL 4.0, and not part of OpenGL ES
+    ctxt.get_version().0 == Api::Gl
 }
 
 // Some shader compilers have race-condition issues, so we lock this mutex
@@ -131,15 +148,9 @@ pub enum ProgramCreationError {
     /// The OpenGL implementation doesn't provide a compiler.
     CompilationNotSupported,
 
-    /// You have requested transform feedback varyings, but transform feedback is not supported
-    /// by the backend.
-    TransformFeedbackNotSupported,
-
-    /// You have requested point size setting from the shader, but it's not
-    /// supported by the backend.
-    PointSizeNotSupported,
-
     /// The SafeGL-specific binary header was not found or is corrupt.
+    #[cfg(any(safegl_gl41, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles30))))]
     BinaryHeaderError,
 
     /// The backend doesn't support loading program binaries (WebGL). See `is_binary_supported`.
@@ -165,8 +176,7 @@ impl fmt::Display for ProgramCreationError {
                 "One of the request shader type is not supported by the backend"
             }
             CompilationNotSupported => "The backend doesn't support shaders compilation",
-            TransformFeedbackNotSupported => "Transform feedback is not supported by the backend.",
-            PointSizeNotSupported => "Point size is not supported by the backend.",
+            #[cfg(any(safegl_gl41, safegl_gles30))]
             BinaryHeaderError => "The SafeGL-specific binary header was not found or is corrupt.",
             BinaryNotSupported => "Program binaries are not supported by the backend.",
         };
@@ -222,6 +232,8 @@ impl From<ProgramCreationError> for ProgramChooserCreationError {
 
 /// Error while retrieving the binary representation of a program.
 #[derive(Copy, Clone, Debug)]
+#[cfg(any(safegl_gl41, safegl_gles30))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles30))))]
 pub enum GetBinaryError {
     /// The backend doesn't support binary.
     NotSupported,
@@ -229,6 +241,7 @@ pub enum GetBinaryError {
     NoFormats,
 }
 
+#[cfg(any(safegl_gl41, safegl_gles30))]
 impl fmt::Display for GetBinaryError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::GetBinaryError::*;
@@ -240,7 +253,43 @@ impl fmt::Display for GetBinaryError {
     }
 }
 
+#[cfg(any(safegl_gl41, safegl_gles30))]
 impl Error for GetBinaryError {}
+
+/// The source code of a geometry or tessellation shader in `ProgramCreationInput::SourceCode`
+/// and `Program::from_source`.
+///
+/// These stages need a desktop OpenGL level or `gles32`. At the other levels this is
+/// [`NotInLevel`], which has no values: only `None` can be given, and a source code doesn't
+/// compile.
+#[cfg(any(safegl_desktop, safegl_gles32))]
+pub type StageSource<'a> = &'a str;
+
+/// The source code of a geometry or tessellation shader in `ProgramCreationInput::SourceCode`
+/// and `Program::from_source`.
+///
+/// These stages need a desktop OpenGL level or `gles32`. At the other levels this is
+/// [`NotInLevel`], which has no values: only `None` can be given, and a source code doesn't
+/// compile.
+#[cfg(not(any(safegl_desktop, safegl_gles32)))]
+pub type StageSource<'a> = NotInLevel;
+
+/// A shader stage that the selected levels don't have. It has no values, so that only `None`
+/// can be given for such a stage.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum NotInLevel {}
+
+/// The source code of an optional shader stage.
+#[cfg(any(safegl_desktop, safegl_gles32))]
+pub(crate) fn stage_source(source: StageSource<'_>) -> &str {
+    source
+}
+
+/// The source code of an optional shader stage, which can't exist at these levels.
+#[cfg(not(any(safegl_desktop, safegl_gles32)))]
+pub(crate) fn stage_source<'a>(source: StageSource<'a>) -> &'a str {
+    match source {}
+}
 
 /// Input when creating a program.
 pub enum ProgramCreationInput<'a> {
@@ -249,14 +298,14 @@ pub enum ProgramCreationInput<'a> {
         /// Source code of the vertex shader.
         vertex_shader: &'a str,
 
-        /// Source code of the optional tessellation control shader.
-        tessellation_control_shader: Option<&'a str>,
+        /// Source code of the optional tessellation control shader. See [`StageSource`].
+        tessellation_control_shader: Option<StageSource<'a>>,
 
-        /// Source code of the optional tessellation evaluation shader.
-        tessellation_evaluation_shader: Option<&'a str>,
+        /// Source code of the optional tessellation evaluation shader. See [`StageSource`].
+        tessellation_evaluation_shader: Option<StageSource<'a>>,
 
-        /// Source code of the optional geometry shader.
-        geometry_shader: Option<&'a str>,
+        /// Source code of the optional geometry shader. See [`StageSource`].
+        geometry_shader: Option<StageSource<'a>>,
 
         /// Source code of the fragment shader.
         fragment_shader: &'a str,
@@ -281,6 +330,8 @@ pub enum ProgramCreationInput<'a> {
     },
 
     /// Use a precompiled binary.
+    #[cfg(any(safegl_gl41, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles30))))]
     Binary {
         /// The data.
         data: Binary,
@@ -293,14 +344,14 @@ pub enum ProgramCreationInput<'a> {
     },
 
     /// Use a SPIR-V binary.
-    #[cfg(feature = "gl46")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
     SpirV(SpirvProgram<'a>),
 }
 
 /// Represents a SPIR-V program. The shaders can refer to entry points in the same binary.
-#[cfg(feature = "gl46")]
-#[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+#[cfg(safegl_gl46)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
 #[derive(Clone)]
 pub struct SpirvProgram<'a> {
     /// The vertex shader.
@@ -331,7 +382,7 @@ pub struct SpirvProgram<'a> {
     pub uses_point_size: bool,
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl46)]
 impl<'a> SpirvProgram<'a> {
     /// Create new `SpirvProgram` from vertex and fragment shaders.
     pub fn from_vs_and_fs(
@@ -397,8 +448,8 @@ impl<'a> SpirvProgram<'a> {
 }
 
 /// Represents an entry point of a binary SPIR-V module.
-#[cfg(feature = "gl46")]
-#[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+#[cfg(safegl_gl46)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
 #[derive(Copy, Clone)]
 pub struct SpirvEntryPoint<'a> {
     /// The binary module data.
@@ -414,13 +465,13 @@ pub struct SourceCode<'a> {
     pub vertex_shader: &'a str,
 
     /// Source code of the optional tessellation control shader.
-    pub tessellation_control_shader: Option<&'a str>,
+    pub tessellation_control_shader: Option<StageSource<'a>>,
 
     /// Source code of the optional tessellation evaluation shader.
-    pub tessellation_evaluation_shader: Option<&'a str>,
+    pub tessellation_evaluation_shader: Option<StageSource<'a>>,
 
     /// Source code of the optional geometry shader.
-    pub geometry_shader: Option<&'a str>,
+    pub geometry_shader: Option<StageSource<'a>>,
 
     /// Source code of the fragment shader.
     pub fragment_shader: &'a str,
@@ -451,6 +502,8 @@ impl<'a> From<SourceCode<'a>> for ProgramCreationInput<'a> {
 }
 
 /// Represents the compiled binary data of a program.
+#[cfg(any(safegl_gl41, safegl_gles30))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles30))))]
 pub struct Binary {
     /// An implementation-defined format.
     pub format: u32,
@@ -459,6 +512,7 @@ pub struct Binary {
     pub content: Vec<u8>,
 }
 
+#[cfg(any(safegl_gl41, safegl_gles30))]
 impl<'a> From<Binary> for ProgramCreationInput<'a> {
     #[inline]
     fn from(binary: Binary) -> ProgramCreationInput<'a> {

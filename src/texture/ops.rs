@@ -1,26 +1,31 @@
-//! Operations on whole images of textures: clearing, copying, and the texture barrier.
-//!
-//! These need OpenGL 4.3 to 4.5, or the matching extensions, and are only compiled with the
-//! `gl46` feature.
+//! Operations on whole images of textures: copying (OpenGL 4.3, OpenGL ES 3.2), clearing (OpenGL
+//! 4.4) and the texture barrier (OpenGL 4.5), compiled from these levels.
 
 use std::error::Error;
 use std::fmt;
+#[cfg(safegl_gl44)]
 use std::os::raw::c_void;
 use std::rc::Rc;
 
 use glow::HasContext;
 
+#[cfg(safegl_gl45)]
 use crate::backend::Facade;
 use crate::context::CommandContext;
 use crate::framebuffer::RenderBufferAny;
 use crate::gl;
+#[cfg(safegl_gl44)]
 use crate::image_format::{ClientFormat, TextureFormat, TextureFormatRequest};
-use crate::texture::{Dimensions, PixelValue, TextureAny, TextureAnyMipmap, TextureKind};
+use crate::texture::{Dimensions, TextureAnyMipmap};
+#[cfg(safegl_gl44)]
+use crate::texture::{PixelValue, TextureAny, TextureKind};
 use crate::version::{Api, Version};
 use crate::{CapabilitiesSource, ContextExt, GlObject, TextureAccess, TextureExt};
 
 /// Error that can happen when clearing a texture.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg(safegl_gl44)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
 pub enum ClearTextureError {
     /// Clearing textures needs OpenGL 4.4, `GL_ARB_clear_texture` or `GL_EXT_clear_texture`.
     NotSupported,
@@ -34,6 +39,7 @@ pub enum ClearTextureError {
     OutOfBounds,
 }
 
+#[cfg(safegl_gl44)]
 impl fmt::Display for ClearTextureError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.write_str(match self {
@@ -46,6 +52,7 @@ impl fmt::Display for ClearTextureError {
     }
 }
 
+#[cfg(safegl_gl44)]
 impl Error for ClearTextureError {}
 
 /// Error that can happen when copying between images.
@@ -107,14 +114,18 @@ impl Error for CopyImageError {}
 
 /// The texture barrier isn't supported by the backend.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg(safegl_gl45)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
 pub struct TextureBarrierNotSupportedError;
 
+#[cfg(safegl_gl45)]
 impl fmt::Display for TextureBarrierNotSupportedError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.write_str("The texture barrier is not supported by the backend")
     }
 }
 
+#[cfg(safegl_gl45)]
 impl Error for TextureBarrierNotSupportedError {}
 
 /// Size of a mipmap as `glClearTexSubImage` and `glCopyImageSubData` address it: the layers of
@@ -143,6 +154,7 @@ fn fits(offset: (u32, u32, u32), size: (u32, u32, u32), extent: (u32, u32, u32))
         && fits(offset.2, size.2, extent.2)
 }
 
+#[cfg(safegl_gl44)]
 fn is_compressed_request(format: TextureFormatRequest) -> bool {
     matches!(
         format,
@@ -155,6 +167,7 @@ fn is_compressed_request(format: TextureFormatRequest) -> bool {
 
 /// The `format` and `type` arguments of `glClearTexImage` for a value of `client` written to a
 /// texture of `kind`, or `None` if they don't match.
+#[cfg(safegl_gl44)]
 fn clear_format(
     kind: TextureKind,
     client: ClientFormat,
@@ -215,6 +228,8 @@ fn clear_format(
 
 /// Returns true if textures can be cleared with `TextureAnyMipmap::clear`: OpenGL 4.4,
 /// `GL_ARB_clear_texture`, or `GL_EXT_clear_texture` on OpenGL ES.
+#[cfg(safegl_gl44)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
 pub fn is_clear_texture_supported<C>(context: &C) -> bool
 where
     C: ?Sized + CapabilitiesSource,
@@ -251,6 +266,8 @@ impl<'a> TextureAnyMipmap<'a> {
     ///
     /// Needs OpenGL 4.4, `GL_ARB_clear_texture` or `GL_EXT_clear_texture` (see
     /// `is_clear_texture_supported`).
+    #[cfg(safegl_gl44)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
     pub fn clear<P: PixelValue>(&self, value: P) -> Result<(), ClearTextureError> {
         self.clear_region((0, 0, 0), image_extent(self), value)
     }
@@ -262,6 +279,8 @@ impl<'a> TextureAnyMipmap<'a> {
     /// the order of `CubeLayer`) and `6 * layer + face` for cubemap arrays.
     ///
     /// See `clear` for the values and the requirements.
+    #[cfg(safegl_gl44)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
     pub fn clear_region<P: PixelValue>(
         &self,
         offset: (u32, u32, u32),
@@ -290,6 +309,8 @@ impl<'a> TextureAnyMipmap<'a> {
     /// `stencil` (`glClearTexImage`).
     ///
     /// See `clear` for the requirements.
+    #[cfg(safegl_gl44)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
     pub fn clear_depth_stencil(&self, depth: f32, stencil: u8) -> Result<(), ClearTextureError> {
         let texture = self.get_texture();
         if texture.kind() != TextureKind::DepthStencil {
@@ -326,6 +347,7 @@ impl<'a> TextureAnyMipmap<'a> {
 }
 
 /// Clears a box of a mipmap of `texture`, given as offset and size, or the whole mipmap.
+#[cfg(safegl_gl44)]
 unsafe fn clear<P>(
     texture: &TextureAny,
     level: u32,
@@ -737,6 +759,8 @@ pub fn copy_image<'a, 'b>(
 
 /// Returns true if `texture_barrier` is supported: OpenGL 4.5, `GL_ARB_texture_barrier` or
 /// `GL_NV_texture_barrier`.
+#[cfg(safegl_gl45)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
 pub fn is_texture_barrier_supported<C>(context: &C) -> bool
 where
     C: ?Sized + CapabilitiesSource,
@@ -761,6 +785,8 @@ where
 /// undefined.
 ///
 /// Needs OpenGL 4.5, `GL_ARB_texture_barrier` or `GL_NV_texture_barrier`.
+#[cfg(safegl_gl45)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
 pub fn texture_barrier<F>(facade: &F) -> Result<(), TextureBarrierNotSupportedError>
 where
     F: ?Sized + Facade,

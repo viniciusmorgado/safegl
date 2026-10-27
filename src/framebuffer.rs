@@ -2,7 +2,7 @@
 Framebuffers allow you to customize the color, depth and stencil buffers you will draw on.
 
 In order to draw on a texture, use a `SimpleFrameBuffer`. This framebuffer is compatible with
-shaders that write to `gl_FragColor`.
+shaders that have a single output.
 
 ```no_run
 # use safegl::texture::Texture2d;
@@ -50,21 +50,18 @@ Some restrictions apply when you use framebuffers:
    For example you can't create a texture with 4x multisampling, another texture with 2x
    multisampling, and draw on them simultaneously.
 
- - On old hardware all the framebuffer attachments must have the same dimensions (on more recent
-   hardware the intersection between all the attachments is taken if all attachments don't have
-   the same dimensions). You can use the `is_dimensions_mismatch_supported` function to check
-   what the hardware supports.
+ - The attachments can have different dimensions: the intersection of all of them is drawn to.
 
  - You will get undefined results if you try to sample to a texture mipmap attached to the
    framebuffer that you are using. This is not enforced by safegl as it depends on your shader's
-   source code. With the `gl46` feature, `texture::texture_barrier` makes it defined when each
+   source code. From the `gl45` level, `texture::texture_barrier` makes it defined when each
    texel is read only by the draw that writes it, or after a barrier.
 
 # Empty framebuffers
 
 Modern OpenGL implementations support empty framebuffers. This is handled by SafeGL with the
-`EmptyFrameBuffer` struct. Empty framebuffers are core in OpenGL 4.3, so this struct requires
-the `gl46` Cargo feature.
+`EmptyFrameBuffer` struct. Empty framebuffers are core in OpenGL 4.3 and OpenGL ES 3.1, so this
+struct needs the `gl43` or `gles31` level, or a higher one.
 
 You can check whether they are supported by calling `EmptyFrameBuffer::is_supported(&display)`.
 
@@ -80,12 +77,12 @@ use crate::texture::TextureAnyImage;
 
 use crate::backend::Facade;
 use crate::context::Context;
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::version::Api;
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::version::Version;
 use crate::BlitMask;
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::CapabilitiesSource;
 
 use crate::ops;
@@ -107,7 +104,6 @@ pub use self::external_fb::ExternalFramebuffer;
 pub use self::render_buffer::CreationError as RenderBufferCreationError;
 pub use self::render_buffer::{DepthRenderBuffer, RenderBuffer, RenderBufferAny};
 pub use self::render_buffer::{DepthStencilRenderBuffer, StencilRenderBuffer};
-pub use crate::fbo::is_dimensions_mismatch_supported;
 pub use crate::fbo::ValidationError;
 use crate::uniforms::MagnifySamplerFilter;
 
@@ -125,6 +121,8 @@ mod render_buffer;
 /// assert_eq!(which, InvalidateAttachments::DEPTH_STENCIL);
 /// ```
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))))]
 pub struct InvalidateAttachments {
     /// All the color attachments.
     pub color: bool,
@@ -134,6 +132,7 @@ pub struct InvalidateAttachments {
     pub stencil: bool,
 }
 
+#[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
 impl InvalidateAttachments {
     /// Every attachment.
     pub const ALL: InvalidateAttachments = InvalidateAttachments {
@@ -188,6 +187,8 @@ impl<'a> SimpleFrameBuffer<'a> {
     ///
     /// This is only a hint: it does nothing without OpenGL 4.3, OpenGL ES 3.0 or
     /// `GL_ARB_invalidate_subdata`.
+    #[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))))]
     pub fn invalidate(&self, which: InvalidateAttachments) {
         let mut ctxt = self.context.make_current();
         unsafe {
@@ -196,6 +197,8 @@ impl<'a> SimpleFrameBuffer<'a> {
     }
 
     /// Like `invalidate`, but only inside `rect` (`glInvalidateSubFramebuffer`).
+    #[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))))]
     pub fn invalidate_rect(&self, which: InvalidateAttachments, rect: &Rect) {
         let mut ctxt = self.context.make_current();
         unsafe {
@@ -660,6 +663,8 @@ impl<'a> MultiOutputFrameBuffer<'a> {
     ///
     /// This is only a hint: it does nothing without OpenGL 4.3, OpenGL ES 3.0 or
     /// `GL_ARB_invalidate_subdata`.
+    #[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))))]
     pub fn invalidate(&self, which: InvalidateAttachments) {
         let mut ctxt = self.context.make_current();
         unsafe {
@@ -668,6 +673,8 @@ impl<'a> MultiOutputFrameBuffer<'a> {
     }
 
     /// Like `invalidate`, but only inside `rect` (`glInvalidateSubFramebuffer`).
+    #[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))))]
     pub fn invalidate_rect(&self, which: InvalidateAttachments, rect: &Rect) {
         let mut ctxt = self.context.make_current();
         unsafe {
@@ -1114,14 +1121,14 @@ impl<'a> FboAttachments for MultiOutputFrameBuffer<'a> {
 /// A framebuffer with no attachment at all.
 ///
 /// Note that this is only supported on recent hardware.
-#[cfg(feature = "gl46")]
-#[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+#[cfg(any(safegl_gl43, safegl_gles31))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
 pub struct EmptyFrameBuffer {
     context: Rc<Context>,
     attachments: fbo::ValidatedAttachments<'static>,
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 impl<'a> EmptyFrameBuffer {
     /// Returns true if empty framebuffers are supported by the backend.
     pub fn is_supported<C: ?Sized>(context: &C) -> bool
@@ -1231,7 +1238,7 @@ impl<'a> EmptyFrameBuffer {
     }
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 impl Surface for EmptyFrameBuffer {
     #[inline]
     fn clear(
@@ -1411,7 +1418,7 @@ impl Surface for EmptyFrameBuffer {
     }
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 impl FboAttachments for EmptyFrameBuffer {
     #[inline]
     fn get_fbo_context(&self) -> &Context {

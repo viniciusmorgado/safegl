@@ -93,10 +93,7 @@ fn timestamp_query() {
 fn sync() {
     let display = support::build_display();
 
-    let fence = safegl::SyncFence::new(&display);
-    if let Ok(fence) = fence {
-        fence.wait();
-    }
+    safegl::SyncFence::new(&display).wait();
 
     display.assert_no_error(None);
 }
@@ -193,4 +190,36 @@ fn one_frame_at_a_time() {
     display.draw().finish().unwrap();
 
     display.assert_no_error(None);
+}
+
+#[test]
+fn compatibility_profile_is_refused() {
+    use safegl::glutin::context::{ContextApi, ContextAttributesBuilder, GlProfile, Version};
+
+    let attributes = ContextAttributesBuilder::new()
+        .with_context_api(ContextApi::OpenGl(Some(Version::new(4, 0))))
+        .with_profile(GlProfile::Compatibility);
+    let result = match support::try_build_display_with(attributes) {
+        Some(result) => result,
+        // the driver has no compatibility profile
+        None => return,
+    };
+
+    let Err(error) = result else {
+        panic!("a compatibility profile context was accepted");
+    };
+    assert!(error.to_string().contains("core profile"), "{error}");
+}
+
+#[test]
+fn core_profile_is_accepted() {
+    use safegl::glutin::context::{ContextApi, Version};
+
+    let attributes = safegl::backend::glutin::context_attributes_builder(ContextApi::OpenGl(
+        Some(Version::new(4, 0)),
+    ));
+    if let Some(result) = support::try_build_display_with(attributes) {
+        let display = result.unwrap();
+        assert!(*display.get_opengl_version() >= safegl::Version(safegl::Api::Gl, 4, 0));
+    }
 }

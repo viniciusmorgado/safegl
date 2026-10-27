@@ -64,7 +64,9 @@ use crate::CapabilitiesSource;
 use crate::GlObject;
 use crate::TextureExt;
 
-use crate::framebuffer::{InvalidateAttachments, RenderBufferAny};
+#[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
+use crate::framebuffer::InvalidateAttachments;
+use crate::framebuffer::RenderBufferAny;
 use crate::texture::CubeLayer;
 use crate::texture::TextureAnyImage;
 use crate::texture::TextureAnyMipmap;
@@ -75,19 +77,6 @@ use crate::context::Context;
 use crate::gl;
 use crate::version::Api;
 use crate::version::Version;
-
-/// Returns true if the backend supports attachments with varying dimensions.
-///
-/// If this function returns `true` and you pass attachments with different dimensions, the
-/// intersection between all the attachments will be used. If this function returns `false`, you'll
-/// get an error instead.
-pub fn is_dimensions_mismatch_supported<C: ?Sized>(_context: &C) -> bool
-where
-    C: CapabilitiesSource,
-{
-    // core since OpenGL 3.0 and OpenGL ES 2.0, which are below the minimum supported versions
-    true
-}
 
 /// Represents the attachments to use for an OpenGL framebuffer.
 #[derive(Clone)]
@@ -1154,6 +1143,7 @@ impl FramebuffersContainer {
     ///
     /// After calling this function, you **must** make sure to call `purge_texture`
     /// and/or `purge_renderbuffer` when one of the attachment is destroyed.
+    #[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
     pub unsafe fn invalidate(
         ctxt: &mut CommandContext<'_>,
         target: FramebufferTarget<'_>,

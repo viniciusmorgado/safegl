@@ -192,6 +192,20 @@ where
     ty: BufferTextureType,
 }
 
+/// Returns `TextureCreationError::NotSupported` without buffer textures, which are core in
+/// OpenGL 3.1 and OpenGL ES 3.2, before a buffer of the type that they need is created.
+fn check_supported<F: ?Sized>(facade: &F) -> Result<(), CreationError>
+where
+    F: Facade,
+{
+    use crate::CapabilitiesSource;
+
+    match facade.get_context().get_capabilities().max_texture_buffer_size {
+        Some(_) => Ok(()),
+        None => Err(TextureCreationError::NotSupported.into()),
+    }
+}
+
 impl<T> BufferTexture<T>
 where
     [T]: BufferContent,
@@ -259,6 +273,7 @@ where
     where
         F: Facade,
     {
+        check_supported(facade)?;
         let buffer = Buffer::new(facade, data, BufferType::TextureBuffer, mode)?;
         BufferTexture::from_buffer(facade, buffer, ty).map_err(|(e, _)| e.into())
     }
@@ -325,6 +340,7 @@ where
     where
         F: Facade,
     {
+        check_supported(facade)?;
         let buffer = Buffer::empty_array(facade, BufferType::TextureBuffer, len, mode)?;
         BufferTexture::from_buffer(facade, buffer, ty).map_err(|(e, _)| e.into())
     }

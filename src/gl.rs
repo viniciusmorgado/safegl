@@ -56,31 +56,13 @@ pub mod types {
 use self::types::*;
 
 // Constants that glow doesn't define.
-pub const COMPARE_R_TO_TEXTURE: GLenum = 0x884E;
 pub const CONTEXT_ROBUST_ACCESS: GLenum = 0x90F3;
-pub const DEPTH24_STENCIL8_EXT: GLenum = 0x88F0;
-pub const DEPTH24_STENCIL8_OES: GLenum = 0x88F0;
 pub const DEPTH_CLAMP_FAR_AMD: GLenum = 0x901F;
 pub const DEPTH_CLAMP_NEAR_AMD: GLenum = 0x901E;
-pub const DEPTH_STENCIL_EXT: GLenum = 0x84F9;
-pub const DEPTH_STENCIL_OES: GLenum = 0x84F9;
-pub const FRAMEBUFFER_SRGB_CAPABLE_EXT: GLenum = 0x8DBA;
 pub const GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX: GLenum = 0x9049;
 pub const INT64_NV: GLenum = 0x140E;
-pub const INTERLEAVED_ATTRIBS_EXT: GLenum = 0x8C8C;
-pub const INT_10_10_10_2_OES: GLenum = 0x8DF7;
-pub const MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS_EXT: GLenum = 0x8C8B;
-pub const RGB32I_EXT: GLenum = 0x8D83;
-pub const RGB32UI_EXT: GLenum = 0x8D71;
-pub const RGB8_OES: GLenum = 0x8051;
-pub const RGBA32I_EXT: GLenum = 0x8D82;
-pub const RGBA32UI_EXT: GLenum = 0x8D70;
-pub const RGBA8_OES: GLenum = 0x8058;
-pub const SEPARATE_ATTRIBS_EXT: GLenum = 0x8C8D;
 pub const TEXTURE_FREE_MEMORY_ATI: GLenum = 0x87FC;
 pub const UNSIGNED_INT64_NV: GLenum = 0x140F;
-pub const UNSIGNED_INT_10_10_10_2_OES: GLenum = 0x8DF6;
-pub const UNSIGNED_INT_VEC2_EXT: GLenum = 0x8DC6;
 // GL_ARB_gpu_shader_int64
 pub const INT64_ARB: GLenum = 0x140E;
 pub const INT64_VEC2_ARB: GLenum = 0x8FE9;
@@ -95,8 +77,6 @@ pub const FLOAT16_NV: GLenum = 0x8FF8;
 pub const FLOAT16_VEC2_NV: GLenum = 0x8FF9;
 pub const FLOAT16_VEC3_NV: GLenum = 0x8FFA;
 pub const FLOAT16_VEC4_NV: GLenum = 0x8FFB;
-pub const UNSIGNED_INT_VEC3_EXT: GLenum = 0x8DC7;
-pub const UNSIGNED_INT_VEC4_EXT: GLenum = 0x8DC8;
 
 /// Some drivers return small sentinel values instead of null for unsupported functions.
 fn is_valid_function_pointer(ptr: *const c_void) -> bool {
@@ -176,6 +156,9 @@ extra_functions! {
     fn DebugMessageControlKHR(source: GLenum, type_: GLenum, severity: GLenum, count: GLsizei, ids: *const GLuint, enabled: GLboolean) -> ();
     fn DrawElementsBaseVertexOES(mode: GLenum, count: GLsizei, type_: GLenum, indices: *const c_void, basevertex: GLint) -> ();
     fn DrawElementsInstancedBaseVertexOES(mode: GLenum, count: GLsizei, type_: GLenum, indices: *const c_void, instancecount: GLsizei, basevertex: GLint) -> ();
+    fn DrawArraysInstancedBaseInstanceEXT(mode: GLenum, first: GLint, count: GLsizei, instancecount: GLsizei, baseinstance: GLuint) -> ();
+    fn DrawElementsInstancedBaseInstanceEXT(mode: GLenum, count: GLsizei, type_: GLenum, indices: *const c_void, instancecount: GLsizei, baseinstance: GLuint) -> ();
+    fn DrawElementsInstancedBaseVertexBaseInstanceEXT(mode: GLenum, count: GLsizei, type_: GLenum, indices: *const c_void, instancecount: GLsizei, basevertex: GLint, baseinstance: GLuint) -> ();
     fn EndConditionalRender() -> ();
     fn EndConditionalRenderNV() -> ();
     fn FramebufferParameteri(target: GLenum, pname: GLenum, param: GLint) -> ();
@@ -198,6 +181,10 @@ extra_functions! {
     fn InsertEventMarkerEXT(length: GLsizei, marker: *const GLchar) -> ();
     fn InvalidateBufferData(buffer: GLuint) -> ();
     fn InvalidateBufferSubData(buffer: GLuint, offset: GLintptr, length: GLsizeiptr) -> ();
+    fn BeginQueryIndexed(target: GLenum, index: GLuint, id: GLuint) -> ();
+    fn EndQueryIndexed(target: GLenum, index: GLuint) -> ();
+    fn ClearBufferSubData(target: GLenum, internalformat: GLenum, offset: GLintptr, size: GLsizeiptr, format: GLenum, type_: GLenum, data: *const c_void) -> ();
+    fn ClearNamedBufferSubData(buffer: GLuint, internalformat: GLenum, offset: GLintptr, size: GLsizeiptr, format: GLenum, type_: GLenum, data: *const c_void) -> ();
     fn MakeImageHandleResidentARB(handle: GLuint64, access: GLenum) -> ();
     fn MakeTextureHandleNonResidentARB(handle: GLuint64) -> ();
     fn MakeTextureHandleResidentARB(handle: GLuint64) -> ();
@@ -205,6 +192,12 @@ extra_functions! {
     fn MinSampleShadingOES(value: GLfloat) -> ();
     fn MultiDrawArraysIndirect(mode: GLenum, indirect: *const c_void, drawcount: GLsizei, stride: GLsizei) -> ();
     fn MultiDrawElementsIndirect(mode: GLenum, type_: GLenum, indirect: *const c_void, drawcount: GLsizei, stride: GLsizei) -> ();
+    fn MultiDrawArraysIndirectEXT(mode: GLenum, indirect: *const c_void, drawcount: GLsizei, stride: GLsizei) -> ();
+    fn MultiDrawElementsIndirectEXT(mode: GLenum, type_: GLenum, indirect: *const c_void, drawcount: GLsizei, stride: GLsizei) -> ();
+    fn MultiDrawArraysIndirectCount(mode: GLenum, indirect: *const c_void, drawcount: GLintptr, maxdrawcount: GLsizei, stride: GLsizei) -> ();
+    fn MultiDrawElementsIndirectCount(mode: GLenum, type_: GLenum, indirect: *const c_void, drawcount: GLintptr, maxdrawcount: GLsizei, stride: GLsizei) -> ();
+    fn MultiDrawArraysIndirectCountARB(mode: GLenum, indirect: *const c_void, drawcount: GLintptr, maxdrawcount: GLsizei, stride: GLsizei) -> ();
+    fn MultiDrawElementsIndirectCountARB(mode: GLenum, type_: GLenum, indirect: *const c_void, drawcount: GLintptr, maxdrawcount: GLsizei, stride: GLsizei) -> ();
     fn PointSize(size: GLfloat) -> ();
     fn PolygonOffsetClamp(factor: GLfloat, units: GLfloat, clamp: GLfloat) -> ();
     fn PolygonOffsetClampEXT(factor: GLfloat, units: GLfloat, clamp: GLfloat) -> ();
@@ -220,7 +213,6 @@ extra_functions! {
     fn SampleMaski(maskNumber: GLuint, mask: GLbitfield) -> ();
     fn ShaderBinary(count: GLsizei, shaders: *const GLuint, binaryformat: GLenum, binary: *const c_void, length: GLsizei) -> ();
     fn SpecializeShader(shader: GLuint, pEntryPoint: *const GLchar, numSpecializationConstants: GLuint, pConstantIndex: *const GLuint, pConstantValue: *const GLuint) -> ();
-    fn StringMarkerGREMEDY(len: GLsizei, string: *const c_void) -> ();
     fn TexBufferEXT(target: GLenum, internalformat: GLenum, buffer: GLuint) -> ();
     fn TexBufferOES(target: GLenum, internalformat: GLenum, buffer: GLuint) -> ();
     fn TexImage3DMultisample(target: GLenum, samples: GLsizei, internalformat: GLenum, width: GLsizei, height: GLsizei, depth: GLsizei, fixedsamplelocations: GLboolean) -> ();

@@ -401,58 +401,52 @@ impl UncompressedFloatFormat {
         // OpenGL ES 3.0 only has a subset of the desktop formats: the 16-bit normalized formats
         // need `GL_EXT_texture_norm16`, and the legacy formats below 8 bits per channel (apart
         // from RGBA4 and RGB5_A1) and the 12-bit ones don't exist
-        let es3 = version >= &Version(Api::GlEs, 3, 0);
-        let es_norm16 = es3 && extensions.gl_ext_texture_norm16;
+        let desktop = version.0 == Api::Gl;
+        let norm16 = desktop || extensions.gl_ext_texture_norm16;
 
         match self {
-            Self::U8 | Self::U8U8 => {
-                version >= &Version(Api::Gl, 3, 0) || es3 || extensions.gl_arb_texture_rg
-            }
-            Self::U16 | Self::U16U16 => {
-                version >= &Version(Api::Gl, 3, 0) || es_norm16 || extensions.gl_arb_texture_rg
-            }
-            Self::I8 | Self::I8I8 | Self::I8I8I8 | Self::I8I8I8I8 => {
-                version >= &Version(Api::Gl, 3, 2) || es3 || extensions.gl_ext_texture_snorm
-            }
-            Self::I16 | Self::I16I16 | Self::I16I16I16 | Self::I16I16I16I16 => {
-                version >= &Version(Api::Gl, 3, 2) || es_norm16 || extensions.gl_ext_texture_snorm
-            }
+            Self::U16
+            | Self::U16U16
+            | Self::U16U16U16
+            | Self::U16U16U16U16
+            | Self::I16
+            | Self::I16I16
+            | Self::I16I16I16
+            | Self::I16I16I16I16 => norm16,
             Self::U3U3U2
             | Self::U4U4U4
             | Self::U5U5U5
             | Self::U10U10U10
             | Self::U12U12U12
             | Self::U2U2U2U2
-            | Self::U12U12U12U12 => version >= &Version(Api::Gl, 1, 1),
-            Self::U8U8U8
-            | Self::U5U6U5
+            | Self::U12U12U12U12 => desktop,
+            // `GL_RGB565` is core in OpenGL 4.1
+            Self::U5U6U5 => {
+                !desktop
+                    || version >= &Version(Api::Gl, 4, 1)
+                    || extensions.gl_arb_es2_compatibility
+            }
+            Self::U8
+            | Self::U8U8
+            | Self::I8
+            | Self::I8I8
+            | Self::I8I8I8
+            | Self::I8I8I8I8
+            | Self::U8U8U8
             | Self::U4U4U4U4
             | Self::U5U5U5U1
             | Self::U8U8U8U8
-            | Self::U10U10U10U2 => {
-                version >= &Version(Api::Gl, 1, 1) || es3
-            }
-            Self::U16U16U16 => version >= &Version(Api::Gl, 3, 0) || es_norm16,
-            Self::U16U16U16U16 => version >= &Version(Api::Gl, 1, 1) || es_norm16,
-            Self::F16 | Self::F16F16 | Self::F32 | Self::F32F32 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || es3
-                    || (extensions.gl_arb_texture_float && extensions.gl_arb_texture_rg)
-            }
-            Self::F16F16F16 | Self::F16F16F16F16 | Self::F32F32F32 | Self::F32F32F32F32 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || es3
-                    || extensions.gl_arb_texture_float
-                    || extensions.gl_ati_texture_float
-            }
-            Self::F11F11F10 => {
-                version >= &Version(Api::Gl, 3, 2) || es3 || extensions.gl_ext_packed_float
-            }
-            Self::F9F9F9 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || es3
-                    || extensions.gl_ext_texture_shared_exponent
-            }
+            | Self::U10U10U10U2
+            | Self::F16
+            | Self::F16F16
+            | Self::F16F16F16
+            | Self::F16F16F16F16
+            | Self::F32
+            | Self::F32F32
+            | Self::F32F32F32
+            | Self::F32F32F32F32
+            | Self::F11F11F10
+            | Self::F9F9F9 => true,
         }
     }
 
@@ -476,31 +470,20 @@ impl UncompressedFloatFormat {
         let extensions = context.get_extensions();
 
         // if we have OpenGL, everything here is color-renderable
-        if version >= &Version(Api::Gl, 1, 0) {
+        if version.0 == Api::Gl {
             return true;
         }
 
         // if we have OpenGL ES, it depends
-        // TODO: there are maybe more formats here
         match self {
-            UncompressedFloatFormat::U8 => {
-                version >= &Version(Api::GlEs, 3, 0) || extensions.gl_arb_texture_rg
-            }
-            UncompressedFloatFormat::U8U8 => {
-                version >= &Version(Api::GlEs, 3, 0) || extensions.gl_arb_texture_rg
-            }
-            UncompressedFloatFormat::U5U6U5 => true,
-            UncompressedFloatFormat::U8U8U8 => {
-                version >= &Version(Api::GlEs, 3, 0) || extensions.gl_oes_rgb8_rgba8
-            }
-            UncompressedFloatFormat::U4U4U4U4 => true,
-            UncompressedFloatFormat::U5U5U5U1 => true,
-            UncompressedFloatFormat::U8U8U8U8 => {
-                version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_arm_rgba8
-                    || extensions.gl_oes_rgb8_rgba8
-            }
-            UncompressedFloatFormat::U10U10U10U2 => version >= &Version(Api::GlEs, 3, 0),
+            UncompressedFloatFormat::U8
+            | UncompressedFloatFormat::U8U8
+            | UncompressedFloatFormat::U5U6U5
+            | UncompressedFloatFormat::U8U8U8
+            | UncompressedFloatFormat::U4U4U4U4
+            | UncompressedFloatFormat::U5U5U5U1
+            | UncompressedFloatFormat::U8U8U8U8
+            | UncompressedFloatFormat::U10U10U10U2 => true,
             UncompressedFloatFormat::U16
             | UncompressedFloatFormat::U16U16
             | UncompressedFloatFormat::U16U16U16U16 => extensions.gl_ext_texture_norm16,
@@ -586,26 +569,12 @@ impl SrgbFormat {
     }
 
     /// Returns true if this format is supported by the backend.
-    pub fn is_supported<C: ?Sized>(&self, context: &C) -> bool
+    pub fn is_supported<C: ?Sized>(&self, _context: &C) -> bool
     where
         C: CapabilitiesSource,
     {
-        let version = context.get_version();
-        let extensions = context.get_extensions();
-
-        match self {
-            SrgbFormat::U8U8U8 => {
-                version >= &Version(Api::Gl, 2, 1)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_ext_texture_srgb
-            }
-
-            SrgbFormat::U8U8U8U8 => {
-                version >= &Version(Api::Gl, 2, 1)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_ext_texture_srgb
-            }
-        }
+        // both are core in every version that SafeGL supports
+        true
     }
 
     /// Returns true if a texture or renderbuffer with this format can be used as a framebuffer
@@ -619,14 +588,10 @@ impl SrgbFormat {
             return false;
         }
 
-        let version = context.get_version();
-        let extensions = context.get_extensions();
-
+        // OpenGL ES can't render to `GL_SRGB8`
         match self {
-            SrgbFormat::U8U8U8 => version >= &Version(Api::Gl, 1, 0),
-            SrgbFormat::U8U8U8U8 => {
-                version >= &Version(Api::Gl, 1, 0) || version >= &Version(Api::GlEs, 3, 0)
-            }
+            SrgbFormat::U8U8U8 => context.get_version().0 == Api::Gl,
+            SrgbFormat::U8U8U8U8 => true,
         }
     }
 
@@ -686,73 +651,12 @@ impl UncompressedIntFormat {
     }
 
     /// Returns true if this format is supported by the backend.
-    pub fn is_supported<C: ?Sized>(&self, context: &C) -> bool
+    pub fn is_supported<C: ?Sized>(&self, _context: &C) -> bool
     where
         C: CapabilitiesSource,
     {
-        let version = context.get_version();
-        let extensions = context.get_extensions();
-
-        // every integral format is core in OpenGL ES 3.0
-        if version >= &Version(Api::GlEs, 3, 0) {
-            return true;
-        }
-
-        match self {
-            UncompressedIntFormat::I8 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || (extensions.gl_ext_texture_integer && extensions.gl_arb_texture_rg)
-            }
-
-            UncompressedIntFormat::I16 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || (extensions.gl_ext_texture_integer && extensions.gl_arb_texture_rg)
-            }
-
-            UncompressedIntFormat::I32 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || (extensions.gl_ext_texture_integer && extensions.gl_arb_texture_rg)
-            }
-
-            UncompressedIntFormat::I8I8 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || (extensions.gl_ext_texture_integer && extensions.gl_arb_texture_rg)
-            }
-
-            UncompressedIntFormat::I16I16 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || (extensions.gl_ext_texture_integer && extensions.gl_arb_texture_rg)
-            }
-
-            UncompressedIntFormat::I32I32 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || (extensions.gl_ext_texture_integer && extensions.gl_arb_texture_rg)
-            }
-
-            UncompressedIntFormat::I8I8I8 => {
-                version >= &Version(Api::Gl, 3, 0) || extensions.gl_ext_texture_integer
-            }
-
-            UncompressedIntFormat::I16I16I16 => {
-                version >= &Version(Api::Gl, 3, 0) || extensions.gl_ext_texture_integer
-            }
-
-            UncompressedIntFormat::I32I32I32 => {
-                version >= &Version(Api::Gl, 3, 0) || extensions.gl_ext_texture_integer
-            }
-
-            UncompressedIntFormat::I8I8I8I8 => {
-                version >= &Version(Api::Gl, 3, 0) || extensions.gl_ext_texture_integer
-            }
-
-            UncompressedIntFormat::I16I16I16I16 => {
-                version >= &Version(Api::Gl, 3, 0) || extensions.gl_ext_texture_integer
-            }
-
-            UncompressedIntFormat::I32I32I32I32 => {
-                version >= &Version(Api::Gl, 3, 0) || extensions.gl_ext_texture_integer
-            }
-        }
+        // every integral format is core in OpenGL 3.0 and OpenGL ES 3.0
+        true
     }
 
     /// Returns true if a texture or renderbuffer with this format can be used as a framebuffer
@@ -761,33 +665,14 @@ impl UncompressedIntFormat {
     where
         C: CapabilitiesSource,
     {
-        // checking whether it's supported, so that we don't return `true` by accident
-        if !self.is_supported(context) {
-            return false;
-        }
-
-        let version = context.get_version();
-
-        // if we have OpenGL, everything here is color-renderable
-        if version >= &Version(Api::Gl, 1, 0) {
-            return true;
-        }
-
-        // if we have OpenGL ES, it depends
-        match self {
-            UncompressedIntFormat::I8 => version >= &Version(Api::GlEs, 3, 0),
-            UncompressedIntFormat::I16 => version >= &Version(Api::GlEs, 3, 0),
-            UncompressedIntFormat::I32 => version >= &Version(Api::GlEs, 3, 0),
-            UncompressedIntFormat::I8I8 => version >= &Version(Api::GlEs, 3, 0),
-            UncompressedIntFormat::I16I16 => version >= &Version(Api::GlEs, 3, 0),
-            UncompressedIntFormat::I32I32 => version >= &Version(Api::GlEs, 3, 0),
-            UncompressedIntFormat::I8I8I8 => false,
-            UncompressedIntFormat::I16I16I16 => false,
-            UncompressedIntFormat::I32I32I32 => false,
-            UncompressedIntFormat::I8I8I8I8 => version >= &Version(Api::GlEs, 3, 0),
-            UncompressedIntFormat::I16I16I16I16 => version >= &Version(Api::GlEs, 3, 0),
-            UncompressedIntFormat::I32I32I32I32 => version >= &Version(Api::GlEs, 3, 0),
-        }
+        // OpenGL ES can't render to the formats with three components
+        context.get_version().0 == Api::Gl
+            || !matches!(
+                self,
+                UncompressedIntFormat::I8I8I8
+                    | UncompressedIntFormat::I16I16I16
+                    | UncompressedIntFormat::I32I32I32
+            )
     }
 
     fn to_glenum(&self) -> gl::types::GLenum {
@@ -858,77 +743,12 @@ impl UncompressedUintFormat {
     }
 
     /// Returns true if this format is supported by the backend.
-    pub fn is_supported<C: ?Sized>(&self, context: &C) -> bool
+    pub fn is_supported<C: ?Sized>(&self, _context: &C) -> bool
     where
         C: CapabilitiesSource,
     {
-        let version = context.get_version();
-        let extensions = context.get_extensions();
-
-        // every integral format is core in OpenGL ES 3.0
-        if version >= &Version(Api::GlEs, 3, 0) {
-            return true;
-        }
-
-        match self {
-            UncompressedUintFormat::U8 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || (extensions.gl_ext_texture_integer && extensions.gl_arb_texture_rg)
-            }
-
-            UncompressedUintFormat::U16 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || (extensions.gl_ext_texture_integer && extensions.gl_arb_texture_rg)
-            }
-
-            UncompressedUintFormat::U32 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || (extensions.gl_ext_texture_integer && extensions.gl_arb_texture_rg)
-            }
-
-            UncompressedUintFormat::U8U8 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || (extensions.gl_ext_texture_integer && extensions.gl_arb_texture_rg)
-            }
-
-            UncompressedUintFormat::U16U16 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || (extensions.gl_ext_texture_integer && extensions.gl_arb_texture_rg)
-            }
-
-            UncompressedUintFormat::U32U32 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || (extensions.gl_ext_texture_integer && extensions.gl_arb_texture_rg)
-            }
-
-            UncompressedUintFormat::U8U8U8 => {
-                version >= &Version(Api::Gl, 3, 0) || extensions.gl_ext_texture_integer
-            }
-
-            UncompressedUintFormat::U16U16U16 => {
-                version >= &Version(Api::Gl, 3, 0) || extensions.gl_ext_texture_integer
-            }
-
-            UncompressedUintFormat::U32U32U32 => {
-                version >= &Version(Api::Gl, 3, 0) || extensions.gl_ext_texture_integer
-            }
-
-            UncompressedUintFormat::U8U8U8U8 => {
-                version >= &Version(Api::Gl, 3, 0) || extensions.gl_ext_texture_integer
-            }
-
-            UncompressedUintFormat::U16U16U16U16 => {
-                version >= &Version(Api::Gl, 3, 0) || extensions.gl_ext_texture_integer
-            }
-
-            UncompressedUintFormat::U32U32U32U32 => {
-                version >= &Version(Api::Gl, 3, 0) || extensions.gl_ext_texture_integer
-            }
-
-            UncompressedUintFormat::U10U10U10U2 => {
-                version >= &Version(Api::Gl, 3, 3) || extensions.gl_arb_texture_rgb10_a2ui
-            }
-        }
+        // every integral format is core in OpenGL 3.0 and OpenGL ES 3.0
+        true
     }
 
     /// Returns true if a texture or renderbuffer with this format can be used as a framebuffer
@@ -937,34 +757,14 @@ impl UncompressedUintFormat {
     where
         C: CapabilitiesSource,
     {
-        // checking whether it's supported, so that we don't return `true` by accident
-        if !self.is_supported(context) {
-            return false;
-        }
-
-        let version = context.get_version();
-
-        // if we have OpenGL, everything here is color-renderable
-        if version >= &Version(Api::Gl, 1, 0) {
-            return true;
-        }
-
-        // if we have OpenGL ES, it depends
-        match self {
-            UncompressedUintFormat::U8 => version >= &Version(Api::GlEs, 3, 0),
-            UncompressedUintFormat::U16 => version >= &Version(Api::GlEs, 3, 0),
-            UncompressedUintFormat::U32 => version >= &Version(Api::GlEs, 3, 0),
-            UncompressedUintFormat::U8U8 => version >= &Version(Api::GlEs, 3, 0),
-            UncompressedUintFormat::U16U16 => version >= &Version(Api::GlEs, 3, 0),
-            UncompressedUintFormat::U32U32 => version >= &Version(Api::GlEs, 3, 0),
-            UncompressedUintFormat::U8U8U8 => false,
-            UncompressedUintFormat::U16U16U16 => false,
-            UncompressedUintFormat::U32U32U32 => false,
-            UncompressedUintFormat::U8U8U8U8 => version >= &Version(Api::GlEs, 3, 0),
-            UncompressedUintFormat::U16U16U16U16 => version >= &Version(Api::GlEs, 3, 0),
-            UncompressedUintFormat::U32U32U32U32 => version >= &Version(Api::GlEs, 3, 0),
-            UncompressedUintFormat::U10U10U10U2 => version >= &Version(Api::GlEs, 3, 0),
-        }
+        // OpenGL ES can't render to the formats with three components
+        context.get_version().0 == Api::Gl
+            || !matches!(
+                self,
+                UncompressedUintFormat::U8U8U8
+                    | UncompressedUintFormat::U16U16U16
+                    | UncompressedUintFormat::U32U32U32
+            )
     }
 
     fn to_glenum(&self) -> gl::types::GLenum {
@@ -1049,10 +849,10 @@ impl CompressedFormat {
         let extensions = context.get_extensions();
 
         match self {
-            CompressedFormat::RgtcFormatU => version >= &Version(Api::Gl, 3, 0),
-            CompressedFormat::RgtcFormatI => version >= &Version(Api::Gl, 3, 0),
-            CompressedFormat::RgtcFormatUU => version >= &Version(Api::Gl, 3, 0),
-            CompressedFormat::RgtcFormatII => version >= &Version(Api::Gl, 3, 0),
+            CompressedFormat::RgtcFormatU => version.0 == Api::Gl,
+            CompressedFormat::RgtcFormatI => version.0 == Api::Gl,
+            CompressedFormat::RgtcFormatUU => version.0 == Api::Gl,
+            CompressedFormat::RgtcFormatII => version.0 == Api::Gl,
             CompressedFormat::BptcUnorm4 => {
                 version >= &Version(Api::Gl, 4, 2) || extensions.gl_arb_texture_compression_bptc
             }
@@ -1192,24 +992,10 @@ impl DepthFormat {
     where
         C: CapabilitiesSource,
     {
-        let version = context.get_version();
-        let extensions = context.get_extensions();
-
         match self {
-            DepthFormat::I16 | DepthFormat::I24 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_arb_depth_texture
-            }
-
+            DepthFormat::I16 | DepthFormat::I24 | DepthFormat::F32 => true,
             // OpenGL ES has no 32-bit integer depth format
-            DepthFormat::I32 => {
-                version >= &Version(Api::Gl, 3, 0) || extensions.gl_arb_depth_texture
-            }
-
-            DepthFormat::F32 => {
-                version >= &Version(Api::Gl, 3, 0) || version >= &Version(Api::GlEs, 3, 0)
-            }
+            DepthFormat::I32 => context.get_version().0 == Api::Gl,
         }
     }
 
@@ -1247,24 +1033,13 @@ impl DepthStencilFormat {
     }
 
     /// Returns true if this format is supported by the backend.
-    pub fn is_supported<C: ?Sized>(&self, context: &C) -> bool
+    pub fn is_supported<C: ?Sized>(&self, _context: &C) -> bool
     where
         C: CapabilitiesSource,
     {
-        let version = context.get_version();
-        let extensions = context.get_extensions();
-
+        // both are core in OpenGL 3.0 and OpenGL ES 3.0
         match self {
-            DepthStencilFormat::I24I8 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || version >= &Version(Api::GlEs, 3, 0)
-                    || extensions.gl_ext_packed_depth_stencil
-                    || extensions.gl_oes_packed_depth_stencil
-            }
-
-            DepthStencilFormat::F32I8 => {
-                version >= &Version(Api::Gl, 3, 0) || version >= &Version(Api::GlEs, 3, 0)
-            }
+            DepthStencilFormat::I24I8 | DepthStencilFormat::F32I8 => true,
         }
     }
 
@@ -1334,34 +1109,11 @@ impl StencilFormat {
     where
         C: CapabilitiesSource,
     {
-        let version = context.get_version();
-        let extensions = context.get_extensions();
-
+        // OpenGL ES only has 8-bit stencil buffers
         match self {
-            StencilFormat::I1 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || extensions.gl_ext_framebuffer_object
-                    || extensions.gl_arb_framebuffer_object
-                    || extensions.gl_oes_stencil1
-            }
-
-            StencilFormat::I4 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || extensions.gl_ext_framebuffer_object
-                    || extensions.gl_arb_framebuffer_object
-                    || extensions.gl_oes_stencil4
-            }
-
-            StencilFormat::I8 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || extensions.gl_arb_texture_stencil8
-                    || version >= &Version(Api::GlEs, 2, 0)
-            }
-
-            StencilFormat::I16 => {
-                version >= &Version(Api::Gl, 3, 0)
-                    || extensions.gl_ext_framebuffer_object
-                    || extensions.gl_arb_framebuffer_object
+            StencilFormat::I8 => true,
+            StencilFormat::I1 | StencilFormat::I4 | StencilFormat::I16 => {
+                context.get_version().0 == Api::Gl
             }
         }
     }
@@ -1726,64 +1478,18 @@ pub fn format_request_to_glenum(
         TextureFormatRequest::AnyFloatingPoint => {
             let size = rq_ty.get_client_format().map(|c| c.get_num_components());
 
-            if version >= &Version(Api::Gl, 3, 0) || version >= &Version(Api::GlEs, 3, 0) {
-                match (rq_ty, size) {
-                    (RequestType::TexImage(_), Some(1)) => gl::RED,
-                    (RequestType::TexImage(_), Some(2)) => gl::RG,
-                    (RequestType::TexImage(_), Some(3)) => gl::RGB,
-                    (RequestType::TexImage(_), Some(4)) => gl::RGBA,
-                    (RequestType::TexImage(_), None) => gl::RGBA,
-                    (_, Some(1)) => gl::R8,
-                    (_, Some(2)) => gl::RG8,
-                    (_, Some(3)) => gl::RGB8,
-                    (_, Some(4)) => gl::RGBA8,
-                    (_, None) => gl::RGBA8,
-                    _ => unreachable!(),
-                }
-            } else if version >= &Version(Api::Gl, 1, 1) {
-                match (rq_ty, size) {
-                    (RequestType::TexImage(_), Some(1)) => gl::RED,
-                    (RequestType::TexImage(_), Some(2)) => gl::RG,
-                    (RequestType::TexImage(_), Some(3)) => gl::RGB,
-                    (RequestType::TexImage(_), Some(4)) => gl::RGBA,
-                    (RequestType::TexImage(_), None) => gl::RGBA,
-                    (_, Some(1)) if extensions.gl_arb_texture_rg => gl::R8,
-                    (_, Some(2)) if extensions.gl_arb_texture_rg => gl::RG8,
-                    (_, Some(3)) => gl::RGB8,
-                    (_, Some(4)) => gl::RGBA8,
-                    (_, None) => gl::RGBA8,
-                    _ => return Err(FormatNotSupportedError),
-                }
-            } else if version >= &Version(Api::Gl, 1, 0) {
-                match rq_ty {
-                    RequestType::TexImage(_) => size.unwrap_or(4) as gl::types::GLenum,
-                    _ => return Err(FormatNotSupportedError),
-                }
-            } else if version >= &Version(Api::GlEs, 2, 0) {
-                match (rq_ty, size) {
-                    (RequestType::TexImage(_), Some(3)) => gl::RGB,
-                    (_, Some(3)) => {
-                        if extensions.gl_oes_rgb8_rgba8 {
-                            gl::RGB8_OES
-                        } else if extensions.gl_arm_rgba8 {
-                            gl::RGBA8_OES
-                        } else {
-                            gl::RGB565
-                        }
-                    }
-                    (RequestType::TexImage(_), Some(4)) => gl::RGBA,
-                    (RequestType::TexImage(_), None) => gl::RGBA,
-                    (_, Some(4)) | (_, None) => {
-                        if extensions.gl_oes_rgb8_rgba8 || extensions.gl_arm_rgba8 {
-                            gl::RGBA8_OES
-                        } else {
-                            gl::RGB5_A1
-                        }
-                    }
-                    _ => return Err(FormatNotSupportedError),
-                }
-            } else {
-                unreachable!();
+            match (rq_ty, size) {
+                (RequestType::TexImage(_), Some(1)) => gl::RED,
+                (RequestType::TexImage(_), Some(2)) => gl::RG,
+                (RequestType::TexImage(_), Some(3)) => gl::RGB,
+                (RequestType::TexImage(_), Some(4)) => gl::RGBA,
+                (RequestType::TexImage(_), None) => gl::RGBA,
+                (_, Some(1)) => gl::R8,
+                (_, Some(2)) => gl::RG8,
+                (_, Some(3)) => gl::RGB8,
+                (_, Some(4)) => gl::RGBA8,
+                (_, None) => gl::RGBA8,
+                _ => unreachable!(),
             }
         }
 
@@ -1821,35 +1527,13 @@ pub fn format_request_to_glenum(
                 RequestType::TexImage(client) => {
                     let size = client.map(|c| c.get_num_components());
 
-                    if version >= &Version(Api::Gl, 1, 1) {
-                        match size {
-                            Some(1) => {
-                                if version >= &Version(Api::Gl, 3, 0)
-                                    || extensions.gl_arb_texture_rg
-                                {
-                                    gl::COMPRESSED_RED
-                                } else {
-                                    1
-                                }
-                            }
-                            Some(2) => {
-                                if version >= &Version(Api::Gl, 3, 0)
-                                    || extensions.gl_arb_texture_rg
-                                {
-                                    gl::COMPRESSED_RG
-                                } else {
-                                    2
-                                }
-                            }
-                            Some(3) => gl::COMPRESSED_RGB,
-                            Some(4) => gl::COMPRESSED_RGBA,
-                            None => gl::COMPRESSED_RGBA,
-                            _ => unreachable!(),
-                        }
-                    } else {
-                        // OpenGL 1.0 doesn't support compressed textures, so we use a
-                        // regular float format instead
-                        size.unwrap_or(4) as gl::types::GLenum
+                    match size {
+                        Some(1) => gl::COMPRESSED_RED,
+                        Some(2) => gl::COMPRESSED_RG,
+                        Some(3) => gl::COMPRESSED_RGB,
+                        Some(4) => gl::COMPRESSED_RGBA,
+                        None => gl::COMPRESSED_RGBA,
+                        _ => unreachable!(),
                     }
                 }
                 RequestType::TexStorage(_) | RequestType::Renderbuffer => {
@@ -1872,25 +1556,17 @@ pub fn format_request_to_glenum(
         TextureFormatRequest::AnySrgb => {
             let size = rq_ty.get_client_format().map(|c| c.get_num_components());
 
-            if version >= &Version(Api::Gl, 2, 1)
-                || version >= &Version(Api::GlEs, 3, 0)
-                || extensions.gl_ext_texture_srgb
-            {
-                match size {
-                    Some(1..=3) => gl::SRGB8,
-                    Some(4) => gl::SRGB8_ALPHA8,
-                    None => {
-                        if let RequestType::TexImage(_) = rq_ty {
-                            gl::SRGB8
-                        } else {
-                            gl::SRGB8_ALPHA8
-                        }
+            match size {
+                Some(1..=3) => gl::SRGB8,
+                Some(4) => gl::SRGB8_ALPHA8,
+                None => {
+                    if let RequestType::TexImage(_) = rq_ty {
+                        gl::SRGB8
+                    } else {
+                        gl::SRGB8_ALPHA8
                     }
-                    _ => unreachable!(),
                 }
-            } else {
-                // no support for sRGB
-                format_request_to_glenum(context, TextureFormatRequest::AnyFloatingPoint, rq_ty)?
+                _ => unreachable!(),
             }
         }
 
@@ -1917,7 +1593,8 @@ pub fn format_request_to_glenum(
         }
 
         TextureFormatRequest::AnyCompressedSrgb => {
-            if version >= &Version(Api::Gl, 4, 0) || extensions.gl_ext_texture_srgb {
+            // OpenGL ES has no generic compressed formats, so the texture isn't compressed there
+            if version.0 == Api::Gl {
                 match rq_ty {
                     RequestType::TexImage(client) => match client.map(|c| c.get_num_components()) {
                         Some(1..=3) => gl::COMPRESSED_SRGB,
@@ -1930,7 +1607,6 @@ pub fn format_request_to_glenum(
                     }
                 }
             } else {
-                // no support for compressed srgb textures
                 format_request_to_glenum(context, TextureFormatRequest::AnySrgb, rq_ty)?
             }
         }
@@ -1949,57 +1625,29 @@ pub fn format_request_to_glenum(
         TextureFormatRequest::AnyIntegral => {
             let size = rq_ty.get_client_format().map(|c| c.get_num_components());
 
-            if version >= &Version(Api::Gl, 3, 0) || version >= &Version(Api::GlEs, 3, 0) {
-                // OpenGL ES only uploads data whose type matches the format, so the number of
-                // bits comes from the data there; desktop OpenGL always gets 32 bits
-                let bits = match (version.0, rq_ty.get_client_format()) {
-                    (Api::GlEs, Some(ClientFormatAny::ClientFormat(client))) => {
-                        8 * client.get_size() / client.get_num_components() as usize
-                    }
-                    _ => 32,
-                };
+            // OpenGL ES only uploads data whose type matches the format, so the number of bits
+            // comes from the data there; desktop OpenGL always gets 32 bits
+            let bits = match (version.0, rq_ty.get_client_format()) {
+                (Api::GlEs, Some(ClientFormatAny::ClientFormat(client))) => {
+                    8 * client.get_size() / client.get_num_components() as usize
+                }
+                _ => 32,
+            };
 
-                match (size, bits) {
-                    (Some(1), 8) => gl::R8I,
-                    (Some(1), 16) => gl::R16I,
-                    (Some(1), _) => gl::R32I,
-                    (Some(2), 8) => gl::RG8I,
-                    (Some(2), 16) => gl::RG16I,
-                    (Some(2), _) => gl::RG32I,
-                    (Some(3), 8) => gl::RGB8I,
-                    (Some(3), 16) => gl::RGB16I,
-                    (Some(3), _) => gl::RGB32I,
-                    (Some(4), 8) | (None, 8) => gl::RGBA8I,
-                    (Some(4), 16) | (None, 16) => gl::RGBA16I,
-                    (Some(4), _) | (None, _) => gl::RGBA32I,
-                    _ => unreachable!(),
-                }
-            } else {
-                if !extensions.gl_ext_texture_integer {
-                    return Err(FormatNotSupportedError);
-                }
-
-                match size {
-                    // FIXME: choose between 8, 16 and 32 depending on the client format
-                    Some(1) => {
-                        if extensions.gl_arb_texture_rg {
-                            gl::R32I
-                        } else {
-                            return Err(FormatNotSupportedError);
-                        }
-                    }
-                    Some(2) => {
-                        if extensions.gl_arb_texture_rg {
-                            gl::RG32I
-                        } else {
-                            return Err(FormatNotSupportedError);
-                        }
-                    }
-                    Some(3) => gl::RGB32I_EXT,
-                    Some(4) => gl::RGBA32I_EXT,
-                    None => gl::RGBA32I_EXT,
-                    _ => unreachable!(),
-                }
+            match (size, bits) {
+                (Some(1), 8) => gl::R8I,
+                (Some(1), 16) => gl::R16I,
+                (Some(1), _) => gl::R32I,
+                (Some(2), 8) => gl::RG8I,
+                (Some(2), 16) => gl::RG16I,
+                (Some(2), _) => gl::RG32I,
+                (Some(3), 8) => gl::RGB8I,
+                (Some(3), 16) => gl::RGB16I,
+                (Some(3), _) => gl::RGB32I,
+                (Some(4), 8) | (None, 8) => gl::RGBA8I,
+                (Some(4), 16) | (None, 16) => gl::RGBA16I,
+                (Some(4), _) | (None, _) => gl::RGBA32I,
+                _ => unreachable!(),
             }
         }
 
@@ -2020,57 +1668,29 @@ pub fn format_request_to_glenum(
         TextureFormatRequest::AnyUnsigned => {
             let size = rq_ty.get_client_format().map(|c| c.get_num_components());
 
-            if version >= &Version(Api::Gl, 3, 0) || version >= &Version(Api::GlEs, 3, 0) {
-                // OpenGL ES only uploads data whose type matches the format, so the number of
-                // bits comes from the data there; desktop OpenGL always gets 32 bits
-                let bits = match (version.0, rq_ty.get_client_format()) {
-                    (Api::GlEs, Some(ClientFormatAny::ClientFormat(client))) => {
-                        8 * client.get_size() / client.get_num_components() as usize
-                    }
-                    _ => 32,
-                };
+            // OpenGL ES only uploads data whose type matches the format, so the number of bits
+            // comes from the data there; desktop OpenGL always gets 32 bits
+            let bits = match (version.0, rq_ty.get_client_format()) {
+                (Api::GlEs, Some(ClientFormatAny::ClientFormat(client))) => {
+                    8 * client.get_size() / client.get_num_components() as usize
+                }
+                _ => 32,
+            };
 
-                match (size, bits) {
-                    (Some(1), 8) => gl::R8UI,
-                    (Some(1), 16) => gl::R16UI,
-                    (Some(1), _) => gl::R32UI,
-                    (Some(2), 8) => gl::RG8UI,
-                    (Some(2), 16) => gl::RG16UI,
-                    (Some(2), _) => gl::RG32UI,
-                    (Some(3), 8) => gl::RGB8UI,
-                    (Some(3), 16) => gl::RGB16UI,
-                    (Some(3), _) => gl::RGB32UI,
-                    (Some(4), 8) | (None, 8) => gl::RGBA8UI,
-                    (Some(4), 16) | (None, 16) => gl::RGBA16UI,
-                    (Some(4), _) | (None, _) => gl::RGBA32UI,
-                    _ => unreachable!(),
-                }
-            } else {
-                if !extensions.gl_ext_texture_integer {
-                    return Err(FormatNotSupportedError);
-                }
-
-                match size {
-                    // FIXME: choose between 8, 16 and 32 depending on the client format
-                    Some(1) => {
-                        if extensions.gl_arb_texture_rg {
-                            gl::R32UI
-                        } else {
-                            return Err(FormatNotSupportedError);
-                        }
-                    }
-                    Some(2) => {
-                        if extensions.gl_arb_texture_rg {
-                            gl::RG32UI
-                        } else {
-                            return Err(FormatNotSupportedError);
-                        }
-                    }
-                    Some(3) => gl::RGB32UI_EXT,
-                    Some(4) => gl::RGBA32UI_EXT,
-                    None => gl::RGBA32UI_EXT,
-                    _ => unreachable!(),
-                }
+            match (size, bits) {
+                (Some(1), 8) => gl::R8UI,
+                (Some(1), 16) => gl::R16UI,
+                (Some(1), _) => gl::R32UI,
+                (Some(2), 8) => gl::RG8UI,
+                (Some(2), 16) => gl::RG16UI,
+                (Some(2), _) => gl::RG32UI,
+                (Some(3), 8) => gl::RGB8UI,
+                (Some(3), 16) => gl::RGB16UI,
+                (Some(3), _) => gl::RGB32UI,
+                (Some(4), 8) | (None, 8) => gl::RGBA8UI,
+                (Some(4), 16) | (None, 16) => gl::RGBA16UI,
+                (Some(4), _) | (None, _) => gl::RGBA32UI,
+                _ => unreachable!(),
             }
         }
 
@@ -2089,23 +1709,9 @@ pub fn format_request_to_glenum(
         /*                            DEPTH                                */
         /*******************************************************************/
         TextureFormatRequest::AnyDepth => {
-            if version >= &Version(Api::Gl, 2, 0) || version >= &Version(Api::GlEs, 3, 0) {
-                match rq_ty {
-                    RequestType::TexImage(_) => gl::DEPTH_COMPONENT,
-                    RequestType::TexStorage(_) | RequestType::Renderbuffer => gl::DEPTH_COMPONENT24,
-                }
-            } else if version >= &Version(Api::Gl, 1, 4)
-                || extensions.gl_arb_depth_texture
-                || extensions.gl_oes_depth_texture
-            {
-                match rq_ty {
-                    RequestType::TexImage(_) => gl::DEPTH_COMPONENT,
-                    RequestType::TexStorage(_) | RequestType::Renderbuffer => {
-                        return Err(FormatNotSupportedError)
-                    } // TODO: sized format?
-                }
-            } else {
-                return Err(FormatNotSupportedError);
+            match rq_ty {
+                RequestType::TexImage(_) => gl::DEPTH_COMPONENT,
+                RequestType::TexStorage(_) | RequestType::Renderbuffer => gl::DEPTH_COMPONENT24,
             }
         }
 
@@ -2150,27 +1756,9 @@ pub fn format_request_to_glenum(
         /*                        DEPTH-STENCIL                            */
         /*******************************************************************/
         TextureFormatRequest::AnyDepthStencil => {
-            if version >= &Version(Api::Gl, 3, 0) || version >= &Version(Api::GlEs, 3, 0) {
-                match rq_ty {
-                    RequestType::TexImage(_) => gl::DEPTH_STENCIL,
-                    RequestType::TexStorage(_) | RequestType::Renderbuffer => gl::DEPTH24_STENCIL8,
-                }
-            } else if extensions.gl_ext_packed_depth_stencil {
-                match rq_ty {
-                    RequestType::TexImage(_) => gl::DEPTH_STENCIL_EXT,
-                    RequestType::TexStorage(_) | RequestType::Renderbuffer => {
-                        gl::DEPTH24_STENCIL8_EXT
-                    }
-                }
-            } else if extensions.gl_oes_packed_depth_stencil {
-                match rq_ty {
-                    RequestType::TexImage(_) => gl::DEPTH_STENCIL_OES,
-                    RequestType::TexStorage(_) | RequestType::Renderbuffer => {
-                        gl::DEPTH24_STENCIL8_OES
-                    }
-                }
-            } else {
-                return Err(FormatNotSupportedError);
+            match rq_ty {
+                RequestType::TexImage(_) => gl::DEPTH_STENCIL,
+                RequestType::TexStorage(_) | RequestType::Renderbuffer => gl::DEPTH24_STENCIL8,
             }
         }
 
