@@ -57,6 +57,7 @@ fn generated_mipmaps() {
     display.assert_no_error(None);
 }
 
+#[cfg(any(safegl_desktop, safegl_gles31))]
 #[test]
 fn multisample_textures_have_no_mipmaps() {
     let display = support::build_display();

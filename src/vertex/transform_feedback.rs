@@ -190,15 +190,20 @@ impl<'a> TransformFeedbackSessionExt for TransformFeedbackSession<'a> {
                 (Some(OutputPrimitives::Quads), _) => gl::TRIANGLES,
                 (None, PrimitiveType::Points) => gl::POINTS,
                 (None, PrimitiveType::LinesList) => gl::LINES,
+                #[cfg(any(safegl_desktop, safegl_gles32))]
                 (None, PrimitiveType::LinesListAdjacency) => gl::LINES,
                 (None, PrimitiveType::LineStrip) => gl::LINES,
+                #[cfg(any(safegl_desktop, safegl_gles32))]
                 (None, PrimitiveType::LineStripAdjacency) => gl::LINES,
                 (None, PrimitiveType::LineLoop) => gl::LINES,
                 (None, PrimitiveType::TrianglesList) => gl::TRIANGLES,
+                #[cfg(any(safegl_desktop, safegl_gles32))]
                 (None, PrimitiveType::TrianglesListAdjacency) => gl::TRIANGLES,
                 (None, PrimitiveType::TriangleStrip) => gl::TRIANGLES,
+                #[cfg(any(safegl_desktop, safegl_gles32))]
                 (None, PrimitiveType::TriangleStripAdjacency) => gl::TRIANGLES,
                 (None, PrimitiveType::TriangleFan) => gl::TRIANGLES,
+                #[cfg(any(safegl_desktop, safegl_gles32))]
                 (None, PrimitiveType::Patches { .. }) => unreachable!(),
             };
 

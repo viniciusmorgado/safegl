@@ -1,10 +1,10 @@
-#![cfg(feature = "gl41")]
-
 #[macro_use]
 extern crate safegl;
 
 use safegl::buffer::{Buffer, BufferMode, BufferType};
-use safegl::{CapabilitiesSource, Surface};
+#[cfg(any(safegl_desktop, safegl_gles32))]
+use safegl::CapabilitiesSource;
+use safegl::Surface;
 
 mod support;
 
@@ -97,12 +97,13 @@ fn uniform_buffer_binding_cache() {
 }
 
 #[test]
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 fn shader_storage_binding_cache() {
     indexed_binding_preserves_readback(BufferType::ShaderStorageBuffer, "buffer", 430, 310);
 }
 
 #[test]
+#[cfg(any(safegl_desktop, safegl_gles32))]
 fn buffer_texture_binding_cache() {
     use safegl::texture::buffer_texture::{BufferTexture, BufferTextureType};
     use safegl::uniforms::UniformsStorage;
@@ -162,7 +163,7 @@ fn buffer_texture_binding_cache() {
 }
 
 #[test]
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 fn atomic_counter_binding_cache() {
     let display = support::build_display();
     if !support::glsl_supported(&display, 430, 310) {
@@ -195,7 +196,7 @@ fn atomic_counter_binding_cache() {
 }
 
 #[test]
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 fn atomic_counter_high_binding_point() {
     // binding the first buffer of a new context at a point above 1 grows the cached bindings by
     // several entries at once

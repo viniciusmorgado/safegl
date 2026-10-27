@@ -85,6 +85,7 @@ fn magnify_nearest_filtering() {
     display.assert_no_error(None);
 }
 
+#[cfg(any(safegl_desktop, safegl_gles32))]
 #[test]
 fn border_color() {
     let display = support::build_display();

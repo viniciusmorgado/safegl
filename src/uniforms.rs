@@ -85,13 +85,15 @@ OpenGL allows the use of subroutines, which are like function pointers. Subrouti
 to change the functionality of a shader program at runtime. This method is usually a lot faster
 than using multiple programs that are switched during execution.
 
-A subroutine uniform is unique per shader stage, and not per program.
+A subroutine uniform is unique per shader stage, and not per program. Subroutines need a desktop
+OpenGL level.
 
 ```no_run
 # use safegl::uniform;
 # use glutin::surface::{ResizeableSurface, SurfaceTypeTrait};
 # fn example<T>(display: safegl::Display<T>, texture: safegl::texture::Texture2d)
 #     where T: SurfaceTypeTrait + ResizeableSurface {
+# #[cfg(safegl_desktop)] {
 let program = safegl::Program::from_source(&display,
     "
         #version 400
@@ -127,19 +129,23 @@ let program = safegl::Program::from_source(&display,
         modify_color: ("delete_b", safegl::program::ShaderStage::Fragment)
     };
 # }
+# }
 ```
 */
 pub use self::buffer::UniformBuffer;
-#[cfg(feature = "gl46")]
-#[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+#[cfg(any(safegl_gl42, safegl_gles31))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_gles31))))]
 pub use self::image_unit::{ImageUnit, ImageUnitBehavior};
-#[cfg(feature = "gl46")]
-#[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+#[cfg(any(safegl_gl42, safegl_gles31))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_gles31))))]
 pub use self::image_unit::{ImageUnitAccess, ImageUnitError, ImageUnitFormat};
 pub use self::sampler::{
     DepthTextureComparison, MagnifySamplerFilter, MinifySamplerFilter, SamplerWrapFunction,
 };
-pub use self::sampler::{BorderColor, Sampler, SamplerBehavior};
+#[cfg(any(safegl_desktop, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+pub use self::sampler::BorderColor;
+pub use self::sampler::{Sampler, SamplerBehavior};
 pub use self::uniforms::{DynamicUniforms, EmptyUniforms, UniformsStorage};
 pub(crate) use self::value::{is_opaque, is_shadow_sampler};
 pub use self::value::Keep;
@@ -156,7 +162,7 @@ use crate::program::BlockLayout;
 mod bind;
 pub(crate) use self::bind::CollectedUniforms;
 mod buffer;
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl42, safegl_gles31))]
 mod image_unit;
 mod sampler;
 mod uniforms;

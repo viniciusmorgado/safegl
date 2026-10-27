@@ -1,3 +1,5 @@
+#![cfg(safegl_desktop)]
+
 #[macro_use]
 extern crate safegl;
 

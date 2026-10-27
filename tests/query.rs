@@ -5,6 +5,7 @@ use safegl::Surface;
 
 mod support;
 
+#[cfg(safegl_desktop)]
 #[test]
 fn query_sequence() {
     let display = support::build_display();
@@ -37,6 +38,7 @@ fn query_sequence() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_desktop)]
 #[test]
 fn samples_passed() {
     let display = support::build_display();
@@ -137,6 +139,7 @@ fn any_samples_passed_conservative() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_desktop)]
 #[test]
 fn time_elapsed() {
     let display = support::build_display();
@@ -169,6 +172,7 @@ fn time_elapsed() {
     display.assert_no_error(None);
 }
 
+#[cfg(any(safegl_desktop, safegl_gles32))]
 #[test]
 fn primitives_generated() {
     let display = support::build_display();
@@ -203,6 +207,7 @@ fn primitives_generated() {
 
 // the transform feedback query is tested with transform feedback, in `vertex_buffer.rs`
 
+#[cfg(safegl_desktop)]
 #[test]
 fn conditional_render_nodraw() {
     //! a query that was never used counts no samples, so nothing is drawn
@@ -245,6 +250,7 @@ fn conditional_render_nodraw() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_desktop)]
 #[test]
 fn conditional_render_simultaneous_query() {
     //! we try to draw with a query and simultaneously use conditional
@@ -285,7 +291,7 @@ fn conditional_render_simultaneous_query() {
     display.assert_no_error(None);
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl44)]
 #[test]
 fn query_to_buffer() {
     let display = support::build_display();
@@ -328,6 +334,7 @@ fn query_to_buffer() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_desktop)]
 #[test]
 fn conditional_render_after_query() {
     //! drawing is conditioned by what an earlier draw wrote
@@ -391,6 +398,7 @@ fn conditional_render_after_query() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_desktop)]
 #[test]
 fn time_elapsed_is_64_bits() {
     let display = support::build_display();
@@ -417,7 +425,7 @@ fn timestamp_query_dropped_without_reading() {
     display.assert_no_error(None);
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl44)]
 #[test]
 fn unused_query_to_buffer() {
     let display = support::build_display();

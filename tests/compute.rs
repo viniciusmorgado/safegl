@@ -1,6 +1,6 @@
 //! Compute shaders (glium#962).
 
-#![cfg(feature = "gl46")]
+#![cfg(any(safegl_gl43, safegl_gles31))]
 
 #[macro_use]
 extern crate safegl;

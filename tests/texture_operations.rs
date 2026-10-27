@@ -1,15 +1,21 @@
-#![cfg(feature = "gl46")]
+#![cfg(any(safegl_gl43, safegl_gles32))]
 
 #[macro_use]
 extern crate safegl;
 
 use safegl::framebuffer::{RenderBuffer, SimpleFrameBuffer};
+#[cfg(safegl_gl44)]
 use safegl::index::PrimitiveType;
+#[cfg(safegl_gl45)]
+use safegl::texture::texture_barrier;
 use safegl::texture::{
-    copy_image, texture_barrier, ClearTextureError, CompressedFormat, CompressedMipmapsOption,
-    CompressedTexture2d, CopyImageError, DepthStencilFormat, DepthStencilTexture2d, DepthTexture2d,
+    copy_image, CompressedFormat, CompressedMipmapsOption, CompressedTexture2d, CopyImageError,
     MipmapsOption, Texture2dMultisample, UncompressedFloatFormat, UncompressedUintFormat,
     UnsignedTexture2d,
+};
+#[cfg(safegl_gl44)]
+use safegl::texture::{
+    ClearTextureError, DepthStencilFormat, DepthStencilTexture2d, DepthTexture2d,
 };
 use safegl::{Surface, Texture2d};
 
@@ -19,10 +25,15 @@ type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
 
 const SIZE: u32 = 8;
 
-/// Whether textures can be cleared and copied; the tests that need more check it themselves.
+/// Whether textures can be copied; the tests that need more check it themselves.
 fn supported(display: &Display) -> bool {
-    safegl::texture::is_clear_texture_supported(display)
-        && safegl::texture::is_copy_image_supported(display)
+    safegl::texture::is_copy_image_supported(display)
+}
+
+/// Whether textures can be cleared and copied.
+#[cfg(safegl_gl44)]
+fn clear_supported(display: &Display) -> bool {
+    safegl::texture::is_clear_texture_supported(display) && supported(display)
 }
 
 fn read(texture: &Texture2d) -> Vec<Vec<(u8, u8, u8, u8)>> {
@@ -49,6 +60,18 @@ fn numbered_texture(display: &Display) -> Texture2d {
     .unwrap()
 }
 
+/// An RGBA8 texture whose texels are all `(0, 0, 0, 0)`.
+fn zeroed(display: &Display) -> Texture2d {
+    let data = vec![vec![(0u8, 0u8, 0u8, 0u8); SIZE as usize]; SIZE as usize];
+    Texture2d::with_format(
+        display,
+        data,
+        UncompressedFloatFormat::U8U8U8U8,
+        MipmapsOption::NoMipmap,
+    )
+    .unwrap()
+}
+
 fn rgba8(display: &Display) -> Texture2d {
     Texture2d::empty_with_format(
         display,
@@ -60,12 +83,15 @@ fn rgba8(display: &Display) -> Texture2d {
     .unwrap()
 }
 
+#[cfg(safegl_gl44)]
 #[derive(Copy, Clone)]
 struct Vertex {
     position: [f32; 2],
 }
+#[cfg(safegl_gl44)]
 implement_vertex!(Vertex, position);
 
+#[cfg(safegl_gl44)]
 /// Draws a fullscreen quad at window depth 0.5, which writes white, or the texel under it of
 /// `canvas` plus 0.25 if `add` is true.
 fn draw_quad<S: Surface>(
@@ -130,10 +156,11 @@ fn draw_quad<S: Surface>(
         .unwrap();
 }
 
+#[cfg(safegl_gl44)]
 #[test]
 fn clear_color_texture() {
     let display = support::build_display();
-    if !supported(&display) {
+    if !clear_supported(&display) {
         return;
     }
     let texture = rgba8(&display);
@@ -154,10 +181,11 @@ fn clear_color_texture() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_gl44)]
 #[test]
 fn clear_region() {
     let display = support::build_display();
-    if !supported(&display) {
+    if !clear_supported(&display) {
         return;
     }
     let texture = rgba8(&display);
@@ -188,10 +216,11 @@ fn clear_region() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_gl44)]
 #[test]
 fn clear_unsigned_texture() {
     let display = support::build_display();
-    if !supported(&display) {
+    if !clear_supported(&display) {
         return;
     }
     let texture = UnsignedTexture2d::empty_with_format(
@@ -221,10 +250,11 @@ fn clear_unsigned_texture() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_gl44)]
 #[test]
 fn clear_depth_texture() {
     let display = support::build_display();
-    if !supported(&display) {
+    if !clear_supported(&display) {
         return;
     }
     let color = rgba8(&display);
@@ -260,10 +290,11 @@ fn clear_depth_texture() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_gl44)]
 #[test]
 fn clear_depth_stencil_texture() {
     let display = support::build_display();
-    if !supported(&display) {
+    if !clear_supported(&display) {
         return;
     }
     let color = rgba8(&display);
@@ -313,10 +344,11 @@ fn clear_depth_stencil_texture() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_gl44)]
 #[test]
 fn compressed_textures_cant_be_cleared() {
     let display = support::build_display();
-    if !supported(&display) {
+    if !clear_supported(&display) {
         return;
     }
     let texture = CompressedTexture2d::empty_with_format(
@@ -341,11 +373,7 @@ fn copy_region_between_textures() {
         return;
     }
     let source = numbered_texture(&display);
-    let destination = rgba8(&display);
-    destination
-        .main_level()
-        .clear((0u8, 0u8, 0u8, 0u8))
-        .unwrap();
+    let destination = zeroed(&display);
 
     copy_image(
         source.main_level(),
@@ -477,15 +505,13 @@ fn copy_between_compressed_and_uncompressed() {
     }
 
     // a DXT5 block is 128 bits, like a texel of RGBA32UI: 2x2 texels become 8x8 texels
-    let blocks = UnsignedTexture2d::empty_with_format(
+    let blocks = UnsignedTexture2d::with_format(
         &display,
+        vec![vec![(0u32, 0u32, 0u32, 0u32); 2]; 2],
         UncompressedUintFormat::U32U32U32U32,
         MipmapsOption::NoMipmap,
-        2,
-        2,
     )
     .unwrap();
-    blocks.main_level().clear((0u32, 0u32, 0u32, 0u32)).unwrap();
     let compressed = CompressedTexture2d::empty_with_format(
         &display,
         CompressedFormat::S3tcDxt5Alpha,
@@ -565,6 +591,7 @@ fn copy_from_render_buffer() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_gl45)]
 #[test]
 fn texture_barrier_makes_writes_visible() {
     let display = support::build_display();
@@ -576,8 +603,7 @@ fn texture_barrier_makes_writes_visible() {
         return;
     }
 
-    let canvas = rgba8(&display);
-    canvas.main_level().clear((0u8, 0u8, 0u8, 0u8)).unwrap();
+    let canvas = zeroed(&display);
 
     // each draw reads the texel it writes, and adds 0.25
     for _ in 0..2 {

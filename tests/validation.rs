@@ -148,6 +148,7 @@ fn uniform_block_with_an_instance_name() {
     display.assert_no_error(None);
 }
 
+#[cfg(any(safegl_desktop, safegl_gles32))]
 #[test]
 fn geometry_shader_input() {
     let display = support::build_display();

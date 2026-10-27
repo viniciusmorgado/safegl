@@ -127,6 +127,7 @@ fn blocks_need_a_value_every_time() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_desktop)]
 #[test]
 fn every_stage_needs_its_subroutines() {
     let display = support::build_display();

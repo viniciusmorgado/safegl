@@ -12,6 +12,7 @@ use crate::context::CommandContext;
 use crate::version::Api;
 use crate::version::Version;
 
+#[cfg(safegl_desktop)]
 use crate::program;
 use crate::uniforms::UniformType;
 use crate::vertex::AttributeType;
@@ -1168,26 +1169,47 @@ fn glenum_to_attribute_type(value: gl::types::GLenum) -> Option<AttributeType> {
         gl::FLOAT_MAT3x4 => AttributeType::F32x3x4,
         gl::FLOAT_MAT4x2 => AttributeType::F32x4x2,
         gl::FLOAT_MAT4x3 => AttributeType::F32x4x3,
+        #[cfg(safegl_desktop)]
         gl::DOUBLE => AttributeType::F64,
+        #[cfg(safegl_desktop)]
         gl::DOUBLE_VEC2 => AttributeType::F64F64,
+        #[cfg(safegl_desktop)]
         gl::DOUBLE_VEC3 => AttributeType::F64F64F64,
+        #[cfg(safegl_desktop)]
         gl::DOUBLE_VEC4 => AttributeType::F64F64F64F64,
+        #[cfg(safegl_desktop)]
         gl::DOUBLE_MAT2 => AttributeType::F64x2x2,
+        #[cfg(safegl_desktop)]
         gl::DOUBLE_MAT3 => AttributeType::F64x3x3,
+        #[cfg(safegl_desktop)]
         gl::DOUBLE_MAT4 => AttributeType::F64x4x4,
+        #[cfg(safegl_desktop)]
         gl::DOUBLE_MAT2x3 => AttributeType::F64x2x3,
+        #[cfg(safegl_desktop)]
         gl::DOUBLE_MAT2x4 => AttributeType::F64x2x4,
+        #[cfg(safegl_desktop)]
         gl::DOUBLE_MAT3x2 => AttributeType::F64x3x2,
+        #[cfg(safegl_desktop)]
         gl::DOUBLE_MAT3x4 => AttributeType::F64x3x4,
+        #[cfg(safegl_desktop)]
         gl::DOUBLE_MAT4x2 => AttributeType::F64x4x2,
+        #[cfg(safegl_desktop)]
         gl::DOUBLE_MAT4x3 => AttributeType::F64x4x3,
+        #[cfg(safegl_desktop)]
         gl::INT64_ARB => AttributeType::I64,
+        #[cfg(safegl_desktop)]
         gl::INT64_VEC2_ARB => AttributeType::I64I64,
+        #[cfg(safegl_desktop)]
         gl::INT64_VEC3_ARB => AttributeType::I64I64I64,
+        #[cfg(safegl_desktop)]
         gl::INT64_VEC4_ARB => AttributeType::I64I64I64I64,
+        #[cfg(safegl_desktop)]
         gl::UNSIGNED_INT64_ARB => AttributeType::U64,
+        #[cfg(safegl_desktop)]
         gl::UNSIGNED_INT64_VEC2_ARB => AttributeType::U64U64,
+        #[cfg(safegl_desktop)]
         gl::UNSIGNED_INT64_VEC3_ARB => AttributeType::U64U64U64,
+        #[cfg(safegl_desktop)]
         gl::UNSIGNED_INT64_VEC4_ARB => AttributeType::U64U64U64U64,
         gl::FLOAT16_NV => AttributeType::F16,
         gl::FLOAT16_VEC2_NV => AttributeType::F16F16,
@@ -1298,7 +1320,20 @@ fn get_shader_stages(
     stages
 }
 
+/// Returns the data associated with a programs subroutines, which are desktop OpenGL only.
+#[cfg(not(safegl_desktop))]
+pub unsafe fn reflect_subroutine_data(
+    _: &mut CommandContext<'_>,
+    _: glow::Program,
+    _: bool,
+    _: bool,
+    _: bool,
+) -> SubroutineData {
+    Default::default()
+}
+
 /// Returns the data associated with a programs subroutines.
+#[cfg(safegl_desktop)]
 pub unsafe fn reflect_subroutine_data(
     ctxt: &mut CommandContext<'_>,
     program: glow::Program,

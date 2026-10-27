@@ -465,13 +465,21 @@ fn vertex_binding_type_to_gl(
         AttributeType::U32U32 => (gl::UNSIGNED_INT, 2, 1),
         AttributeType::U32U32U32 => (gl::UNSIGNED_INT, 3, 1),
         AttributeType::U32U32U32U32 => (gl::UNSIGNED_INT, 4, 1),
+        #[cfg(safegl_desktop)]
         AttributeType::I64 => (gl::INT64_NV, 1, 1),
+        #[cfg(safegl_desktop)]
         AttributeType::I64I64 => (gl::INT64_NV, 2, 1),
+        #[cfg(safegl_desktop)]
         AttributeType::I64I64I64 => (gl::INT64_NV, 3, 1),
+        #[cfg(safegl_desktop)]
         AttributeType::I64I64I64I64 => (gl::INT64_NV, 4, 1),
+        #[cfg(safegl_desktop)]
         AttributeType::U64 => (gl::UNSIGNED_INT64_NV, 1, 1),
+        #[cfg(safegl_desktop)]
         AttributeType::U64U64 => (gl::UNSIGNED_INT64_NV, 2, 1),
+        #[cfg(safegl_desktop)]
         AttributeType::U64U64U64 => (gl::UNSIGNED_INT64_NV, 3, 1),
+        #[cfg(safegl_desktop)]
         AttributeType::U64U64U64U64 => (gl::UNSIGNED_INT64_NV, 4, 1),
         AttributeType::F16 => (gl::HALF_FLOAT, 1, 1),
         AttributeType::F16F16 => (gl::HALF_FLOAT, 2, 1),
@@ -499,22 +507,37 @@ fn vertex_binding_type_to_gl(
         AttributeType::F32x4x2 => (gl::FLOAT, 4, 2),
         AttributeType::F32x4x3 => (gl::FLOAT, 4, 3),
         AttributeType::F32x4x4 => (gl::FLOAT, 4, 4),
+        #[cfg(safegl_desktop)]
         AttributeType::F64 => (gl::DOUBLE, 1, 1),
+        #[cfg(safegl_desktop)]
         AttributeType::F64F64 => (gl::DOUBLE, 2, 1),
+        #[cfg(safegl_desktop)]
         AttributeType::F64F64F64 => (gl::DOUBLE, 3, 1),
+        #[cfg(safegl_desktop)]
         AttributeType::F64F64F64F64 => (gl::DOUBLE, 4, 1),
+        #[cfg(safegl_desktop)]
         AttributeType::F64x2x2 => (gl::DOUBLE, 2, 2),
+        #[cfg(safegl_desktop)]
         AttributeType::F64x2x3 => (gl::DOUBLE, 2, 3),
+        #[cfg(safegl_desktop)]
         AttributeType::F64x2x4 => (gl::DOUBLE, 2, 4),
+        #[cfg(safegl_desktop)]
         AttributeType::F64x3x2 => (gl::DOUBLE, 3, 2),
+        #[cfg(safegl_desktop)]
         AttributeType::F64x3x3 => (gl::DOUBLE, 3, 3),
+        #[cfg(safegl_desktop)]
         AttributeType::F64x3x4 => (gl::DOUBLE, 3, 4),
+        #[cfg(safegl_desktop)]
         AttributeType::F64x4x2 => (gl::DOUBLE, 4, 2),
+        #[cfg(safegl_desktop)]
         AttributeType::F64x4x3 => (gl::DOUBLE, 4, 3),
+        #[cfg(safegl_desktop)]
         AttributeType::F64x4x4 => (gl::DOUBLE, 4, 4),
         AttributeType::I2I10I10I10Reversed => (gl::INT_2_10_10_10_REV, 4, 1),
         AttributeType::U2U10U10U10Reversed => (gl::UNSIGNED_INT_2_10_10_10_REV, 4, 1),
+        #[cfg(safegl_desktop)]
         AttributeType::F10F11F11UnsignedIntReversed => (gl::UNSIGNED_INT_10F_11F_11F_REV, 3, 1),
+        #[cfg(any(safegl_desktop, safegl_gles30))]
         AttributeType::FixedFloatI16U16 => (gl::FIXED, 1, 1),
     }
 }

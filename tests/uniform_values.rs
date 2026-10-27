@@ -204,6 +204,7 @@ fn texture_kind_and_dimensions_must_match_the_sampler() {
     display.assert_no_error(None);
 }
 
+#[cfg(any(safegl_desktop, safegl_gles32))]
 #[test]
 fn multisample_array_texture() {
     let display = support::build_display();
@@ -235,6 +236,7 @@ fn multisample_array_texture() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_desktop)]
 #[test]
 fn double_precision_non_square_matrices() {
     let display = support::build_display();
@@ -258,6 +260,7 @@ fn double_precision_non_square_matrices() {
     );
 }
 
+#[cfg(safegl_desktop)]
 #[test]
 fn int64_uniforms() {
     use safegl::backend::Facade;
@@ -285,7 +288,7 @@ fn int64_uniforms() {
     );
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
 fn block_buffer_offsets() {
     use safegl::backend::Facade;

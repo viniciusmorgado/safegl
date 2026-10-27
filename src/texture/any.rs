@@ -172,15 +172,17 @@ fn get_bind_point(ty: Dimensions) -> gl::types::GLenum {
 /// `DimensionsNotSupported` if the dimensions are above the context's limits.
 fn check_dimensions(context: &Context, ty: Dimensions) -> Result<(), TextureCreationError> {
     let supported = match ty {
-        Dimensions::Texture1d { .. } => super::is_texture_1d_supported(context),
-        Dimensions::Texture1dArray { .. } => super::is_texture_1d_array_supported(context),
+        Dimensions::Texture1d { .. } => super::ty_support::is_texture_1d_supported(context),
+        Dimensions::Texture1dArray { .. } => {
+            super::ty_support::is_texture_1d_array_supported(context)
+        }
         Dimensions::Texture2dMultisample { .. } => {
-            super::is_texture_2d_multisample_supported(context)
+            super::ty_support::is_texture_2d_multisample_supported(context)
         }
         Dimensions::Texture2dMultisampleArray { .. } => {
-            super::is_texture_2d_multisample_array_supported(context)
+            super::ty_support::is_texture_2d_multisample_array_supported(context)
         }
-        Dimensions::CubemapArray { .. } => super::is_cubemap_arrays_supported(context),
+        Dimensions::CubemapArray { .. } => super::ty_support::is_cubemap_arrays_supported(context),
         _ => true,
     };
 
@@ -1205,7 +1207,7 @@ impl TextureExt for TextureAny {
                     ctxt.state.latest_memory_barrier_framebuffer = ctxt.state.next_draw_call_id;
                 }
             }
-            #[cfg(feature = "gl46")]
+            #[cfg(any(safegl_gl43, safegl_gles32))]
             crate::TextureAccess::Update => {
                 if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_texture_update
                 {

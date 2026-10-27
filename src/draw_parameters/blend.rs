@@ -1,6 +1,5 @@
 use crate::context::CommandContext;
 
-use super::OutputState;
 use crate::gl;
 use crate::DrawError;
 use glow::HasContext;
@@ -339,19 +338,18 @@ impl BlendState {
 }
 
 /// Sets the blending of all draw buffers to `blend`, then overrides it for the draw buffers
-/// whose entry in `outputs` differs.
+/// whose blending in `outputs` differs.
 ///
 /// The caller has already checked that `outputs` fits in the draw buffers and that the backend
 /// supports per-draw-buffer state if any entry differs from `blend`.
 pub fn sync_blending(
     ctxt: &mut CommandContext<'_>,
     blend: Blend,
-    outputs: &[OutputState],
+    outputs: impl Iterator<Item = Blend>,
 ) -> Result<(), DrawError> {
     let global = BlendState::new(blend);
     let overrides = outputs
-        .iter()
-        .map(|output| BlendState::new(output.blend))
+        .map(BlendState::new)
         .enumerate()
         .filter(|(_, state)| *state != global)
         .collect::<SmallVec<[_; 8]>>();

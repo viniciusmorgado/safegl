@@ -1,5 +1,5 @@
 use crate::gl;
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl46)]
 use crate::handles::RawName;
 use crate::version::Api;
 use crate::version::Version;
@@ -10,14 +10,14 @@ use crate::CapabilitiesSource;
 use crate::ContextExt;
 
 use std::rc::Rc;
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl46)]
 use std::{ffi, ptr};
 
 use glow::HasContext;
 
 use crate::GlObject;
 
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl46)]
 use crate::program::SpirvEntryPoint;
 use crate::program::{ProgramCreationError, ShaderType};
 
@@ -99,7 +99,7 @@ where
 }
 
 /// Builds an individual shader from a SPIR-V binary.
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl46)]
 pub fn build_spirv_shader<F: ?Sized>(
     facade: &F,
     shader_type: gl::types::GLenum,

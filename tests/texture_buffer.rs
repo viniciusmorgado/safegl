@@ -1,3 +1,5 @@
+#![cfg(any(safegl_desktop, safegl_gles32))]
+
 #[macro_use]
 extern crate safegl;
 

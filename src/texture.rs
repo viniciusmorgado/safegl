@@ -114,7 +114,9 @@ is, and `clear_color_srgb` behaves like `clear_color`.
 # Bindless textures
 
 *Bindless textures are a very recent feature that is supported only by recent hardware and
-drivers.* They require the `gl46` Cargo feature.
+drivers.* They are an extension of desktop OpenGL (`GL_ARB_bindless_texture`), so they need a
+desktop OpenGL level, and making a texture resident returns `BindlessTexturesNotSupportedError`
+when the driver doesn't have them.
 
 Without bindless textures, using a texture in a shader requires binding the texture to a specific
 bind point before drawing. This not only slows down rendering, but may also prevent you from
@@ -135,22 +137,31 @@ use crate::image_format::FormatNotSupportedError;
 
 pub use self::any::{Dimensions, TextureAnyImage};
 pub use self::any::{TextureAny, TextureAnyLayer, TextureAnyLayerMipmap, TextureAnyMipmap};
-#[cfg(feature = "gl46")]
-#[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub use self::bindless::{BindlessTexturesNotSupportedError, ResidentTexture, TextureHandle};
 pub use self::get_format::{GetFormatError, InternalFormat, InternalFormatType};
-#[cfg(feature = "gl46")]
-#[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+pub use self::ops::{copy_image, is_copy_image_supported, CopyImageError, CopyImageTarget};
+#[cfg(safegl_gl44)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
+pub use self::ops::{is_clear_texture_supported, ClearTextureError};
+#[cfg(safegl_gl45)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
 pub use self::ops::{
-    copy_image, is_clear_texture_supported, is_copy_image_supported,
-    is_texture_barrier_supported, texture_barrier, ClearTextureError, CopyImageError,
-    CopyImageTarget, TextureBarrierNotSupportedError,
+    is_texture_barrier_supported, texture_barrier, TextureBarrierNotSupportedError,
 };
 pub use self::pixel::PixelValue;
+#[cfg(any(safegl_desktop, safegl_gles32))]
 pub use self::ty_support::is_cubemap_arrays_supported;
-pub use self::ty_support::is_texture_2d_multisample_array_supported;
+#[cfg(safegl_desktop)]
 pub use self::ty_support::is_texture_1d_array_supported;
+#[cfg(safegl_desktop)]
 pub use self::ty_support::is_texture_1d_supported;
+#[cfg(any(safegl_desktop, safegl_gles32))]
+pub use self::ty_support::is_texture_2d_multisample_array_supported;
+#[cfg(any(safegl_desktop, safegl_gles31))]
 pub use self::ty_support::is_texture_2d_multisample_supported;
 pub use crate::image_format::{ClientFormat, TextureFormat};
 pub use crate::image_format::{CompressedFormat, DepthFormat, DepthStencilFormat, StencilFormat};
@@ -159,15 +170,17 @@ pub use crate::image_format::{
     UncompressedFloatFormat, UncompressedIntFormat, UncompressedUintFormat,
 };
 
-#[cfg(feature = "gl46")]
-#[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub mod bindless;
+#[cfg(any(safegl_desktop, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
 pub mod buffer_texture;
 pub mod pixel_buffer;
 
 mod any;
 mod get_format;
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles32))]
 mod ops;
 mod pixel;
 mod ty_support;

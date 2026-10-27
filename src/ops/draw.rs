@@ -46,52 +46,7 @@ where
     // has started
     let mut fences = crate::buffer::FenceInserters::new();
 
-    // handling tessellation
-    let vertices_per_patch = match indices.get_primitives_type() {
-        index::PrimitiveType::Patches { vertices_per_patch } => {
-            if let Some(max) = context.capabilities().max_patch_vertices {
-                if vertices_per_patch == 0 || vertices_per_patch as gl::types::GLint > max {
-                    return Err(DrawError::UnsupportedVerticesPerPatch);
-                }
-            } else {
-                return Err(DrawError::TessellationNotSupported);
-            }
-
-            // patches are only drawn through a tessellation evaluation shader
-            if !program.has_tessellation_evaluation_shader() {
-                return Err(DrawError::PatchesWithoutTessellation);
-            }
-
-            Some(vertices_per_patch)
-        }
-        _ => {
-            // a tessellation evaluation shader only takes patches
-            if program.has_tessellation_evaluation_shader() {
-                return Err(DrawError::TessellationWithoutPatches);
-            }
-
-            None
-        }
-    };
-
-    // a geometry shader takes a single kind of primitives, unless it gets them from the
-    // tessellation stages
-    if !program.has_tessellation_evaluation_shader() {
-        if let Some(input) = program.get_geometry_input_type() {
-            use crate::index::PrimitiveType::*;
-            let compatible = match indices.get_primitives_type() {
-                Points => input == gl::POINTS,
-                LinesList | LineStrip | LineLoop => input == gl::LINES,
-                LinesListAdjacency | LineStripAdjacency => input == gl::LINES_ADJACENCY,
-                TrianglesList | TriangleStrip | TriangleFan => input == gl::TRIANGLES,
-                TrianglesListAdjacency | TriangleStripAdjacency => input == gl::TRIANGLES_ADJACENCY,
-                Patches { .. } => true,
-            };
-            if !compatible {
-                return Err(DrawError::GeometryShaderInputMismatch);
-            }
-        }
-    }
+    let vertices_per_patch = check_stages(context, program, indices.get_primitives_type())?;
 
     if !draw_parameters::check_queries(draw_parameters)? {
         return Ok(());
@@ -111,18 +66,18 @@ where
     let (vertices_count, instances_count, base_vertex) = {
         let index_buffer = match indices {
             IndicesSource::IndexBuffer { buffer, .. } => Some(buffer),
-            #[cfg(feature = "gl46")]
+            #[cfg(safegl_gl43)]
             IndicesSource::MultidrawArray { .. } => None,
-            #[cfg(feature = "gl46")]
+            #[cfg(safegl_gl43)]
             IndicesSource::MultidrawElement { indices, .. } => Some(indices),
             IndicesSource::NoIndices { .. } => None,
         };
 
         // determining whether we can use the `base_vertex` variants for drawing
         let use_base_vertex = match indices {
-            #[cfg(feature = "gl46")]
+            #[cfg(safegl_gl43)]
             IndicesSource::MultidrawArray { .. } => false,
-            #[cfg(feature = "gl46")]
+            #[cfg(safegl_gl43)]
             IndicesSource::MultidrawElement { .. } => false,
             IndicesSource::NoIndices { .. } => true,
             _ => {
@@ -329,7 +284,7 @@ where
                 }
             }
 
-            #[cfg(feature = "gl46")]
+            #[cfg(safegl_gl43)]
             IndicesSource::MultidrawArray {
                 ref buffer,
                 primitives,
@@ -365,7 +320,7 @@ where
                 }
             }
 
-            #[cfg(feature = "gl46")]
+            #[cfg(safegl_gl43)]
             IndicesSource::MultidrawElement {
                 ref commands,
                 ref indices,
@@ -444,6 +399,73 @@ where
     Ok(())
 }
 
+/// Checks that the primitives fit the tessellation and geometry stages of the program, and
+/// returns the vertices per patch of patches.
+#[cfg(any(safegl_desktop, safegl_gles32))]
+fn check_stages(
+    context: &Context,
+    program: &Program,
+    primitives: index::PrimitiveType,
+) -> Result<Option<u16>, DrawError> {
+    let vertices_per_patch = match primitives {
+        index::PrimitiveType::Patches { vertices_per_patch } => {
+            if let Some(max) = context.capabilities().max_patch_vertices {
+                if vertices_per_patch == 0 || vertices_per_patch as gl::types::GLint > max {
+                    return Err(DrawError::UnsupportedVerticesPerPatch);
+                }
+            } else {
+                return Err(DrawError::TessellationNotSupported);
+            }
+
+            // patches are only drawn through a tessellation evaluation shader
+            if !program.has_tessellation_evaluation_shader() {
+                return Err(DrawError::PatchesWithoutTessellation);
+            }
+
+            Some(vertices_per_patch)
+        }
+        _ => {
+            // a tessellation evaluation shader only takes patches
+            if program.has_tessellation_evaluation_shader() {
+                return Err(DrawError::TessellationWithoutPatches);
+            }
+
+            None
+        }
+    };
+
+    // a geometry shader takes a single kind of primitives, unless it gets them from the
+    // tessellation stages
+    if !program.has_tessellation_evaluation_shader() {
+        if let Some(input) = program.get_geometry_input_type() {
+            use crate::index::PrimitiveType::*;
+            let compatible = match primitives {
+                Points => input == gl::POINTS,
+                LinesList | LineStrip | LineLoop => input == gl::LINES,
+                LinesListAdjacency | LineStripAdjacency => input == gl::LINES_ADJACENCY,
+                TrianglesList | TriangleStrip | TriangleFan => input == gl::TRIANGLES,
+                TrianglesListAdjacency | TriangleStripAdjacency => input == gl::TRIANGLES_ADJACENCY,
+                Patches { .. } => true,
+            };
+            if !compatible {
+                return Err(DrawError::GeometryShaderInputMismatch);
+            }
+        }
+    }
+
+    Ok(vertices_per_patch)
+}
+
+/// The levels without tessellation and geometry shaders have no patches.
+#[cfg(not(any(safegl_desktop, safegl_gles32)))]
+fn check_stages(
+    _: &Context,
+    _: &Program,
+    _: index::PrimitiveType,
+) -> Result<Option<u16>, DrawError> {
+    Ok(None)
+}
+
 unsafe fn sync_vertices_per_patch(
     ctxt: &mut context::CommandContext<'_>,
     vertices_per_patch: Option<u16>,
@@ -491,13 +513,13 @@ fn check_contexts(
                 return mismatch("index buffer");
             }
         }
-        #[cfg(feature = "gl46")]
+        #[cfg(safegl_gl43)]
         IndicesSource::MultidrawArray { ref buffer, .. } => {
             if !ctxt.owns(buffer.get_context()) {
                 return mismatch("draw commands buffer");
             }
         }
-        #[cfg(feature = "gl46")]
+        #[cfg(safegl_gl43)]
         IndicesSource::MultidrawElement {
             ref commands,
             ref indices,

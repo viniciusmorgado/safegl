@@ -1,7 +1,11 @@
+#![cfg(any(safegl_desktop, safegl_gles31))]
+
 #[macro_use]
 extern crate safegl;
 
+#[cfg(any(safegl_desktop, safegl_gles32))]
 use safegl::backend::Facade;
+#[cfg(any(safegl_desktop, safegl_gles32))]
 use safegl::glow::{self, HasContext};
 use safegl::index::PrimitiveType;
 use safegl::texture::Texture2dMultisample;
@@ -232,6 +236,7 @@ fn sample_mask_writes_only_the_selected_samples() {
     display.assert_no_error(None);
 }
 
+#[cfg(any(safegl_desktop, safegl_gles32))]
 #[test]
 fn sample_shading_sets_the_minimum_fraction() {
     let display = support::build_display();

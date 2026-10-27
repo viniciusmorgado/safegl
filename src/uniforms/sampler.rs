@@ -19,12 +19,16 @@ pub enum SamplerWrapFunction {
     ///
     /// Requires OpenGL ES 3.2 or `GL_EXT_texture_border_clamp` on OpenGL ES, and isn't
     /// available on WebGL. Falls back to `Clamp` where unsupported.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     BorderClamp,
 
     /// Same as Mirror, but only for one repetition,
     ///
-    /// Requires `GL_EXT_texture_mirror_clamp_to_edge` on OpenGL ES, and isn't available on
-    /// WebGL. Falls back to `Clamp` where unsupported.
+    /// Requires OpenGL 4.4, `GL_ARB_texture_mirror_clamp_to_edge` or, on OpenGL ES,
+    /// `GL_EXT_texture_mirror_clamp_to_edge`. Falls back to `Clamp` where unsupported.
+    #[cfg(safegl_gl44)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
     MirrorClamp,
 }
 
@@ -35,7 +39,9 @@ impl ToGlEnum for SamplerWrapFunction {
             SamplerWrapFunction::Repeat => gl::REPEAT,
             SamplerWrapFunction::Mirror => gl::MIRRORED_REPEAT,
             SamplerWrapFunction::Clamp => gl::CLAMP_TO_EDGE,
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             SamplerWrapFunction::BorderClamp => gl::CLAMP_TO_BORDER,
+            #[cfg(safegl_gl44)]
             SamplerWrapFunction::MirrorClamp => gl::MIRROR_CLAMP_TO_EDGE,
         }
     }
@@ -191,6 +197,8 @@ impl<'t, T: 't> Sampler<'t, T> {
 
     /// Sets the color returned outside the texture with `SamplerWrapFunction::BorderClamp`,
     /// which is often white for shadow maps.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     pub fn border_color(mut self, color: [f32; 4]) -> Sampler<'t, T> {
         self.1.border_color = Some(color.into());
         self
@@ -201,8 +209,11 @@ impl<'t, T: 't> Sampler<'t, T> {
 ///
 /// The components are stored as bits, so that `SamplerBehavior` can be hashed and compared.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[cfg(any(safegl_desktop, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
 pub struct BorderColor([u32; 4]);
 
+#[cfg(any(safegl_desktop, safegl_gles32))]
 impl BorderColor {
     /// Returns the red, green, blue and alpha components.
     #[inline]
@@ -211,6 +222,7 @@ impl BorderColor {
     }
 }
 
+#[cfg(any(safegl_desktop, safegl_gles32))]
 impl From<[f32; 4]> for BorderColor {
     #[inline]
     fn from(color: [f32; 4]) -> BorderColor {
@@ -268,6 +280,8 @@ pub struct SamplerBehavior {
 
     /// The color returned outside the texture with `SamplerWrapFunction::BorderClamp`. `None`
     /// keeps OpenGL's default, transparent black. Ignored where `BorderClamp` isn't supported.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     pub border_color: Option<BorderColor>,
 }
 
@@ -284,6 +298,7 @@ impl Default for SamplerBehavior {
             magnify_filter: MagnifySamplerFilter::Linear,
             depth_texture_comparison: None,
             max_anisotropy: 1,
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             border_color: None,
         }
     }

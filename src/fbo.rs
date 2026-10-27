@@ -64,7 +64,9 @@ use crate::CapabilitiesSource;
 use crate::GlObject;
 use crate::TextureExt;
 
-use crate::framebuffer::{InvalidateAttachments, RenderBufferAny};
+#[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
+use crate::framebuffer::InvalidateAttachments;
+use crate::framebuffer::RenderBufferAny;
 use crate::texture::CubeLayer;
 use crate::texture::TextureAnyImage;
 use crate::texture::TextureAnyMipmap;
@@ -1144,6 +1146,7 @@ impl FramebuffersContainer {
     ///
     /// After calling this function, you **must** make sure to call `purge_texture`
     /// and/or `purge_renderbuffer` when one of the attachment is destroyed.
+    #[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
     pub unsafe fn invalidate(
         ctxt: &mut CommandContext<'_>,
         target: FramebufferTarget<'_>,

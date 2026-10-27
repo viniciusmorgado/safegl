@@ -28,10 +28,11 @@ In addition to indices, you can also use **multidraw indirect** rendering.
 
 The idea is to put a list of things to render in a buffer, and pass that buffer to OpenGL.
 
-Multidraw indirect is core in OpenGL 4.3, so it requires the `gl46` Cargo feature.
+Multidraw indirect is core in OpenGL 4.3, so it needs the `gl43` level or a higher one.
 
 */
 use crate::gl;
+#[cfg(any(safegl_desktop, safegl_gles32))]
 use crate::version::{Api, Version};
 use crate::CapabilitiesSource;
 use crate::ToGlEnum;
@@ -42,15 +43,15 @@ use crate::buffer::BufferAnySlice;
 
 pub use self::buffer::CreationError as BufferCreationError;
 pub use self::buffer::{IndexBuffer, IndexBufferAny, IndexBufferSlice};
-#[cfg(feature = "gl46")]
-#[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
 pub use self::multidraw::{DrawCommandIndices, DrawCommandsIndicesBuffer};
-#[cfg(feature = "gl46")]
-#[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
 pub use self::multidraw::{DrawCommandNoIndices, DrawCommandsNoIndicesBuffer};
 
 mod buffer;
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl43)]
 mod multidraw;
 
 /// Describes a source of indices used for drawing.
@@ -67,8 +68,8 @@ pub enum IndicesSource<'a> {
     },
 
     /// Use a multidraw indirect buffer without indices.
-    #[cfg(feature = "gl46")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    #[cfg(safegl_gl43)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
     MultidrawArray {
         /// The buffer.
         buffer: BufferAnySlice<'a>,
@@ -77,8 +78,8 @@ pub enum IndicesSource<'a> {
     },
 
     /// Use a multidraw indirect buffer with indices.
-    #[cfg(feature = "gl46")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    #[cfg(safegl_gl43)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
     MultidrawElement {
         /// The buffer of the commands.
         commands: BufferAnySlice<'a>,
@@ -104,9 +105,9 @@ impl<'a> IndicesSource<'a> {
     pub fn get_primitives_type(&self) -> PrimitiveType {
         *match self {
             IndicesSource::IndexBuffer { primitives, .. } => primitives,
-            #[cfg(feature = "gl46")]
+            #[cfg(safegl_gl43)]
             IndicesSource::MultidrawArray { primitives, .. } => primitives,
-            #[cfg(feature = "gl46")]
+            #[cfg(safegl_gl43)]
             IndicesSource::MultidrawElement { primitives, .. } => primitives,
             IndicesSource::NoIndices { primitives } => primitives,
         }
@@ -132,6 +133,8 @@ pub enum PrimitiveType {
     /// there is any.
     /// The first vertex represents the vertex adjacent to the second vertex. The fourth vertex
     /// represents the vertex adjacent to the third vertex.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     LinesListAdjacency,
 
     /// Each vertex (except the last one) forms a line with the next vertex.
@@ -145,6 +148,8 @@ pub enum PrimitiveType {
     ///
     /// Adjacency information doesn't do anything per-se, but is passed to the geometry shader if
     /// there is any.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     LineStripAdjacency,
 
     /// Each vertex forms a line with the next vertex. The last vertex form a line with the first
@@ -168,6 +173,8 @@ pub enum PrimitiveType {
     /// The second vertex represents the vertex adjacent to the first and third vertices. The
     /// fourth vertex represents the vertex adjacent to the third and fifth vertices. The sixth
     /// vertex represents the vertex adjacent to the first and fifth vertices.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     TrianglesListAdjacency,
 
     /// Each vertex (except the first one and the last one) forms a triangle with the previous
@@ -185,6 +192,8 @@ pub enum PrimitiveType {
     /// Each uneven vertex is adjacent to the previous and next ones.
     /// Adjacency information doesn't do anything per-se, but is passed to the geometry shader if
     /// there is any.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     TriangleStripAdjacency,
 
     /// Starting at the second vertex, each vertex forms a triangle with the next and the first
@@ -198,6 +207,8 @@ pub enum PrimitiveType {
     ///
     /// This primitives type can only be used in conjunction with a tessellation shader. The
     /// tessellation shader will indicate how each patch will be divided into lines or triangles.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     Patches {
         /// Number of vertices per patch.
         vertices_per_patch: u16,
@@ -219,6 +230,7 @@ impl PrimitiveType {
             | &PrimitiveType::TriangleStrip
             | &PrimitiveType::TriangleFan => true,
 
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             &PrimitiveType::LinesListAdjacency
             | &PrimitiveType::LineStripAdjacency
             | &PrimitiveType::TrianglesListAdjacency
@@ -231,6 +243,7 @@ impl PrimitiveType {
             }
 
             // tessellation is core in OpenGL 4.0 and OpenGL ES 3.2
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             &PrimitiveType::Patches { .. } => {
                 caps.get_version().0 == Api::Gl
                     || caps.get_version() >= &Version(Api::GlEs, 3, 2)
@@ -247,15 +260,20 @@ impl ToGlEnum for PrimitiveType {
         match self {
             PrimitiveType::Points => gl::POINTS,
             PrimitiveType::LinesList => gl::LINES,
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             PrimitiveType::LinesListAdjacency => gl::LINES_ADJACENCY,
             PrimitiveType::LineStrip => gl::LINE_STRIP,
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             PrimitiveType::LineStripAdjacency => gl::LINE_STRIP_ADJACENCY,
             PrimitiveType::LineLoop => gl::LINE_LOOP,
             PrimitiveType::TrianglesList => gl::TRIANGLES,
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             PrimitiveType::TrianglesListAdjacency => gl::TRIANGLES_ADJACENCY,
             PrimitiveType::TriangleStrip => gl::TRIANGLE_STRIP,
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             PrimitiveType::TriangleStripAdjacency => gl::TRIANGLE_STRIP_ADJACENCY,
             PrimitiveType::TriangleFan => gl::TRIANGLE_FAN,
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             PrimitiveType::Patches { .. } => gl::PATCHES,
         }
     }

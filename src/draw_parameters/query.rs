@@ -13,13 +13,13 @@ use std::error::Error;
 use std::fmt;
 use std::rc::Rc;
 
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl44)]
 use crate::buffer::Buffer;
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl44)]
 use crate::buffer::BufferSlice;
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl44)]
 use crate::BufferExt;
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl44)]
 use crate::BufferSliceExt;
 
 use crate::gl;
@@ -84,15 +84,15 @@ impl fmt::Display for QueryCreationError {
 impl Error for QueryCreationError {}
 
 /// Error that can happen when writing the value of a query to a buffer.
-#[cfg(feature = "gl46")]
-#[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+#[cfg(safegl_gl44)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
 #[derive(Copy, Clone, Debug)]
 pub enum ToBufferError {
     /// Writing the result to a buffer is not supported.
     NotSupported,
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl44)]
 impl fmt::Display for ToBufferError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::ToBufferError::*;
@@ -103,7 +103,7 @@ impl fmt::Display for ToBufferError {
     }
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl44)]
 impl Error for ToBufferError {}
 
 /// Error that can happen when getting the result of a query.
@@ -197,7 +197,7 @@ impl RawQuery {
             return false;
         }
 
-        #[cfg(feature = "gl46")]
+        #[cfg(safegl_gl44)]
         Buffer::<u8>::unbind_query(&mut ctxt);
 
         unsafe {
@@ -224,7 +224,7 @@ impl RawQuery {
             return Ok(0);
         }
 
-        #[cfg(feature = "gl46")]
+        #[cfg(safegl_gl44)]
         Buffer::<u8>::unbind_query(&mut ctxt);
 
         unsafe {
@@ -235,7 +235,7 @@ impl RawQuery {
     }
 
     /// Writes the value of the query to a buffer.
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl44)]
     pub fn write_u32_to_buffer(&self, target: BufferSlice<'_, u32>) -> Result<(), ToBufferError> {
         let mut ctxt = self.context.make_current();
 
@@ -290,7 +290,7 @@ impl RawQuery {
             return Ok(0);
         }
 
-        #[cfg(feature = "gl46")]
+        #[cfg(safegl_gl44)]
         Buffer::<u8>::unbind_query(&mut ctxt);
 
         unsafe {
@@ -594,6 +594,7 @@ impl QueryExt for RawQuery {
         }
     }
 
+    #[cfg(safegl_desktop)]
     fn begin_conditional_render(
         &self,
         ctxt: &mut CommandContext<'_>,
@@ -753,8 +754,8 @@ macro_rules! impl_helper {
             /// queue and orders the GPU to write the result of the query to a buffer.
             ///
             /// This operation is not necessarily supported everywhere.
-            #[cfg(feature = "gl46")]
-            #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+            #[cfg(safegl_gl44)]
+            #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
             #[inline]
             pub fn to_buffer_u32(&self, target: BufferSlice<'_, u32>) -> Result<(), ToBufferError> {
                 self.query.write_u32_to_buffer(target)
@@ -797,6 +798,7 @@ macro_rules! impl_helper {
             }
 
             #[inline]
+            #[cfg(safegl_desktop)]
             fn begin_conditional_render(
                 &self,
                 ctxt: &mut CommandContext<'_>,
@@ -830,10 +832,13 @@ macro_rules! impl_helper {
 /// If you just want to know whether or not some samples have been written, you should use
 /// a `AnySamplesPassedQuery` query instead.
 #[derive(Debug)]
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub struct SamplesPassedQuery {
     query: RawQuery,
 }
 
+#[cfg(safegl_desktop)]
 impl SamplesPassedQuery {
     /// Builds a new query.
     #[inline]
@@ -845,6 +850,7 @@ impl SamplesPassedQuery {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_helper!(SamplesPassedQuery, u64, get_u64);
 
 /// A query that allows you to know the number of nanoseconds that have elapsed
@@ -855,10 +861,13 @@ impl_helper!(SamplesPassedQuery, u64, get_u64);
 /// OpenGL ES needs `GL_EXT_disjoint_timer_query`, whose results are meaningless when the GPU
 /// changed its frequency or was reset during the query (`GL_GPU_DISJOINT_EXT`).
 #[derive(Debug)]
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub struct TimeElapsedQuery {
     query: RawQuery,
 }
 
+#[cfg(safegl_desktop)]
 impl TimeElapsedQuery {
     /// Builds a new query.
     #[inline]
@@ -870,6 +879,7 @@ impl TimeElapsedQuery {
     }
 }
 
+#[cfg(safegl_desktop)]
 impl_helper!(TimeElapsedQuery, u64, get_u64);
 
 /// A query type that allows you to know whether any sample has been written to the output during
@@ -924,10 +934,13 @@ impl_helper!(AnySamplesPassedQuery, bool, get_bool);
 ///
 /// OpenGL ES needs version 3.2, `GL_EXT_geometry_shader` or `GL_OES_geometry_shader`.
 #[derive(Debug)]
+#[cfg(any(safegl_desktop, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
 pub struct PrimitivesGeneratedQuery {
     query: RawQuery,
 }
 
+#[cfg(any(safegl_desktop, safegl_gles32))]
 impl PrimitivesGeneratedQuery {
     /// Builds a new query.
     #[inline]
@@ -940,6 +953,7 @@ impl PrimitivesGeneratedQuery {
     }
 }
 
+#[cfg(any(safegl_desktop, safegl_gles32))]
 impl_helper!(PrimitivesGeneratedQuery, u64, get_u64);
 
 /// Query that allows you to know the number of primitives generated by transform feedback.

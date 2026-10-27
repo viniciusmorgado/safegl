@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::mem;
 
+#[cfg(any(safegl_desktop, safegl_gles30))]
 use crate::version::{Api, Version};
 use crate::vertex::Attribute;
 use crate::CapabilitiesSource;
@@ -32,13 +33,29 @@ pub enum AttributeType {
     U32U32,
     U32U32U32,
     U32U32U32U32,
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     I64,
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     I64I64,
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     I64I64I64,
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     I64I64I64I64,
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     U64,
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     U64U64,
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     U64U64U64,
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     U64U64U64U64,
     F16,
     F16F16,
@@ -85,39 +102,65 @@ pub enum AttributeType {
     /// 4x4 matrix of `f32`s
     F32x4x4,
     /// Warning: using `f64`s can be very slow.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     F64,
     /// Warning: using `f64`s can be very slow.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     F64F64,
     /// Warning: using `f64`s can be very slow.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     F64F64F64,
     /// Warning: using `f64`s can be very slow.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     F64F64F64F64,
     /// 2x2 matrix of `f64`s
     /// Warning: using `f64`s can be very slow.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     F64x2x2,
     /// 2x3 matrix of `f64`s
     /// Warning: using `f64`s can be very slow.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     F64x2x3,
     /// 2x3 matrix of `f64`s
     /// Warning: using `f64`s can be very slow.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     F64x2x4,
     /// 3x2 matrix of `f64`s
     /// Warning: using `f64`s can be very slow.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     F64x3x2,
     /// 3x3 matrix of `f64`s
     /// Warning: using `f64`s can be very slow.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     F64x3x3,
     /// 3x4 matrix of `f64`s
     /// Warning: using `f64`s can be very slow.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     F64x3x4,
     /// 4x2 matrix of `f64`s
     /// Warning: using `f64`s can be very slow.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     F64x4x2,
     /// 4x3 matrix of `f64`s
     /// Warning: using `f64`s can be very slow.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     F64x4x3,
     /// 4x4 matrix of `f64`s
     /// Warning: using `f64`s can be very slow.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     F64x4x4,
     /// From MSB to LSB: two bits for the alpha, ten bits for the blue, ten bits for the green,
     /// ten bits for the red.
@@ -132,10 +175,14 @@ pub enum AttributeType {
     /// Three floating points values turned into unsigned integers./
     ///
     /// Corresponds to `GL_UNSIGNED_INT_10F_11F_11F_REV`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     F10F11F11UnsignedIntReversed,
     /// Fixed floating points. A 16bits signed value followed by the 16bits unsigned exponent.
     ///
     /// Corresponds to `GL_FIXED`.
+    #[cfg(any(safegl_desktop, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles30))))]
     FixedFloatI16U16,
 }
 
@@ -185,6 +232,7 @@ impl AttributeType {
             | &AttributeType::U32U32U32
             | &AttributeType::U32U32U32U32 => true,
 
+            #[cfg(safegl_desktop)]
             &AttributeType::I64
             | &AttributeType::I64I64
             | &AttributeType::I64I64I64
@@ -192,6 +240,7 @@ impl AttributeType {
                 caps.get_extensions().gl_nv_vertex_attrib_integer_64bit
             }
 
+            #[cfg(safegl_desktop)]
             &AttributeType::U64
             | &AttributeType::U64U64
             | &AttributeType::U64U64U64
@@ -200,6 +249,7 @@ impl AttributeType {
                     || caps.get_extensions().gl_nv_vertex_attrib_integer_64bit
             }
 
+            #[cfg(safegl_desktop)]
             &AttributeType::F64
             | &AttributeType::F64F64
             | &AttributeType::F64F64F64
@@ -233,6 +283,7 @@ impl AttributeType {
             | &AttributeType::F16x4x4 => true,
 
             // `GL_FIXED` is core in OpenGL ES 2.0 and OpenGL 4.1
+            #[cfg(any(safegl_desktop, safegl_gles30))]
             &AttributeType::FixedFloatI16U16 => {
                 caps.get_version().0 == Api::GlEs
                     || caps.get_version() >= &Version(Api::Gl, 4, 1)
@@ -242,6 +293,7 @@ impl AttributeType {
             &AttributeType::I2I10I10I10Reversed | &AttributeType::U2U10U10U10Reversed => true,
 
             // core in OpenGL 4.4, and not part of OpenGL ES
+            #[cfg(safegl_desktop)]
             &AttributeType::F10F11F11UnsignedIntReversed => {
                 caps.get_version() >= &Version(Api::Gl, 4, 4)
                     || caps.get_extensions().gl_arb_vertex_type_10f_11f_11f_rev
@@ -276,13 +328,21 @@ impl AttributeType {
             AttributeType::U32U32 => 2 * mem::size_of::<u32>(),
             AttributeType::U32U32U32 => 3 * mem::size_of::<u32>(),
             AttributeType::U32U32U32U32 => 4 * mem::size_of::<u32>(),
+            #[cfg(safegl_desktop)]
             AttributeType::I64 => 1 * mem::size_of::<i64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::I64I64 => 2 * mem::size_of::<i64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::I64I64I64 => 3 * mem::size_of::<i64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::I64I64I64I64 => 4 * mem::size_of::<i64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::U64 => 1 * mem::size_of::<u64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::U64U64 => 2 * mem::size_of::<u64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::U64U64U64 => 3 * mem::size_of::<u64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::U64U64U64U64 => 4 * mem::size_of::<u64>(),
             AttributeType::F16 => 1 * 2,
             AttributeType::F16F16 => 2 * 2,
@@ -310,22 +370,37 @@ impl AttributeType {
             AttributeType::F32x4x2 => 8 * mem::size_of::<f32>(),
             AttributeType::F32x4x3 => 12 * mem::size_of::<f32>(),
             AttributeType::F32x4x4 => 16 * mem::size_of::<f32>(),
+            #[cfg(safegl_desktop)]
             AttributeType::F64 => 1 * mem::size_of::<f64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::F64F64 => 2 * mem::size_of::<f64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::F64F64F64 => 3 * mem::size_of::<f64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::F64F64F64F64 => 4 * mem::size_of::<f64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::F64x2x2 => 4 * mem::size_of::<f64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::F64x2x3 => 6 * mem::size_of::<f64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::F64x2x4 => 8 * mem::size_of::<f64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::F64x3x2 => 6 * mem::size_of::<f64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::F64x3x3 => 9 * mem::size_of::<f64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::F64x3x4 => 12 * mem::size_of::<f64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::F64x4x2 => 8 * mem::size_of::<f64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::F64x4x3 => 12 * mem::size_of::<f64>(),
+            #[cfg(safegl_desktop)]
             AttributeType::F64x4x4 => 16 * mem::size_of::<f64>(),
             AttributeType::I2I10I10I10Reversed => 4,
             AttributeType::U2U10U10U10Reversed => 4,
+            #[cfg(safegl_desktop)]
             AttributeType::F10F11F11UnsignedIntReversed => 4,
+            #[cfg(any(safegl_desktop, safegl_gles30))]
             AttributeType::FixedFloatI16U16 => 4,
         }
     }
@@ -357,13 +432,21 @@ impl AttributeType {
             AttributeType::U32U32 => 2,
             AttributeType::U32U32U32 => 3,
             AttributeType::U32U32U32U32 => 4,
+            #[cfg(safegl_desktop)]
             AttributeType::I64 => 1,
+            #[cfg(safegl_desktop)]
             AttributeType::I64I64 => 2,
+            #[cfg(safegl_desktop)]
             AttributeType::I64I64I64 => 3,
+            #[cfg(safegl_desktop)]
             AttributeType::I64I64I64I64 => 4,
+            #[cfg(safegl_desktop)]
             AttributeType::U64 => 1,
+            #[cfg(safegl_desktop)]
             AttributeType::U64U64 => 2,
+            #[cfg(safegl_desktop)]
             AttributeType::U64U64U64 => 3,
+            #[cfg(safegl_desktop)]
             AttributeType::U64U64U64U64 => 4,
             AttributeType::F16 => 1,
             AttributeType::F16F16 => 2,
@@ -391,22 +474,37 @@ impl AttributeType {
             AttributeType::F32x4x2 => 8,
             AttributeType::F32x4x3 => 12,
             AttributeType::F32x4x4 => 16,
+            #[cfg(safegl_desktop)]
             AttributeType::F64 => 1,
+            #[cfg(safegl_desktop)]
             AttributeType::F64F64 => 2,
+            #[cfg(safegl_desktop)]
             AttributeType::F64F64F64 => 3,
+            #[cfg(safegl_desktop)]
             AttributeType::F64F64F64F64 => 4,
+            #[cfg(safegl_desktop)]
             AttributeType::F64x2x2 => 4,
+            #[cfg(safegl_desktop)]
             AttributeType::F64x2x3 => 6,
+            #[cfg(safegl_desktop)]
             AttributeType::F64x2x4 => 8,
+            #[cfg(safegl_desktop)]
             AttributeType::F64x3x2 => 6,
+            #[cfg(safegl_desktop)]
             AttributeType::F64x3x3 => 9,
+            #[cfg(safegl_desktop)]
             AttributeType::F64x3x4 => 12,
+            #[cfg(safegl_desktop)]
             AttributeType::F64x4x2 => 8,
+            #[cfg(safegl_desktop)]
             AttributeType::F64x4x3 => 12,
+            #[cfg(safegl_desktop)]
             AttributeType::F64x4x4 => 16,
             AttributeType::I2I10I10I10Reversed => 4,
             AttributeType::U2U10U10U10Reversed => 4,
+            #[cfg(safegl_desktop)]
             AttributeType::F10F11F11UnsignedIntReversed => 3,
+            #[cfg(any(safegl_desktop, safegl_gles30))]
             AttributeType::FixedFloatI16U16 => 1,
         }
     }
@@ -590,58 +688,72 @@ unsafe impl Attribute for [u32; 4] {
     const TYPE: AttributeType = AttributeType::U32U32U32U32;
 }
 
+#[cfg(safegl_desktop)]
 unsafe impl Attribute for i64 {
     const TYPE: AttributeType = AttributeType::I64;
 }
 
+#[cfg(safegl_desktop)]
 unsafe impl Attribute for (i64, i64) {
     const TYPE: AttributeType = AttributeType::I64I64;
 }
 
+#[cfg(safegl_desktop)]
 unsafe impl Attribute for [i64; 2] {
     const TYPE: AttributeType = AttributeType::I64I64;
 }
 
+#[cfg(safegl_desktop)]
 unsafe impl Attribute for (i64, i64, i64) {
     const TYPE: AttributeType = AttributeType::I64I64I64;
 }
 
+#[cfg(safegl_desktop)]
 unsafe impl Attribute for [i64; 3] {
     const TYPE: AttributeType = AttributeType::I64I64I64;
 }
 
+#[cfg(safegl_desktop)]
 unsafe impl Attribute for (i64, i64, i64, i64) {
     const TYPE: AttributeType = AttributeType::I64I64I64I64;
 }
 
+#[cfg(safegl_desktop)]
 unsafe impl Attribute for [i64; 4] {
     const TYPE: AttributeType = AttributeType::I64I64I64I64;
 }
 
+#[cfg(safegl_desktop)]
 unsafe impl Attribute for u64 {
     const TYPE: AttributeType = AttributeType::U64;
 }
 
+#[cfg(safegl_desktop)]
 unsafe impl Attribute for (u64, u64) {
     const TYPE: AttributeType = AttributeType::U64U64;
 }
 
+#[cfg(safegl_desktop)]
 unsafe impl Attribute for [u64; 2] {
     const TYPE: AttributeType = AttributeType::U64U64;
 }
 
+#[cfg(safegl_desktop)]
 unsafe impl Attribute for (u64, u64, u64) {
     const TYPE: AttributeType = AttributeType::U64U64U64;
 }
 
+#[cfg(safegl_desktop)]
 unsafe impl Attribute for [u64; 3] {
     const TYPE: AttributeType = AttributeType::U64U64U64;
 }
 
+#[cfg(safegl_desktop)]
 unsafe impl Attribute for (u64, u64, u64, u64) {
     const TYPE: AttributeType = AttributeType::U64U64U64U64;
 }
 
+#[cfg(safegl_desktop)]
 unsafe impl Attribute for [u64; 4] {
     const TYPE: AttributeType = AttributeType::U64U64U64U64;
 }
@@ -686,42 +798,52 @@ unsafe impl Attribute for [[f32; 4]; 4] {
     const TYPE: AttributeType = AttributeType::F32x4x4;
 }
 
+#[cfg(safegl_gl41)]
 unsafe impl Attribute for f64 {
     const TYPE: AttributeType = AttributeType::F64;
 }
 
+#[cfg(safegl_gl41)]
 unsafe impl Attribute for (f64, f64) {
     const TYPE: AttributeType = AttributeType::F64F64;
 }
 
+#[cfg(safegl_gl41)]
 unsafe impl Attribute for [f64; 2] {
     const TYPE: AttributeType = AttributeType::F64F64;
 }
 
+#[cfg(safegl_gl41)]
 unsafe impl Attribute for (f64, f64, f64) {
     const TYPE: AttributeType = AttributeType::F64F64F64;
 }
 
+#[cfg(safegl_gl41)]
 unsafe impl Attribute for [f64; 3] {
     const TYPE: AttributeType = AttributeType::F64F64F64;
 }
 
+#[cfg(safegl_gl41)]
 unsafe impl Attribute for (f64, f64, f64, f64) {
     const TYPE: AttributeType = AttributeType::F64F64F64F64;
 }
 
+#[cfg(safegl_gl41)]
 unsafe impl Attribute for [f64; 4] {
     const TYPE: AttributeType = AttributeType::F64F64F64F64;
 }
 
+#[cfg(safegl_gl41)]
 unsafe impl Attribute for [[f64; 2]; 2] {
     const TYPE: AttributeType = AttributeType::F64x2x2;
 }
 
+#[cfg(safegl_gl41)]
 unsafe impl Attribute for [[f64; 3]; 3] {
     const TYPE: AttributeType = AttributeType::F64x3x3;
 }
 
+#[cfg(safegl_gl41)]
 unsafe impl Attribute for [[f64; 4]; 4] {
     const TYPE: AttributeType = AttributeType::F64x4x4;
 }

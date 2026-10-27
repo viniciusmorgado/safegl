@@ -3,12 +3,15 @@ extern crate safegl;
 
 use glow::HasContext;
 use safegl::framebuffer::{DepthStencilRenderBuffer, SimpleFrameBuffer};
+#[cfg(safegl_desktop)]
+use safegl::texture::Texture1d;
 use safegl::texture::{
     CubeLayer, Cubemap, DepthFormat, DepthStencilFormat, DepthStencilTexture2d, DepthTexture2d,
-    InternalFormat, InternalFormatType, MipmapsOption, StencilFormat, StencilTexture2d, Texture1d,
-    Texture2dArray, Texture3d, TextureAnyImage, UncompressedFloatFormat, UncompressedUintFormat,
-    UnsignedTexture2d,
+    MipmapsOption, Texture2dArray, Texture3d, TextureAnyImage, UncompressedFloatFormat,
+    UncompressedUintFormat, UnsignedTexture2d,
 };
+#[cfg(any(safegl_gl44, safegl_gles32))]
+use safegl::texture::{InternalFormat, InternalFormatType, StencilFormat, StencilTexture2d};
 use safegl::{GlObject, Rect, Surface, Texture2d};
 
 mod support;
@@ -30,6 +33,7 @@ fn read_image(image: TextureAnyImage<'_>) -> Vec<Vec<Pixel>> {
     image.raw_read(&rect).unwrap()
 }
 
+#[cfg(safegl_desktop)]
 #[test]
 fn write_1d() {
     let display = support::build_display();
@@ -183,6 +187,7 @@ fn read_depth_stencil() {
     display.assert_no_error(None);
 }
 
+#[cfg(any(safegl_gl44, safegl_gles32))]
 #[test]
 fn stencil_texture_format() {
     let display = support::build_display();

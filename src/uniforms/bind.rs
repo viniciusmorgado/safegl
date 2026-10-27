@@ -5,9 +5,12 @@ Handles binding uniforms to the OpenGL state machine.
 */
 use crate::gl;
 
+#[cfg(safegl_desktop)]
 use std::collections::HashMap;
+#[cfg(safegl_desktop)]
 use std::hash::BuildHasherDefault;
 
+#[cfg(safegl_desktop)]
 use fnv::FnvHasher;
 
 use crate::BufferExt;
@@ -17,7 +20,7 @@ use crate::ProgramExt;
 use crate::RawUniformValue;
 use crate::TextureExt;
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl42, safegl_gles31))]
 use crate::uniforms::ImageUnitBehavior;
 use crate::uniforms::SamplerBehavior;
 use crate::uniforms::UniformValue;
@@ -67,7 +70,7 @@ impl<'a> CollectedUniforms<'a> {
     {
         let mut texture_bind_points = Bitsfield::new();
         let mut uniform_buffer_bind_points = Bitsfield::new();
-        #[cfg(feature = "gl46")]
+        #[cfg(any(safegl_gl42, safegl_gles31))]
         let mut shared_storage_buffer_bind_points = Bitsfield::new();
         let mut image_unit_bind_points = Bitsfield::new();
         // image uniforms that aren't set use unit 0, so SafeGL doesn't give it to other images;
@@ -78,6 +81,7 @@ impl<'a> CollectedUniforms<'a> {
 
         // Subroutine uniforms must be bound all at once, so we collect them first and process them at the end.
         // The vec contains the uniform we want to set and the value we want to set it to.
+        #[cfg(safegl_desktop)]
         let mut subroutine_bindings: HashMap<
             program::ShaderStage,
             Vec<(&program::SubroutineUniform, &str)>,
@@ -145,7 +149,7 @@ impl<'a> CollectedUniforms<'a> {
                     fences.push(fence);
                 }
             } else {
-                #[cfg(feature = "gl46")]
+                #[cfg(any(safegl_gl42, safegl_gles31))]
                 if let Some(fence) = bind_storage_uniform(
                     ctxt,
                     &value,
@@ -160,6 +164,7 @@ impl<'a> CollectedUniforms<'a> {
                     continue;
                 }
 
+                #[cfg(safegl_desktop)]
                 if let UniformValue::Subroutine(stage, sr_name) = value {
                     if let Some(subroutine_uniform) = program
                         .get_subroutine_data()
@@ -181,7 +186,10 @@ impl<'a> CollectedUniforms<'a> {
         check_missing_uniforms(program, &given_locations, &bound_blocks)?;
 
         // Process all subroutine uniforms in one batch.
-        bind_subroutine_uniforms(ctxt, program, &subroutine_bindings)
+        #[cfg(safegl_desktop)]
+        bind_subroutine_uniforms(ctxt, program, &subroutine_bindings)?;
+
+        Ok(())
     }
 }
 
@@ -224,7 +232,7 @@ where
     }
 
     let blocks = program.get_uniform_blocks().keys();
-    #[cfg(feature = "gl46")]
+    #[cfg(any(safegl_gl42, safegl_gles31))]
     let blocks = blocks
         .chain(program.get_shader_storage_blocks().keys())
         .chain(program.get_atomic_counters().keys());
@@ -237,6 +245,7 @@ where
     Ok(())
 }
 
+#[cfg(safegl_desktop)]
 fn bind_subroutine_uniforms<P>(
     ctxt: &mut context::CommandContext<'_>,
     program: &P,
@@ -390,19 +399,21 @@ where
 /// Binds `value` to the shader storage block or the atomic counter called `name`.
 ///
 /// Returns `Ok(None)` if the program has neither, otherwise the fence to insert after the draw.
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl42, safegl_gles31))]
 fn bind_storage_uniform<'a, P>(
     ctxt: &mut context::CommandContext<'_>,
     value: &UniformValue<'a>,
     program: &P,
+    #[cfg_attr(not(any(safegl_gl43, safegl_gles31)), allow(unused_variables))]
     shared_storage_buffer_bind_points: &mut Bitsfield,
     name: &str,
 ) -> Result<Option<Option<Inserter<'a>>>, DrawError>
 where
     P: ProgramExt,
 {
+    #[cfg(any(safegl_gl43, safegl_gles31))]
     if let Some(block) = program.get_shader_storage_blocks().get(name) {
-        bind_shared_storage_block(
+        return bind_shared_storage_block(
             ctxt,
             value,
             block,
@@ -410,15 +421,16 @@ where
             shared_storage_buffer_bind_points,
             name,
         )
-        .map(Some)
-    } else if let Some(block) = program.get_atomic_counters().get(name) {
+        .map(Some);
+    }
+    if let Some(block) = program.get_atomic_counters().get(name) {
         bind_atomic_counter(ctxt, value, block, program, name).map(Some)
     } else {
         Ok(None)
     }
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 fn bind_shared_storage_block<'a, P>(
     ctxt: &mut context::CommandContext<'_>,
     value: &UniformValue<'a>,
@@ -496,7 +508,7 @@ where
     }
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl42, safegl_gles31))]
 fn bind_atomic_counter<'a, P>(
     ctxt: &mut context::CommandContext<'_>,
     value: &UniformValue<'a>,
@@ -563,8 +575,9 @@ where
     // textures can only be used with the context that created them
     let texture_context = match *value {
         UniformValue::Texture(texture, _) => Some(TextureExt::get_context(texture)),
+        #[cfg(any(safegl_desktop, safegl_gles32))]
         UniformValue::BufferTexture(ref texture) => Some(TextureExt::get_context(texture)),
-        #[cfg(feature = "gl46")]
+        #[cfg(any(safegl_gl42, safegl_gles31))]
         UniformValue::Image(texture, _) => Some(TextureExt::get_context(texture)),
         _ => None,
     };
@@ -580,6 +593,7 @@ where
         UniformValue::Block(_, _) => Err(DrawError::UniformBufferToValue {
             name: name.to_owned(),
         }),
+        #[cfg(safegl_desktop)]
         UniformValue::Subroutine(_, _) => Err(DrawError::SubroutineUniformToValue {
             name: name.to_owned(),
         }),
@@ -687,86 +701,107 @@ where
             program.set_uniform(ctxt, location, &RawUniformValue::IntVec4(val_casted));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::Double(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::Double(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::DoubleMat2(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat2(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::DoubleMat3(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat3(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::DoubleMat4(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat4(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::DoubleVec2(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::DoubleVec2(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::DoubleVec3(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::DoubleVec3(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::DoubleVec4(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::DoubleVec4(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::Int64(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::Int64(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::Int64Vec2(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::Int64Vec2(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::Int64Vec3(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::Int64Vec3(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::Int64Vec4(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::Int64Vec4(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::UnsignedInt64(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::UnsignedInt64(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::UnsignedInt64Vec2(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::UnsignedInt64Vec2(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::UnsignedInt64Vec3(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::UnsignedInt64Vec3(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::UnsignedInt64Vec4(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::UnsignedInt64Vec4(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::DoubleMat2x3(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat2x3(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::DoubleMat2x4(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat2x4(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::DoubleMat3x2(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat3x2(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::DoubleMat3x4(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat3x4(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::DoubleMat4x2(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat4x2(val));
             Ok(())
         }
+        #[cfg(safegl_desktop)]
         UniformValue::DoubleMat4x3(val) => {
             program.set_uniform(ctxt, location, &RawUniformValue::DoubleMat4x3(val));
             Ok(())
@@ -779,10 +814,11 @@ where
             program,
             texture_bind_points,
         ),
+        #[cfg(any(safegl_desktop, safegl_gles32))]
         UniformValue::BufferTexture(texture) => {
             bind_texture_uniform(ctxt, &texture, None, location, program, texture_bind_points)
         }
-        #[cfg(feature = "gl46")]
+        #[cfg(any(safegl_gl42, safegl_gles31))]
         UniformValue::Image(texture, unit) => bind_image_uniform(
             ctxt,
             texture,
@@ -899,7 +935,7 @@ where
     Ok(())
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl42, safegl_gles31))]
 fn bind_image_uniform<P, T>(
     ctxt: &mut context::CommandContext,
     texture: &T,

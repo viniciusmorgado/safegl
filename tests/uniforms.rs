@@ -448,34 +448,43 @@ uniform_test!(
 );
 
 // Doubles
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_f64_double, "double", 12.567f64);
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_f64arr_doublevec2, "dvec2", [1.0f64, 2.4]);
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_f64tup_doublevec2, "dvec2", (1.0f64, 2.4));
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_f64arr_doublevec3,
     "dvec3",
     [1.0f64, 2.4, 0.0003]
 );
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_f64tup_doublevec3,
     "dvec3",
     (1.0f64, 2.4, 0.0003)
 );
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_f64arr_doublevec4,
     "dvec4",
     [1.0f64, 2.4, 0.0003, 123456.0]
 );
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_f64tup_doublevec4,
     "dvec4",
     (1.0f64, 2.4, 0.0003, 123456.0)
 );
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_f64arr_doublemat2,
     "dmat2",
     [[1.0f64, 2.4], [-2.0f64, -7.8867]]
 );
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_f64arr_doublemat3,
     "dmat3",
@@ -485,6 +494,7 @@ uniform_test!(
         [1.1f64, 7.7, -6.1]
     ]
 );
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_f64arr_doublemat4,
     "dmat4",
@@ -527,20 +537,27 @@ uniform_test!(uniform_type_u32arr_uintvec4, "uvec4", [1u32, 24, 7, 123456]);
 uniform_test!(uniform_type_u32tup_uintvec4, "uvec4", (1u32, 24, 7, 123456));
 
 // Integer 64 bit
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_i64_int64_t,
     "int64_t",
     9_223_372_036_854_775_807i64
 );
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_i64arr_i64vec2, "i64vec2", [1i64, 24]);
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_i64tup_i64vec2, "i64vec2", (1i64, 24));
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_i64arr_i64vec3, "i64vec3", [1i64, 24, -7]);
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_i64tup_i64vec3, "i64vec3", (1i64, 24, -7));
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_i64arr_i64vec4,
     "i64vec4",
     [1i64, 24, -7, -123456]
 );
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_i64tup_i64vec4,
     "i64vec4",
@@ -548,20 +565,27 @@ uniform_test!(
 );
 
 // Unsigned integer 64 bit
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_u64_uint64_t,
     "uint64_t",
     9_223_372_036_854_775_807u64
 );
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_u64arr_u64vec2, "u64vec2", [1u64, 24]);
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_u64tup_u64vec2, "u64vec2", (1u64, 24));
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_u64arr_u64vec3, "u64vec3", [1u64, 24, 7]);
+#[cfg(safegl_desktop)]
 uniform_test!(uniform_type_u64tup_u64vec3, "u64vec3", (1u64, 24, 7));
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_u64arr_u64vec4,
     "u64vec4",
     [1u64, 24, 7, 123456]
 );
+#[cfg(safegl_desktop)]
 uniform_test!(
     uniform_type_u64tup_u64vec4,
     "u64vec4",

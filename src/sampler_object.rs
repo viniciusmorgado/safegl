@@ -1,6 +1,7 @@
 use crate::DrawError;
 
 use crate::uniforms::{SamplerBehavior, SamplerWrapFunction};
+#[cfg(any(safegl_desktop, safegl_gles32))]
 use crate::version::{Api, Version};
 
 use crate::context::CommandContext;
@@ -61,6 +62,7 @@ impl SamplerObject {
                 );
             }
 
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             if let Some(color) = behavior.border_color {
                 if is_border_clamp_supported(ctxt) {
                     ctxt.glow.sampler_parameter_f32_slice(
@@ -122,6 +124,7 @@ impl Drop for SamplerObject {
 /// that OpenGL ES (or WebGL) doesn't support falls back to the closest supported one,
 /// `GL_CLAMP_TO_EDGE`, instead of failing.
 /// Returns true if `GL_CLAMP_TO_BORDER` and border colors are supported.
+#[cfg(any(safegl_desktop, safegl_gles32))]
 fn is_border_clamp_supported(ctxt: &CommandContext<'_>) -> bool {
     ctxt.version.0 == Api::Gl
         || ctxt.version >= &Version(Api::GlEs, 3, 2)
@@ -130,14 +133,19 @@ fn is_border_clamp_supported(ctxt: &CommandContext<'_>) -> bool {
 }
 
 fn wrap_mode(ctxt: &CommandContext<'_>, function: SamplerWrapFunction) -> gl::types::GLenum {
-    let supported = ctxt.version.0 == Api::Gl
-        || match function {
-            SamplerWrapFunction::BorderClamp => is_border_clamp_supported(ctxt),
-            SamplerWrapFunction::MirrorClamp => ctxt.extensions.gl_ext_texture_mirror_clamp_to_edge,
-            SamplerWrapFunction::Repeat
-            | SamplerWrapFunction::Mirror
-            | SamplerWrapFunction::Clamp => true,
-        };
+    let supported = match function {
+        #[cfg(any(safegl_desktop, safegl_gles32))]
+        SamplerWrapFunction::BorderClamp => is_border_clamp_supported(ctxt),
+        #[cfg(safegl_gl44)]
+        SamplerWrapFunction::MirrorClamp => {
+            ctxt.version >= &Version(Api::Gl, 4, 4)
+                || ctxt.extensions.gl_arb_texture_mirror_clamp_to_edge
+                || ctxt.extensions.gl_ext_texture_mirror_clamp_to_edge
+        }
+        SamplerWrapFunction::Repeat | SamplerWrapFunction::Mirror | SamplerWrapFunction::Clamp => {
+            true
+        }
+    };
 
     if supported {
         function.to_glenum()

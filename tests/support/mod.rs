@@ -328,7 +328,7 @@ fn parse_version() -> Vec<glutin::context::ContextApi> {
                 panic!();
             }]
         }
-        Err(_) => safegl::backend::glutin::tier_context_apis(),
+        Err(_) => safegl::backend::glutin::level_context_apis(),
     }
 }
 

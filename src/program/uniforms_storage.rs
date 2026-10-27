@@ -85,6 +85,7 @@ impl UniformsStorage {
             )
         );
 
+        #[cfg(safegl_desktop)]
         macro_rules! uniform_f64(
             ($ctxt:expr, $uniform:ident, $($params:expr),+) => (
                 unsafe {
@@ -98,6 +99,7 @@ impl UniformsStorage {
             )
         );
 
+        #[cfg(safegl_desktop)]
         macro_rules! uniform_i64(
             ($ctxt:expr, $uniform:ident, $($params:expr),+) => (
                 unsafe {
@@ -149,96 +151,117 @@ impl UniformsStorage {
                 &RawUniformValue::UnsignedIntVec4(a),
                 &mut Some(RawUniformValue::UnsignedIntVec4(b)),
             ) if a == b => (),
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::Double(a), &mut Some(RawUniformValue::Double(b))) if a == b => (),
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleMat2(a), &mut Some(RawUniformValue::DoubleMat2(b)))
                 if a == b =>
             {
                 ()
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleMat3(a), &mut Some(RawUniformValue::DoubleMat3(b)))
                 if a == b =>
             {
                 ()
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleMat4(a), &mut Some(RawUniformValue::DoubleMat4(b)))
                 if a == b =>
             {
                 ()
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleMat2x3(a), &mut Some(RawUniformValue::DoubleMat2x3(b)))
                 if a == b =>
             {
                 ()
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleMat2x4(a), &mut Some(RawUniformValue::DoubleMat2x4(b)))
                 if a == b =>
             {
                 ()
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleMat3x2(a), &mut Some(RawUniformValue::DoubleMat3x2(b)))
                 if a == b =>
             {
                 ()
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleMat3x4(a), &mut Some(RawUniformValue::DoubleMat3x4(b)))
                 if a == b =>
             {
                 ()
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleMat4x2(a), &mut Some(RawUniformValue::DoubleMat4x2(b)))
                 if a == b =>
             {
                 ()
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleMat4x3(a), &mut Some(RawUniformValue::DoubleMat4x3(b)))
                 if a == b =>
             {
                 ()
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleVec2(a), &mut Some(RawUniformValue::DoubleVec2(b)))
                 if a == b =>
             {
                 ()
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleVec3(a), &mut Some(RawUniformValue::DoubleVec3(b)))
                 if a == b =>
             {
                 ()
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleVec4(a), &mut Some(RawUniformValue::DoubleVec4(b)))
                 if a == b =>
             {
                 ()
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::Int64(a), &mut Some(RawUniformValue::Int64(b))) if a == b => (),
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::Int64Vec2(a), &mut Some(RawUniformValue::Int64Vec2(b)))
                 if a == b =>
             {
                 ()
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::Int64Vec3(a), &mut Some(RawUniformValue::Int64Vec3(b)))
                 if a == b =>
             {
                 ()
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::Int64Vec4(a), &mut Some(RawUniformValue::Int64Vec4(b)))
                 if a == b =>
             {
                 ()
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::UnsignedInt64(a), &mut Some(RawUniformValue::UnsignedInt64(b)))
                 if a == b =>
             {
                 ()
             }
+            #[cfg(safegl_desktop)]
             (
                 &RawUniformValue::UnsignedInt64Vec2(a),
                 &mut Some(RawUniformValue::UnsignedInt64Vec2(b)),
             ) if a == b => (),
+            #[cfg(safegl_desktop)]
             (
                 &RawUniformValue::UnsignedInt64Vec3(a),
                 &mut Some(RawUniformValue::UnsignedInt64Vec3(b)),
             ) if a == b => (),
+            #[cfg(safegl_desktop)]
             (
                 &RawUniformValue::UnsignedInt64Vec4(a),
                 &mut Some(RawUniformValue::UnsignedInt64Vec4(b)),
@@ -348,11 +371,13 @@ impl UniformsStorage {
                 *target = Some(RawUniformValue::UnsignedIntVec4(v));
                 uniform!(ctxt, uniform_4_u32_slice, location, &v);
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::Double(v), target) => {
                 *target = Some(RawUniformValue::Double(v));
                 uniform_f64!(ctxt, Uniform1d, location, v);
             }
 
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleMat2(v), target) => {
                 *target = Some(RawUniformValue::DoubleMat2(v));
                 uniform_f64!(
@@ -365,6 +390,7 @@ impl UniformsStorage {
                 );
             }
 
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleMat3(v), target) => {
                 *target = Some(RawUniformValue::DoubleMat3(v));
                 uniform_f64!(
@@ -377,6 +403,7 @@ impl UniformsStorage {
                 );
             }
 
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleMat4(v), target) => {
                 *target = Some(RawUniformValue::DoubleMat4(v));
                 uniform_f64!(
@@ -389,6 +416,7 @@ impl UniformsStorage {
                 );
             }
 
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleMat2x3(v), target) => {
                 *target = Some(RawUniformValue::DoubleMat2x3(v));
                 uniform_f64!(
@@ -401,6 +429,7 @@ impl UniformsStorage {
                 );
             }
 
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleMat2x4(v), target) => {
                 *target = Some(RawUniformValue::DoubleMat2x4(v));
                 uniform_f64!(
@@ -413,6 +442,7 @@ impl UniformsStorage {
                 );
             }
 
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleMat3x2(v), target) => {
                 *target = Some(RawUniformValue::DoubleMat3x2(v));
                 uniform_f64!(
@@ -425,6 +455,7 @@ impl UniformsStorage {
                 );
             }
 
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleMat3x4(v), target) => {
                 *target = Some(RawUniformValue::DoubleMat3x4(v));
                 uniform_f64!(
@@ -437,6 +468,7 @@ impl UniformsStorage {
                 );
             }
 
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleMat4x2(v), target) => {
                 *target = Some(RawUniformValue::DoubleMat4x2(v));
                 uniform_f64!(
@@ -449,6 +481,7 @@ impl UniformsStorage {
                 );
             }
 
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleMat4x3(v), target) => {
                 *target = Some(RawUniformValue::DoubleMat4x3(v));
                 uniform_f64!(
@@ -460,6 +493,7 @@ impl UniformsStorage {
                     v.as_ptr() as *const gl::types::GLdouble
                 );
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleVec2(v), target) => {
                 *target = Some(RawUniformValue::DoubleVec2(v));
                 uniform_f64!(
@@ -471,6 +505,7 @@ impl UniformsStorage {
                 );
             }
 
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleVec3(v), target) => {
                 *target = Some(RawUniformValue::DoubleVec3(v));
                 uniform_f64!(
@@ -482,6 +517,7 @@ impl UniformsStorage {
                 );
             }
 
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::DoubleVec4(v), target) => {
                 *target = Some(RawUniformValue::DoubleVec4(v));
                 uniform_f64!(
@@ -492,10 +528,12 @@ impl UniformsStorage {
                     v.as_ptr() as *const gl::types::GLdouble
                 );
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::Int64(v), target) => {
                 *target = Some(RawUniformValue::Int64(v));
                 uniform_i64!(ctxt, Uniform1i64ARB, location, v);
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::Int64Vec2(v), target) => {
                 *target = Some(RawUniformValue::Int64Vec2(v));
                 uniform_i64!(
@@ -507,6 +545,7 @@ impl UniformsStorage {
                 );
             }
 
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::Int64Vec3(v), target) => {
                 *target = Some(RawUniformValue::Int64Vec3(v));
                 uniform_i64!(
@@ -518,6 +557,7 @@ impl UniformsStorage {
                 );
             }
 
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::Int64Vec4(v), target) => {
                 *target = Some(RawUniformValue::Int64Vec4(v));
                 uniform_i64!(
@@ -528,10 +568,12 @@ impl UniformsStorage {
                     v.as_ptr() as *const gl::types::GLint64
                 );
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::UnsignedInt64(v), target) => {
                 *target = Some(RawUniformValue::UnsignedInt64(v));
                 uniform_i64!(ctxt, Uniform1ui64ARB, location, v);
             }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::UnsignedInt64Vec2(v), target) => {
                 *target = Some(RawUniformValue::UnsignedInt64Vec2(v));
                 uniform_i64!(
@@ -543,6 +585,7 @@ impl UniformsStorage {
                 );
             }
 
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::UnsignedInt64Vec3(v), target) => {
                 *target = Some(RawUniformValue::UnsignedInt64Vec3(v));
                 uniform_i64!(
@@ -554,6 +597,7 @@ impl UniformsStorage {
                 );
             }
 
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::UnsignedInt64Vec4(v), target) => {
                 *target = Some(RawUniformValue::UnsignedInt64Vec4(v));
                 uniform_i64!(

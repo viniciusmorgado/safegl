@@ -147,6 +147,52 @@ Breaking changes:
   with a transform feedback session must be a draw without indices of points, lines or
   triangles lists, or it returns the new `DrawError::TransformFeedbackDrawNotSupported`:
   OpenGL ES raised `GL_INVALID_OPERATION` and captured nothing.
+- The Cargo features are levels, one per version: `gl40` to `gl46` for desktop OpenGL (core
+  profile), `gles30` to `gles32` for OpenGL ES, and `webgl` for WebGL 2 in browsers. A level is a
+  ceiling: the API of the versions above it doesn't compile, the API that only desktop OpenGL has
+  needs a desktop level, and the API that only OpenGL ES has needs an OpenGL ES level. At most one
+  level of each chain can be selected, a desktop and an OpenGL ES level together give both APIs,
+  and without any level the level is `gl40`; no level implies another. Two levels of a chain, a
+  desktop or OpenGL ES level for `wasm32-unknown-unknown`, or no `webgl` level there are compile
+  errors that name the levels. The previous features change meaning: `gl46`, the default, enabled
+  every API, and `gl41` and `gles30` were fallbacks. `gl46` compiles for macOS, where creating its
+  context fails with a message that explains that macOS stops at OpenGL 4.1.
+- `backend::glutin::level_context_apis()` replaces `tier_context_apis()`: it returns the versions
+  of the selected levels, the desktop one then the OpenGL ES one, instead of falling back from
+  OpenGL 4.6 to 4.1 and to OpenGL ES 3.0. `SimpleWindowBuilder` requests them.
+- The API is gated by the levels that have it:
+  - the desktop levels: `DrawParameters::{point_size, clip_planes_bitmask, polygon_mode,
+    multisampling, time_elapsed_query, condition, smooth, provoking_vertex}`, `Depth::clamp`,
+    `PolygonOffset::{point, line}`, `PolygonMode`, `Smooth`, `ProvokingVertex`, `DepthClamp`,
+    `ConditionalRendering`, `SamplesPassedQuery`, `TimeElapsedQuery`, 1D textures and their
+    support checks, subroutines (`UniformValue::Subroutine`, `Program::get_subroutine_uniforms`,
+    `program::is_subroutine_supported`, `SubroutineData`, `SubroutineUniform`), double-precision
+    and 64-bit integer uniforms and `RawUniformValue`s, 64-bit and
+    `F10F11F11UnsignedIntReversed` vertex attributes, and bindless textures;
+  - `gl41`: `f64` vertex attributes;
+  - `gl41` or `gles30`: program binaries (`Program::get_binary`, `ComputeShader::get_binary` and
+    `from_binary`, `ProgramCreationInput::Binary`, `program::Binary`, `GetBinaryError`,
+    `program::is_binary_supported`);
+  - a desktop level or `gles32`: geometry and tessellation shaders, the adjacency and `Patches`
+    primitives, `DrawParameters::{outputs, sample_shading, primitives_generated_query}`,
+    `OutputState`, `PrimitivesGeneratedQuery`, `SamplerWrapFunction::BorderClamp`,
+    `Sampler::border_color`, `BorderColor`, buffer textures, and cube map array and 2D
+    multisample array textures. At the other levels, the geometry and tessellation sources of
+    `ProgramCreationInput::SourceCode` and `Program::from_source` have the type
+    `program::NotInLevel` (see the new `program::StageSource`), which only accepts `None`;
+  - a desktop level or `gles31`: `DrawParameters::sample_mask` and 2D multisample textures;
+  - `gl44` or `gles32`: stencil textures; `gl44`: `SamplerWrapFunction::MirrorClamp`;
+  - `gles32`: `DrawParameters::primitive_bounding_box`;
+  - `gl43`, `gles30` or `webgl`: framebuffer invalidation (`invalidate`, `invalidate_rect` and
+    `InvalidateAttachments`);
+  - the API that needed the `gl46` feature: atomic counters and image units at `gl42` or
+    `gles31`; compute shaders, shader storage blocks and `EmptyFrameBuffer` at `gl43` or `gles31`;
+    multidraw indirect at `gl43`; `copy_image` at `gl43` or `gles32`; texture clears and query
+    buffers at `gl44`; texture barriers and clip control at `gl45`; SPIR-V and the polygon offset
+    clamp at `gl46`.
+
+  The `DrawError`s of these features exist at the same levels. Texture formats and the other
+  values that describe what the driver has stay checked at runtime, and so do the extensions.
 
 Additions:
 
@@ -175,6 +221,11 @@ Additions:
 
 Fixes:
 
+- On OpenGL ES, `clip_planes_bitmask` enables clip distances with `GL_EXT_clip_cull_distance`,
+  and enabling a plane without it returns `DrawError::ClipPlaneIndexOutOfBounds` instead of being
+  ignored.
+- `SamplerWrapFunction::MirrorClamp` falls back to `Clamp` on desktop OpenGL below 4.4 without
+  `GL_ARB_texture_mirror_clamp_to_edge`, instead of raising `GL_INVALID_ENUM`.
 - Buffer slices are bound with their own range to uniform blocks, shader storage blocks, atomic
   counter buffers and transform feedback, instead of the whole buffer.
 - Programs using cube map array images, `samplerCubeArrayShadow`, `usampler1DArray`, 64-bit

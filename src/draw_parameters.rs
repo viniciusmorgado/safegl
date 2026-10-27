@@ -16,13 +16,14 @@
 //!
 //! # Queries
 //!
-//! Query objects allow you to obtain information about the rendering process. For example, a
-//! `SamplesPassedQuery` allows you to know the number of samples that have been drawn.
+//! Query objects allow you to obtain information about the rendering process. For example, an
+//! `AnySamplesPassedQuery` allows you to know whether any sample has been drawn, and a
+//! `SamplesPassedQuery` (desktop OpenGL levels) how many.
 //!
 //! ```no_run
 //! # use glutin::surface::{ResizeableSurface, SurfaceTypeTrait};
 //! # fn example<T>(display: safegl::Display<T>) where T: SurfaceTypeTrait + ResizeableSurface {
-//! let query = safegl::draw_parameters::SamplesPassedQuery::new(&display).unwrap();
+//! let query = safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false).unwrap();
 //! let params = safegl::DrawParameters {
 //!     samples_passed_query: Some((&query).into()),
 //!     .. Default::default()
@@ -33,16 +34,17 @@
 //! After drawing with these parameters, you can retrieve the value inside the query:
 //!
 //! ```no_run
-//! # fn example(query: safegl::draw_parameters::SamplesPassedQuery) {
+//! # fn example(query: safegl::draw_parameters::AnySamplesPassedQuery) {
 //! let value = query.get();
 //! # }
 //! ```
 //!
 //! This operation will consume the query and block until the GPU has finished drawing. Instead,
-//! you can also use the query as a condition for drawing:
+//! at the desktop OpenGL levels, you can also use the query as a condition for drawing:
 //!
 //! ```no_run
-//! # fn example(query: safegl::draw_parameters::SamplesPassedQuery) {
+//! # fn example(query: safegl::draw_parameters::AnySamplesPassedQuery) {
+//! # #[cfg(safegl_desktop)] {
 //! let params = safegl::DrawParameters {
 //!     condition: Some(safegl::draw_parameters::ConditionalRendering {
 //!         query: (&query).into(),
@@ -51,6 +53,7 @@
 //!     }),
 //!     .. Default::default()
 //! };
+//! # }
 //! # }
 //! ```
 //!
@@ -80,19 +83,26 @@ use crate::DrawError;
 use crate::GlObject;
 use crate::QueryExt;
 use crate::Rect;
+#[cfg(safegl_desktop)]
 use crate::ToGlEnum;
 
+#[cfg(safegl_gles32)]
 use std::ops::Range;
 
 pub use self::blend::{Blend, BlendingFunction, LinearBlendingFactor};
-pub use self::depth::{Depth, DepthClamp, DepthTest};
+#[cfg(safegl_desktop)]
+pub use self::depth::DepthClamp;
+pub use self::depth::{Depth, DepthTest};
+#[cfg(any(safegl_desktop, safegl_gles32))]
+pub use self::query::PrimitivesGeneratedQuery;
 pub use self::query::QueryCreationError;
-#[cfg(feature = "gl46")]
-#[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
-pub use self::query::ToBufferError;
 pub use self::query::QueryResultError;
+#[cfg(safegl_gl44)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
+pub use self::query::ToBufferError;
 pub use self::query::{AnySamplesPassedQuery, TransformFeedbackPrimitivesWrittenQuery};
-pub use self::query::{PrimitivesGeneratedQuery, SamplesPassedQuery, TimeElapsedQuery};
+#[cfg(safegl_desktop)]
+pub use self::query::{SamplesPassedQuery, TimeElapsedQuery};
 pub use self::stencil::{Stencil, StencilOperation, StencilTest};
 
 mod blend;
@@ -173,6 +183,8 @@ pub enum BackfaceCullingMode {
 /// </svg>
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub enum PolygonMode {
     /// Only draw a single point at each vertex.
     ///
@@ -188,6 +200,7 @@ pub enum PolygonMode {
     Fill,
 }
 
+#[cfg(safegl_desktop)]
 impl ToGlEnum for PolygonMode {
     #[inline]
     fn to_glenum(&self) -> gl::types::GLenum {
@@ -203,6 +216,8 @@ impl ToGlEnum for PolygonMode {
 ///
 /// Note that this is just a hint and the driver may disregard it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub enum Smooth {
     /// The most efficient option should be chosen.
     Fastest,
@@ -214,6 +229,7 @@ pub enum Smooth {
     DontCare,
 }
 
+#[cfg(safegl_desktop)]
 impl ToGlEnum for Smooth {
     #[inline]
     fn to_glenum(&self) -> gl::types::GLenum {
@@ -227,6 +243,8 @@ impl ToGlEnum for Smooth {
 
 /// The vertex to use for flat shading.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub enum ProvokingVertex {
     /// Use the last vertex of each primitive.
     LastVertex,
@@ -293,6 +311,8 @@ pub struct DrawParameters<'a> {
     /// `DrawError::OutputStateIndexOutOfBounds`. Needs OpenGL 4.0 or OpenGL ES 3.2. Elsewhere,
     /// WebGL included, an entry that differs from `blend` and `color_mask` returns
     /// `DrawError::PerOutputStateNotSupported`.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     pub outputs: &'a [OutputState],
 
     /// Width in pixels of the lines to draw when drawing lines.
@@ -310,6 +330,8 @@ pub struct DrawParameters<'a> {
     ///
     /// Ignored on OpenGL ES and WebGL, where the vertex shader must write the size of points
     /// to `gl_PointSize`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     pub point_size: Option<f32>,
 
     /// If the bit corresponding to 2^i is 1 in the bitmask, then GL_CLIP_DISTANCEi is enabled.
@@ -317,6 +339,11 @@ pub struct DrawParameters<'a> {
     /// The most common value for GL_MAX_CLIP_DISTANCES is 8, so 32 bits in the mask is plenty.
     ///
     /// See `https://www.khronos.org/registry/OpenGL-Refpages/gl4/html/gl_ClipDistance.xhtml`.
+    ///
+    /// OpenGL ES needs `GL_EXT_clip_cull_distance`. Without it, and on WebGL, enabling a plane
+    /// returns `DrawError::ClipPlaneIndexOutOfBounds`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     pub clip_planes_bitmask: u32,
 
     /// Whether or not the GPU should filter out some faces.
@@ -333,6 +360,8 @@ pub struct DrawParameters<'a> {
     ///
     /// OpenGL ES and WebGL only support `Fill`; other values return
     /// `DrawError::PolygonModeNotSupported`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     pub polygon_mode: PolygonMode,
 
     /// Whether multisample antialiasing (MSAA) should be used. Default value is `true`.
@@ -343,6 +372,8 @@ pub struct DrawParameters<'a> {
     ///
     /// OpenGL ES and WebGL can't disable multisampling of a multisampled framebuffer; `false`
     /// returns `DrawError::MultisamplingNotSupported`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     pub multisampling: bool,
 
     /// Whether the alpha of the first color output decides how many samples of each pixel the
@@ -365,6 +396,8 @@ pub struct DrawParameters<'a> {
     ///
     /// Needs OpenGL 4.0, OpenGL ES 3.2 or `GL_OES_sample_shading`. Otherwise, and on WebGL,
     /// returns `DrawError::SampleShadingNotSupported`.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     pub sample_shading: Option<f32>,
 
     /// Bitmask of the samples of each pixel that drawing may write (`glSampleMaski`). Bit `i`
@@ -376,6 +409,8 @@ pub struct DrawParameters<'a> {
     ///
     /// Needs OpenGL 3.2 or OpenGL ES 3.1. Otherwise, and on WebGL, returns
     /// `DrawError::SampleMaskNotSupported`.
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
     pub sample_mask: Option<u32>,
 
     /// Whether dithering is activated. Default value is `true`.
@@ -418,9 +453,13 @@ pub struct DrawParameters<'a> {
 
     /// If set, the time it took for the GPU to execute this draw command is added to the total
     /// stored inside the `TimeElapsedQuery`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     pub time_elapsed_query: Option<&'a TimeElapsedQuery>,
 
     /// If set, the number of primitives generated is added to the total stored inside the query.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     pub primitives_generated_query: Option<&'a PrimitivesGeneratedQuery>,
 
     /// If set, the number of vertices written by transform feedback.
@@ -432,6 +471,8 @@ pub struct DrawParameters<'a> {
     ///
     /// OpenGL ES and WebGL need `GL_NV_conditional_render`, otherwise
     /// `DrawError::ConditionalRenderingNotSupported` is returned.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     pub condition: Option<ConditionalRendering<'a>>,
 
     /// If set, then the generated primitives will be written back to a buffer.
@@ -440,6 +481,8 @@ pub struct DrawParameters<'a> {
     /// If set, then the generated primitives will be smoothed.
     ///
     /// Note that blending needs to be enabled for this to work.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     pub smooth: Option<Smooth>,
 
     /// In your vertex shader or geometry shader, you have the possibility to mark some output
@@ -449,6 +492,8 @@ pub struct DrawParameters<'a> {
     /// The default value is `LastVertex`, as this is the default in OpenGL. Any other value can
     /// potentially trigger a `ProvokingVertexNotSupported` error. Most notably OpenGL ES doesn't
     /// support anything else but `LastVertex`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     pub provoking_vertex: ProvokingVertex,
 
     /// Hint for the GPU of the bounding box of the geometry.
@@ -464,6 +509,8 @@ pub struct DrawParameters<'a> {
     ///
     /// Since this is purely an optimization, this parameter is ignored if the backend doesn't
     /// support it.
+    #[cfg(safegl_gles32)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gles32)))]
     pub primitive_bounding_box: (Range<f32>, Range<f32>, Range<f32>, Range<f32>),
 
     /// If enabled, will split the index buffer (if any is used in the draw call)
@@ -493,18 +540,18 @@ pub struct DrawParameters<'a> {
     ///
     /// Needs OpenGL 4.6, `GL_ARB_polygon_offset_clamp` or `GL_EXT_polygon_offset_clamp`.
     /// Otherwise a value other than `0.0` returns `DrawError::PolygonOffsetClampNotSupported`.
-    #[cfg(feature = "gl46")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
     pub polygon_offset_clamp: f32,
 
     /// Clip control origin. The default value is `LowerLeft`.
-    #[cfg(feature = "gl46")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    #[cfg(safegl_gl45)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
     pub clip_control_origin: ClipControlOrigin,
 
     /// Clip control depth mode. The default value is `NegativeOneToOne`.
-    #[cfg(feature = "gl46")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    #[cfg(safegl_gl45)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
     pub clip_control_depth: ClipControlDepth,
 }
 
@@ -541,6 +588,8 @@ pub struct DrawParameters<'a> {
 /// };
 /// ```
 #[derive(Copy, Clone, Debug, PartialEq)]
+#[cfg(any(safegl_desktop, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
 pub struct OutputState {
     /// How the output is merged with the existing pixel. See `DrawParameters::blend`.
     pub blend: Blend,
@@ -550,6 +599,7 @@ pub struct OutputState {
     pub color_mask: (bool, bool, bool, bool),
 }
 
+#[cfg(any(safegl_desktop, safegl_gles32))]
 impl Default for OutputState {
     /// No blending and all components written, like the defaults of `DrawParameters`.
     fn default() -> OutputState {
@@ -562,6 +612,8 @@ impl Default for OutputState {
 
 /// Condition whether to render or not.
 #[derive(Debug, Copy, Clone)]
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub struct ConditionalRendering<'a> {
     /// The query to use.
     pub query: SamplesQueryParam<'a>,
@@ -579,6 +631,8 @@ pub struct ConditionalRendering<'a> {
 #[derive(Debug, Copy, Clone)]
 pub enum SamplesQueryParam<'a> {
     /// A `SamplesPassedQuery`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     SamplesPassedQuery(&'a SamplesPassedQuery),
     /// A `AnySamplesPassedQuery`.
     AnySamplesPassedQuery(&'a AnySamplesPassedQuery),
@@ -587,6 +641,7 @@ pub enum SamplesQueryParam<'a> {
 impl<'a> SamplesQueryParam<'a> {
     fn id(&self) -> glow::Query {
         match *self {
+            #[cfg(safegl_desktop)]
             SamplesQueryParam::SamplesPassedQuery(q) => q.get_id(),
             SamplesQueryParam::AnySamplesPassedQuery(q) => q.get_id(),
         }
@@ -594,6 +649,7 @@ impl<'a> SamplesQueryParam<'a> {
 
     fn is_unused(&self) -> bool {
         match *self {
+            #[cfg(safegl_desktop)]
             SamplesQueryParam::SamplesPassedQuery(q) => q.is_unused(),
             SamplesQueryParam::AnySamplesPassedQuery(q) => q.is_unused(),
         }
@@ -606,24 +662,32 @@ pub(crate) fn check_query_contexts(
     draw_parameters: &DrawParameters<'_>,
 ) -> Result<(), DrawError> {
     let samples = |query: &SamplesQueryParam<'_>| match *query {
+        #[cfg(safegl_desktop)]
         SamplesQueryParam::SamplesPassedQuery(q) => ctxt.owns(QueryExt::get_context(q)),
         SamplesQueryParam::AnySamplesPassedQuery(q) => ctxt.owns(QueryExt::get_context(q)),
     };
 
-    let owned = draw_parameters.samples_passed_query.as_ref().is_none_or(samples)
-        && draw_parameters
-            .time_elapsed_query
-            .is_none_or(|q| ctxt.owns(QueryExt::get_context(q)))
-        && draw_parameters
-            .primitives_generated_query
-            .is_none_or(|q| ctxt.owns(QueryExt::get_context(q)))
+    let owned = draw_parameters
+        .samples_passed_query
+        .as_ref()
+        .is_none_or(samples)
         && draw_parameters
             .transform_feedback_primitives_written_query
+            .is_none_or(|q| ctxt.owns(QueryExt::get_context(q)));
+    #[cfg(safegl_desktop)]
+    let owned = owned
+        && draw_parameters
+            .time_elapsed_query
             .is_none_or(|q| ctxt.owns(QueryExt::get_context(q)))
         && draw_parameters
             .condition
             .as_ref()
             .is_none_or(|condition| samples(&condition.query));
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    let owned = owned
+        && draw_parameters
+            .primitives_generated_query
+            .is_none_or(|q| ctxt.owns(QueryExt::get_context(q)));
 
     if owned {
         Ok(())
@@ -637,6 +701,15 @@ pub(crate) fn check_query_contexts(
 /// Checks the queries of the draw parameters. Returns `Ok(false)` if the draw command must not
 /// draw anything: its condition is a query that was never used, whose result counts as no
 /// samples, and on which OpenGL refuses to begin conditional rendering.
+#[cfg(not(safegl_desktop))]
+pub(crate) fn check_queries(_: &DrawParameters<'_>) -> Result<bool, DrawError> {
+    Ok(true)
+}
+
+/// Checks the queries of the draw parameters. Returns `Ok(false)` if the draw command must not
+/// draw anything: its condition is a query that was never used, whose result counts as no
+/// samples, and on which OpenGL refuses to begin conditional rendering.
+#[cfg(safegl_desktop)]
 pub(crate) fn check_queries(draw_parameters: &DrawParameters<'_>) -> Result<bool, DrawError> {
     let condition = match draw_parameters.condition {
         Some(ref condition) => condition,
@@ -653,6 +726,7 @@ pub(crate) fn check_queries(draw_parameters: &DrawParameters<'_>) -> Result<bool
     Ok(!condition.query.is_unused())
 }
 
+#[cfg(safegl_desktop)]
 impl<'a> From<&'a SamplesPassedQuery> for SamplesQueryParam<'a> {
     #[inline]
     fn from(r: &'a SamplesPassedQuery) -> SamplesQueryParam<'a> {
@@ -675,8 +749,12 @@ pub struct PolygonOffset {
     /// Add a constant value to polygon depth
     pub units: f32,
     /// If true, the depth offset is enabled for points
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     pub point: bool,
     /// If true, the depth offset is enabled for lines
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     pub line: bool,
     /// If true, the depth offset is enabled for triangles
     pub fill: bool,
@@ -687,7 +765,9 @@ impl Default for PolygonOffset {
         PolygonOffset {
             factor: 0.0,
             units: 0.0,
+            #[cfg(safegl_desktop)]
             point: false,
+            #[cfg(safegl_desktop)]
             line: false,
             fill: false,
         }
@@ -695,8 +775,8 @@ impl Default for PolygonOffset {
 }
 
 /// Specifies the clip control origin.
-#[cfg(feature = "gl46")]
-#[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+#[cfg(safegl_gl45)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClipControlOrigin {
     /// The clip space origin is at the lower-left corner of the viewport. This is the default state.
@@ -707,8 +787,8 @@ pub enum ClipControlOrigin {
 }
 
 /// Specifies the clip control depth mode.
-#[cfg(feature = "gl46")]
-#[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+#[cfg(safegl_gl45)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClipControlDepth {
     /// The near and far clipping planes correspond to Z coordinates of -1 and +1. This is the default state.
@@ -725,36 +805,49 @@ impl<'a> Default for DrawParameters<'a> {
             stencil: Default::default(),
             blend: Default::default(),
             color_mask: (true, true, true, true),
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             outputs: &[],
             line_width: None,
+            #[cfg(safegl_desktop)]
             point_size: None,
             backface_culling: BackfaceCullingMode::CullingDisabled,
+            #[cfg(safegl_desktop)]
             polygon_mode: PolygonMode::Fill,
+            #[cfg(safegl_desktop)]
             clip_planes_bitmask: 0,
+            #[cfg(safegl_desktop)]
             multisampling: true,
             alpha_to_coverage: false,
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             sample_shading: None,
+            #[cfg(any(safegl_desktop, safegl_gles31))]
             sample_mask: None,
             dithering: true,
             viewport: None,
             scissor: None,
             draw_primitives: true,
             samples_passed_query: None,
+            #[cfg(safegl_desktop)]
             time_elapsed_query: None,
+            #[cfg(any(safegl_desktop, safegl_gles32))]
             primitives_generated_query: None,
             transform_feedback_primitives_written_query: None,
+            #[cfg(safegl_desktop)]
             condition: None,
             transform_feedback: None,
+            #[cfg(safegl_desktop)]
             smooth: None,
+            #[cfg(safegl_desktop)]
             provoking_vertex: ProvokingVertex::LastVertex,
+            #[cfg(safegl_gles32)]
             primitive_bounding_box: (-1.0..1.0, -1.0..1.0, -1.0..1.0, -1.0..1.0),
             primitive_restart_index: false,
             polygon_offset: Default::default(),
-            #[cfg(feature = "gl46")]
+            #[cfg(safegl_gl46)]
             polygon_offset_clamp: 0.0,
-            #[cfg(feature = "gl46")]
+            #[cfg(safegl_gl45)]
             clip_control_origin: ClipControlOrigin::LowerLeft,
-            #[cfg(feature = "gl46")]
+            #[cfg(safegl_gl45)]
             clip_control_depth: ClipControlDepth::NegativeOneToOne,
         }
     }
@@ -780,22 +873,36 @@ pub fn sync(
     dimensions: (u32, u32),
     primitives_types: PrimitiveType,
 ) -> Result<(), DrawError> {
+    #[cfg(any(safegl_desktop, safegl_gles32))]
     validate_outputs(ctxt, draw_parameters)?;
     depth::sync_depth(ctxt, &draw_parameters.depth)?;
     stencil::sync_stencil(ctxt, &draw_parameters.stencil);
-    blend::sync_blending(ctxt, draw_parameters.blend, draw_parameters.outputs)?;
-    sync_color_mask(ctxt, draw_parameters.color_mask, draw_parameters.outputs);
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    let (blends, masks) = (
+        draw_parameters.outputs.iter().map(|output| output.blend),
+        draw_parameters
+            .outputs
+            .iter()
+            .map(|output| output.color_mask),
+    );
+    #[cfg(not(any(safegl_desktop, safegl_gles32)))]
+    let (blends, masks) = (std::iter::empty(), std::iter::empty());
+    blend::sync_blending(ctxt, draw_parameters.blend, blends)?;
+    sync_color_mask(ctxt, draw_parameters.color_mask, masks);
     sync_line_width(ctxt, draw_parameters.line_width)?;
+    #[cfg(safegl_desktop)]
     sync_point_size(ctxt, draw_parameters.point_size);
-    sync_polygon_mode(
-        ctxt,
-        draw_parameters.backface_culling,
-        draw_parameters.polygon_mode,
-    )?;
+    sync_backface_culling(ctxt, draw_parameters.backface_culling);
+    #[cfg(safegl_desktop)]
+    sync_polygon_mode(ctxt, draw_parameters.polygon_mode)?;
+    #[cfg(safegl_desktop)]
     sync_clip_planes_bitmask(ctxt, draw_parameters.clip_planes_bitmask)?;
+    #[cfg(safegl_desktop)]
     sync_multisampling(ctxt, draw_parameters.multisampling)?;
     sync_alpha_to_coverage(ctxt, draw_parameters.alpha_to_coverage);
+    #[cfg(any(safegl_desktop, safegl_gles32))]
     sync_sample_shading(ctxt, draw_parameters.sample_shading)?;
+    #[cfg(any(safegl_desktop, safegl_gles31))]
     sync_sample_mask(ctxt, draw_parameters.sample_mask)?;
     sync_dithering(ctxt, draw_parameters.dithering);
     sync_viewport_scissor(
@@ -805,16 +912,14 @@ pub fn sync(
         dimensions,
     );
     sync_rasterizer_discard(ctxt, draw_parameters.draw_primitives)?;
-    sync_queries(
-        ctxt,
-        draw_parameters.samples_passed_query,
-        draw_parameters.time_elapsed_query,
-        draw_parameters.primitives_generated_query,
-        draw_parameters.transform_feedback_primitives_written_query,
-    )?;
+    sync_queries(ctxt, draw_parameters)?;
+    #[cfg(safegl_desktop)]
     sync_conditional_render(ctxt, draw_parameters.condition)?;
+    #[cfg(safegl_desktop)]
     sync_smooth(ctxt, draw_parameters.smooth, primitives_types)?;
+    #[cfg(safegl_desktop)]
     sync_provoking_vertex(ctxt, draw_parameters.provoking_vertex)?;
+    #[cfg(safegl_gles32)]
     sync_primitive_bounding_box(ctxt, &draw_parameters.primitive_bounding_box);
     sync_primitive_restart_index(ctxt, draw_parameters.primitive_restart_index)?;
     sync_polygon_offset(
@@ -822,7 +927,7 @@ pub fn sync(
         draw_parameters.polygon_offset,
         polygon_offset_clamp(draw_parameters),
     )?;
-    #[cfg(feature = "gl46")]
+    #[cfg(safegl_gl45)]
     sync_clip_control(
         ctxt,
         draw_parameters.clip_control_origin,
@@ -834,6 +939,7 @@ pub fn sync(
 
 /// Checks that `DrawParameters::outputs` fits in the draw buffers, and that the backend can
 /// give draw buffers their own state if an entry needs it.
+#[cfg(any(safegl_desktop, safegl_gles32))]
 fn validate_outputs(
     ctxt: &context::CommandContext<'_>,
     draw_parameters: &DrawParameters<'_>,
@@ -863,11 +969,11 @@ fn validate_outputs(
 }
 
 /// Sets the color mask of all draw buffers to `mask`, then overrides it for the draw buffers
-/// whose entry in `outputs` differs.
+/// whose mask in `outputs` differs.
 fn sync_color_mask(
     ctxt: &mut context::CommandContext<'_>,
     mask: (bool, bool, bool, bool),
-    outputs: &[OutputState],
+    outputs: impl Iterator<Item = (bool, bool, bool, bool)>,
 ) {
     let gl_mask = (
         if mask.0 { 1 } else { 0 },
@@ -887,11 +993,11 @@ fn sync_color_mask(
     }
 
     let mut indexed = false;
-    for (index, output) in outputs.iter().enumerate() {
-        if output.color_mask != mask {
-            let m = output.color_mask;
+    for (index, m) in outputs.enumerate() {
+        if m != mask {
             unsafe {
-                ctxt.glow.color_mask_draw_buffer(index as u32, m.0, m.1, m.2, m.3);
+                ctxt.glow
+                    .color_mask_draw_buffer(index as u32, m.0, m.1, m.2, m.3);
             }
             indexed = true;
         }
@@ -920,6 +1026,7 @@ fn sync_line_width(
     Ok(())
 }
 
+#[cfg(safegl_desktop)]
 fn sync_point_size(ctxt: &mut context::CommandContext<'_>, point_size: Option<f32>) {
     // `glPointSize` doesn't exist on OpenGL ES and WebGL, where the size of points is the value
     // that the vertex shader writes to `gl_PointSize`
@@ -937,17 +1044,10 @@ fn sync_point_size(ctxt: &mut context::CommandContext<'_>, point_size: Option<f3
     }
 }
 
-fn sync_polygon_mode(
+fn sync_backface_culling(
     ctxt: &mut context::CommandContext<'_>,
     backface_culling: BackfaceCullingMode,
-    polygon_mode: PolygonMode,
-) -> Result<(), DrawError> {
-    // `glPolygonMode` doesn't exist on OpenGL ES and WebGL, where polygons are always filled
-    if ctxt.version.0 != Api::Gl && polygon_mode != PolygonMode::Fill {
-        return Err(DrawError::PolygonModeNotSupported);
-    }
-
-    // back-face culling
+) {
     // note: we never change the value of `glFrontFace`, whose default is GL_CCW
     //  that's why `CullClockwise` uses `GL_BACK` for example
     match backface_culling {
@@ -978,8 +1078,18 @@ fn sync_polygon_mode(
             }
         },
     }
+}
 
-    // polygon mode
+#[cfg(safegl_desktop)]
+fn sync_polygon_mode(
+    ctxt: &mut context::CommandContext<'_>,
+    polygon_mode: PolygonMode,
+) -> Result<(), DrawError> {
+    // `glPolygonMode` doesn't exist on OpenGL ES and WebGL, where polygons are always filled
+    if ctxt.version.0 != Api::Gl && polygon_mode != PolygonMode::Fill {
+        return Err(DrawError::PolygonModeNotSupported);
+    }
+
     unsafe {
         let polygon_mode = polygon_mode.to_glenum();
         if ctxt.state.polygon_mode != polygon_mode {
@@ -991,21 +1101,24 @@ fn sync_polygon_mode(
     Ok(())
 }
 
+#[cfg(safegl_desktop)]
 fn sync_clip_planes_bitmask(
     ctxt: &mut context::CommandContext<'_>,
     clip_planes_bitmask: u32,
 ) -> Result<(), DrawError> {
-    // Not supported on GLES
-    if ctxt.version.0 != Api::Gl {
-        return Ok(());
-    }
     // the limit is only queried when the planes change
     if clip_planes_bitmask == ctxt.state.enabled_clip_planes {
         return Ok(());
     }
     unsafe {
+        // OpenGL ES has clip distances with `GL_EXT_clip_cull_distance`, whose names have the
+        // same values as the core ones
         let max_clip_planes: gl::types::GLint =
-            ctxt.glow.get_parameter_i32(glow::MAX_CLIP_DISTANCES);
+            if ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_clip_cull_distance {
+                ctxt.glow.get_parameter_i32(glow::MAX_CLIP_DISTANCES)
+            } else {
+                0
+            };
         for i in 0..32 {
             if clip_planes_bitmask & (1 << i) != ctxt.state.enabled_clip_planes & (1 << i) {
                 if clip_planes_bitmask & (1 << i) != 0 {
@@ -1025,6 +1138,7 @@ fn sync_clip_planes_bitmask(
     }
 }
 
+#[cfg(safegl_desktop)]
 fn sync_multisampling(
     ctxt: &mut context::CommandContext<'_>,
     multisampling: bool,
@@ -1061,6 +1175,7 @@ fn sync_alpha_to_coverage(ctxt: &mut context::CommandContext<'_>, alpha_to_cover
     }
 }
 
+#[cfg(any(safegl_desktop, safegl_gles32))]
 fn sync_sample_shading(
     ctxt: &mut context::CommandContext<'_>,
     sample_shading: Option<f32>,
@@ -1101,6 +1216,7 @@ fn sync_sample_shading(
     Ok(())
 }
 
+#[cfg(any(safegl_desktop, safegl_gles31))]
 fn sync_sample_mask(
     ctxt: &mut context::CommandContext<'_>,
     sample_mask: Option<u32>,
@@ -1262,40 +1378,39 @@ fn sync_rasterizer_discard(
 
 fn sync_queries(
     ctxt: &mut context::CommandContext<'_>,
-    samples_passed_query: Option<SamplesQueryParam<'_>>,
-    time_elapsed_query: Option<&TimeElapsedQuery>,
-    primitives_generated_query: Option<&PrimitivesGeneratedQuery>,
-    transform_feedback_primitives_written_query: Option<&TransformFeedbackPrimitivesWrittenQuery>,
+    draw_parameters: &DrawParameters<'_>,
 ) -> Result<(), DrawError> {
-    if let Some(SamplesQueryParam::SamplesPassedQuery(q)) = samples_passed_query {
-        q.begin_query(ctxt)?;
-    } else if let Some(SamplesQueryParam::AnySamplesPassedQuery(q)) = samples_passed_query {
-        q.begin_query(ctxt)?;
-    } else {
-        TimeElapsedQuery::end_samples_passed_query(ctxt);
+    match draw_parameters.samples_passed_query {
+        #[cfg(safegl_desktop)]
+        Some(SamplesQueryParam::SamplesPassedQuery(q)) => q.begin_query(ctxt)?,
+        Some(SamplesQueryParam::AnySamplesPassedQuery(q)) => q.begin_query(ctxt)?,
+        None => AnySamplesPassedQuery::end_samples_passed_query(ctxt),
     }
 
-    if let Some(time_elapsed_query) = time_elapsed_query {
+    #[cfg(safegl_desktop)]
+    if let Some(time_elapsed_query) = draw_parameters.time_elapsed_query {
         time_elapsed_query.begin_query(ctxt)?;
     } else {
-        TimeElapsedQuery::end_time_elapsed_query(ctxt);
+        AnySamplesPassedQuery::end_time_elapsed_query(ctxt);
     }
 
-    if let Some(primitives_generated_query) = primitives_generated_query {
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    if let Some(primitives_generated_query) = draw_parameters.primitives_generated_query {
         primitives_generated_query.begin_query(ctxt)?;
     } else {
-        TimeElapsedQuery::end_primitives_generated_query(ctxt);
+        AnySamplesPassedQuery::end_primitives_generated_query(ctxt);
     }
 
-    if let Some(tfq) = transform_feedback_primitives_written_query {
+    if let Some(tfq) = draw_parameters.transform_feedback_primitives_written_query {
         tfq.begin_query(ctxt)?;
     } else {
-        TimeElapsedQuery::end_transform_feedback_primitives_written_query(ctxt);
+        AnySamplesPassedQuery::end_transform_feedback_primitives_written_query(ctxt);
     }
 
     Ok(())
 }
 
+#[cfg(safegl_desktop)]
 fn sync_conditional_render(
     ctxt: &mut context::CommandContext<'_>,
     condition: Option<ConditionalRendering<'_>>,
@@ -1315,11 +1430,12 @@ fn sync_conditional_render(
             }
         }
     } else {
-        TimeElapsedQuery::end_conditional_render(ctxt);
+        AnySamplesPassedQuery::end_conditional_render(ctxt);
         Ok(())
     }
 }
 
+#[cfg(safegl_desktop)]
 fn sync_smooth(
     ctxt: &mut context::CommandContext<'_>,
     smooth: Option<Smooth>,
@@ -1397,6 +1513,7 @@ fn sync_smooth(
     Ok(())
 }
 
+#[cfg(safegl_desktop)]
 fn sync_provoking_vertex(
     ctxt: &mut context::CommandContext<'_>,
     value: ProvokingVertex,
@@ -1427,6 +1544,7 @@ fn sync_provoking_vertex(
     Ok(())
 }
 
+#[cfg(safegl_gles32)]
 fn sync_primitive_bounding_box(
     ctxt: &mut context::CommandContext<'_>,
     bb: &(Range<f32>, Range<f32>, Range<f32>, Range<f32>),
@@ -1523,12 +1641,12 @@ fn set_flag_enabled(ctxt: &mut context::CommandContext<'_>, cap: gl::types::GLen
     }
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl46)]
 fn polygon_offset_clamp(draw_parameters: &DrawParameters<'_>) -> f32 {
     draw_parameters.polygon_offset_clamp
 }
 
-#[cfg(not(feature = "gl46"))]
+#[cfg(not(safegl_gl46))]
 fn polygon_offset_clamp(_: &DrawParameters<'_>) -> f32 {
     0.0
 }
@@ -1538,11 +1656,8 @@ fn sync_polygon_offset(
     offset: PolygonOffset,
     clamp: f32,
 ) -> Result<(), DrawError> {
-    // `GL_POLYGON_OFFSET_POINT` and `GL_POLYGON_OFFSET_LINE` don't exist on OpenGL ES and WebGL
-    let is_gl = ctxt.version.0 == Api::Gl;
-    if !is_gl && (offset.point || offset.line) {
-        return Err(DrawError::PolygonOffsetNotSupported);
-    }
+    #[cfg(safegl_desktop)]
+    sync_polygon_offset_point_line(ctxt, offset)?;
 
     if ctxt.state.polygon_offset != (offset.factor, offset.units)
         || ctxt.state.polygon_offset_clamp != clamp
@@ -1558,16 +1673,6 @@ fn sync_polygon_offset(
         ctxt.state.polygon_offset_clamp = clamp;
     }
 
-    if is_gl && offset.point != ctxt.state.enabled_polygon_offset_point {
-        ctxt.state.enabled_polygon_offset_point = offset.point;
-        set_flag_enabled(ctxt, gl::POLYGON_OFFSET_POINT, offset.point);
-    }
-
-    if is_gl && offset.line != ctxt.state.enabled_polygon_offset_line {
-        ctxt.state.enabled_polygon_offset_line = offset.line;
-        set_flag_enabled(ctxt, gl::POLYGON_OFFSET_LINE, offset.line);
-    }
-
     if offset.fill != ctxt.state.enabled_polygon_offset_fill {
         ctxt.state.enabled_polygon_offset_fill = offset.fill;
         set_flag_enabled(ctxt, gl::POLYGON_OFFSET_FILL, offset.fill);
@@ -1576,7 +1681,34 @@ fn sync_polygon_offset(
     Ok(())
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(safegl_desktop)]
+fn sync_polygon_offset_point_line(
+    ctxt: &mut context::CommandContext<'_>,
+    offset: PolygonOffset,
+) -> Result<(), DrawError> {
+    // `GL_POLYGON_OFFSET_POINT` and `GL_POLYGON_OFFSET_LINE` don't exist on OpenGL ES and WebGL
+    if ctxt.version.0 != Api::Gl {
+        return if offset.point || offset.line {
+            Err(DrawError::PolygonOffsetNotSupported)
+        } else {
+            Ok(())
+        };
+    }
+
+    if offset.point != ctxt.state.enabled_polygon_offset_point {
+        ctxt.state.enabled_polygon_offset_point = offset.point;
+        set_flag_enabled(ctxt, gl::POLYGON_OFFSET_POINT, offset.point);
+    }
+
+    if offset.line != ctxt.state.enabled_polygon_offset_line {
+        ctxt.state.enabled_polygon_offset_line = offset.line;
+        set_flag_enabled(ctxt, gl::POLYGON_OFFSET_LINE, offset.line);
+    }
+
+    Ok(())
+}
+
+#[cfg(safegl_gl46)]
 fn set_polygon_offset_clamp(
     ctxt: &mut context::CommandContext<'_>,
     factor: f32,
@@ -1596,8 +1728,8 @@ fn set_polygon_offset_clamp(
     Ok(())
 }
 
-// without `gl46` the clamp is always 0
-#[cfg(not(feature = "gl46"))]
+// below the `gl46` level the clamp is always 0
+#[cfg(not(safegl_gl46))]
 fn set_polygon_offset_clamp(
     _: &mut context::CommandContext<'_>,
     _: f32,
@@ -1607,7 +1739,7 @@ fn set_polygon_offset_clamp(
     unreachable!()
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl45)]
 fn sync_clip_control(
     ctxt: &mut context::CommandContext<'_>,
     origin: ClipControlOrigin,

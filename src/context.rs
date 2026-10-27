@@ -1019,12 +1019,12 @@ impl<'a> CapabilitiesSource for CommandContext<'a> {
     }
 }
 
-/// Checks whether the backend supports SafeGL. Returns an `Err` if it doesn't.
-/// Minimum desktop OpenGL version supported by SafeGL (the `gl41` tier).
+/// Minimum desktop OpenGL version supported by SafeGL, whatever the level.
 const MIN_GL_VERSION: Version = Version(Api::Gl, 4, 0);
-/// Minimum OpenGL ES version supported by SafeGL (the `gles30` tier, also WebGL 2).
+/// Minimum OpenGL ES version supported by SafeGL, whatever the level (also WebGL 2).
 const MIN_GLES_VERSION: Version = Version(Api::GlEs, 3, 0);
 
+/// Checks whether the backend supports SafeGL. Returns an `Err` if it doesn't.
 fn check_gl_compatibility(gl: &glow::Context, version: &Version) -> Result<(), IncompatibleOpenGl> {
     let minimum = match version.0 {
         Api::Gl => MIN_GL_VERSION,

@@ -406,7 +406,7 @@ fn multi_color_attachments_maximum() {
     safegl::framebuffer::MultiOutputFrameBuffer::new(&display, colors).unwrap();
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
 fn empty_framebuffer_wrong_layers() {
     use safegl::framebuffer::{EmptyFrameBuffer, ValidationError};
@@ -425,7 +425,7 @@ fn empty_framebuffer_wrong_layers() {
     ));
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
 fn empty_framebuffer_wrong_samples() {
     use safegl::framebuffer::{EmptyFrameBuffer, ValidationError};
@@ -444,7 +444,7 @@ fn empty_framebuffer_wrong_samples() {
     ));
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
 fn empty_framebuffer_width_out_of_range() {
     use safegl::framebuffer::{EmptyFrameBuffer, ValidationError};
@@ -464,7 +464,7 @@ fn empty_framebuffer_width_out_of_range() {
     display.assert_no_error(None);
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
 fn empty_framebuffer_height_out_of_range() {
     use safegl::framebuffer::{EmptyFrameBuffer, ValidationError};
@@ -484,7 +484,7 @@ fn empty_framebuffer_height_out_of_range() {
     display.assert_no_error(None);
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
 fn empty_framebuffer_layers_out_of_range() {
     use safegl::framebuffer::{EmptyFrameBuffer, ValidationError};
@@ -504,7 +504,7 @@ fn empty_framebuffer_layers_out_of_range() {
     display.assert_no_error(None);
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
 fn empty_framebuffer_samples_out_of_range() {
     use safegl::framebuffer::{EmptyFrameBuffer, ValidationError};
@@ -524,7 +524,7 @@ fn empty_framebuffer_samples_out_of_range() {
     display.assert_no_error(None);
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
 fn empty_framebuffer_simple_draw() {
     use safegl::framebuffer::EmptyFrameBuffer;

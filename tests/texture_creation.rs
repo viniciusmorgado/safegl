@@ -1,11 +1,12 @@
 #[macro_use]
 extern crate safegl;
 
-#[cfg(feature = "gl46")]
+#[cfg(safegl_desktop)]
 use safegl::Surface;
 
 mod support;
 
+#[cfg(safegl_desktop)]
 #[test]
 fn empty_texture1d_u8u8u8u8() {
     let display = support::build_display();
@@ -67,6 +68,7 @@ fn get_format_u8u8u8u8() {
     }
 }
 
+#[cfg(safegl_desktop)]
 #[test]
 fn depth_texture_1d_creation() {
     let display = support::build_display();
@@ -258,6 +260,7 @@ empty_texture_test!(empty_compressedtexture1darray, CompressedTexture1dArray, [6
 empty_texture_test!(empty_compressedtexture2d, CompressedTexture2d, [64, 32], 64, Some(32), None, None);
 empty_texture_test!(empty_compressedtexture2darray, CompressedTexture2dArray, [64, 32, 16], 64, Some(32), None, Some(16));
 empty_texture_test!(empty_compressedtexture3d, CompressedTexture3d, [64, 32, 16], 64, Some(32), Some(16), None);*/
+#[cfg(safegl_desktop)]
 empty_texture_test!(
     empty_depthstenciltexture1d,
     DepthStencilTexture1d,
@@ -267,6 +270,7 @@ empty_texture_test!(
     None,
     None
 );
+#[cfg(safegl_desktop)]
 empty_texture_test!(
     empty_depthstenciltexture1darray,
     DepthStencilTexture1dArray,
@@ -296,6 +300,7 @@ empty_texture_test!(
 );
 // TODO: non-working
 //empty_texture_test!(empty_depthstenciltexture3d, DepthStencilTexture3d, [64, 32, 16], 64, Some(32), Some(16), None);
+#[cfg(safegl_desktop)]
 empty_texture_test!(
     empty_depthtexture1d,
     DepthTexture1d,
@@ -305,6 +310,7 @@ empty_texture_test!(
     None,
     None
 );
+#[cfg(safegl_desktop)]
 empty_texture_test!(
     empty_depthtexture1darray,
     DepthTexture1dArray,
@@ -334,6 +340,7 @@ empty_texture_test!(
 );
 // TODO: non-working
 //empty_texture_test!(empty_depthtexture3d, DepthTexture3d, [64, 32, 16], 64, Some(32), Some(16), None);
+#[cfg(safegl_desktop)]
 empty_texture_test!(
     empty_integraltexture1d,
     IntegralTexture1d,
@@ -343,6 +350,7 @@ empty_texture_test!(
     None,
     None
 );
+#[cfg(safegl_desktop)]
 empty_texture_test!(
     empty_integraltexture1darray,
     IntegralTexture1dArray,
@@ -379,7 +387,9 @@ empty_texture_test!(
     Some(16),
     None
 );
+#[cfg(safegl_desktop)]
 empty_texture_test!(empty_srgbtexture1d, Texture1d, [64], 64, None, None, None);
+#[cfg(safegl_desktop)]
 empty_texture_test!(
     empty_srgbtexture1darray,
     Texture1dArray,
@@ -416,6 +426,7 @@ empty_texture_test!(
     Some(16),
     None
 );
+#[cfg(all(safegl_desktop, any(safegl_gl44, safegl_gles32)))]
 empty_texture_test!(
     empty_stenciltexture1d,
     StencilTexture1d,
@@ -425,6 +436,7 @@ empty_texture_test!(
     None,
     None
 );
+#[cfg(all(safegl_desktop, any(safegl_gl44, safegl_gles32)))]
 empty_texture_test!(
     empty_stenciltexture1darray,
     StencilTexture1dArray,
@@ -434,6 +446,7 @@ empty_texture_test!(
     None,
     Some(32)
 );
+#[cfg(any(safegl_gl44, safegl_gles32))]
 empty_texture_test!(
     empty_stenciltexture2d,
     StencilTexture2d,
@@ -443,6 +456,7 @@ empty_texture_test!(
     None,
     None
 );
+#[cfg(any(safegl_gl44, safegl_gles32))]
 empty_texture_test!(
     empty_stenciltexture2darray,
     StencilTexture2dArray,
@@ -453,7 +467,9 @@ empty_texture_test!(
     Some(16)
 );
 //empty_texture_test!(empty_stenciltexture3d, StencilTexture3d, [64, 32, 16], 64, Some(32), Some(16), None);
+#[cfg(safegl_desktop)]
 empty_texture_test!(empty_texture1d, Texture1d, [64], 64, None, None, None);
+#[cfg(safegl_desktop)]
 empty_texture_test!(
     empty_texture1darray,
     Texture1dArray,
@@ -490,6 +506,7 @@ empty_texture_test!(
     Some(16),
     None
 );
+#[cfg(safegl_desktop)]
 empty_texture_test!(
     empty_unsignedtexture1d,
     UnsignedTexture1d,
@@ -499,6 +516,7 @@ empty_texture_test!(
     None,
     None
 );
+#[cfg(safegl_desktop)]
 empty_texture_test!(
     empty_unsignedtexture1darray,
     UnsignedTexture1dArray,
@@ -536,6 +554,7 @@ empty_texture_test!(
     None
 );
 
+#[cfg(safegl_desktop)]
 #[test]
 fn zero_sized_texture_1d_creation() {
     let display = support::build_display();
@@ -592,7 +611,7 @@ fn zero_sized_texture_3d_creation() {
     display.assert_no_error(None);
 }
 
-#[cfg(feature = "gl46")]
+#[cfg(safegl_desktop)]
 #[test]
 fn bindless_texture_residency_context_rebuild() {
     let mut display = support::build_display();

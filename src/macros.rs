@@ -801,9 +801,9 @@ macro_rules! program {
     (_inner, $context:ident, $vers:ident, {$($ty:ident:$src:expr),+}$($rest:tt)*) => (
         if $context.is_glsl_version_supported(&$vers) {
             let __vertex_shader: &str = "";
-            let __tessellation_control_shader: Option<&str> = None;
-            let __tessellation_evaluation_shader: Option<&str> = None;
-            let __geometry_shader: Option<&str> = None;
+            let __tessellation_control_shader: Option<$crate::program::StageSource<'_>> = None;
+            let __tessellation_evaluation_shader: Option<$crate::program::StageSource<'_>> = None;
+            let __geometry_shader: Option<$crate::program::StageSource<'_>> = None;
             let __fragment_shader: &str = "";
             let __outputs_srgb: bool = true;
             let __uses_point_size: bool = false;

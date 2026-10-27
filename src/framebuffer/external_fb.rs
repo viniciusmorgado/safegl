@@ -22,7 +22,9 @@ use crate::DrawError;
 use crate::{Program, Surface};
 
 use crate::fbo;
-use crate::framebuffer::{InvalidateAttachments, MultiOutputFrameBuffer, SimpleFrameBuffer};
+#[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
+use crate::framebuffer::InvalidateAttachments;
+use crate::framebuffer::{MultiOutputFrameBuffer, SimpleFrameBuffer};
 use crate::index;
 use crate::uniforms::MagnifySamplerFilter;
 use crate::vertex;
@@ -133,6 +135,8 @@ impl ExternalFramebuffer {
     ///
     /// This is only a hint: it does nothing without OpenGL 4.3, OpenGL ES 3.0 or
     /// `GL_ARB_invalidate_subdata`.
+    #[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))))]
     pub fn invalidate(&self, which: InvalidateAttachments) {
         let mut ctxt = self.context.make_current();
         unsafe {
@@ -141,6 +145,8 @@ impl ExternalFramebuffer {
     }
 
     /// Like `invalidate`, but only inside `rect` (`glInvalidateSubFramebuffer`).
+    #[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))))]
     pub fn invalidate_rect(&self, which: InvalidateAttachments, rect: &Rect) {
         let mut ctxt = self.context.make_current();
         unsafe {

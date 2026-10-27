@@ -213,7 +213,7 @@ impl<T: ApplicationContext + 'static> State<T> {
             .window_handle()
             .expect("couldn't obtain window handle");
         let not_current_gl_context = Some(
-            safegl::backend::glutin::tier_context_apis()
+            safegl::backend::glutin::level_context_apis()
                 .into_iter()
                 .find_map(|api| {
                     let context_attributes = safegl::backend::glutin::context_attributes_builder(api)

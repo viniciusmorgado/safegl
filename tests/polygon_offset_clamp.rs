@@ -1,4 +1,4 @@
-#![cfg(feature = "gl46")]
+#![cfg(safegl_gl46)]
 
 #[macro_use]
 extern crate safegl;

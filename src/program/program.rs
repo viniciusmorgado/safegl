@@ -16,18 +16,24 @@ use crate::GlObject;
 use crate::ProgramExt;
 use crate::RawUniformValue;
 
+#[cfg(any(safegl_gl41, safegl_gles30))]
+use crate::program::Binary;
+#[cfg(any(safegl_gl41, safegl_gles30))]
 use crate::program::GetBinaryError;
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl46)]
 use crate::program::SpirvProgram;
+use crate::program::{stage_source, StageSource};
 use crate::program::{
-    Binary, ProgramCreationError, ProgramCreationInput, ShaderType, COMPILER_GLOBAL_LOCK,
+    ProgramCreationError, ProgramCreationInput, ShaderType, COMPILER_GLOBAL_LOCK,
 };
 
+#[cfg(safegl_desktop)]
+use crate::program::reflection::SubroutineUniform;
 use crate::program::reflection::{Attribute, TransformFeedbackBuffer};
 use crate::program::reflection::{OutputPrimitives, Uniform, UniformBlock};
-use crate::program::reflection::{ShaderStage, SubroutineData, SubroutineUniform};
+use crate::program::reflection::{ShaderStage, SubroutineData};
 use crate::program::shader::build_shader;
-#[cfg(feature = "gl46")]
+#[cfg(safegl_gl46)]
 use crate::program::shader::build_spirv_shader;
 
 use crate::program::raw::RawProgram;
@@ -71,17 +77,17 @@ impl Program {
                 ];
 
                 if let Some(gs) = geometry_shader {
-                    shaders.push((gs, ShaderType::Geometry));
+                    shaders.push((stage_source(gs), ShaderType::Geometry));
                     has_geometry_shader = true;
                 }
 
                 if let Some(ts) = tessellation_control_shader {
-                    shaders.push((ts, ShaderType::TesselationControl));
+                    shaders.push((stage_source(ts), ShaderType::TesselationControl));
                     has_tessellation_control_shader = true;
                 }
 
                 if let Some(ts) = tessellation_evaluation_shader {
-                    shaders.push((ts, ShaderType::TesselationEvaluation));
+                    shaders.push((stage_source(ts), ShaderType::TesselationEvaluation));
                     has_tessellation_evaluation_shader = true;
                 }
 
@@ -110,6 +116,7 @@ impl Program {
                 )
             }
 
+            #[cfg(any(safegl_gl41, safegl_gles30))]
             ProgramCreationInput::Binary {
                 data,
                 outputs_srgb,
@@ -120,7 +127,7 @@ impl Program {
                 uses_point_size,
             ),
 
-            #[cfg(feature = "gl46")]
+            #[cfg(safegl_gl46)]
             ProgramCreationInput::SpirV(SpirvProgram {
                 vertex_shader,
                 tessellation_control_shader,
@@ -195,16 +202,16 @@ impl Program {
     ///
     /// - `vertex_shader`: Source code of the vertex shader.
     /// - `fragment_shader`: Source code of the fragment shader.
-    /// - `geometry_shader`: Source code of the geometry shader.
+    /// - `geometry_shader`: Source code of the geometry shader, which needs a desktop OpenGL
+    ///   level or `gles32` (see [`StageSource`](crate::program::StageSource)).
     ///
     /// # Example
     ///
     /// ```no_run
     /// # use glutin::surface::{ResizeableSurface, SurfaceTypeTrait};
     /// # fn example<T>(display: safegl::Display<T>) where T: SurfaceTypeTrait + ResizeableSurface {
-    /// # let vertex_source = ""; let fragment_source = ""; let geometry_source = "";
-    /// let program = safegl::Program::from_source(&display, vertex_source, fragment_source,
-    ///     Some(geometry_source));
+    /// # let vertex_source = ""; let fragment_source = "";
+    /// let program = safegl::Program::from_source(&display, vertex_source, fragment_source, None);
     /// # }
     /// ```
     ///
@@ -213,7 +220,7 @@ impl Program {
         facade: &F,
         vertex_shader: &'a str,
         fragment_shader: &'a str,
-        geometry_shader: Option<&'a str>,
+        geometry_shader: Option<StageSource<'a>>,
     ) -> Result<Program, ProgramCreationError>
     where
         F: Facade,
@@ -238,6 +245,8 @@ impl Program {
     /// You can store the result in a file, then reload it later. This avoids having to compile
     /// the source code every time.
     #[inline]
+    #[cfg(any(safegl_gl41, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles30))))]
     pub fn get_binary(&self) -> Result<Binary, GetBinaryError> {
         self.raw.get_binary()
     }
@@ -393,8 +402,8 @@ impl Program {
     /// }
     /// # }
     /// ```
-    #[cfg(feature = "gl46")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    #[cfg(any(safegl_gl43, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
     #[inline]
     pub fn get_shader_storage_blocks(
         &self,
@@ -413,8 +422,8 @@ impl Program {
     /// }
     /// # }
     /// ```
-    #[cfg(feature = "gl46")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "gl46")))]
+    #[cfg(any(safegl_gl42, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_gles31))))]
     #[inline]
     pub fn get_atomic_counters(
         &self,
@@ -436,6 +445,8 @@ impl Program {
     /// # }
     /// ```
     #[inline]
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     pub fn get_subroutine_uniforms(
         &self,
     ) -> &HashMap<(String, ShaderStage), SubroutineUniform, BuildHasherDefault<FnvHasher>> {

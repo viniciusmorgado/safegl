@@ -2,10 +2,12 @@
 extern crate safegl;
 
 use safegl::framebuffer::{DepthRenderBuffer, RenderBuffer};
+#[cfg(safegl_desktop)]
+use safegl::texture::Texture1d;
 use safegl::texture::{
     DepthFormat, DepthStencilFormat, DepthStencilTexture2d, DepthTexture2d, IntegralTexture2d,
-    MipmapsOption, Texture1d, Texture2d, TextureCreationError, UncompressedFloatFormat,
-    UncompressedIntFormat, UncompressedUintFormat, UnsignedTexture2d,
+    MipmapsOption, Texture2d, TextureCreationError, UncompressedFloatFormat, UncompressedIntFormat,
+    UncompressedUintFormat, UnsignedTexture2d,
 };
 use safegl::{CapabilitiesSource, Surface};
 
@@ -124,6 +126,7 @@ fn oversized_texture() {
     display.assert_no_error(None);
 }
 
+#[cfg(safegl_desktop)]
 #[test]
 fn one_dimensional_textures_on_opengl_es() {
     let display = support::build_display();
