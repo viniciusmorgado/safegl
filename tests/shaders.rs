@@ -1049,3 +1049,39 @@ fn array_layout_offsets() {
 
     display.assert_no_error(None);
 }
+
+#[cfg(any(safegl_gl41, safegl_gles30))]
+#[test]
+fn precision_of_shaders() {
+    use safegl::program::{PrecisionQualifier, ShaderType};
+
+    let display = support::build_display();
+
+    let highp = match display
+        .shader_precision_format(ShaderType::Fragment, PrecisionQualifier::HighFloat)
+    {
+        Some(highp) => highp,
+        None => {
+            use safegl::CapabilitiesSource;
+            assert!(!support::is_gles(&display));
+            assert!(!display.get_extensions().gl_arb_es2_compatibility);
+            return;
+        }
+    };
+    // the highp floats of the fragment shaders of OpenGL ES 3.0 are 32-bit floats
+    assert!(highp.range.0 >= 126 && highp.range.1 >= 127);
+    assert!(highp.precision >= 23);
+
+    let int = display
+        .shader_precision_format(ShaderType::Vertex, PrecisionQualifier::HighInt)
+        .unwrap();
+    assert!(int.range.1 >= 30);
+    assert_eq!(int.precision, 0);
+
+    assert_eq!(
+        display.shader_precision_format(ShaderType::Compute, PrecisionQualifier::HighFloat),
+        None
+    );
+
+    display.assert_no_error(None);
+}

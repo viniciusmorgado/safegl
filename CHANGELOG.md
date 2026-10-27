@@ -299,6 +299,9 @@ Additions:
   `Context::debug_message_log` reads. Lengths and the depth of debug groups are checked against
   the limits, and errors are `DebugError`s. `Context::is_debug_output_supported` tells whether the
   context has all of it.
+- `Context::shader_precision_format` (`gl41`, `gles30`, `webgl`) gives the range and the precision
+  of a `PrecisionQualifier` (`lowp`, `mediump` or `highp` floats and integers) in the vertex or
+  fragment shader.
 
 Fixes:
 

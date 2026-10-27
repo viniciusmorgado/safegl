@@ -669,6 +669,43 @@ impl Context {
         self.capabilities().release_behavior
     }
 
+    /// Returns the range and the precision of the numbers of a precision qualifier in the vertex
+    /// or fragment shader, or `None` for another stage or without OpenGL 4.1, OpenGL ES or
+    /// `GL_ARB_ES2_compatibility`.
+    ///
+    /// Desktop OpenGL has the same precision for every qualifier: the qualifiers only matter to
+    /// OpenGL ES, where `mediump` and `lowp` can be less precise than `highp`, which the fragment
+    /// shaders of OpenGL ES 3.0 always have.
+    #[cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))))]
+    pub fn shader_precision_format(
+        &self,
+        shader: crate::program::ShaderType,
+        qualifier: crate::program::PrecisionQualifier,
+    ) -> Option<crate::program::ShaderPrecision> {
+        use crate::program::ShaderType;
+
+        if !matches!(shader, ShaderType::Vertex | ShaderType::Fragment) {
+            return None;
+        }
+        let ctxt = self.make_current();
+        if ctxt.version.0 != Api::GlEs
+            && ctxt.version < &Version(Api::Gl, 4, 1)
+            && !ctxt.extensions.gl_arb_es2_compatibility
+        {
+            return None;
+        }
+
+        let format = unsafe {
+            ctxt.glow
+                .get_shader_precision_format(shader.to_opengl_type(), qualifier.to_glenum())
+        }?;
+        Some(crate::program::ShaderPrecision {
+            range: (format.range_min, format.range_max),
+            precision: format.precision,
+        })
+    }
+
     /// Returns the maximum value that can be used for anisotropic filtering, or `None`
     /// if the hardware doesn't support it.
     #[inline]

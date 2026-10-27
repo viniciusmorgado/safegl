@@ -102,6 +102,54 @@ pub enum ShaderType {
     Compute,
 }
 
+/// A precision qualifier of GLSL ES and of GLSL 4.10 and above, for
+/// `Context::shader_precision_format`.
+#[cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum PrecisionQualifier {
+    /// `lowp float`.
+    LowFloat,
+    /// `mediump float`.
+    MediumFloat,
+    /// `highp float`.
+    HighFloat,
+    /// `lowp int`.
+    LowInt,
+    /// `mediump int`.
+    MediumInt,
+    /// `highp int`.
+    HighInt,
+}
+
+#[cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))]
+impl PrecisionQualifier {
+    pub(crate) fn to_glenum(self) -> gl::types::GLenum {
+        match self {
+            PrecisionQualifier::LowFloat => gl::LOW_FLOAT,
+            PrecisionQualifier::MediumFloat => gl::MEDIUM_FLOAT,
+            PrecisionQualifier::HighFloat => gl::HIGH_FLOAT,
+            PrecisionQualifier::LowInt => gl::LOW_INT,
+            PrecisionQualifier::MediumInt => gl::MEDIUM_INT,
+            PrecisionQualifier::HighInt => gl::HIGH_INT,
+        }
+    }
+}
+
+/// The range and the precision of the numbers of a precision qualifier in a shader stage
+/// (`glGetShaderPrecisionFormat`).
+#[cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ShaderPrecision {
+    /// The base 2 logarithms of the absolute values of the smallest and the largest numbers: the
+    /// numbers are in `-2^range.0` to `2^range.1`.
+    pub range: (i32, i32),
+    /// The number of bits of precision of floats: their relative precision is `2^-precision`. 0
+    /// for integers.
+    pub precision: i32,
+}
+
 impl ShaderType {
     /// Creates an instance of gl::types::GLenum corresponding to the given ShaderType
     pub fn to_opengl_type(self) -> gl::types::GLenum {
