@@ -1511,7 +1511,8 @@ impl TextureAny {
             && (ctxt.version.0 == Api::Gl || ctxt.version >= &Version(Api::GlEs, 3, 1))
         {
             unsafe {
-                let bind_point = self.bind_to_current(ctxt);
+                // the parameters of a cube map are those of its faces
+                let bind_point = image_targets(self.bind_to_current(ctxt))[0];
                 let depth_bits: gl::types::GLint =
                     ctxt.glow
                         .get_tex_level_parameter_i32(bind_point, 0, glow::TEXTURE_DEPTH_SIZE);
@@ -2260,18 +2261,21 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
 
         unsafe {
             let bind_point = texture.bind_to_current(&mut ctxt);
+            // the images of a level of a cube map are its faces, which are queried and read
+            // one by one
+            let targets = image_targets(bind_point);
 
             let is_compressed =
                 ctxt.glow
-                    .get_tex_level_parameter_i32(bind_point, level, glow::TEXTURE_COMPRESSED);
+                    .get_tex_level_parameter_i32(targets[0], level, glow::TEXTURE_COMPRESSED);
             if is_compressed != 0 {
-                let buffer_size = ctxt.glow.get_tex_level_parameter_i32(
-                    bind_point,
+                let queried_size = ctxt.glow.get_tex_level_parameter_i32(
+                    targets[0],
                     level,
                     glow::TEXTURE_COMPRESSED_IMAGE_SIZE,
                 );
                 let internal_format = ctxt.glow.get_tex_level_parameter_i32(
-                    bind_point,
+                    targets[0],
                     level,
                     glow::TEXTURE_INTERNAL_FORMAT,
                 );
@@ -2280,7 +2284,20 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
                     internal_format as gl::types::GLenum,
                 ) {
                     Some(known_format) => {
-                        let mut buf = vec![0u8; buffer_size as usize];
+                        // the size of a face is that of its 4x4 blocks: NVIDIA gives the size
+                        // of the whole cube map for each face
+                        let image_size = if targets.len() > 1 {
+                            let block = known_format
+                                .get_buffer_size(4, Some(4), None, None)
+                                .unwrap_or(0);
+                            let blocks_w = (self.width as usize).div_ceil(4);
+                            let blocks_h = (self.height.unwrap_or(1) as usize).div_ceil(4);
+                            (block * blocks_w * blocks_h) as gl::types::GLint
+                        } else {
+                            queried_size
+                        };
+                        let buffer_size = image_size as usize * targets.len();
+                        let mut buf = vec![0u8; buffer_size];
 
                         BufferAny::unbind_pixel_pack(&mut ctxt);
 
@@ -2300,16 +2317,18 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
                         }
 
                         // the robust entry points never write past the end of the buffer
-                        let size = buf.len() as gl::types::GLsizei;
-                        let data = buf.as_mut_ptr() as *mut _;
-                        if ctxt.version >= &Version(Api::Gl, 4, 5) {
-                            ctxt.extra
-                                .GetnCompressedTexImage(bind_point, level, size, data);
-                        } else if ctxt.extensions.gl_arb_robustness {
-                            ctxt.extra
-                                .GetnCompressedTexImageARB(bind_point, level, size, data);
-                        } else {
-                            ctxt.extra.GetCompressedTexImage(bind_point, level, data);
+                        let size = image_size as gl::types::GLsizei;
+                        for (target, image) in
+                            targets.iter().zip(buf.chunks_exact_mut(image_size as usize))
+                        {
+                            let data = image.as_mut_ptr() as *mut _;
+                            if ctxt.version >= &Version(Api::Gl, 4, 5) {
+                                ctxt.extra.GetnCompressedTexImage(*target, level, size, data);
+                            } else if ctxt.extensions.gl_arb_robustness {
+                                ctxt.extra.GetnCompressedTexImageARB(*target, level, size, data);
+                            } else {
+                                ctxt.extra.GetCompressedTexImage(*target, level, data);
+                            }
                         }
                         Some((known_format, buf))
                     }
