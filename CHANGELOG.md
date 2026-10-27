@@ -202,6 +202,10 @@ Breaking changes:
   `SamplesQueryParam`.
 - `Capabilities` is `#[non_exhaustive]`, and has a `limits` field: code that builds it or
   destructures it without `..` doesn't compile anymore. Reading its fields is unchanged.
+- `RenderBufferCreationError` is `#[non_exhaustive]` and has two new variants: render buffers
+  larger than `Limits::max_renderbuffer_size` return `DimensionsNotSupported`, and those with more
+  samples than `Limits::max_samples` or than their format has return `SamplesNotSupported`,
+  instead of being created without storage and failing when drawn to.
 
 Additions:
 

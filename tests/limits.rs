@@ -4,6 +4,8 @@
 #[macro_use]
 extern crate safegl;
 
+use safegl::framebuffer::{RenderBuffer, RenderBufferCreationError};
+use safegl::texture::UncompressedFloatFormat;
 use safegl::{Api, CapabilitiesSource, Limits, StageLimits, Version};
 
 mod support;
@@ -372,6 +374,34 @@ fn debug_limits() {
     if let Some(alignment) = limits.texture_buffer_offset_alignment {
         assert!((1..=256).contains(&alignment));
     }
+
+    display.assert_no_error(None);
+}
+
+#[test]
+fn render_buffer_above_limits() {
+    let display = support::build_display();
+    let limits = &display.get_capabilities().limits;
+    let format = UncompressedFloatFormat::U8U8U8U8;
+
+    let size = limits.max_renderbuffer_size as u32 + 1;
+    assert_eq!(
+        RenderBuffer::new(&display, format, size, 1).err(),
+        Some(RenderBufferCreationError::DimensionsNotSupported)
+    );
+    assert_eq!(
+        RenderBuffer::new(&display, format, 1, size).err(),
+        Some(RenderBufferCreationError::DimensionsNotSupported)
+    );
+
+    let samples = limits.max_samples as u32 + 1;
+    assert_eq!(
+        RenderBuffer::new_multisample(&display, format, 4, 4, samples).err(),
+        Some(RenderBufferCreationError::SamplesNotSupported)
+    );
+
+    RenderBuffer::new(&display, format, 4, 4).unwrap();
+    RenderBuffer::new_multisample(&display, format, 4, 4, 4).unwrap();
 
     display.assert_no_error(None);
 }
