@@ -961,7 +961,10 @@ impl fmt::Display for TextureCreationError {
 impl Error for TextureCreationError {}
 
 /// Error that can happen when uploading data to a texture.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum UploadError {
     /// The region is outside of the texture, or its dimensions don't match the data.
     OutOfBounds,
@@ -986,6 +989,10 @@ pub enum UploadError {
 
     /// The pixel buffer doesn't hold enough pixels for the region.
     BufferTooSmall,
+
+    /// The region of a compressed texture doesn't start on the blocks of its format (4 × 4
+    /// texels), or doesn't end on them or on the edge of the image.
+    MisalignedBlocks,
 }
 
 impl fmt::Display for UploadError {
@@ -1010,6 +1017,9 @@ impl fmt::Display for UploadError {
             ),
             UploadError::BufferTooSmall => {
                 fmt.write_str("The pixel buffer doesn't hold enough pixels for the region")
+            }
+            UploadError::MisalignedBlocks => {
+                fmt.write_str("The region doesn't fit the blocks of the compressed texture")
             }
         }
     }

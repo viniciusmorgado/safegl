@@ -511,3 +511,48 @@ fn read_compressed_boxes() {
 
     display.assert_no_error(None);
 }
+
+/// The regions written to compressed textures are made of whole blocks.
+#[cfg(safegl_desktop)]
+#[test]
+fn write_compressed_blocks() {
+    use safegl::texture::{CompressedFormat, CompressedMipmapsOption, CompressedTexture2d};
+    use safegl::texture::UploadError;
+
+    let display = support::build_display();
+    if support::is_gles(&display) {
+        return;
+    }
+    let texture = CompressedTexture2d::with_compressed_data(
+        &display,
+        &[0u8; 4 * 8],
+        6,
+        6,
+        CompressedFormat::RgtcFormatU,
+        CompressedMipmapsOption::NoMipmap,
+    )
+    .unwrap();
+    let format = CompressedFormat::RgtcFormatU;
+    // a whole block, and a partial one at the edge
+    texture
+        .write_compressed_data(rect(0, 0, 4, 4), &[1u8; 8], 4, 4, format)
+        .unwrap();
+    texture
+        .write_compressed_data(rect(4, 4, 2, 2), &[3u8; 8], 2, 2, format)
+        .unwrap();
+    assert_eq!(
+        texture.write_compressed_data(rect(2, 0, 4, 4), &[1u8; 8], 4, 4, format),
+        Err(UploadError::MisalignedBlocks)
+    );
+    assert_eq!(
+        texture.write_compressed_data(rect(0, 0, 2, 4), &[1u8; 8], 2, 4, format),
+        Err(UploadError::MisalignedBlocks)
+    );
+
+    #[cfg(safegl_gl45)]
+    if let Ok(block) = texture.main_level().read_compressed_box((4, 4, 0), (2, 2, 1)) {
+        assert_eq!(block, vec![3; 8]);
+    }
+
+    display.assert_no_error(None);
+}

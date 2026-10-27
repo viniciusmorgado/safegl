@@ -1527,11 +1527,9 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         || dimensions == TextureDimensions::TextureRectangle) && (is_writable || is_compressed) {
         let compressed_restrictions = if is_compressed {
             r#" ///
-                /// Calling this for compressed textures will result in a panic of type INVALID_OPERATION
-                /// if `Rect::bottom` or `Rect::width` is not equal to 0 (border). In addition, the contents
-                /// of any texel outside the region modified by such a call are undefined. These
-                /// restrictions may be relaxed for specific compressed internal formats whose images
-                /// are easily edited.
+                /// For compressed textures, the region must start on the blocks of the format
+                /// (4 × 4 texels) and end on them or on the edge of the image, otherwise
+                /// `UploadError::MisalignedBlocks` is returned.
             "#
         } else {
             ""
@@ -1819,11 +1817,9 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         {
             let compressed_restrictions = if is_compressed {
                 r#" ///
-                    /// Calling this for compressed textures will result in a panic of type INVALID_OPERATION
-                    /// if `Rect::bottom` or `Rect::width` is not equal to 0 (border). In addition, the contents
-                    /// of any texel outside the region modified by such a call are undefined. These
-                    /// restrictions may be relaxed for specific compressed internal formats whose images
-                    /// are easily edited.
+                    /// For compressed textures, the region must start on the blocks of the format
+                    /// (4 × 4 texels) and end on them or on the edge of the image, otherwise
+                    /// `UploadError::MisalignedBlocks` is returned.
                 "#
             } else {
                 ""

@@ -1975,6 +1975,24 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
             return Err(UploadError::OutOfBounds);
         }
 
+        // the regions of compressed textures are made of whole blocks
+        let compressed = matches!(
+            self.texture.requested_format,
+            TextureFormatRequest::AnyCompressed
+                | TextureFormatRequest::AnyCompressedSrgb
+                | TextureFormatRequest::Specific(TextureFormat::CompressedFormat(_))
+                | TextureFormatRequest::Specific(TextureFormat::CompressedSrgbFormat(_))
+        );
+        let aligned = |offset: u32, size: u32, extent: u32| {
+            offset % 4 == 0 && (size % 4 == 0 || offset + size == extent)
+        };
+        if compressed
+            && !(aligned(x_offset, width, self.width)
+                && aligned(y_offset, height.unwrap_or(1), self.height.unwrap_or(1)))
+        {
+            return Err(UploadError::MisalignedBlocks);
+        }
+
         if data.len() * mem::size_of::<P>() != data_bufsize {
             return Err(UploadError::DataSizeMismatch {
                 expected: data_bufsize,

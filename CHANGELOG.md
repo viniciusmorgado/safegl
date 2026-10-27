@@ -248,6 +248,9 @@ Breaking changes:
   `enabled` (formerly `multisampling`), `alpha_to_coverage`, `sample_shading` and `sample_mask`:
   write `multisample: MultisampleState { alpha_to_coverage: true, ..Default::default() }`.
   `DrawError` has an `AlphaToOneNotSupported` variant at the desktop levels.
+- `texture::UploadError` is `#[non_exhaustive]`, and writing a region of a compressed texture
+  that doesn't start on the blocks of its format, or doesn't end on them or on the edge of the
+  image, returns its new `MisalignedBlocks` variant instead of an OpenGL error.
 - `ReadError` is `#[non_exhaustive]`, with the `NotSupported` and `MisalignedBlocks` variants.
   `TextureAnyMipmap::read_box` reads a box of a level of any texture but a multisample one,
   depth, stencil, integer and compressed (decompressed) ones included, converted to a pixel type
