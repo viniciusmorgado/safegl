@@ -508,6 +508,9 @@ Additions:
 
 Fixes:
 
+- Pixels are read with the robust `glReadnPixels` and compressed images with
+  `glGetnCompressedTexImage` where they exist (OpenGL 4.5, OpenGL ES 3.2 and the robustness
+  extensions), which never write past the end of the destination.
 - Stencil and depth-stencil textures have the `write` methods of the other textures, and
   stencil textures are given stencil indices (`GL_STENCIL_INDEX`), where creating one with data
   made an OpenGL error. Depth-stencil textures are given `u32`s that pack a 24-bit depth above

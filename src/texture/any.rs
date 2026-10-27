@@ -2160,11 +2160,18 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
                             ctxt.glow.pixel_store_i32(glow::PACK_ALIGNMENT, 1);
                         }
 
-                        ctxt.extra.GetCompressedTexImage(
-                            bind_point,
-                            level,
-                            buf.as_mut_ptr() as *mut _,
-                        );
+                        // the robust entry points never write past the end of the buffer
+                        let size = buf.len() as gl::types::GLsizei;
+                        let data = buf.as_mut_ptr() as *mut _;
+                        if ctxt.version >= &Version(Api::Gl, 4, 5) {
+                            ctxt.extra
+                                .GetnCompressedTexImage(bind_point, level, size, data);
+                        } else if ctxt.extensions.gl_arb_robustness {
+                            ctxt.extra
+                                .GetnCompressedTexImageARB(bind_point, level, size, data);
+                        } else {
+                            ctxt.extra.GetCompressedTexImage(bind_point, level, data);
+                        }
                         Some((known_format, buf))
                     }
                     None => None,

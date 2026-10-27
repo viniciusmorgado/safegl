@@ -334,15 +334,7 @@ where
             BufferAny::unbind_pixel_unpack(ctxt);
             BufferAny::unbind_pixel_pack(ctxt);
             set_pack_alignment(ctxt, rect.width as usize * read_format.get_size());
-            ctxt.glow.read_pixels(
-                rect.left as gl::types::GLint,
-                rect.bottom as gl::types::GLint,
-                rect.width as gl::types::GLsizei,
-                rect.height as gl::types::GLsizei,
-                format,
-                gltype,
-                glow::PixelPackData::Slice(Some(&mut bytes)),
-            );
+            read_pixels_into(ctxt, rect, format, gltype, &mut bytes);
         }
         let converted = convert_pixels(&bytes, read_format, output_pixel_format);
         debug_assert_eq!(converted.len(), pixels * mem::size_of::<T>());
@@ -394,15 +386,7 @@ where
                     buf.as_mut_ptr() as *mut u8,
                     pixels_to_read as usize * mem::size_of::<T>(),
                 );
-                ctxt.glow.read_pixels(
-                    rect.left as gl::types::GLint,
-                    rect.bottom as gl::types::GLint,
-                    rect.width as gl::types::GLsizei,
-                    rect.height as gl::types::GLsizei,
-                    format,
-                    gltype,
-                    glow::PixelPackData::Slice(Some(bytes)),
-                );
+                read_pixels_into(ctxt, rect, format, gltype, bytes);
                 buf.set_len(pixels_to_read as usize);
 
                 *dest = buf;
@@ -431,6 +415,49 @@ where
     };
 
     Ok(())
+}
+
+/// Reads the pixels of `rect` of the bound read framebuffer into `bytes`, with the robust
+/// `glReadnPixels` where it exists, which never writes past the end of `bytes`.
+unsafe fn read_pixels_into(
+    ctxt: &mut CommandContext<'_>,
+    rect: &Rect,
+    format: gl::types::GLenum,
+    gltype: gl::types::GLenum,
+    bytes: &mut [u8],
+) {
+    use crate::version::Version;
+
+    let (x, y) = (rect.left as gl::types::GLint, rect.bottom as gl::types::GLint);
+    let (width, height) = (rect.width as gl::types::GLsizei, rect.height as gl::types::GLsizei);
+    let size = bytes.len() as gl::types::GLsizei;
+    let data = bytes.as_mut_ptr() as *mut std::ffi::c_void;
+    if ctxt.version >= &Version(Api::Gl, 4, 5) || ctxt.version >= &Version(Api::GlEs, 3, 2) {
+        ctxt.extra
+            .ReadnPixels(x, y, width, height, format, gltype, size, data);
+    } else if ctxt.extensions.gl_khr_robustness && ctxt.version.0 == Api::GlEs {
+        ctxt.extra
+            .ReadnPixelsKHR(x, y, width, height, format, gltype, size, data);
+    } else if ctxt.extensions.gl_khr_robustness {
+        ctxt.extra
+            .ReadnPixels(x, y, width, height, format, gltype, size, data);
+    } else if ctxt.extensions.gl_arb_robustness {
+        ctxt.extra
+            .ReadnPixelsARB(x, y, width, height, format, gltype, size, data);
+    } else if ctxt.extensions.gl_ext_robustness {
+        ctxt.extra
+            .ReadnPixelsEXT(x, y, width, height, format, gltype, size, data);
+    } else {
+        ctxt.glow.read_pixels(
+            x,
+            y,
+            width,
+            height,
+            format,
+            gltype,
+            glow::PixelPackData::Slice(Some(bytes)),
+        );
+    }
 }
 
 /// Sets `GL_PACK_ALIGNMENT` so that OpenGL writes rows of `row_bytes` bytes without padding them,

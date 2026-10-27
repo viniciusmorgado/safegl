@@ -175,6 +175,8 @@ extra_functions! {
     fn GetDebugMessageLog(count: GLuint, bufSize: GLsizei, sources: *mut GLenum, types: *mut GLenum, ids: *mut GLuint, severities: *mut GLenum, lengths: *mut GLsizei, messageLog: *mut GLchar) -> GLuint;
     fn GetDebugMessageLogKHR(count: GLuint, bufSize: GLsizei, sources: *mut GLenum, types: *mut GLenum, ids: *mut GLuint, severities: *mut GLenum, lengths: *mut GLsizei, messageLog: *mut GLchar) -> GLuint;
     fn GetCompressedTexImage(target: GLenum, level: GLint, img: *mut c_void) -> ();
+    fn GetnCompressedTexImage(target: GLenum, lod: GLint, bufSize: GLsizei, pixels: *mut c_void) -> ();
+    fn GetnCompressedTexImageARB(target: GLenum, lod: GLint, bufSize: GLsizei, img: *mut c_void) -> ();
     fn GetFragDataIndex(program: GLuint, name: *const GLchar) -> GLint;
     fn GetFragDataIndexEXT(program: GLuint, name: *const GLchar) -> GLint;
     fn GetGraphicsResetStatus() -> GLenum;
@@ -242,6 +244,10 @@ extra_functions! {
     fn PrimitiveRestartIndex(index: GLuint) -> ();
     fn ProvokingVertex(mode: GLenum) -> ();
     fn ProvokingVertexEXT(mode: GLenum) -> ();
+    fn ReadnPixels(x: GLint, y: GLint, width: GLsizei, height: GLsizei, format: GLenum, type_: GLenum, bufSize: GLsizei, data: *mut c_void) -> ();
+    fn ReadnPixelsARB(x: GLint, y: GLint, width: GLsizei, height: GLsizei, format: GLenum, type_: GLenum, bufSize: GLsizei, data: *mut c_void) -> ();
+    fn ReadnPixelsEXT(x: GLint, y: GLint, width: GLsizei, height: GLsizei, format: GLenum, type_: GLenum, bufSize: GLsizei, data: *mut c_void) -> ();
+    fn ReadnPixelsKHR(x: GLint, y: GLint, width: GLsizei, height: GLsizei, format: GLenum, type_: GLenum, bufSize: GLsizei, data: *mut c_void) -> ();
     fn ReleaseShaderCompiler() -> ();
     fn SampleMaski(maskNumber: GLuint, mask: GLbitfield) -> ();
     fn SamplerParameterIiv(sampler: GLuint, pname: GLenum, param: *const GLint) -> ();
