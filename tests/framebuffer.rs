@@ -661,3 +661,36 @@ fn default_framebuffer_buffers() {
 
     display.assert_no_error(None);
 }
+
+/// Render buffers can be outputs of a framebuffer with several outputs, like textures.
+#[test]
+fn multioutput_render_buffers() {
+    use safegl::framebuffer::{MultiOutputFrameBuffer, RenderBuffer, SimpleFrameBuffer};
+    use safegl::texture::UncompressedFloatFormat;
+
+    let display = support::build_display();
+    let first = RenderBuffer::new(&display, UncompressedFloatFormat::U8U8U8U8, 4, 4).unwrap();
+    let second = RenderBuffer::new(&display, UncompressedFloatFormat::U8U8U8U8, 4, 4).unwrap();
+    let framebuffer =
+        MultiOutputFrameBuffer::new(&display, [("first", &first), ("second", &second)]).unwrap();
+    framebuffer.clear_output("second", [0.0f32, 1.0, 0.0, 1.0]).unwrap();
+
+    // the render buffer is read through a blit to a texture
+    let target = safegl::Texture2d::empty(&display, 4, 4).unwrap();
+    SimpleFrameBuffer::new(&display, &second)
+        .unwrap()
+        .blit_whole_color_to(
+            &target.as_surface(),
+            &safegl::BlitTarget {
+                left: 0,
+                bottom: 0,
+                width: 4,
+                height: 4,
+            },
+            safegl::uniforms::MagnifySamplerFilter::Nearest,
+        )
+        .unwrap();
+    let read: Vec<Vec<(u8, u8, u8, u8)>> = target.read().unwrap();
+    assert_eq!(read[0][0], (0, 255, 0, 255));
+    display.assert_no_error(None);
+}
