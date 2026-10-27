@@ -65,6 +65,12 @@ pub struct GlState {
     /// The value of `glPrimitiveRestartIndex`.
     pub primitive_restart_index: u32,
 
+    /// The value of `GL_PATCH_DEFAULT_OUTER_LEVEL`.
+    pub patch_default_outer_level: [f32; 4],
+
+    /// The value of `GL_PATCH_DEFAULT_INNER_LEVEL`.
+    pub patch_default_inner_level: [f32; 2],
+
     /// Whether GL_RASTERIZER_DISCARD is enabled
     pub enabled_rasterizer_discard: bool,
 
@@ -482,6 +488,8 @@ impl Default for GlState {
             enabled_primitive_fixed_restart: crate::version::is_webgl(),
             enabled_primitive_restart: false,
             primitive_restart_index: 0,
+            patch_default_outer_level: [1.0; 4],
+            patch_default_inner_level: [1.0; 2],
             enabled_program_point_size: false,
             enabled_clip_planes: 0,
 

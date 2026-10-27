@@ -125,6 +125,14 @@ unsafe fn restore_capabilities(ctxt: &mut CommandContext<'_>) {
     if desktop {
         set(ctxt, gl::PRIMITIVE_RESTART, state.enabled_primitive_restart);
         ctxt.extra.PrimitiveRestartIndex(state.primitive_restart_index);
+        ctxt.extra.PatchParameterfv(
+            gl::PATCH_DEFAULT_OUTER_LEVEL,
+            state.patch_default_outer_level.as_ptr(),
+        );
+        ctxt.extra.PatchParameterfv(
+            gl::PATCH_DEFAULT_INNER_LEVEL,
+            state.patch_default_inner_level.as_ptr(),
+        );
     }
 
     if (desktop || ctxt.version >= &Version(Api::GlEs, 3, 1)) && !is_webgl() {

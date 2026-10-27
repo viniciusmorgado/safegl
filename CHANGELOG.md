@@ -323,6 +323,9 @@ Additions:
   (`glPrimitiveRestartIndex`), and `PrimitiveRestart::FixedIndex` works on OpenGL 4.0 to 4.2
   without `GL_ARB_ES3_compatibility`, with `GL_PRIMITIVE_RESTART` at the largest value of the
   index type.
+- `DrawParameters::patch_default_levels` (`desktop`) sets the tessellation levels of programs with
+  a tessellation evaluation shader and no tessellation control shader, in a
+  `PatchDefaultLevels`.
 
 Fixes:
 

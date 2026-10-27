@@ -187,3 +187,76 @@ fn too_many_vertices_per_patch() {
 
     display.assert_no_error(None);
 }
+
+/// The number of lines drawn by an isolines program without tessellation control shader, with
+/// `levels`.
+#[cfg(safegl_desktop)]
+fn isolines(display: &Display, levels: safegl::draw_parameters::PatchDefaultLevels) -> u64 {
+    let source = ProgramCreationInput::SourceCode {
+        vertex_shader: "#version 400\nin vec2 position;\nvoid main() { gl_Position = vec4(position, 0.0, 1.0); }",
+        tessellation_control_shader: None,
+        tessellation_evaluation_shader: Some(
+            "#version 400\nlayout(isolines, equal_spacing) in;\n\
+             void main() { gl_Position = vec4(gl_TessCoord.xy * 2.0 - 1.0, 0.0, 1.0); }",
+        ),
+        geometry_shader: None,
+        fragment_shader: "#version 400\nout vec4 color;\nvoid main() { color = vec4(1.0); }",
+        transform_feedback_varyings: None,
+        outputs_srgb: false,
+        uses_point_size: false,
+    };
+    let program = safegl::Program::new(display, source).unwrap();
+    let vertices = VertexBuffer::new(
+        display,
+        &[
+            Vertex {
+                position: [0.0, 0.0],
+            },
+            Vertex {
+                position: [1.0, 0.0],
+            },
+        ],
+    )
+    .unwrap();
+    let query = safegl::draw_parameters::PrimitivesGeneratedQuery::new(display).unwrap();
+
+    let target = support::build_renderable_texture(display);
+    target
+        .as_surface()
+        .draw(
+            &vertices,
+            NoIndices(PrimitiveType::Patches {
+                vertices_per_patch: 2,
+            }),
+            &program,
+            &uniform! {},
+            &safegl::DrawParameters {
+                patch_default_levels: levels,
+                primitives_generated_query: Some(&query),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    query.get().unwrap()
+}
+
+/// Without tessellation control shader, the patches use the default levels.
+#[cfg(safegl_desktop)]
+#[test]
+fn default_tessellation_levels() {
+    let display = support::build_display();
+    if support::is_gles(&display) {
+        return;
+    }
+
+    // isolines: as many lines as the first outer level, of as many segments as the second
+    assert_eq!(isolines(&display, Default::default()), 1);
+    let levels = safegl::draw_parameters::PatchDefaultLevels {
+        outer: [2.0, 3.0, 1.0, 1.0],
+        inner: [1.0, 1.0],
+    };
+    assert_eq!(isolines(&display, levels), 6);
+    assert_eq!(isolines(&display, Default::default()), 1);
+
+    display.assert_no_error(None);
+}

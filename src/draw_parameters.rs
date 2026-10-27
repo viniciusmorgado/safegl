@@ -542,6 +542,13 @@ pub struct DrawParameters<'a> {
     /// WebGL 2 always restarts primitives at the maximum index value, whatever this field is.
     pub primitive_restart: PrimitiveRestart,
 
+    /// The tessellation levels of the patches of programs with a tessellation evaluation shader
+    /// and no tessellation control shader, which only desktop OpenGL has. Ignored with a
+    /// tessellation control shader, which writes the levels, and on OpenGL ES.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    pub patch_default_levels: PatchDefaultLevels,
+
     /// If enabled, shifts the depth value of towards of away from the camera. This is useful for
     /// drawing decals and wireframes, for example.
     ///
@@ -986,6 +993,8 @@ impl<'a> Default for DrawParameters<'a> {
             #[cfg(safegl_gles32)]
             primitive_bounding_box: (-1.0..1.0, -1.0..1.0, -1.0..1.0, -1.0..1.0),
             primitive_restart: PrimitiveRestart::Disabled,
+            #[cfg(safegl_desktop)]
+            patch_default_levels: Default::default(),
             polygon_offset: Default::default(),
             #[cfg(safegl_gl46)]
             polygon_offset_clamp: 0.0,
@@ -1071,6 +1080,8 @@ pub fn sync(
     #[cfg(safegl_gles32)]
     sync_primitive_bounding_box(ctxt, &draw_parameters.primitive_bounding_box);
     sync_primitive_restart(ctxt, draw_parameters.primitive_restart, index_type)?;
+    #[cfg(safegl_desktop)]
+    sync_patch_default_levels(ctxt, draw_parameters.patch_default_levels);
     sync_polygon_offset(
         ctxt,
         draw_parameters.polygon_offset,
@@ -1840,6 +1851,50 @@ fn sync_primitive_restart(
     }
 
     Ok(())
+}
+
+/// The tessellation levels of patches without a tessellation control shader
+/// (`GL_PATCH_DEFAULT_OUTER_LEVEL` and `GL_PATCH_DEFAULT_INNER_LEVEL`). OpenGL clamps them to 1
+/// and `Limits::max_tess_gen_level`.
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct PatchDefaultLevels {
+    /// The levels of the edges (`gl_TessLevelOuter`).
+    pub outer: [f32; 4],
+    /// The levels of the inside (`gl_TessLevelInner`).
+    pub inner: [f32; 2],
+}
+
+#[cfg(safegl_desktop)]
+impl Default for PatchDefaultLevels {
+    /// The levels of OpenGL: 1 everywhere.
+    fn default() -> PatchDefaultLevels {
+        PatchDefaultLevels {
+            outer: [1.0; 4],
+            inner: [1.0; 2],
+        }
+    }
+}
+
+#[cfg(safegl_desktop)]
+fn sync_patch_default_levels(ctxt: &mut context::CommandContext<'_>, levels: PatchDefaultLevels) {
+    // the programs of OpenGL ES always have a tessellation control shader
+    if ctxt.version.0 != Api::Gl {
+        return;
+    }
+    unsafe {
+        if ctxt.state.patch_default_outer_level != levels.outer {
+            ctxt.extra
+                .PatchParameterfv(gl::PATCH_DEFAULT_OUTER_LEVEL, levels.outer.as_ptr());
+            ctxt.state.patch_default_outer_level = levels.outer;
+        }
+        if ctxt.state.patch_default_inner_level != levels.inner {
+            ctxt.extra
+                .PatchParameterfv(gl::PATCH_DEFAULT_INNER_LEVEL, levels.inner.as_ptr());
+            ctxt.state.patch_default_inner_level = levels.inner;
+        }
+    }
 }
 
 /// Whether and where indexed draws start a new primitive ("primitive restart").
