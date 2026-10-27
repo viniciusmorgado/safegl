@@ -1685,6 +1685,17 @@ pub enum DrawError {
         name: String,
     },
 
+    /// A rectangle texture is sampled with a sampler that repeats or mirrors it, or that
+    /// filters it with mipmaps, which rectangle textures don't have: they can only be clamped
+    /// (`SamplerWrapFunction::Clamp` or `BorderClamp`) and filtered with `Nearest` or `Linear`.
+    /// `sampled()` on rectangle textures starts from such a sampler.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    RectangleTextureSampler {
+        /// Name of the uniform.
+        name: String,
+    },
+
     /// Viewport arrays (`DrawParameters::viewports`) aren't supported by the backend.
     #[cfg(safegl_gl41)]
     #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
@@ -1992,6 +2003,9 @@ impl fmt::Display for DrawError {
             #[cfg(any(safegl_desktop, safegl_gles32))]
             BorderColorMismatch { .. } =>
                 "The border color of a sampler isn't of the kind of its texture",
+            #[cfg(safegl_desktop)]
+            RectangleTextureSampler { .. } =>
+                "A rectangle texture is sampled with a wrap function or a filter it doesn't have",
             #[cfg(safegl_gl41)]
             ViewportArrayNotSupported => "Viewport arrays are not supported by the backend",
             #[cfg(safegl_gl41)]

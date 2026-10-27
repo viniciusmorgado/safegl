@@ -45,8 +45,11 @@ use crate::ops;
 use crate::ops::ReadError;
 
 /// Type of a texture.
+///
+/// New kinds of textures can be added without a major version, so matches need a wildcard arm.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[allow(missing_docs)] // TODO: document and remove
+#[non_exhaustive]
 pub enum Dimensions {
     Texture1d {
         width: u32,
@@ -56,6 +59,11 @@ pub enum Dimensions {
         array_size: u32,
     },
     Texture2d {
+        width: u32,
+        height: u32,
+    },
+    /// A rectangle texture, sampled with coordinates in texels. Only desktop OpenGL has them.
+    TextureRectangle {
         width: u32,
         height: u32,
     },
@@ -138,6 +146,7 @@ fn extract_dimensions(ty: Dimensions) -> (u32, Option<u32>, Option<u32>, Option<
             (width, None, None, Some(array_size), None)
         }
         Dimensions::Texture2d { width, height } => (width, Some(height), None, None, None),
+        Dimensions::TextureRectangle { width, height } => (width, Some(height), None, None, None),
         Dimensions::Texture2dArray {
             width,
             height,
@@ -173,6 +182,7 @@ fn get_bind_point(ty: Dimensions) -> gl::types::GLenum {
         Dimensions::Texture1d { .. } => gl::TEXTURE_1D,
         Dimensions::Texture1dArray { .. } => gl::TEXTURE_1D_ARRAY,
         Dimensions::Texture2d { .. } => gl::TEXTURE_2D,
+        Dimensions::TextureRectangle { .. } => gl::TEXTURE_RECTANGLE,
         Dimensions::Texture2dArray { .. } => gl::TEXTURE_2D_ARRAY,
         Dimensions::Texture2dMultisample { .. } => gl::TEXTURE_2D_MULTISAMPLE,
         Dimensions::Texture2dMultisampleArray { .. } => gl::TEXTURE_2D_MULTISAMPLE_ARRAY,
@@ -197,6 +207,8 @@ fn check_dimensions(context: &Context, ty: Dimensions) -> Result<(), TextureCrea
             super::ty_support::is_texture_2d_multisample_array_supported(context)
         }
         Dimensions::CubemapArray { .. } => super::ty_support::is_cubemap_arrays_supported(context),
+        // core in OpenGL 3.1, absent from OpenGL ES
+        Dimensions::TextureRectangle { .. } => context.get_opengl_version().0 == Api::Gl,
         _ => true,
     };
 
@@ -213,6 +225,11 @@ fn check_dimensions(context: &Context, ty: Dimensions) -> Result<(), TextureCrea
         ),
         Dimensions::Cubemap { .. } | Dimensions::CubemapArray { .. } => (
             capabilities.max_cube_map_texture_size,
+            capabilities.max_array_texture_layers,
+        ),
+        #[cfg(safegl_desktop)]
+        Dimensions::TextureRectangle { .. } => (
+            capabilities.limits.max_rectangle_texture_size.unwrap_or(0),
             capabilities.max_array_texture_layers,
         ),
         _ => (
@@ -342,6 +359,10 @@ where
 
     let should_generate_mipmaps = mipmaps.should_generate();
     let texture_levels = mipmaps.num_levels(width, height, depth) as gl::types::GLsizei;
+    // rectangle textures have a single level
+    if bind_point == gl::TEXTURE_RECTANGLE && texture_levels > 1 {
+        return Err(TextureCreationError::MipmapsNotSupported);
+    }
 
     let teximg_internal_format = image_format::format_request_to_glenum(
         facade.get_context(),
@@ -458,9 +479,15 @@ where
             ctxt.state.texture_units[act].texture = Some(id);
         }
 
+        // rectangle textures can only be clamped
+        let wrap = if bind_point == gl::TEXTURE_RECTANGLE {
+            gl::CLAMP_TO_EDGE
+        } else {
+            gl::REPEAT
+        };
         if !is_multisampled {
             ctxt.glow
-                .tex_parameter_i32(bind_point, glow::TEXTURE_WRAP_S, gl::REPEAT as i32);
+                .tex_parameter_i32(bind_point, glow::TEXTURE_WRAP_S, wrap as i32);
             ctxt.glow
                 .tex_parameter_i32(bind_point, glow::TEXTURE_MAG_FILTER, filtering as i32);
         }
@@ -471,7 +498,7 @@ where
             Dimensions::Texture2dMultisampleArray { .. } => (),
             _ => {
                 ctxt.glow
-                    .tex_parameter_i32(bind_point, glow::TEXTURE_WRAP_T, gl::REPEAT as i32);
+                    .tex_parameter_i32(bind_point, glow::TEXTURE_WRAP_T, wrap as i32);
             }
         };
 
@@ -479,6 +506,7 @@ where
         match ty {
             Dimensions::Texture1d { .. } => (),
             Dimensions::Texture2d { .. } => (),
+            Dimensions::TextureRectangle { .. } => (),
             Dimensions::Texture2dMultisample { .. } => (),
             Dimensions::Texture2dMultisampleArray { .. } => (),
             _ => {
@@ -602,6 +630,7 @@ where
                 );
             }
         } else if bind_point == gl::TEXTURE_2D
+            || bind_point == gl::TEXTURE_RECTANGLE
             || bind_point == gl::TEXTURE_1D_ARRAY
             || bind_point == gl::TEXTURE_CUBE_MAP
         {
@@ -919,6 +948,7 @@ impl TextureAny {
             Dimensions::Texture1d { width, .. } => width,
             Dimensions::Texture1dArray { width, .. } => width,
             Dimensions::Texture2d { width, .. } => width,
+            Dimensions::TextureRectangle { width, .. } => width,
             Dimensions::Texture2dArray { width, .. } => width,
             Dimensions::Texture2dMultisample { width, .. } => width,
             Dimensions::Texture2dMultisampleArray { width, .. } => width,
@@ -935,6 +965,7 @@ impl TextureAny {
             Dimensions::Texture1d { .. } => None,
             Dimensions::Texture1dArray { .. } => None,
             Dimensions::Texture2d { height, .. } => Some(height),
+            Dimensions::TextureRectangle { height, .. } => Some(height),
             Dimensions::Texture2dArray { height, .. } => Some(height),
             Dimensions::Texture2dMultisample { height, .. } => Some(height),
             Dimensions::Texture2dMultisampleArray { height, .. } => Some(height),
@@ -1010,6 +1041,7 @@ impl TextureAny {
             Dimensions::Texture1d { .. } => None,
             Dimensions::Texture1dArray { array_size, .. } => Some(array_size),
             Dimensions::Texture2d { .. } => None,
+            Dimensions::TextureRectangle { .. } => None,
             Dimensions::Texture2dArray { array_size, .. } => Some(array_size),
             Dimensions::Texture2dMultisample { .. } => None,
             Dimensions::Texture2dMultisampleArray { array_size, .. } => Some(array_size),
@@ -1639,7 +1671,9 @@ impl<'a> TextureAnyMipmap<'a> {
                     );
                 }
 
-                Dimensions::Texture1dArray { .. } | Dimensions::Texture2d { .. } => {
+                Dimensions::Texture1dArray { .. }
+                | Dimensions::Texture2d { .. }
+                | Dimensions::TextureRectangle { .. } => {
                     ctxt.glow.tex_sub_image_2d(
                         bind_point,
                         level,
@@ -1806,7 +1840,10 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
                         glow::PixelUnpackData::Slice(Some(data)),
                     );
                 }
-            } else if bind_point == gl::TEXTURE_2D || bind_point == gl::TEXTURE_1D_ARRAY {
+            } else if bind_point == gl::TEXTURE_2D
+                || bind_point == gl::TEXTURE_RECTANGLE
+                || bind_point == gl::TEXTURE_1D_ARRAY
+            {
                 assert!(z_offset == 0);
                 // FIXME should glTexImage be used here somewhere or glTexSubImage does it just fine?
                 if is_client_compressed {
@@ -2184,7 +2221,9 @@ impl<'a> TextureAnyImage<'a> {
                         glow::PixelUnpackData::Slice(Some(data)),
                     );
                 }
-                Dimensions::Texture2d { .. } | Dimensions::Cubemap { .. } => {
+                Dimensions::Texture2d { .. }
+                | Dimensions::TextureRectangle { .. }
+                | Dimensions::Cubemap { .. } => {
                     let target = match self.cube_layer {
                         Some(face) => {
                             gl::TEXTURE_CUBE_MAP_POSITIVE_X + face.get_layer_index() as u32

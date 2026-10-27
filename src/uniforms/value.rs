@@ -477,6 +477,7 @@ fn sampler_types(texture: &texture::TextureAny) -> &'static [UniformType] {
         (K::Float, D::Texture1d { .. }) => &[Sampler1d],
         (K::Float, D::Texture1dArray { .. }) => &[Sampler1dArray],
         (K::Float, D::Texture2d { .. }) => &[Sampler2d],
+        (K::Float, D::TextureRectangle { .. }) => &[Sampler2dRect],
         (K::Float, D::Texture2dArray { .. }) => &[Sampler2dArray],
         (K::Float, D::Texture2dMultisample { .. }) => &[Sampler2dMultisample],
         (K::Float, D::Texture2dMultisampleArray { .. }) => &[Sampler2dMultisampleArray],
@@ -487,6 +488,7 @@ fn sampler_types(texture: &texture::TextureAny) -> &'static [UniformType] {
         (K::Integral, D::Texture1d { .. }) => &[ISampler1d],
         (K::Integral, D::Texture1dArray { .. }) => &[ISampler1dArray],
         (K::Integral, D::Texture2d { .. }) => &[ISampler2d],
+        (K::Integral, D::TextureRectangle { .. }) => &[ISampler2dRect],
         (K::Integral, D::Texture2dArray { .. }) => &[ISampler2dArray],
         (K::Integral, D::Texture2dMultisample { .. }) => &[ISampler2dMultisample],
         (K::Integral, D::Texture2dMultisampleArray { .. }) => &[ISampler2dMultisampleArray],
@@ -498,6 +500,7 @@ fn sampler_types(texture: &texture::TextureAny) -> &'static [UniformType] {
         (K::Unsigned | K::Stencil, D::Texture1d { .. }) => &[USampler1d],
         (K::Unsigned | K::Stencil, D::Texture1dArray { .. }) => &[USampler1dArray],
         (K::Unsigned | K::Stencil, D::Texture2d { .. }) => &[USampler2d],
+        (K::Unsigned | K::Stencil, D::TextureRectangle { .. }) => &[USampler2dRect],
         (K::Unsigned | K::Stencil, D::Texture2dArray { .. }) => &[USampler2dArray],
         (K::Unsigned | K::Stencil, D::Texture2dMultisample { .. }) => &[USampler2dMultisample],
         (K::Unsigned | K::Stencil, D::Texture2dMultisampleArray { .. }) => {
@@ -513,6 +516,9 @@ fn sampler_types(texture: &texture::TextureAny) -> &'static [UniformType] {
             &[Sampler1dArray, Sampler1dArrayShadow]
         }
         (K::Depth | K::DepthStencil, D::Texture2d { .. }) => &[Sampler2d, Sampler2dShadow],
+        (K::Depth | K::DepthStencil, D::TextureRectangle { .. }) => {
+            &[Sampler2dRect, Sampler2dRectShadow]
+        }
         (K::Depth | K::DepthStencil, D::Texture2dArray { .. }) => {
             &[Sampler2dArray, Sampler2dArrayShadow]
         }
@@ -608,6 +614,7 @@ fn image_types(texture: &texture::TextureAny) -> &'static [UniformType] {
         (K::Float, D::Texture1d { .. }) => &[Image1d],
         (K::Float, D::Texture1dArray { .. }) => &[Image1dArray],
         (K::Float, D::Texture2d { .. }) => &[Image2d],
+        (K::Float, D::TextureRectangle { .. }) => &[Image2dRect],
         (K::Float, D::Texture2dArray { .. }) => &[Image2dArray],
         (K::Float, D::Texture2dMultisample { .. }) => &[Image2dMultisample],
         (K::Float, D::Texture2dMultisampleArray { .. }) => &[Image2dMultisampleArray],
@@ -618,6 +625,7 @@ fn image_types(texture: &texture::TextureAny) -> &'static [UniformType] {
         (K::Integral, D::Texture1d { .. }) => &[IImage1d],
         (K::Integral, D::Texture1dArray { .. }) => &[IImage1dArray],
         (K::Integral, D::Texture2d { .. }) => &[IImage2d],
+        (K::Integral, D::TextureRectangle { .. }) => &[IImage2dRect],
         (K::Integral, D::Texture2dArray { .. }) => &[IImage2dArray],
         (K::Integral, D::Texture2dMultisample { .. }) => &[IImage2dMultisample],
         (K::Integral, D::Texture2dMultisampleArray { .. }) => &[IImage2dMultisampleArray],
@@ -628,6 +636,7 @@ fn image_types(texture: &texture::TextureAny) -> &'static [UniformType] {
         (K::Unsigned, D::Texture1d { .. }) => &[UImage1d],
         (K::Unsigned, D::Texture1dArray { .. }) => &[UImage1dArray],
         (K::Unsigned, D::Texture2d { .. }) => &[UImage2d],
+        (K::Unsigned, D::TextureRectangle { .. }) => &[UImage2dRect],
         (K::Unsigned, D::Texture2dArray { .. }) => &[UImage2dArray],
         (K::Unsigned, D::Texture2dMultisample { .. }) => &[UImage2dMultisample],
         (K::Unsigned, D::Texture2dMultisampleArray { .. }) => &[UImage2dMultisampleArray],

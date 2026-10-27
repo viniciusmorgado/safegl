@@ -59,6 +59,9 @@ local cases = {
   { "gles32_has_layered_framebuffers", { "gles32" }, nil, [[
     pub use safegl::framebuffer::{LayeredFrameBuffer, ToLayeredDepthAttachment};
   ]] },
+  { "gl40_has_rectangle_textures", { "gl40" }, nil, [[
+    pub use safegl::texture::{DepthTextureRectangle, TextureRectangle, UnsignedTextureRectangle};
+  ]] },
   { "gl41_has_viewport_arrays", { "gl41" }, nil, [[
     pub fn f(v: &[safegl::ViewportState]) -> safegl::DrawParameters<'_> {
         safegl::DrawParameters { viewports: v, ..Default::default() }
@@ -376,6 +379,9 @@ local cases = {
   ]] },
   { "gl42_has_no_depth_stencil_mode", { "gl42" }, "DepthStencilTextureMode", [[
     pub use safegl::texture::DepthStencilTextureMode;
+  ]] },
+  { "gles32_has_no_rectangle_textures", { "gles32" }, "TextureRectangle", [[
+    pub use safegl::texture::TextureRectangle;
   ]] },
   { "gles31_has_no_copy_image", { "gles31" }, "copy_image", [[
     pub use safegl::texture::copy_image;

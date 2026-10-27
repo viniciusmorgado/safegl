@@ -17,6 +17,7 @@ enum TextureType {
 enum TextureDimensions {
     Texture1d,
     Texture2d,
+    TextureRectangle,
     Texture2dMultisample,
     Texture3d,
     Texture1dArray,
@@ -58,9 +59,9 @@ impl TextureDimensions {
 fn level_gate(ty: &TextureType, dimensions: &TextureDimensions) -> Option<String> {
     let mut gates = Vec::new();
     match *dimensions {
-        TextureDimensions::Texture1d | TextureDimensions::Texture1dArray => {
-            gates.push("safegl_desktop")
-        }
+        TextureDimensions::Texture1d
+        | TextureDimensions::Texture1dArray
+        | TextureDimensions::TextureRectangle => gates.push("safegl_desktop"),
         TextureDimensions::Texture2dMultisample => gates.push("any(safegl_desktop, safegl_gles31)"),
         TextureDimensions::Texture2dMultisampleArray | TextureDimensions::CubemapArray => {
             gates.push("any(safegl_desktop, safegl_gles32)")
@@ -97,6 +98,17 @@ pub fn build_texture_file<W: Write>(dest: &mut W) {
         TextureDimensions::Texture1d,
     );
     build_texture(dest, TextureType::Regular, TextureDimensions::Texture2d);
+    // rectangle textures have neither compressed nor stencil formats
+    for ty in [
+        TextureType::Regular,
+        TextureType::Srgb,
+        TextureType::Integral,
+        TextureType::Unsigned,
+        TextureType::Depth,
+        TextureType::DepthStencil,
+    ] {
+        build_texture(dest, ty, TextureDimensions::TextureRectangle);
+    }
     build_texture(dest, TextureType::Compressed, TextureDimensions::Texture2d);
     build_texture(dest, TextureType::Srgb, TextureDimensions::Texture2d);
     build_texture(
@@ -328,6 +340,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         let suffix = match dimensions {
             TextureDimensions::Texture1d => "texture1d",
             TextureDimensions::Texture2d => "texture2d",
+            TextureDimensions::TextureRectangle => "texture_rectangle",
             TextureDimensions::Texture2dMultisample => "texture2d_multisample",
             TextureDimensions::Texture3d => "texture3d",
             TextureDimensions::Texture1dArray => "texture1d_array",
@@ -357,6 +370,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         let suffix = match dimensions {
             TextureDimensions::Texture1d => "Texture1d",
             TextureDimensions::Texture2d => "Texture2d",
+            TextureDimensions::TextureRectangle => "TextureRectangle",
             TextureDimensions::Texture2dMultisample => "Texture2dMultisample",
             TextureDimensions::Texture3d => "Texture3d",
             TextureDimensions::Texture1dArray => "Texture1dArray",
@@ -372,7 +386,9 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
     // the trait corresponding to the data source
     let data_source_trait = match dimensions {
         TextureDimensions::Texture1d | TextureDimensions::Texture1dArray => "Texture1dDataSource",
-        TextureDimensions::Texture2d | TextureDimensions::Texture2dArray => "Texture2dDataSource",
+        TextureDimensions::Texture2d
+        | TextureDimensions::TextureRectangle
+        | TextureDimensions::Texture2dArray => "Texture2dDataSource",
         TextureDimensions::Texture3d => "Texture3dDataSource",
         TextureDimensions::Texture2dMultisample
         | TextureDimensions::Texture2dMultisampleArray
@@ -431,7 +447,9 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
     //
     let dimensions_parameters_input = match dimensions {
         TextureDimensions::Texture1d => "width: u32",
-        TextureDimensions::Texture2d => "width: u32, height: u32",
+        TextureDimensions::Texture2d | TextureDimensions::TextureRectangle => {
+            "width: u32, height: u32"
+        }
         TextureDimensions::Texture2dMultisample => "width: u32, height: u32, samples: u32",
         TextureDimensions::Texture3d => "width: u32, height: u32, depth: u32",
         TextureDimensions::Texture1dArray => "width: u32, array_size: u32",
@@ -449,6 +467,9 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         },
         TextureDimensions::Texture2d => {
             "Dimensions::Texture2d { width: width, height: height }"
+        },
+        TextureDimensions::TextureRectangle => {
+            "Dimensions::TextureRectangle { width: width, height: height }"
         },
         TextureDimensions::Texture2dMultisample => {
             "Dimensions::Texture2dMultisample { width: width, height: height, samples: samples }"
@@ -538,6 +559,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
             | TextureDimensions::Texture2dMultisample
             | TextureDimensions::Texture3d
             | TextureDimensions::Cubemap => "A ",
+            TextureDimensions::TextureRectangle => "A rectangle ",
             TextureDimensions::Texture1dArray
             | TextureDimensions::Texture2dArray
             | TextureDimensions::Texture2dMultisampleArray
@@ -559,6 +581,8 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
             | TextureDimensions::Texture2dMultisampleArray => {
                 "two-dimensional "
             }
+            // sampled with coordinates in texels, without mipmaps or repetition
+            TextureDimensions::TextureRectangle => "",
             TextureDimensions::Texture3d => "three-dimensional ",
             TextureDimensions::Cubemap | TextureDimensions::CubemapArray => "cube ",
         }
@@ -570,6 +594,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         match dimensions {
             TextureDimensions::Texture1d
             | TextureDimensions::Texture2d
+            | TextureDimensions::TextureRectangle
             | TextureDimensions::Texture2dMultisample
             | TextureDimensions::Texture3d
             | TextureDimensions::Cubemap => "texture ",
@@ -648,7 +673,21 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
     ))
     .unwrap();
 
-    // `UniformValue` trait impl for samplers
+    // `UniformValue` trait impl for samplers; rectangle textures can't repeat or have mipmaps, so
+    // their samplers clamp them and filter them without mipmaps by default
+    let default_sampler = if dimensions == TextureDimensions::TextureRectangle {
+        "crate::uniforms::SamplerBehavior {
+            wrap_function: (
+                crate::uniforms::SamplerWrapFunction::Clamp,
+                crate::uniforms::SamplerWrapFunction::Clamp,
+                crate::uniforms::SamplerWrapFunction::Clamp,
+            ),
+            minify_filter: crate::uniforms::MinifySamplerFilter::Linear,
+            ..Default::default()
+        }"
+    } else {
+        "Default::default()"
+    };
     {
         match ty {
             TextureType::Regular
@@ -707,10 +746,10 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                                 /// ```
                                 #[inline]
                                 pub fn sampled(&self) -> Sampler<'_, {myname}> {{
-                                    Sampler(self, Default::default())
+                                    Sampler(self, {default_sampler})
                                 }}
                             }}
-                        ", myname = name)).unwrap();
+                        ", myname = name, default_sampler = default_sampler)).unwrap();
             }
         }
     }
@@ -747,6 +786,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
 
     // `ToXXXAttachment` trait impl
     if dimensions == TextureDimensions::Texture2d
+        || dimensions == TextureDimensions::TextureRectangle
         || dimensions == TextureDimensions::Texture2dMultisample
         || dimensions == TextureDimensions::Texture1d
     {
@@ -822,6 +862,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         let param = match dimensions {
             TextureDimensions::Texture1d
             | TextureDimensions::Texture2d
+            | TextureDimensions::TextureRectangle
             | TextureDimensions::Texture3d => "T",
 
             TextureDimensions::Texture1dArray | TextureDimensions::Texture2dArray => "Vec<T>",
@@ -864,6 +905,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         let param = match dimensions {
             TextureDimensions::Texture1d
             | TextureDimensions::Texture2d
+            | TextureDimensions::TextureRectangle
             | TextureDimensions::Texture3d => "T",
 
             TextureDimensions::Texture1dArray | TextureDimensions::Texture2dArray => "Vec<T>",
@@ -896,6 +938,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         let param = match dimensions {
             TextureDimensions::Texture1d
             | TextureDimensions::Texture2d
+            | TextureDimensions::TextureRectangle
             | TextureDimensions::Texture3d => "&[u8]",
 
             TextureDimensions::Texture1dArray | TextureDimensions::Texture2dArray => "Vec<&[u8]>",
@@ -928,6 +971,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         let param = match dimensions {
             TextureDimensions::Texture1d
             | TextureDimensions::Texture2d
+            | TextureDimensions::TextureRectangle
             | TextureDimensions::Texture3d => "T",
 
             TextureDimensions::Texture1dArray | TextureDimensions::Texture2dArray => "Vec<T>",
@@ -962,6 +1006,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         let param = match dimensions {
             TextureDimensions::Texture1d
             | TextureDimensions::Texture2d
+            | TextureDimensions::TextureRectangle
             | TextureDimensions::Texture3d => "T",
 
             TextureDimensions::Texture1dArray | TextureDimensions::Texture2dArray => "Vec<T>",
@@ -1002,7 +1047,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                     let RawImage1d {{ data, width, format: client_format }} = data.into_raw();
                 ")).unwrap(),
 
-            TextureDimensions::Texture2d => (write!(dest, "
+            TextureDimensions::Texture2d | TextureDimensions::TextureRectangle => (write!(dest, "
                     let RawImage2d {{ data, width, height, format: client_format }} =
                                             data.into_raw();
                 ")).unwrap(),
@@ -1182,6 +1227,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
 
     // writing the `as_surface` function
     if (dimensions == TextureDimensions::Texture2d
+        || dimensions == TextureDimensions::TextureRectangle
         || dimensions == TextureDimensions::Texture2dMultisample)
         && (ty == TextureType::Regular
             || ty == TextureType::Integral
@@ -1239,7 +1285,8 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
     .unwrap();
 
     // writing the `read` function of depth textures
-    if dimensions == TextureDimensions::Texture2d && ty == TextureType::Depth {
+    if (dimensions == TextureDimensions::Texture2d
+        || dimensions == TextureDimensions::TextureRectangle) && ty == TextureType::Depth {
         (write!(
             dest,
             r#"
@@ -1264,7 +1311,8 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
 
     // writing the `read` functions
     // TODO: implement for other types too
-    if dimensions == TextureDimensions::Texture2d
+    if (dimensions == TextureDimensions::Texture2d
+        || dimensions == TextureDimensions::TextureRectangle)
         && (ty == TextureType::Regular
             || ty == TextureType::Srgb
             || ty == TextureType::Unsigned
@@ -1429,7 +1477,8 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
     }
 
     // writing the `write` function
-    if dimensions == TextureDimensions::Texture2d && (is_writable || is_compressed) {
+    if (dimensions == TextureDimensions::Texture2d
+        || dimensions == TextureDimensions::TextureRectangle) && (is_writable || is_compressed) {
         let compressed_restrictions = if is_compressed {
             r#" ///
                 /// Calling this for compressed textures will result in a panic of type INVALID_OPERATION
@@ -1718,7 +1767,10 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         }
 
         // writing the `write` function for mipmaps.
-        if dimensions == TextureDimensions::Texture2d && (is_writable || is_compressed) {
+        if (dimensions == TextureDimensions::Texture2d
+            || dimensions == TextureDimensions::TextureRectangle)
+            && (is_writable || is_compressed)
+        {
             let compressed_restrictions = if is_compressed {
                 r#" ///
                     /// Calling this for compressed textures will result in a panic of type INVALID_OPERATION

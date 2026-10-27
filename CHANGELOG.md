@@ -248,6 +248,14 @@ Breaking changes:
   `enabled` (formerly `multisampling`), `alpha_to_coverage`, `sample_shading` and `sample_mask`:
   write `multisample: MultisampleState { alpha_to_coverage: true, ..Default::default() }`.
   `DrawError` has an `AlphaToOneNotSupported` variant at the desktop levels.
+- `texture::Dimensions` is `#[non_exhaustive]`, with a `TextureRectangle` variant for the
+  rectangle textures of desktop OpenGL: `TextureRectangle`, `SrgbTextureRectangle`,
+  `IntegralTextureRectangle`, `UnsignedTextureRectangle`, `DepthTextureRectangle` and
+  `DepthStencilTextureRectangle` (`desktop`), sampled by `sampler2DRect` uniforms with
+  coordinates in texels. They have a single level (`TextureCreationError::MipmapsNotSupported`
+  otherwise), are created clamped, and their `sampled()` clamps them and filters them without
+  mipmaps; a sampler that repeats them or uses mipmaps returns
+  `DrawError::RectangleTextureSampler`.
 - `UniformValue` and `uniforms::ImageUnitError` are `#[non_exhaustive]`. Multisample textures
   can be bound to image units (`image_unit()`, `image2DMS` uniforms, `gl42`; up to
   `Limits::max_image_samples` samples, beyond which `ImageUnitError::TooManySamples` is

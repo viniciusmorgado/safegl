@@ -476,3 +476,75 @@ fn buffer_images() {
 
     display.assert_no_error(None);
 }
+
+/// Rectangle textures are sampled with coordinates in texels, without repetition or mipmaps.
+#[cfg(safegl_desktop)]
+#[test]
+fn rectangle_textures() {
+    use safegl::texture::{MipmapsOption, TextureCreationError, TextureRectangle};
+    use safegl::uniforms::{MinifySamplerFilter, SamplerWrapFunction};
+
+    let display = support::build_display();
+    if support::is_gles(&display) {
+        assert!(matches!(
+            TextureRectangle::empty(&display, 4, 4),
+            Err(TextureCreationError::TypeNotSupported)
+        ));
+        return;
+    }
+    // texel (x, y) is (x × 60, y × 60, 0, 255)
+    let texels = (0..4u8)
+        .map(|y| {
+            (0..4u8)
+                .map(|x| (x * 60, y * 60, 0u8, 255u8))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let texture = TextureRectangle::new(&display, texels.clone()).unwrap();
+    let read: Vec<Vec<Pixel>> = texture.read().unwrap();
+    assert_eq!(read, texels);
+
+    let program = program(
+        &display,
+        330,
+        0,
+        "uniform sampler2DRect tex;",
+        "color = texture(tex, gl_FragCoord.xy);",
+    );
+    assert_eq!(
+        draw(&display, &program, &uniform! { tex: &texture }).unwrap(),
+        texels
+    );
+    let sampler = texture.sampled();
+    assert_eq!(
+        draw(&display, &program, &uniform! { tex: sampler }).unwrap(),
+        texels
+    );
+
+    // samplers that repeat or filter with mipmaps can't sample them
+    for sampler in [
+        texture.sampled().wrap_function(SamplerWrapFunction::Repeat),
+        texture
+            .sampled()
+            .minify_filter(MinifySamplerFilter::LinearMipmapLinear),
+    ] {
+        assert!(matches!(
+            draw(&display, &program, &uniform! { tex: sampler }),
+            Err(DrawError::RectangleTextureSampler { .. })
+        ));
+    }
+
+    // they have no mipmaps
+    assert!(matches!(
+        TextureRectangle::empty_with_mipmaps(&display, MipmapsOption::EmptyMipmaps, 4, 4),
+        Err(TextureCreationError::MipmapsNotSupported)
+    ));
+
+    // and are drawn to like other textures
+    let target = TextureRectangle::empty(&display, 3, 5).unwrap();
+    target.as_surface().clear_color(0.0, 1.0, 0.0, 1.0);
+    let read: Vec<Vec<Pixel>> = target.read().unwrap();
+    assert_eq!(read, vec![vec![(0, 255, 0, 255); 3]; 5]);
+
+    display.assert_no_error(None);
+}

@@ -153,6 +153,9 @@ impl<'t, T: 't + core::ops::Deref<Target = crate::texture::TextureAny>> ImageUni
                 texture::Dimensions::Texture2d { width, height } => {
                     Err(ImageUnitError::LayeringNotSupported(self.0.dimensions()))
                 }
+                texture::Dimensions::TextureRectangle { .. } => {
+                    Err(ImageUnitError::LayeringNotSupported(self.0.dimensions()))
+                }
                 texture::Dimensions::Texture2dMultisample {
                     width,
                     height,

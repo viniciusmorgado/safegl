@@ -127,6 +127,16 @@ impl<'a> CollectedUniforms<'a> {
                             name: name.to_owned(),
                         });
                     }
+                    #[cfg(safegl_desktop)]
+                    if let (crate::texture::Dimensions::TextureRectangle { .. }, Some(sampler)) =
+                        (texture.dimensions(), sampler)
+                    {
+                        if !is_rectangle_sampler(&sampler) {
+                            return Err(DrawError::RectangleTextureSampler {
+                                name: name.to_owned(),
+                            });
+                        }
+                    }
                     let _ = texture;
                 }
 
@@ -851,6 +861,22 @@ where
             name,
         ),
     }
+}
+
+/// Returns true if the sampler can sample rectangle textures, which can only be clamped and have
+/// no mipmaps.
+#[cfg(safegl_desktop)]
+fn is_rectangle_sampler(sampler: &SamplerBehavior) -> bool {
+    use crate::uniforms::SamplerWrapFunction as W;
+
+    let (s, t, r) = sampler.wrap_function;
+    [s, t, r]
+        .iter()
+        .all(|wrap| matches!(wrap, W::Clamp | W::BorderClamp))
+        && matches!(
+            sampler.minify_filter,
+            MinifySamplerFilter::Nearest | MinifySamplerFilter::Linear
+        )
 }
 
 fn bind_texture_uniform<P, T>(
