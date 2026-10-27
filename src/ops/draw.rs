@@ -147,6 +147,9 @@ where
                     };
                     binder = binder.add(&buffer, format, divisor);
                 }
+                VerticesSource::Constant(ref constant) => {
+                    binder = binder.add_constant(constant);
+                }
                 _ => {}
             }
 

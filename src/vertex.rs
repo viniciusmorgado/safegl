@@ -159,6 +159,9 @@ pub enum VerticesSource<'a> {
     /// attributes advance: per vertex, or per instance.
     VertexBuffer(BufferAnySlice<'a>, VertexFormat, InstanceRate),
 
+    /// A value for an attribute of every vertex, which no buffer provides.
+    Constant(ConstantAttribute<'a>),
+
     /// A marker indicating a "phantom list of attributes".
     Marker {
         /// Number of attributes.
@@ -200,6 +203,149 @@ impl<'a> From<EmptyInstanceAttributes> for VerticesSource<'a> {
         }
     }
 }
+
+/// The same value for an attribute of every vertex and instance (`glVertexAttrib*`), passed
+/// among the vertex sources of a draw instead of a buffer:
+///
+/// ```no_run
+/// # use glutin::surface::{ResizeableSurface, SurfaceTypeTrait};
+/// # fn example<T>(display: safegl::Display<T>, vertices: safegl::vertex::VertexBufferAny,
+/// #     program: safegl::Program) where T: SurfaceTypeTrait + ResizeableSurface {
+/// use safegl::Surface;
+/// use safegl::vertex::ConstantAttribute;
+///
+/// let color = ConstantAttribute::new("color", [1.0f32, 0.0, 0.0, 1.0]);
+/// let mut frame = display.draw();
+/// frame
+///     .draw(
+///         (&vertices, color),
+///         safegl::index::NoIndices(safegl::index::PrimitiveType::TrianglesList),
+///         &program,
+///         &safegl::uniforms::EmptyUniforms,
+///         &Default::default(),
+///     )
+///     .unwrap();
+/// frame.finish().unwrap();
+/// # }
+/// ```
+///
+/// The value must have the type of the attribute, otherwise the draw returns
+/// `DrawError::AttributeTypeMismatch`, and no buffer of the draw may provide the attribute too
+/// (`DrawError::AttributeProvidedTwice`). A program without the attribute ignores it.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct ConstantAttribute<'a> {
+    name: &'a str,
+    value: AttributeValue,
+}
+
+impl<'a> ConstantAttribute<'a> {
+    /// The value `value` for the attribute named `name`.
+    #[inline]
+    pub fn new(name: &'a str, value: impl Into<AttributeValue>) -> ConstantAttribute<'a> {
+        ConstantAttribute {
+            name,
+            value: value.into(),
+        }
+    }
+
+    /// Returns the name of the attribute.
+    #[inline]
+    pub fn name(&self) -> &'a str {
+        self.name
+    }
+
+    /// Returns the value.
+    #[inline]
+    pub fn value(&self) -> AttributeValue {
+        self.value
+    }
+}
+
+impl<'a> From<ConstantAttribute<'a>> for VerticesSource<'a> {
+    #[inline]
+    fn from(this: ConstantAttribute<'a>) -> VerticesSource<'a> {
+        VerticesSource::Constant(this)
+    }
+}
+
+/// The value of a constant attribute: one to four floats, signed or unsigned integers, or
+/// doubles, built from a value or an array of up to four of them. The components that the value
+/// doesn't give are 0, and 1 for the fourth one.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum AttributeValue {
+    /// `float` to `vec4` attributes (`glVertexAttrib4f`).
+    Float([f32; 4], u8),
+    /// `int` to `ivec4` attributes (`glVertexAttribI4i`).
+    Int([i32; 4], u8),
+    /// `uint` to `uvec4` attributes (`glVertexAttribI4ui`).
+    UnsignedInt([u32; 4], u8),
+    /// `double` to `dvec4` attributes (`glVertexAttribL4d`), which need OpenGL 4.1 or
+    /// `GL_ARB_vertex_attrib_64bit`.
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    Double([f64; 4], u8),
+}
+
+impl AttributeValue {
+    /// Returns the type of the attribute that the value is for.
+    pub fn attribute_type(&self) -> AttributeType {
+        use self::AttributeType::*;
+
+        let types = match *self {
+            AttributeValue::Float(_, _) => [F32, F32F32, F32F32F32, F32F32F32F32],
+            AttributeValue::Int(_, _) => [I32, I32I32, I32I32I32, I32I32I32I32],
+            AttributeValue::UnsignedInt(_, _) => [U32, U32U32, U32U32U32, U32U32U32U32],
+            #[cfg(safegl_gl41)]
+            AttributeValue::Double(_, _) => [F64, F64F64, F64F64F64, F64F64F64F64],
+        };
+        let components = match *self {
+            AttributeValue::Float(_, n)
+            | AttributeValue::Int(_, n)
+            | AttributeValue::UnsignedInt(_, n) => n,
+            #[cfg(safegl_gl41)]
+            AttributeValue::Double(_, n) => n,
+        };
+        types[components as usize - 1]
+    }
+}
+
+macro_rules! attribute_value {
+    ($variant:ident, $ty:ty, $zero:expr, $one:expr) => {
+        impl From<$ty> for AttributeValue {
+            #[inline]
+            fn from(value: $ty) -> AttributeValue {
+                AttributeValue::$variant([value, $zero, $zero, $one], 1)
+            }
+        }
+
+        impl From<[$ty; 2]> for AttributeValue {
+            #[inline]
+            fn from(value: [$ty; 2]) -> AttributeValue {
+                AttributeValue::$variant([value[0], value[1], $zero, $one], 2)
+            }
+        }
+
+        impl From<[$ty; 3]> for AttributeValue {
+            #[inline]
+            fn from(value: [$ty; 3]) -> AttributeValue {
+                AttributeValue::$variant([value[0], value[1], value[2], $one], 3)
+            }
+        }
+
+        impl From<[$ty; 4]> for AttributeValue {
+            #[inline]
+            fn from(value: [$ty; 4]) -> AttributeValue {
+                AttributeValue::$variant(value, 4)
+            }
+        }
+    };
+}
+
+attribute_value!(Float, f32, 0.0, 1.0);
+attribute_value!(Int, i32, 0, 1);
+attribute_value!(UnsignedInt, u32, 0, 1);
+#[cfg(safegl_gl41)]
+attribute_value!(Double, f64, 0.0, 1.0);
 
 /// How often the attributes of a vertex source advance.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]

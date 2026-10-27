@@ -221,7 +221,8 @@ Breaking changes:
 - The third field of `VerticesSource::VertexBuffer` is an `InstanceRate` (`PerVertex` or
   `PerInstance(divisor)`) instead of a `bool`.
 - `AttributeType` has the `U8U8U8U8Bgra`, `I2I10I10I10ReversedBgra` and `U2U10U10U10ReversedBgra`
-  variants at the desktop levels.
+  variants at the desktop levels, `VerticesSource` a `Constant` variant, and `DrawError` an
+  `AttributeProvidedTwice` variant.
 
 Additions:
 
@@ -334,6 +335,11 @@ Additions:
   of several consecutive instances (`glVertexAttribDivisor`).
 - BGRA vertex attributes (`desktop`): `vertex::Bgra8` and the `*Bgra` attribute types reach the
   vertex shader as RGBA `vec4`s, always normalized.
+- `vertex::ConstantAttribute` gives an attribute the same value for every vertex
+  (`glVertexAttrib*`), among the vertex sources of a draw: floats, signed and unsigned integers,
+  and doubles at the `gl41` level, as an `AttributeValue`. Its type is checked against the
+  attribute, `restore_state` sets the values again, and a constant for an attribute that a buffer
+  provides too is a `DrawError::AttributeProvidedTwice`.
 
 Fixes:
 

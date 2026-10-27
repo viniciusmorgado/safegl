@@ -220,6 +220,7 @@ extra_functions! {
     fn PrimitiveBoundingBoxARB(minX: GLfloat, minY: GLfloat, minZ: GLfloat, minW: GLfloat, maxX: GLfloat, maxY: GLfloat, maxZ: GLfloat, maxW: GLfloat) -> ();
     fn PrimitiveBoundingBoxEXT(minX: GLfloat, minY: GLfloat, minZ: GLfloat, minW: GLfloat, maxX: GLfloat, maxY: GLfloat, maxZ: GLfloat, maxW: GLfloat) -> ();
     fn PrimitiveBoundingBoxOES(minX: GLfloat, minY: GLfloat, minZ: GLfloat, minW: GLfloat, maxX: GLfloat, maxY: GLfloat, maxZ: GLfloat, maxW: GLfloat) -> ();
+    fn VertexAttribL4d(index: GLuint, x: GLdouble, y: GLdouble, z: GLdouble, w: GLdouble) -> ();
     fn PatchParameterfv(pname: GLenum, values: *const GLfloat) -> ();
     fn PrimitiveRestartIndex(index: GLuint) -> ();
     fn ProvokingVertex(mode: GLenum) -> ();

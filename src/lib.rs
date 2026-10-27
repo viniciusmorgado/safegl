@@ -1365,6 +1365,10 @@ pub enum DrawError {
     /// not used by the program.
     AttributeMissing,
 
+    /// A constant attribute (`vertex::ConstantAttribute`) is also provided by a vertex buffer, or
+    /// given two constant values.
+    AttributeProvidedTwice,
+
     /// The viewport's dimensions are not supported by the backend.
     ViewportTooLarge,
 
@@ -1686,6 +1690,8 @@ impl fmt::Display for DrawError {
                 "A stencil test or operation has been requested but no stencil buffer is available",
             AttributeTypeMismatch =>
                 "The type of a vertex attribute in the vertices source doesn't match what the program requires",
+            AttributeProvidedTwice =>
+                "An attribute has a constant value and is provided by another vertex source too",
             AttributeMissing =>
                 "One of the attributes required by the program is missing from the vertex format",
             ViewportTooLarge =>

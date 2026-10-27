@@ -8,6 +8,7 @@ use smallvec::SmallVec;
 use crate::buffer::BufferAnySlice;
 use crate::program::{Attribute, Program};
 use crate::vertex::AttributeType;
+use crate::vertex::{AttributeValue, ConstantAttribute};
 use crate::vertex::VertexFormat;
 use crate::BufferExt;
 use crate::GlObject;
@@ -29,10 +30,14 @@ const MAX_VAOS_PER_BUFFERS: usize = 16;
 /// bindings when they are used, so their offsets are all 0 in the key, and their vertex buffers
 /// are in the order of their binding points. The other VAOs have the offsets in their attribute
 /// pointers, and their buffers are sorted.
+///
+/// The locations of the attributes given constant values come last: the VAO leaves them
+/// disabled.
 type VaoKey = (
     SmallVec<[(Option<glow::Buffer>, usize); 3]>,
     glow::Program,
     bool,
+    SmallVec<[gl::types::GLint; 2]>,
 );
 
 /// A vertex buffer to bind: its buffer, format, offset in bytes, stride and divisor.
@@ -50,6 +55,10 @@ pub struct Binder<'a, 'b, 'c> {
     program: &'a Program,
     element_array_buffer: Option<BufferAnySlice<'a>>,
     vertex_buffers: SmallVec<[VertexSource; 2]>,
+    // the locations and values of the attributes with constant values
+    constants: SmallVec<[(gl::types::GLint, AttributeValue); 2]>,
+    // a constant value that doesn't have the type of its attribute
+    constant_mismatch: bool,
     base_vertex: bool,
     base_instance: bool,
 }
@@ -86,6 +95,8 @@ impl VertexAttributesSystem {
             program,
             element_array_buffer: indices,
             vertex_buffers: SmallVec::new(),
+            constants: SmallVec::new(),
+            constant_mismatch: false,
             base_vertex,
             base_instance,
         }
@@ -95,7 +106,7 @@ impl VertexAttributesSystem {
     /// purge its VAOs cache.
     #[inline]
     pub fn purge_buffer(ctxt: &mut CommandContext<'_>, id: glow::Buffer) {
-        VertexAttributesSystem::purge_if(ctxt, |&(ref buffers, _, _)| {
+        VertexAttributesSystem::purge_if(ctxt, |&(ref buffers, _, _, _)| {
             buffers.iter().any(|&(b, _)| b == Some(id))
         })
     }
@@ -104,7 +115,7 @@ impl VertexAttributesSystem {
     /// purge its VAOs cache.
     #[inline]
     pub fn purge_program(ctxt: &mut CommandContext<'_>, program: glow::Program) {
-        VertexAttributesSystem::purge_if(ctxt, |&(_, p, _)| p == program)
+        VertexAttributesSystem::purge_if(ctxt, |&(_, p, _, _)| p == program)
     }
 
     /// Purges the VAOs cache.
@@ -190,6 +201,21 @@ impl<'a, 'b, 'c> Binder<'a, 'b, 'c> {
         self
     }
 
+    /// Gives an attribute of the program the same value for every vertex. A program without
+    /// the attribute ignores it.
+    pub fn add_constant(mut self, constant: &ConstantAttribute<'_>) -> Binder<'a, 'b, 'c> {
+        let attribute = match self.program.get_attribute(constant.name()) {
+            Some(attribute) if attribute.location != -1 => attribute,
+            _ => return self,
+        };
+        if attribute.ty != constant.value().attribute_type() || attribute.size != 1 {
+            self.constant_mismatch = true;
+        }
+        self.constants
+            .push((attribute.location, constant.value()));
+        self
+    }
+
     /// Finish binding the vertex attributes.
     ///
     /// Returns the base vertex to use when drawing if `base_vertex` was set to true, and the base
@@ -197,6 +223,22 @@ impl<'a, 'b, 'c> Binder<'a, 'b, 'c> {
     /// vertex format doesn't match the attributes of the program.
     pub fn bind(mut self) -> Result<(Option<gl::types::GLint>, u32), DrawError> {
         let ctxt = self.context;
+
+        // the constant values are current values of the context, which the attributes that the
+        // VAO leaves disabled read
+        if self.constant_mismatch {
+            return Err(DrawError::AttributeTypeMismatch);
+        }
+        for &(location, value) in &self.constants {
+            unsafe { set_constant_attribute(ctxt, location as u32, value) };
+        }
+        let mut constant_locations: SmallVec<[gl::types::GLint; 2]> =
+            self.constants.iter().map(|&(location, _)| location).collect();
+        constant_locations.sort_unstable();
+        constant_locations.dedup();
+        if constant_locations.len() != self.constants.len() {
+            return Err(DrawError::AttributeProvidedTwice);
+        }
 
         // VAOs are core in OpenGL 3.0 and OpenGL ES 3.0
 
@@ -259,7 +301,12 @@ impl<'a, 'b, 'c> Binder<'a, 'b, 'c> {
         buffers_list.push((self.element_array_buffer.map(|b| b.get_id()), 0));
 
         let program_id = self.program.get_id();
-        let key = (buffers_list, program_id, separate_bindings);
+        let key = (
+            buffers_list,
+            program_id,
+            separate_bindings,
+            constant_locations,
+        );
 
         // trying to find an existing VAO in the cache
         let now = ctxt.state.next_draw_call_id;
@@ -277,6 +324,7 @@ impl<'a, 'b, 'c> Binder<'a, 'b, 'c> {
             VertexArrayObject::new(
                 ctxt,
                 &self.vertex_buffers,
+                &key.3,
                 self.element_array_buffer,
                 self.program,
                 separate_bindings,
@@ -291,7 +339,7 @@ impl<'a, 'b, 'c> Binder<'a, 'b, 'c> {
             None
         } else {
             let vaos = ctxt.vertex_array_objects.vaos.borrow();
-            let same_buffers = vaos.iter().filter(|((buffers, program, separate), _)| {
+            let same_buffers = vaos.iter().filter(|((buffers, program, separate, _), _)| {
                 *program == program_id
                     && !*separate
                     && buffers.len() == key.0.len()
@@ -369,6 +417,7 @@ impl VertexArrayObject {
     unsafe fn new(
         mut ctxt: &mut CommandContext<'_>,
         vertex_buffers: &[VertexSource],
+        constant_locations: &[gl::types::GLint],
         index_buffer: Option<BufferAnySlice<'_>>,
         program: &Program,
         separate_bindings: bool,
@@ -402,9 +451,20 @@ impl VertexArrayObject {
             }
         }
 
+        // checking for attributes that a buffer provides and that have a constant value
+        for &(_, ref bindings, _, _, _) in vertex_buffers {
+            for &(ref name, _, location, _, _) in bindings.iter() {
+                if let Some(attribute) = find_attribute(program, name, location) {
+                    if constant_locations.contains(&attribute.location) {
+                        return Err(DrawError::AttributeProvidedTwice);
+                    }
+                }
+            }
+        }
+
         // checking for missing attributes
         for (&ref name, attribute) in program.attributes() {
-            let mut found = false;
+            let mut found = constant_locations.contains(&attribute.location);
             for &(_, ref bindings, _, _, _) in vertex_buffers {
                 if bindings.iter().any(|&(ref n, _, location, _, _)| {
                     (location != -1 && location == attribute.location) || n == name
@@ -692,6 +752,51 @@ fn find_attribute<'p>(program: &'p Program, name: &str, location: i32) -> Option
             .attributes()
             .find(|(_, a)| a.location == location)
             .map(|(_, a)| a),
+    }
+}
+
+/// Sets the current value of the attribute at `location`, which it has when its array is
+/// disabled, unless it already has it.
+unsafe fn set_constant_attribute(
+    ctxt: &mut CommandContext<'_>,
+    location: u32,
+    value: AttributeValue,
+) {
+    let index = location as usize;
+    if ctxt.state.vertex_attrib_values.get(index).copied().flatten() == Some(value) {
+        return;
+    }
+    apply_constant_attribute(ctxt, location, value);
+    if ctxt.state.vertex_attrib_values.len() <= index {
+        ctxt.state.vertex_attrib_values.resize(index + 1, None);
+    }
+    ctxt.state.vertex_attrib_values[index] = Some(value);
+}
+
+/// Calls the `glVertexAttrib*` function of `value`.
+pub(crate) unsafe fn apply_constant_attribute(
+    ctxt: &CommandContext<'_>,
+    location: u32,
+    value: AttributeValue,
+) {
+    match value {
+        AttributeValue::Float(v, _) => {
+            ctxt.glow
+                .vertex_attrib_4_f32(location, v[0], v[1], v[2], v[3])
+        }
+        AttributeValue::Int(v, _) => {
+            ctxt.glow
+                .vertex_attrib_4_i32(location, v[0], v[1], v[2], v[3])
+        }
+        AttributeValue::UnsignedInt(v, _) => {
+            ctxt.glow
+                .vertex_attrib_4_u32(location, v[0], v[1], v[2], v[3])
+        }
+        #[cfg(safegl_gl41)]
+        AttributeValue::Double(v, _) => {
+            ctxt.extra
+                .VertexAttribL4d(location, v[0], v[1], v[2], v[3])
+        }
     }
 }
 

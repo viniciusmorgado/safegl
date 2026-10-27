@@ -15,6 +15,7 @@ pub(crate) unsafe fn restore_state(ctxt: &mut CommandContext<'_>) {
     restore_capabilities(ctxt);
     restore_bindings(ctxt);
     restore_fixed_function(ctxt);
+    restore_constant_attributes(ctxt);
 
     // the other code may have bound an element array buffer, or changed the attributes, while a
     // vertex array object of SafeGL was bound: they are created again when needed
@@ -25,6 +26,15 @@ pub(crate) unsafe fn restore_state(ctxt: &mut CommandContext<'_>) {
 }
 
 /// Enables or disables `cap`.
+/// Sets the current values of the constant attributes again.
+unsafe fn restore_constant_attributes(ctxt: &mut CommandContext<'_>) {
+    for (location, value) in ctxt.state.vertex_attrib_values.iter().enumerate() {
+        if let Some(value) = *value {
+            crate::vertex_array_object::apply_constant_attribute(ctxt, location as u32, value);
+        }
+    }
+}
+
 unsafe fn set(ctxt: &CommandContext<'_>, cap: gl::types::GLenum, enabled: bool) {
     if enabled {
         ctxt.glow.enable(cap);

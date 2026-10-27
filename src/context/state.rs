@@ -71,6 +71,10 @@ pub struct GlState {
     /// The value of `GL_PATCH_DEFAULT_INNER_LEVEL`.
     pub patch_default_inner_level: [f32; 2],
 
+    /// The current values of the vertex attributes set by `glVertexAttrib*`, by location, or
+    /// `None` for those that SafeGL never set.
+    pub vertex_attrib_values: Vec<Option<crate::vertex::AttributeValue>>,
+
     /// Whether GL_RASTERIZER_DISCARD is enabled
     pub enabled_rasterizer_discard: bool,
 
@@ -490,6 +494,7 @@ impl Default for GlState {
             primitive_restart_index: 0,
             patch_default_outer_level: [1.0; 4],
             patch_default_inner_level: [1.0; 2],
+            vertex_attrib_values: Vec::new(),
             enabled_program_point_size: false,
             enabled_clip_planes: 0,
 
