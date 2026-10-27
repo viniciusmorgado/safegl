@@ -726,3 +726,52 @@ fn texture_views() {
 
     display.assert_no_error(None);
 }
+
+/// Textures compatible with the image formats of their class only refuse the other formats of
+/// their size.
+#[cfg(safegl_gl42)]
+#[test]
+fn image_format_classes() {
+    use safegl::glow::HasContext;
+    use safegl::texture::{MipmapsOption, UncompressedFloatFormat};
+    use safegl::uniforms::{ImageUnitError, ImageUnitFormat};
+    use safegl::GlObject;
+
+    let display = support::build_display();
+    if support::is_gles(&display) {
+        return;
+    }
+    let texture = Texture2d::empty_with_format(
+        &display,
+        UncompressedFloatFormat::F11F11F10,
+        MipmapsOption::NoMipmap,
+        2,
+        2,
+    )
+    .unwrap();
+    let by_class = unsafe {
+        let gl = display.glow_context();
+        gl.bind_texture(safegl::glow::TEXTURE_2D, Some(texture.get_id()));
+        let ty = gl.get_tex_parameter_i32(
+            safegl::glow::TEXTURE_2D,
+            safegl::glow::IMAGE_FORMAT_COMPATIBILITY_TYPE,
+        ) as u32;
+        display.restore_state();
+        ty == safegl::glow::IMAGE_FORMAT_COMPATIBILITY_BY_CLASS
+    };
+
+    assert!(texture.image_unit(ImageUnitFormat::R11FG11FB10F).is_ok());
+    let other = texture.image_unit(ImageUnitFormat::RGBA8);
+    if by_class {
+        assert!(matches!(other, Err(ImageUnitError::FormatClassMismatch)));
+    } else {
+        assert!(other.is_ok());
+    }
+    // a format of another size is always refused
+    assert!(matches!(
+        texture.image_unit(ImageUnitFormat::RG32F),
+        Err(ImageUnitError::BadFormatClass(32, 64))
+    ));
+
+    display.assert_no_error(None);
+}

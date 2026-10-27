@@ -498,6 +498,10 @@ Additions:
 
 Fixes:
 
+- Binding a texture to an image unit returns `ImageUnitError::FormatClassMismatch` when the
+  texture is only compatible with the image formats of its class
+  (`GL_IMAGE_FORMAT_COMPATIBILITY_BY_CLASS`) and the format has the same size but another
+  class, such as `RGBA8` for an `R11F_G11F_B10F` texture, whose image accesses were undefined.
 - Stencil and depth-stencil textures can be used as texture uniforms and sampled, by `usampler*`
   uniforms for stencil textures and by `sampler*` and `sampler*Shadow` uniforms for the depth
   of depth-stencil textures, always with the nearest filters for stencil indices. They had no

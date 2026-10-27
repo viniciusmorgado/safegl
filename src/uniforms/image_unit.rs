@@ -20,6 +20,10 @@ pub enum ImageUnitError {
     BadFormatClass(usize, usize),
     /// Error while trying to get the format of the passed texture
     GetFormat(GetFormatError),
+    /// The texture is compatible with image formats of its class only
+    /// (`GL_IMAGE_FORMAT_COMPATIBILITY_BY_CLASS`), and the requested format has the same size but
+    /// another class, such as `RGBA8` for an `R11F_G11F_B10F` texture.
+    FormatClassMismatch,
     /// The multisample texture has more samples than images can have
     /// (`Limits::max_image_samples`), or multisample images aren't supported.
     #[cfg(safegl_gl42)]
@@ -50,6 +54,10 @@ impl std::fmt::Display for ImageUnitError {
                 tbits, ibits
             ),
             GetFormat(error) => write!(f, "{}", error),
+            FormatClassMismatch => write!(
+                f,
+                "The texture is only compatible with image formats of its class"
+            ),
             #[cfg(safegl_gl42)]
             TooManySamples { samples, maximum } => write!(
                 f,
@@ -122,6 +130,15 @@ impl<'t, T: 't + core::ops::Deref<Target = crate::texture::TextureAny>> ImageUni
                 tbits,
                 format.get_total_bits(),
             ));
+        }
+        if compatible_by_class(texture) {
+            let texture_class = texture
+                .get_internal_format()
+                .map_err(ImageUnitError::GetFormat)?
+                .image_class();
+            if texture_class != Some(format.class()) {
+                return Err(ImageUnitError::FormatClassMismatch);
+            }
         }
 
         Ok(ImageUnit(
@@ -341,7 +358,88 @@ pub enum ImageUnitFormat {
     R8snorm,
 }
 
+/// Returns true if the image formats compatible with `texture` are the ones of its class rather
+/// than all those of its size (`GL_IMAGE_FORMAT_COMPATIBILITY_TYPE`, desktop OpenGL).
+fn compatible_by_class(texture: &texture::TextureAny) -> bool {
+    use crate::{ContextExt, TextureExt};
+    use glow::HasContext;
+
+    let mut ctxt = TextureExt::get_context(texture).make_current();
+    if ctxt.version.0 != crate::version::Api::Gl {
+        return false;
+    }
+    unsafe {
+        let bind_point = texture.bind_to_current(&mut ctxt);
+        ctxt.glow
+            .get_tex_parameter_i32(bind_point, gl::IMAGE_FORMAT_COMPATIBILITY_TYPE) as u32
+            == gl::IMAGE_FORMAT_COMPATIBILITY_BY_CLASS
+    }
+}
+
+/// The class of an image format (table 8.27 of OpenGL 4.6): the number of components and their
+/// size, or the packed layouts.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ImageClass {
+    Components(usize, usize),
+    R11G11B10,
+    Rgb10A2,
+}
+
+impl texture::InternalFormat {
+    /// Returns the image class of the format, if it has one.
+    pub(crate) fn image_class(&self) -> Option<ImageClass> {
+        use texture::InternalFormat as F;
+        match *self {
+            F::OneComponent { bits1, .. } => Some(ImageClass::Components(1, bits1)),
+            F::TwoComponents { bits1, bits2, .. } if bits1 == bits2 => {
+                Some(ImageClass::Components(2, bits1))
+            }
+            F::ThreeComponents {
+                bits1: 11,
+                bits2: 11,
+                bits3: 10,
+                ..
+            } => Some(ImageClass::R11G11B10),
+            F::FourComponents {
+                bits1: 10,
+                bits2: 10,
+                bits3: 10,
+                bits4: 2,
+                ..
+            } => Some(ImageClass::Rgb10A2),
+            F::FourComponents {
+                bits1,
+                bits2,
+                bits3,
+                bits4,
+                ..
+            } if bits1 == bits2 && bits2 == bits3 && bits3 == bits4 => {
+                Some(ImageClass::Components(4, bits1))
+            }
+            _ => None,
+        }
+    }
+}
+
 impl ImageUnitFormat {
+    /// Returns the class of the format.
+    pub(crate) fn class(&self) -> ImageClass {
+        use ImageUnitFormat::*;
+        match self {
+            R11FG11FB10F => ImageClass::R11G11B10,
+            RGB10A2UI | RGB10A2 => ImageClass::Rgb10A2,
+            RGBA32F | RGBA32UI | RGBA32I => ImageClass::Components(4, 32),
+            RGBA16F | RGBA16UI | RGBA16I | RGBA16 | RGBA16snorm => ImageClass::Components(4, 16),
+            RGBA8UI | RGBA8I | RGBA8 | RGBA8snorm => ImageClass::Components(4, 8),
+            RG32F | RG32UI | RG32I => ImageClass::Components(2, 32),
+            RG16F | RG16UI | RG16I | RG16 | RG16snorm => ImageClass::Components(2, 16),
+            RG8UI | RG8I | RG8 | RG8snorm => ImageClass::Components(2, 8),
+            R32F | R32UI | R32I => ImageClass::Components(1, 32),
+            R16F | R16UI | R16I | R16 | R16snorm => ImageClass::Components(1, 16),
+            R8UI | R8I | R8 | R8snorm => ImageClass::Components(1, 8),
+        }
+    }
+
     pub(crate) fn get_total_bits(&self) -> usize {
         match self {
             ImageUnitFormat::RGBA32F => 4 * 32,
