@@ -200,6 +200,8 @@ Breaking changes:
 - The query of `ConditionalRendering` is a `ConditionQuery`, which can also be a transform
   feedback overflow query; `(&query).into()` still builds it from the samples queries, and from a
   `SamplesQueryParam`.
+- `Capabilities` is `#[non_exhaustive]`, and has a `limits` field: code that builds it or
+  destructures it without `..` doesn't compile anymore. Reading its fields is unchanged.
 
 Additions:
 
@@ -259,6 +261,17 @@ Additions:
 - `Display::rebuild(context, surface)` moves a display to another glutin context and surface,
   for example of another window, keeping its objects, and `Display::gl_context()` gives the glutin
   context to share them with.
+- `Capabilities::limits` gives the implementation limits of OpenGL 4.6 and OpenGL ES 3.2 that
+  `Capabilities` didn't have, in a `Limits`: those of each shader stage (`StageLimits`: uniform
+  components and blocks, texture image units, inputs, outputs, image uniforms, atomic counters,
+  shader storage blocks) and of all stages together, vertex attributes and varyings, element
+  indices, tessellation, geometry shaders, transform feedback, viewport arrays, clip and cull
+  distances, point and line sizes, samples of each kind of target, texel, gather and
+  interpolation offsets, image units, block sizes, alignments, compute work groups, uniform
+  locations, subroutines, binary formats, debug output, the server wait timeout and the bits of
+  query counters (`QueryCounterBits`). Each limit exists at the levels whose versions have it,
+  like the rest of the API, and is `None` when the driver lacks the version or extension that
+  brings it. `ReleaseBehavior`, the type of `Capabilities::release_behavior`, is exported.
 
 Fixes:
 

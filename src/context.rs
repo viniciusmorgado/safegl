@@ -41,10 +41,12 @@ use crate::vertex_array_object;
 
 pub use self::capabilities::{Capabilities, ReleaseBehavior};
 pub use self::extensions::ExtensionsList;
+pub use self::limits::{Limits, ProvokingVertexConvention, QueryCounterBits, StageLimits};
 pub use self::state::GlState;
 
 mod capabilities;
 mod extensions;
+mod limits;
 mod restore;
 mod state;
 
@@ -268,7 +270,7 @@ impl Context {
         let extensions = extensions::get_extensions(&glow);
         check_gl_compatibility(&glow, &version)?;
 
-        let capabilities = capabilities::get_capabilities(&glow, &version, &extensions);
+        let capabilities = capabilities::get_capabilities(&glow, &extra, &version, &extensions);
         let report_debug_output_errors = Cell::new(true);
 
         let vertex_array_objects = vertex_array_object::VertexAttributesSystem::new();

@@ -136,7 +136,10 @@ include!(concat!(env!("OUT_DIR"), "/levels.rs"));
 pub use crate::backend::glutin::glutin;
 #[cfg(feature = "simple_window_builder")]
 pub use crate::backend::winit;
-pub use crate::context::{Capabilities, ExtensionsList};
+pub use crate::context::{
+    Capabilities, ExtensionsList, Limits, ProvokingVertexConvention, QueryCounterBits,
+    ReleaseBehavior, StageLimits,
+};
 #[cfg(any(safegl_desktop, safegl_gles32))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
 pub use crate::draw_parameters::OutputState;
@@ -518,9 +521,9 @@ trait TransformFeedbackSessionExt {
     fn unbind(_: &mut CommandContext<'_>);
 
     /// Ensures that a buffer isn't used by transform feedback.
+
     fn ensure_buffer_out_of_transform_feedback(_: &mut CommandContext<'_>, _: glow::Buffer);
 }
-
 
 /// A raw value of a uniform. "Raw" means that it's passed directly with `glUniform`. Textures
 /// for example are just passed as integers.

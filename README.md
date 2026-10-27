@@ -151,7 +151,9 @@ each chain that compiles a functionality; — means that the chain doesn't have 
 | Primitive bounding boxes                         | —       | `gles32`  | —     | `DrawParameters::primitive_bounding_box`                                                                                                     |
 
 At the levels without geometry and tessellation shaders, their sources have the type
-`program::NotInLevel`, which has no values: only `None` compiles. The documentation of the gated items shows their condition,
+`program::NotInLevel`, which has no values: only `None` compiles. The fields of
+`Capabilities::limits` follow the same rule: a limit, such as `Limits::max_viewports` (`gl41`) or
+`Limits::compute` (`gl43`, `gles31`), exists at the levels whose versions have it. The documentation of the gated items shows their condition,
 where `safegl_gl43` means the `gl43` level or a higher one and `safegl_desktop` any desktop level.
 
 A level doesn't guarantee that the driver of a machine has its version, and some functionalities

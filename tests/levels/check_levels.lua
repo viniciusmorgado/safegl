@@ -50,6 +50,18 @@ local cases = {
   { "gl46_has_spirv", { "gl46" }, nil, [[
     pub use safegl::program::SpirvProgram;
   ]] },
+  { "gl41_has_viewport_limit", { "gl41" }, nil, [[
+    pub fn f(l: &safegl::Limits) -> Option<i32> { l.max_viewports }
+  ]] },
+  { "gl45_has_cull_limit", { "gl45" }, nil, [[
+    pub fn f(l: &safegl::Limits) -> Option<i32> { l.max_cull_distances }
+  ]] },
+  { "gles31_has_compute_limits", { "gles31" }, nil, [[
+    pub fn f(l: &safegl::Limits) -> Option<i32> {
+        let _ = l.max_compute_work_group_size;
+        l.compute.as_ref().map(|stage| stage.max_uniform_blocks)
+    }
+  ]] },
   { "gles30_has_framebuffer_invalidation", { "gles30" }, nil, [[
     pub use safegl::framebuffer::InvalidateAttachments;
   ]] },
@@ -107,6 +119,18 @@ local cases = {
   { "gl45_has_no_spirv", { "gl45" }, "SpirvProgram", [[
     pub use safegl::program::SpirvProgram;
   ]] },
+  { "gl40_has_no_viewport_limit", { "gl40" }, "no field `max_viewports`", [[
+    pub fn f(l: &safegl::Limits) -> Option<i32> { l.max_viewports }
+  ]] },
+  { "gl44_has_no_cull_limit", { "gl44" }, "no field `max_cull_distances`", [[
+    pub fn f(l: &safegl::Limits) -> Option<i32> { l.max_cull_distances }
+  ]] },
+  { "gles30_has_no_compute_limits", { "gles30" }, "no field `compute`", [[
+    pub fn f(l: &safegl::Limits) -> bool { l.compute.is_some() }
+  ]] },
+  { "gles32_has_no_vertex_streams_limit", { "gles32" }, "no field `max_vertex_streams`", [[
+    pub fn f(l: &safegl::Limits) -> Option<i32> { l.max_vertex_streams }
+  ]] },
   { "gles30_has_no_compute_shaders", { "gles30" }, "ComputeShader", [[
     pub use safegl::program::ComputeShader;
   ]] },
@@ -151,6 +175,10 @@ local cases = {
   ]], WASM },
   { "webgl_has_no_program_binaries", { "webgl" }, "no method named `get_binary`", [[
     pub fn f(p: &safegl::Program) { let _ = p.get_binary(); }
+  ]], WASM },
+
+  { "webgl_has_no_binary_format_limits", { "webgl" }, "no field `num_program_binary_formats`", [[
+    pub fn f(l: &safegl::Limits) -> Option<i32> { l.num_program_binary_formats }
   ]], WASM },
 
   -- the combinations of levels

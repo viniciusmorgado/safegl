@@ -1,3 +1,4 @@
+use crate::context::limits::{self, Limits};
 use crate::context::ExtensionsList;
 use crate::version::is_webgl;
 use crate::version::Api;
@@ -20,6 +21,7 @@ use crate::CapabilitiesSource;
 ///
 /// Contrary to the state, these values never change.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct Capabilities {
     /// List of versions of GLSL that are supported by the compiler.
     ///
@@ -157,6 +159,9 @@ pub struct Capabilities {
     /// Maximum stride of the vertices of a buffer. `None` if the backend doesn't give it, which
     /// it does from OpenGL 4.4 and OpenGL ES 3.1.
     pub max_vertex_attrib_stride: Option<gl::types::GLint>,
+
+    /// The other limits of the implementation.
+    pub limits: Limits,
 }
 
 /// Information about an internal format.
@@ -178,7 +183,8 @@ pub enum ReleaseBehavior {
 
 /// Loads the capabilities.
 ///
-/// *Safety*: the OpenGL context corresponding to `gl` must be current in the thread.
+/// *Safety*: the OpenGL context corresponding to `gl` must be current in the thread, and `extra`
+/// must be loaded from it.
 ///
 /// ## Panic
 ///
@@ -187,6 +193,7 @@ pub enum ReleaseBehavior {
 ///
 pub unsafe fn get_capabilities(
     gl: &glow::Context,
+    extra: &gl::Extra,
     version: &Version,
     extensions: &ExtensionsList,
 ) -> Capabilities {
@@ -551,6 +558,8 @@ pub unsafe fn get_capabilities(
         } else {
             None
         },
+
+        limits: limits::get_limits(gl, extra, version, extensions),
 
         renderer,
     }

@@ -177,6 +177,7 @@ extra_functions! {
     fn GetProgramResourceiv(program: GLuint, programInterface: GLenum, index: GLuint, propCount: GLsizei, props: *const GLenum, bufSize: GLsizei, length: *mut GLsizei, params: *mut GLint) -> ();
     fn GetProgramStageiv(program: GLuint, shadertype: GLenum, pname: GLenum, values: *mut GLint) -> ();
     fn GetQueryObjectuiv(id: GLuint, pname: GLenum, params: *mut GLuint) -> ();
+    fn GetQueryiv(target: GLenum, pname: GLenum, params: *mut GLint) -> ();
     fn GetSubroutineUniformLocation(program: GLuint, shadertype: GLenum, name: *const GLchar) -> GLint;
     fn GetTextureHandleARB(texture: GLuint) -> GLuint64;
     fn InsertEventMarkerEXT(length: GLsizei, marker: *const GLchar) -> ();
