@@ -217,6 +217,9 @@ pub struct GlState {
     /// The latest buffer bound to `GL_DRAW_FRAMEBUFFER`.
     pub draw_framebuffer: Option<glow::Framebuffer>,
 
+    /// The latest value passed to `glDrawBuffer` with the default framebuffer.
+    pub default_draw_buffer: gl::types::GLenum,
+
     /// The latest values passed to `glReadBuffer` with the default framebuffer.
     /// `None` means "unknown".
     pub default_framebuffer_read: Option<gl::types::GLenum>,
@@ -561,6 +564,7 @@ impl Default for GlState {
             indexed_transform_feedback_buffer_bindings: small_vec_one(),
             read_framebuffer: None,
             draw_framebuffer: None,
+            default_draw_buffer: gl::BACK,
             default_framebuffer_read: None,
             renderbuffer: None,
             depth_func: gl::LESS,

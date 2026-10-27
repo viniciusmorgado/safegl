@@ -40,6 +40,7 @@ pub fn blit(
     // of other framebuffers is theirs
     let source_read_buffer = match source {
         FramebufferTarget::Raw(None) => Some(gl::BACK),
+        FramebufferTarget::Default(buffer) => Some(buffer),
         FramebufferTarget::Raw(Some(_)) => None,
         FramebufferTarget::Attachments(_) => Some(gl::COLOR_ATTACHMENT0),
     };

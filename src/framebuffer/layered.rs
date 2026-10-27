@@ -531,6 +531,26 @@ impl<'a> Surface for LayeredFrameBuffer<'a> {
         )
     }
 
+    fn blit_buffers_from_default_framebuffer(
+        &self,
+        source: &crate::framebuffer::DefaultFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
+
     #[inline]
     fn blit_buffers_from_layered_framebuffer(
         &self,

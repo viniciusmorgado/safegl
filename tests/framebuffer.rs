@@ -605,3 +605,59 @@ fn multioutput_in_another_order() {
 
     display.assert_no_error(None);
 }
+
+/// A `DefaultFramebuffer` draws into the color buffer it was given, and blits from it.
+#[test]
+fn default_framebuffer_buffers() {
+    use safegl::framebuffer::{
+        DefaultFramebuffer, DefaultFramebufferAttachment, DefaultFramebufferAttachmentMissingError,
+    };
+    use safegl::uniforms::MagnifySamplerFilter;
+    use safegl::BlitTarget;
+
+    let display = support::build_display();
+    let mut back =
+        DefaultFramebuffer::new(&display, DefaultFramebufferAttachment::BackLeft).unwrap();
+    let front = DefaultFramebuffer::new(&display, DefaultFramebufferAttachment::FrontLeft);
+    if support::is_gles(&display) {
+        assert_eq!(front.err(), Some(DefaultFramebufferAttachmentMissingError));
+        return;
+    }
+    // contexts without stereoscopy have no right buffers
+    let stereo = unsafe {
+        use safegl::glow::HasContext;
+        display.glow_context().get_parameter_bool(safegl::glow::STEREO)
+    };
+    if !stereo {
+        let right = DefaultFramebuffer::new(&display, DefaultFramebufferAttachment::BackRight);
+        assert!(right.is_err());
+    }
+    // the front buffer of most window surfaces of EGL doesn't exist
+    let Ok(mut front) = front else {
+        return;
+    };
+
+    back.clear_color(1.0, 0.0, 0.0, 1.0);
+    front.clear_color(0.0, 1.0, 0.0, 1.0);
+    let copy = |source: &DefaultFramebuffer| {
+        let target = safegl::Texture2d::empty(&display, 4, 4).unwrap();
+        source
+            .blit_whole_color_to(
+                &target.as_surface(),
+                &BlitTarget {
+                    left: 0,
+                    bottom: 0,
+                    width: 4,
+                    height: 4,
+                },
+                MagnifySamplerFilter::Nearest,
+            )
+            .unwrap();
+        let data: Vec<Vec<(u8, u8, u8, u8)>> = target.read().unwrap();
+        data[0][0]
+    };
+    assert_eq!(copy(&front), (0, 255, 0, 255));
+    assert_eq!(copy(&back), (255, 0, 0, 255));
+
+    display.assert_no_error(None);
+}

@@ -721,8 +721,12 @@ impl<'a> FramebufferAttachments<'a> {
 /// The framebuffer that an operation draws to, reads from or invalidates.
 #[derive(Copy, Clone)]
 pub enum FramebufferTarget<'a> {
-    /// The default framebuffer (`None`), or a framebuffer object created outside SafeGL.
+    /// The default framebuffer (`None`), drawing into its back buffer, or a framebuffer object
+    /// created outside SafeGL.
     Raw(Option<glow::Framebuffer>),
+    /// The default framebuffer, drawing into and reading from the color buffer given, such as
+    /// `GL_FRONT_LEFT` (desktop OpenGL).
+    Default(gl::types::GLenum),
     /// A framebuffer object with these attachments, which SafeGL creates when needed.
     Attachments(&'a ValidatedAttachments<'a>),
 }
@@ -1113,6 +1117,14 @@ impl FramebuffersContainer {
         target: FramebufferTarget<'_>,
     ) -> Option<glow::Framebuffer> {
         match target {
+            FramebufferTarget::Raw(None) => {
+                select_default_draw_buffer(ctxt, gl::BACK);
+                None
+            }
+            FramebufferTarget::Default(buffer) => {
+                select_default_draw_buffer(ctxt, buffer);
+                None
+            }
             FramebufferTarget::Raw(framebuffer) => framebuffer,
             FramebufferTarget::Attachments(attachments) => {
                 attachments.prepare_for_framebuffer_access(ctxt);
@@ -1414,7 +1426,7 @@ impl FramebuffersContainer {
                     list.push(gl::STENCIL_ATTACHMENT);
                 }
             }
-            FramebufferTarget::Raw(None) => {
+            FramebufferTarget::Raw(None) | FramebufferTarget::Default(_) => {
                 if which.color {
                     list.push(gl::COLOR);
                 }
@@ -1760,7 +1772,7 @@ pub fn draw_buffers_count(
     framebuffer: FramebufferTarget<'_>,
 ) -> usize {
     match framebuffer {
-        FramebufferTarget::Raw(None) => 1,
+        FramebufferTarget::Raw(None) | FramebufferTarget::Default(_) => 1,
         FramebufferTarget::Attachments(attachments) => attachments.get_color_kinds().len(),
         FramebufferTarget::Raw(Some(_)) => (0..ctxt.capabilities.max_draw_buffers.max(0) as u32)
             .filter(|i| unsafe {
@@ -1768,6 +1780,20 @@ pub fn draw_buffers_count(
             })
             .count(),
     }
+}
+
+/// Makes `buffer` the color buffer that draws into the default framebuffer write
+/// (`glDrawBuffer`), binding the default framebuffer for drawing. OpenGL ES only draws into the
+/// back buffer.
+fn select_default_draw_buffer(ctxt: &mut CommandContext<'_>, buffer: gl::types::GLenum) {
+    if ctxt.version.0 != Api::Gl || ctxt.state.default_draw_buffer == buffer {
+        return;
+    }
+    unsafe {
+        bind_framebuffer(ctxt, None, true, false);
+        ctxt.glow.draw_buffer(buffer);
+    }
+    ctxt.state.default_draw_buffer = buffer;
 }
 
 /// Binds a framebuffer object, either for drawing, reading, or both.

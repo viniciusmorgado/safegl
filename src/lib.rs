@@ -1165,6 +1165,25 @@ pub trait Surface {
         )
     }
 
+    /// Copies a rectangle of pixels from a color buffer of the default framebuffer to this
+    /// surface.
+    #[inline]
+    fn blit_from_default_framebuffer(
+        &self,
+        source: &framebuffer::DefaultFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+    ) -> Result<(), BlitError> {
+        self.blit_buffers_from_default_framebuffer(
+            source,
+            source_rect,
+            target_rect,
+            filter,
+            BlitMask::color(),
+        )
+    }
+
     /// Copies a rectangle of pixels from a framebuffer created outside SafeGL to this surface.
     #[inline]
     fn blit_from_external_framebuffer(
@@ -1220,6 +1239,22 @@ pub trait Surface {
     fn blit_buffers_from_external_framebuffer(
         &self,
         source: &framebuffer::ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        let _ = (source, source_rect, target_rect, filter, mask);
+        Err(BlitError::UnsupportedSource)
+    }
+
+    /// Blits from a color buffer of the default framebuffer.
+    ///
+    /// Every surface of SafeGL implements it; the default implementation, for other surfaces,
+    /// returns `BlitError::UnsupportedSource`.
+    fn blit_buffers_from_default_framebuffer(
+        &self,
+        source: &framebuffer::DefaultFramebuffer,
         source_rect: &Rect,
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,
@@ -2411,6 +2446,26 @@ impl Surface for Frame {
     fn blit_buffers_from_external_framebuffer(
         &self,
         source: &framebuffer::ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
+
+    fn blit_buffers_from_default_framebuffer(
+        &self,
+        source: &framebuffer::DefaultFramebuffer,
         source_rect: &Rect,
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,

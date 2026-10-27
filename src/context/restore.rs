@@ -179,6 +179,8 @@ unsafe fn restore_bindings(ctxt: &mut CommandContext<'_>) {
 
     // the read buffer of the default framebuffer is set again before reading from it
     ctxt.state.default_framebuffer_read = None;
+    // other code may have chosen another draw buffer; the next draw selects it again
+    ctxt.state.default_draw_buffer = u32::MAX;
 
     crate::buffer::restore_bindings(ctxt);
 

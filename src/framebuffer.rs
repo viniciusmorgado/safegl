@@ -103,7 +103,9 @@ use crate::{Program, Surface};
 
 use crate::fbo;
 
-pub use self::default_fb::{DefaultFramebuffer, DefaultFramebufferAttachment};
+pub use self::default_fb::{
+    DefaultFramebuffer, DefaultFramebufferAttachment, DefaultFramebufferAttachmentMissingError,
+};
 pub use self::external_fb::ExternalFramebuffer;
 pub use self::render_buffer::CreationError as RenderBufferCreationError;
 pub use self::render_buffer::{DepthRenderBuffer, RenderBuffer, RenderBufferAny};
@@ -674,6 +676,26 @@ impl<'a> Surface for SimpleFrameBuffer<'a> {
         )
     }
 
+    fn blit_buffers_from_default_framebuffer(
+        &self,
+        source: &crate::framebuffer::DefaultFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
+
     #[cfg(any(safegl_desktop, safegl_gles32))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     fn blit_buffers_from_layered_framebuffer(
@@ -1204,6 +1226,26 @@ impl<'a> Surface for MultiOutputFrameBuffer<'a> {
         )
     }
 
+    fn blit_buffers_from_default_framebuffer(
+        &self,
+        source: &crate::framebuffer::DefaultFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
+
     #[cfg(any(safegl_desktop, safegl_gles32))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     fn blit_buffers_from_layered_framebuffer(
@@ -1524,6 +1566,26 @@ impl Surface for EmptyFrameBuffer {
     fn blit_buffers_from_external_framebuffer(
         &self,
         source: &ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
+
+    fn blit_buffers_from_default_framebuffer(
+        &self,
+        source: &crate::framebuffer::DefaultFramebuffer,
         source_rect: &Rect,
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,

@@ -467,6 +467,11 @@ Additions:
   `border_color_uint`, `glSamplerParameterIiv` and `glSamplerParameterIuiv`;
   `any(desktop, gles32)`), and `BorderColor::value` with `uniforms::BorderColorValue`. A border
   color of another kind than its texture returns `DrawError::BorderColorMismatch`.
+- `DefaultFramebuffer::new` returns a framebuffer that draws into, clears and is blitted from
+  one of the color buffers of the default framebuffer, back or front, left or right
+  (`glDrawBuffer` and `glReadBuffer`; `DefaultFramebufferAttachmentMissingError` if the buffer
+  doesn't exist), and `Surface::blit_from_default_framebuffer` copies from it. The attachment
+  of a `DefaultFramebuffer` was ignored, drawing into the back buffer.
 - `Context::format_info` tells what the implementation supports for an internal format and a
   kind of texture or render buffer: whether it is supported, its largest dimensions, whether it
   is renderable, blendable, filterable and usable by image units and texture views, its mipmaps
