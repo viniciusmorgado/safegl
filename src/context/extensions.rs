@@ -98,6 +98,7 @@ extensions! {
     "GL_ARB_vertex_type_10f_11f_11f_rev" => gl_arb_vertex_type_10f_11f_11f_rev,
     "GL_ATI_meminfo" => gl_ati_meminfo,
     "GL_EXT_base_instance" => gl_ext_base_instance,
+    "GL_EXT_blend_func_extended" => gl_ext_blend_func_extended,
     "GL_EXT_buffer_storage" => gl_ext_buffer_storage,
     "GL_EXT_clear_texture" => gl_ext_clear_texture,
     "GL_EXT_clip_cull_distance" => gl_ext_clip_cull_distance,

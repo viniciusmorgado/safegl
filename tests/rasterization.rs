@@ -9,7 +9,9 @@ use safegl::framebuffer::{DepthStencilRenderBuffer, SimpleFrameBuffer};
 use safegl::index::{NoIndices, PrimitiveType};
 use safegl::texture::DepthStencilFormat;
 use safegl::VertexBuffer;
-use safegl::{BackfaceCullingMode, DrawParameters, FrontFace, Program, Surface, Texture2d};
+use safegl::{
+    BackfaceCullingMode, CapabilitiesSource, DrawParameters, FrontFace, Program, Surface, Texture2d,
+};
 
 mod support;
 
@@ -346,6 +348,159 @@ fn logic_ops_refuse_blending() {
             Err(safegl::DrawError::LogicOpWithBlending)
         ));
     }
+
+    display.assert_no_error(None);
+}
+
+/// A program whose first output is white and whose second output, at index 1 of location 0, is
+/// the factor of dual-source blending. `None` without dual-source blending.
+fn dual_source_program(display: &Display) -> Option<Program> {
+    display
+        .get_capabilities()
+        .limits
+        .max_dual_source_draw_buffers?;
+    let program = program!(display,
+        330 => {
+            vertex: "#version 330 core
+                in vec2 position;
+                void main() { gl_Position = vec4(position, 0.0, 1.0); }",
+            fragment: "#version 330 core
+                layout(location = 0, index = 0) out vec4 color;
+                layout(location = 0, index = 1) out vec4 factor;
+                void main() {
+                    color = vec4(1.0);
+                    factor = vec4(0.25, 0.5, 0.75, 1.0);
+                }",
+        },
+        300 es => {
+            vertex: "#version 300 es
+                in vec2 position;
+                void main() { gl_Position = vec4(position, 0.0, 1.0); }",
+            fragment: "#version 300 es
+                #extension GL_EXT_blend_func_extended : require
+                precision mediump float;
+                layout(location = 0, index = 0) out vec4 color;
+                layout(location = 0, index = 1) out vec4 factor;
+                void main() {
+                    color = vec4(1.0);
+                    factor = vec4(0.25, 0.5, 0.75, 1.0);
+                }",
+        },
+    )
+    .unwrap();
+    Some(program)
+}
+
+/// The color is multiplied by the second output of the fragment shader.
+fn dual_source_blend() -> safegl::Blend {
+    use safegl::{BlendingFunction, LinearBlendingFactor};
+
+    safegl::Blend {
+        color: BlendingFunction::Addition {
+            source: LinearBlendingFactor::SourceOneColor,
+            destination: LinearBlendingFactor::Zero,
+        },
+        ..Default::default()
+    }
+}
+
+#[test]
+fn dual_source_blending() {
+    let display = support::build_display();
+    let Some(program) = dual_source_program(&display) else {
+        // the blend factors are refused instead
+        let result = Texture2d::empty(&display, 4, 4).unwrap().as_surface().draw(
+            &fullscreen_triangle(&display, false),
+            NoIndices(PrimitiveType::TrianglesList),
+            &facing_program(&display),
+            &uniform! {},
+            &DrawParameters {
+                blend: dual_source_blend(),
+                ..Default::default()
+            },
+        );
+        assert!(matches!(result, Err(safegl::DrawError::DualSourceBlendingNotSupported)));
+        return;
+    };
+    assert_eq!(program.get_frag_data_index("color"), Some(0));
+    assert_eq!(program.get_frag_data_index("factor"), Some(1));
+    assert_eq!(program.get_frag_data_index("missing"), None);
+
+    let parameters = DrawParameters {
+        blend: dual_source_blend(),
+        ..Default::default()
+    };
+    let (r, g, b, _) = draw(
+        &display,
+        &fullscreen_triangle(&display, false),
+        &program,
+        &parameters,
+    );
+    let expected = [64.0, 128.0, 191.0];
+    for (channel, expected) in [r, g, b].into_iter().zip(expected) {
+        assert!((channel as f32 - expected).abs() <= 1.0, "{:?}", (r, g, b));
+    }
+
+    display.assert_no_error(None);
+}
+
+/// Dual-source blending can only write `max_dual_source_draw_buffers` draw buffers.
+#[test]
+fn dual_source_blending_limits_the_draw_buffers() {
+    use safegl::framebuffer::MultiOutputFrameBuffer;
+
+    let display = support::build_display();
+    let limits = &display.get_capabilities().limits;
+    let Some(max) = limits.max_dual_source_draw_buffers else {
+        return;
+    };
+    if max as u32 >= display.get_capabilities().max_draw_buffers as u32 {
+        return;
+    }
+    let outputs = (0..=max)
+        .map(|i| format!("layout(location = {i}) out vec4 output{i};\n"))
+        .collect::<String>();
+    let fragment = format!(
+        "#version 330 core\n{outputs}void main() {{ {} }}",
+        (0..=max)
+            .map(|i| format!("output{i} = vec4(1.0);"))
+            .collect::<String>()
+    );
+    let program = Program::from_source(
+        &display,
+        "#version 330 core\nin vec2 position;\nvoid main() { gl_Position = vec4(position, 0.0, 1.0); }",
+        &fragment,
+        None,
+    );
+    // OpenGL ES shaders are another language; desktop OpenGL is enough to check the limit
+    let Ok(program) = program else {
+        assert!(support::is_gles(&display));
+        return;
+    };
+    let textures = (0..=max)
+        .map(|_| Texture2d::empty(&display, 4, 4).unwrap())
+        .collect::<Vec<_>>();
+    let names = (0..=max).map(|i| format!("output{i}")).collect::<Vec<_>>();
+    let mut framebuffer = MultiOutputFrameBuffer::new(
+        &display,
+        names.iter().map(String::as_str).zip(textures.iter()),
+    )
+    .unwrap();
+
+    let result = framebuffer.draw(
+        &fullscreen_triangle(&display, false),
+        NoIndices(PrimitiveType::TrianglesList),
+        &program,
+        &uniform! {},
+        &DrawParameters {
+            blend: dual_source_blend(),
+            ..Default::default()
+        },
+    );
+    assert!(matches!(
+        result,
+        Err(safegl::DrawError::DualSourceBlendingTooManyDrawBuffers)
+    ));
 
     display.assert_no_error(None);
 }

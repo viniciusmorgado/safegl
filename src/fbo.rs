@@ -1571,6 +1571,23 @@ impl GlObject for FrameBufferObject {
     }
 }
 
+/// Returns the number of draw buffers of `framebuffer` that aren't `GL_NONE`. A framebuffer
+/// object created outside SafeGL must be bound for drawing.
+pub fn draw_buffers_count(
+    ctxt: &mut CommandContext<'_>,
+    framebuffer: FramebufferTarget<'_>,
+) -> usize {
+    match framebuffer {
+        FramebufferTarget::Raw(None) => 1,
+        FramebufferTarget::Attachments(attachments) => attachments.get_color_kinds().len(),
+        FramebufferTarget::Raw(Some(_)) => (0..ctxt.capabilities.max_draw_buffers.max(0) as u32)
+            .filter(|i| unsafe {
+                ctxt.glow.get_parameter_i32(gl::DRAW_BUFFER0 + i) as u32 != gl::NONE
+            })
+            .count(),
+    }
+}
+
 /// Binds a framebuffer object, either for drawing, reading, or both.
 ///
 /// # Safety

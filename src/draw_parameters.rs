@@ -1178,6 +1178,36 @@ fn validate_outputs(
     Ok(())
 }
 
+/// Checks that the backend can blend with the second color output of the fragment shader if the
+/// draw does, and that the framebuffer bound for drawing doesn't have more draw buffers than it
+/// can then write. `draw_buffers` returns the number of draw buffers of that framebuffer.
+pub(crate) fn validate_dual_source_blending(
+    ctxt: &mut context::CommandContext<'_>,
+    draw_parameters: &DrawParameters<'_>,
+    draw_buffers: impl FnOnce(&mut context::CommandContext<'_>) -> usize,
+) -> Result<(), DrawError> {
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    let outputs = draw_parameters
+        .outputs
+        .iter()
+        .any(|output| output.blend.uses_second_source());
+    #[cfg(not(any(safegl_desktop, safegl_gles32)))]
+    let outputs = false;
+    if !outputs && !draw_parameters.blend.uses_second_source() {
+        return Ok(());
+    }
+
+    let max = ctxt
+        .capabilities
+        .limits
+        .max_dual_source_draw_buffers
+        .ok_or(DrawError::DualSourceBlendingNotSupported)?;
+    if draw_buffers(ctxt) > max.max(0) as usize {
+        return Err(DrawError::DualSourceBlendingTooManyDrawBuffers);
+    }
+    Ok(())
+}
+
 /// Sets the logic operation, after checking that the draw doesn't blend.
 #[cfg(safegl_desktop)]
 fn sync_logic_op(

@@ -284,9 +284,8 @@ pub struct Limits {
     pub max_image_samples: Option<gl::types::GLint>,
 
     /// Draw buffers that dual-source blending can write (`GL_MAX_DUAL_SOURCE_DRAW_BUFFERS`).
-    /// `None` on OpenGL ES.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    /// `None` without dual-source blending: on OpenGL ES without `GL_EXT_blend_func_extended`,
+    /// and on WebGL.
     pub max_dual_source_draw_buffers: Option<gl::types::GLint>,
 
     /// Width and height of renderbuffers (`GL_MAX_RENDERBUFFER_SIZE`).
@@ -989,8 +988,10 @@ pub unsafe fn get_limits(
         ),
         #[cfg(safegl_gl42)]
         max_image_samples: optional(desktop && features.images, gl::MAX_IMAGE_SAMPLES),
-        #[cfg(safegl_desktop)]
-        max_dual_source_draw_buffers: optional(desktop, gl::MAX_DUAL_SOURCE_DRAW_BUFFERS),
+        max_dual_source_draw_buffers: optional(
+            desktop || extensions.gl_ext_blend_func_extended,
+            gl::MAX_DUAL_SOURCE_DRAW_BUFFERS,
+        ),
 
         max_renderbuffer_size: gl.get_parameter_i32(gl::MAX_RENDERBUFFER_SIZE),
         #[cfg(safegl_desktop)]

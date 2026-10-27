@@ -403,9 +403,16 @@ Additions:
   `LogicOp`). Since OpenGL disables blending on those buffers, a logic operation with blending
   returns `DrawError::LogicOpWithBlending`, and one drawn into an OpenGL ES context
   `DrawError::LogicOpNotSupported`.
+- `Program::get_frag_data_index` returns the index of a fragment output, 1 for the second color
+  output of dual-source blending (`glGetFragDataIndex`), and `Limits::max_dual_source_draw_buffers`
+  exists at every level, `Some` on OpenGL ES with `GL_EXT_blend_func_extended`.
 
 Fixes:
 
+- Dual-source blending (the `*SourceOne*` factors of `LinearBlendingFactor`) returns
+  `DrawError::DualSourceBlendingNotSupported` on OpenGL ES without `GL_EXT_blend_func_extended`
+  and on WebGL, and `DrawError::DualSourceBlendingTooManyDrawBuffers` when the framebuffer has
+  more draw buffers than `Limits::max_dual_source_draw_buffers`, instead of OpenGL errors.
 - The columns of a matrix attribute whose components aren't 32-bit floats, such as
   `AttributeType::F16x4x4` fed to a `mat4`, are read at the offsets of their components instead of
   4 bytes per component.

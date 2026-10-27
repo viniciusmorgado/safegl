@@ -267,6 +267,17 @@ impl Program {
         self.raw.get_frag_data_location(name)
     }
 
+    /// Returns the index of a fragment output: 1 for the second color output of dual-source
+    /// blending, declared with `layout(location = 0, index = 1)`, and 0 for the others. Returns
+    /// `None` if the program has no output with this name.
+    ///
+    /// The outputs at index 1 are blended with the `*SourceOne*` factors of
+    /// `LinearBlendingFactor`.
+    #[inline]
+    pub fn get_frag_data_index(&self, name: &str) -> Option<u32> {
+        self.raw.get_frag_data_index(name)
+    }
+
     /// Returns informations about a uniform variable, if it exists.
     #[inline]
     pub fn get_uniform(&self, name: &str) -> Option<&Uniform> {

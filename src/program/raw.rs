@@ -1,6 +1,7 @@
 use crate::gl;
 
 use crate::context::CommandContext;
+use crate::handles::RawName;
 #[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::version::Api;
 #[cfg(any(safegl_gl43, safegl_gles31))]
@@ -367,6 +368,27 @@ impl RawProgram {
             .borrow_mut()
             .insert(name.to_owned(), location);
         location
+    }
+
+    /// Returns the index of a fragment output: 1 for the second color output of dual-source
+    /// blending, declared with `layout(location = 0, index = 1)`, and 0 for the others. Returns
+    /// `None` if the program has no output with this name.
+    pub fn get_frag_data_index(&self, name: &str) -> Option<u32> {
+        self.get_frag_data_location(name)?;
+
+        let ctxt = self.context.make_current();
+        let name = std::ffi::CString::new(name).ok()?;
+        let index = unsafe {
+            if ctxt.version.0 == crate::version::Api::Gl {
+                ctxt.extra.GetFragDataIndex(self.id.raw_name(), name.as_ptr())
+            } else if ctxt.extensions.gl_ext_blend_func_extended {
+                ctxt.extra.GetFragDataIndexEXT(self.id.raw_name(), name.as_ptr())
+            } else {
+                // without dual-source blending, outputs can't have another index
+                0
+            }
+        };
+        u32::try_from(index).ok()
     }
 
     /// Returns informations about a uniform variable, if it exists.

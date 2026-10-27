@@ -1633,6 +1633,14 @@ pub enum DrawError {
     #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     LogicOpWithBlending,
 
+    /// Blending with the second color output of the fragment shader (the `*SourceOne*`
+    /// factors of `LinearBlendingFactor`) isn't supported by the backend.
+    DualSourceBlendingNotSupported,
+
+    /// The draw blends with the second color output of the fragment shader into more color
+    /// buffers than `Limits::max_dual_source_draw_buffers`.
+    DualSourceBlendingTooManyDrawBuffers,
+
     /// Per-sample shading (`MultisampleState::sample_shading`) isn't supported by the backend.
     #[cfg(any(safegl_desktop, safegl_gles32))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
@@ -1886,6 +1894,10 @@ impl fmt::Display for DrawError {
                 "Inverted conditional rendering is not supported by the backend",
             #[cfg(safegl_desktop)]
             AlphaToOneNotSupported => "Turning the alpha to one is not supported by the backend",
+            DualSourceBlendingNotSupported =>
+                "Dual-source blending is not supported by the backend",
+            DualSourceBlendingTooManyDrawBuffers =>
+                "Dual-source blending is used with too many draw buffers",
             #[cfg(safegl_desktop)]
             LogicOpNotSupported => "Logic operations are not supported by the backend",
             #[cfg(safegl_desktop)]

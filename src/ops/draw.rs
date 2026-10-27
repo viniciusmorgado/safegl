@@ -237,6 +237,9 @@ where
             fbo::FramebuffersContainer::get_framebuffer_for_drawing(&mut ctxt, framebuffer);
         unsafe { fbo::bind_framebuffer(&mut ctxt, fbo_id, true, false) };
     };
+    draw_parameters::validate_dual_source_blending(&mut ctxt, draw_parameters, |ctxt| {
+        fbo::draw_buffers_count(ctxt, framebuffer)
+    })?;
 
     // transform feedback can't record while the program changes: the capture is paused, unless
     // the draw continues it
