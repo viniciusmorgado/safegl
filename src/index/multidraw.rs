@@ -48,8 +48,8 @@ pub struct DrawCommandIndices {
     pub instance_count: raw::c_uint,
     /// First index to draw in the index buffer.
     pub first_index: raw::c_uint,
-    /// Value to add to each index.
-    pub base_vertex: raw::c_uint,
+    /// Value to add to each index, which can be negative.
+    pub base_vertex: raw::c_int,
     /// Numero of the first instance to draw.
     pub base_instance: raw::c_uint,
 }

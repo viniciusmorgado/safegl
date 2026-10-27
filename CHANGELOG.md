@@ -193,6 +193,8 @@ Breaking changes:
 
   The `DrawError`s of these features exist at the same levels. Texture formats and the other
   values that describe what the driver has stay checked at runtime, and so do the extensions.
+- `DrawCommandIndices::base_vertex` is an `i32`, like the base vertex of OpenGL, so that it can
+  be negative.
 
 Additions:
 
