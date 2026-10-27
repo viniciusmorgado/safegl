@@ -43,12 +43,18 @@ use crate::vertex_array_object;
 pub use self::capabilities::GraphicsResetStatus;
 pub use self::capabilities::{Capabilities, ReleaseBehavior, ResetNotificationStrategy};
 pub use self::extensions::ExtensionsList;
+#[cfg(any(safegl_gl43, safegl_gles32))]
+pub use self::debug_output::DebugGroup;
+#[cfg(any(safegl_gl43, safegl_gles32))]
+pub(crate) use self::debug_output::{object_label, set_object_label};
 pub use self::limits::{Limits, ProvokingVertexConvention, QueryCounterBits, StageLimits};
 pub use self::state::GlState;
 
 mod capabilities;
 mod extensions;
 mod limits;
+#[cfg(any(safegl_gl43, safegl_gles32))]
+mod debug_output;
 mod restore;
 mod state;
 
@@ -101,6 +107,16 @@ pub struct Context {
     /// Whether the callback only reports messages of medium and high severity, so that the
     /// driver doesn't need to generate the others.
     debug_output_errors_only: bool,
+
+    /// Whether the debug messages go to the message log of the context instead of a callback.
+    debug_output_log: bool,
+
+    /// The number of debug groups pushed by `push_debug_group` and not popped yet.
+    debug_group_depth: Cell<u32>,
+
+    /// Incremented when the OpenGL context changes, which loses the debug groups: the
+    /// `DebugGroup`s of the previous context don't pop the groups of the new one.
+    debug_group_generation: Cell<u64>,
 
     /// Whether or not errors triggered by ARB_debug_output (and similar extensions) should be
     /// reported to the user when `DebugCallbackBehavior::DebugMessageOnError` is used. This must
@@ -286,8 +302,15 @@ impl Context {
         let resident_image_handles = RefCell::new(Vec::new());
 
         let errors_only = matches!(callback_behavior, DebugCallbackBehavior::DebugMessageOnError);
+        #[cfg(any(safegl_gl43, safegl_gles32))]
+        let log = matches!(callback_behavior, DebugCallbackBehavior::Log);
+        #[cfg(not(any(safegl_gl43, safegl_gles32)))]
+        let log = false;
         let (debug_callback, synchronous) = match callback_behavior {
             DebugCallbackBehavior::Ignore => (None, false),
+            // logged in the order of the commands
+            #[cfg(any(safegl_gl43, safegl_gles32))]
+            DebugCallbackBehavior::Log => (None, true),
             DebugCallbackBehavior::DebugMessageOnError => (
                 Some(Box::new(default_debug_callback) as debug::DebugCallback),
                 true,
@@ -314,6 +337,9 @@ impl Context {
             debug_callback_panic: Cell::new(None),
             debug_output_synchronous: synchronous,
             debug_output_errors_only: errors_only,
+            debug_output_log: log,
+            debug_group_depth: Cell::new(0),
+            debug_group_generation: Cell::new(0),
             report_debug_output_errors,
             backend: RefCell::new(Box::new(backend)),
             check_current_context,
@@ -324,7 +350,7 @@ impl Context {
             resident_image_handles,
         });
 
-        if context.debug_callback.borrow().is_some() {
+        if context.debug_callback.borrow().is_some() || context.debug_output_log {
             init_debug_callback(&context);
         }
 
@@ -411,16 +437,19 @@ impl Context {
         if let Err(error) = compatible {
             switch_back(self);
             self.backend.borrow().make_current();
-            if self.debug_callback.borrow().is_some() {
+            if self.debug_callback.borrow().is_some() || self.debug_output_log {
                 init_debug_callback(self);
             }
             return Err(error);
         }
 
         *self.state.borrow_mut() = Default::default();
+        self.debug_group_depth.set(0);
+        self.debug_group_generation
+            .set(self.debug_group_generation.get() + 1);
 
         // the debug output and the other state are set up again in the new context
-        if self.debug_callback.borrow().is_some() {
+        if self.debug_callback.borrow().is_some() || self.debug_output_log {
             init_debug_callback(self);
         }
         init_state(&self.make_current());
@@ -1142,6 +1171,13 @@ pub enum DebugCallbackBehavior {
     /// Print every single output received by the driver.
     PrintAll,
 
+    /// Don't call a callback, but keep the messages in the message log of the context, which
+    /// `Context::debug_message_log` reads (OpenGL 4.3, OpenGL ES 3.2 or `GL_KHR_debug`). Every
+    /// message is logged, synchronously.
+    #[cfg(any(safegl_gl43, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+    Log,
+
     /// Use a custom callback.
     Custom {
         /// The function to be called.
@@ -1301,35 +1337,14 @@ fn init_debug_callback(context: &Context) {
             String::from_utf8_lossy(bytes).into_owned()
         };
 
-        let severity = match severity {
-            gl::DEBUG_SEVERITY_NOTIFICATION => debug::Severity::Notification,
-            gl::DEBUG_SEVERITY_LOW => debug::Severity::Low,
-            gl::DEBUG_SEVERITY_MEDIUM => debug::Severity::Medium,
-            gl::DEBUG_SEVERITY_HIGH => debug::Severity::High,
-            _ => return, // TODO: what to do in this situation?
-        };
-
-        let source = match source {
-            gl::DEBUG_SOURCE_API => debug::Source::Api,
-            gl::DEBUG_SOURCE_WINDOW_SYSTEM => debug::Source::WindowSystem,
-            gl::DEBUG_SOURCE_SHADER_COMPILER => debug::Source::ShaderCompiler,
-            gl::DEBUG_SOURCE_THIRD_PARTY => debug::Source::ThirdParty,
-            gl::DEBUG_SOURCE_APPLICATION => debug::Source::Application,
-            gl::DEBUG_SOURCE_OTHER => debug::Source::OtherSource,
-            _ => return, // TODO: what to do in this situation?
-        };
-
-        let ty = match ty {
-            gl::DEBUG_TYPE_ERROR => debug::MessageType::Error,
-            gl::DEBUG_TYPE_DEPRECATED_BEHAVIOR => debug::MessageType::DeprecatedBehavior,
-            gl::DEBUG_TYPE_UNDEFINED_BEHAVIOR => debug::MessageType::UndefinedBehavior,
-            gl::DEBUG_TYPE_PORTABILITY => debug::MessageType::Portability,
-            gl::DEBUG_TYPE_PERFORMANCE => debug::MessageType::Performance,
-            gl::DEBUG_TYPE_MARKER => debug::MessageType::Marker,
-            gl::DEBUG_TYPE_PUSH_GROUP => debug::MessageType::PushGroup,
-            gl::DEBUG_TYPE_POP_GROUP => debug::MessageType::PopGroup,
-            gl::DEBUG_TYPE_OTHER => debug::MessageType::Other,
-            _ => return, // TODO: what to do in this situation?
+        // a message with a value outside of the specification is dropped
+        let (severity, source, ty) = match (
+            debug::Severity::from_glenum(severity),
+            debug::Source::from_glenum(source),
+            debug::MessageType::from_glenum(ty),
+        ) {
+            (Some(severity), Some(source), Some(ty)) => (severity, source, ty),
+            _ => return,
         };
 
         // a callback that triggers messages itself isn't called again for them
@@ -1353,6 +1368,13 @@ fn init_debug_callback(context: &Context) {
     unsafe impl Send for ContextRawPtr {}
     let context_raw_ptr = ContextRawPtr(context);
 
+    // without a callback, the messages go to the message log
+    let callback: gl::types::GLDEBUGPROC = if context.debug_output_log {
+        None
+    } else {
+        Some(callback_wrapper)
+    };
+
     unsafe {
         let mut ctxt = context.make_current();
 
@@ -1371,7 +1393,7 @@ fn init_debug_callback(context: &Context) {
                 || (ctxt.version.0 == Api::Gl && ctxt.extensions.gl_khr_debug)
             {
                 ctxt.extra
-                    .DebugMessageCallback(Some(callback_wrapper), context_raw_ptr.0 as *const _);
+                    .DebugMessageCallback(callback, context_raw_ptr.0 as *const _);
                 ctxt.extra.DebugMessageControl(
                     gl::DONT_CARE,
                     gl::DONT_CARE,
@@ -1396,7 +1418,7 @@ fn init_debug_callback(context: &Context) {
                 }
             } else if ctxt.extensions.gl_khr_debug {
                 ctxt.extra
-                    .DebugMessageCallbackKHR(Some(callback_wrapper), context_raw_ptr.0 as *const _);
+                    .DebugMessageCallbackKHR(callback, context_raw_ptr.0 as *const _);
                 ctxt.extra.DebugMessageControlKHR(
                     gl::DONT_CARE,
                     gl::DONT_CARE,
@@ -1421,7 +1443,7 @@ fn init_debug_callback(context: &Context) {
                 }
             } else {
                 ctxt.extra
-                    .DebugMessageCallbackARB(Some(callback_wrapper), context_raw_ptr.0 as *const _);
+                    .DebugMessageCallbackARB(callback, context_raw_ptr.0 as *const _);
                 ctxt.extra.DebugMessageControlARB(
                     gl::DONT_CARE,
                     gl::DONT_CARE,

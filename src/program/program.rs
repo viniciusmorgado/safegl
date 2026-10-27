@@ -470,6 +470,18 @@ impl fmt::Debug for Program {
     }
 }
 
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl crate::debug::sealed::Labeled for Program {
+    fn labeled_object(
+        &self,
+    ) -> (&crate::context::Context, crate::debug::sealed::LabeledObject) {
+        (
+            ProgramExt::get_context(self),
+            crate::debug::sealed::LabeledObject::Object(crate::gl::PROGRAM, self.get_id().0.get()),
+        )
+    }
+}
+
 impl GlObject for Program {
     type Id = glow::Program;
 

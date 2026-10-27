@@ -209,6 +209,8 @@ Breaking changes:
 - `Capabilities::can_lose_context: bool` is replaced by `Capabilities::reset_notification`, a
   `ResetNotificationStrategy` (`NoResetNotification` or `LoseContextOnReset`).
   `Context::is_context_loss_possible()` is unchanged.
+- `DebugCallbackBehavior` has a `Log` variant (`gl43`, `gles32`), so matches on it need an arm for
+  it at these levels.
 
 Additions:
 
@@ -287,6 +289,16 @@ Additions:
   without robustness. `Capabilities::no_error` and `Context::is_no_error()` (`gl46`) tell whether
   the context checks errors. The tests run in such contexts with `SAFEGL_ROBUSTNESS=robust`,
   `lose` or `no_error`.
+- Debug output (`gl43`, `gles32`; OpenGL 4.3, OpenGL ES 3.2 or `GL_KHR_debug` at runtime):
+  `Context::push_debug_group` returns a `DebugGroup` that pops the group when dropped; the
+  `debug::ObjectLabel` trait gives labels to buffers, textures, render buffers, programs, compute
+  shaders, queries and sync fences, and reads them back; `Context::set_debug_messages_enabled`
+  enables or disables the messages that a `DebugMessageFilter` matches;
+  `Context::insert_debug_message` sends a `DebugMessage` from the application or a third party;
+  `DebugCallbackBehavior::Log` keeps the messages in the message log of the context, which
+  `Context::debug_message_log` reads. Lengths and the depth of debug groups are checked against
+  the limits, and errors are `DebugError`s. `Context::is_debug_output_supported` tells whether the
+  context has all of it.
 
 Fixes:
 

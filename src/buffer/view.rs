@@ -1649,6 +1649,30 @@ impl<'a> BufferAnySlice<'a> {
     }
 }
 
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl<T: ?Sized + Content> crate::debug::sealed::Labeled for Buffer<T> {
+    fn labeled_object(
+        &self,
+    ) -> (&crate::context::Context, crate::debug::sealed::LabeledObject) {
+        (
+            self.get_context(),
+            crate::debug::sealed::LabeledObject::Object(crate::gl::BUFFER, self.get_id().0.get()),
+        )
+    }
+}
+
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl crate::debug::sealed::Labeled for BufferAny {
+    fn labeled_object(
+        &self,
+    ) -> (&crate::context::Context, crate::debug::sealed::LabeledObject) {
+        (
+            self.alloc.get_context(),
+            crate::debug::sealed::LabeledObject::Object(crate::gl::BUFFER, self.alloc.get_id().0.get()),
+        )
+    }
+}
+
 impl<'a> GlObject for BufferAnySlice<'a> {
     type Id = glow::Buffer;
 

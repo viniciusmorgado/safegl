@@ -1221,6 +1221,18 @@ impl TextureExt for TextureAny {
     }
 }
 
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl crate::debug::sealed::Labeled for TextureAny {
+    fn labeled_object(
+        &self,
+    ) -> (&crate::context::Context, crate::debug::sealed::LabeledObject) {
+        (
+            &self.context,
+            crate::debug::sealed::LabeledObject::Object(crate::gl::TEXTURE, self.id.0.get()),
+        )
+    }
+}
+
 impl GlObject for TextureAny {
     type Id = glow::Texture;
 

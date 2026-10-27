@@ -566,6 +566,18 @@ impl Drop for RenderBufferAny {
     }
 }
 
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl crate::debug::sealed::Labeled for RenderBufferAny {
+    fn labeled_object(
+        &self,
+    ) -> (&crate::context::Context, crate::debug::sealed::LabeledObject) {
+        (
+            &self.context,
+            crate::debug::sealed::LabeledObject::Object(crate::gl::RENDERBUFFER, self.id.0.get()),
+        )
+    }
+}
+
 impl GlObject for RenderBufferAny {
     type Id = glow::Renderbuffer;
 

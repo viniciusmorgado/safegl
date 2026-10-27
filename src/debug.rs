@@ -1,5 +1,6 @@
 /*!
-
+Debug output: the callback of the debug messages, debug groups, object labels and the control,
+insertion and log of debug messages, and timestamp queries.
 
 */
 
@@ -13,6 +14,9 @@ use glow::HasContext;
 use std::rc::Rc;
 
 pub use crate::context::DebugCallbackBehavior;
+#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+pub use crate::context::DebugGroup;
 
 /// Represents a callback that can be used for the debug output feature of OpenGL.
 ///
@@ -42,7 +46,7 @@ pub enum Severity {
 }
 
 /// Source of a debug message.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u32)]
 pub enum Source {
     /// Calls to the OpenGL API.
@@ -67,7 +71,7 @@ pub enum Source {
 }
 
 /// Type of a debug message.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u32)]
 pub enum MessageType {
     /// An error, typically from the API
@@ -89,6 +93,183 @@ pub enum MessageType {
     /// Any other event
     Other = gl::DEBUG_TYPE_OTHER,
 }
+
+impl Severity {
+    /// The severity of an OpenGL value, if it is one.
+    pub(crate) fn from_glenum(value: gl::types::GLenum) -> Option<Severity> {
+        Some(match value {
+            gl::DEBUG_SEVERITY_NOTIFICATION => Severity::Notification,
+            gl::DEBUG_SEVERITY_LOW => Severity::Low,
+            gl::DEBUG_SEVERITY_MEDIUM => Severity::Medium,
+            gl::DEBUG_SEVERITY_HIGH => Severity::High,
+            _ => return None,
+        })
+    }
+}
+
+impl Source {
+    /// The source of an OpenGL value, if it is one.
+    pub(crate) fn from_glenum(value: gl::types::GLenum) -> Option<Source> {
+        Some(match value {
+            gl::DEBUG_SOURCE_API => Source::Api,
+            gl::DEBUG_SOURCE_WINDOW_SYSTEM => Source::WindowSystem,
+            gl::DEBUG_SOURCE_SHADER_COMPILER => Source::ShaderCompiler,
+            gl::DEBUG_SOURCE_THIRD_PARTY => Source::ThirdParty,
+            gl::DEBUG_SOURCE_APPLICATION => Source::Application,
+            gl::DEBUG_SOURCE_OTHER => Source::OtherSource,
+            _ => return None,
+        })
+    }
+}
+
+impl MessageType {
+    /// The message type of an OpenGL value, if it is one.
+    pub(crate) fn from_glenum(value: gl::types::GLenum) -> Option<MessageType> {
+        Some(match value {
+            gl::DEBUG_TYPE_ERROR => MessageType::Error,
+            gl::DEBUG_TYPE_DEPRECATED_BEHAVIOR => MessageType::DeprecatedBehavior,
+            gl::DEBUG_TYPE_UNDEFINED_BEHAVIOR => MessageType::UndefinedBehavior,
+            gl::DEBUG_TYPE_PORTABILITY => MessageType::Portability,
+            gl::DEBUG_TYPE_PERFORMANCE => MessageType::Performance,
+            gl::DEBUG_TYPE_MARKER => MessageType::Marker,
+            gl::DEBUG_TYPE_PUSH_GROUP => MessageType::PushGroup,
+            gl::DEBUG_TYPE_POP_GROUP => MessageType::PopGroup,
+            gl::DEBUG_TYPE_OTHER => MessageType::Other,
+            _ => return None,
+        })
+    }
+}
+
+/// Error of the debug groups, object labels and debug messages.
+#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DebugError {
+    /// The backend has no debug output: it needs OpenGL 4.3, OpenGL ES 3.2 or `GL_KHR_debug`.
+    NotSupported,
+
+    /// The message has `Limits::max_debug_message_length` bytes or more (the limit counts a null
+    /// terminator).
+    MessageTooLong,
+
+    /// The label has `Limits::max_label_length` bytes or more (the limit counts a null
+    /// terminator).
+    LabelTooLong,
+
+    /// The debug group can't be pushed: the stack of debug groups has its maximum depth
+    /// (`Limits::max_debug_group_stack_depth`, which counts the default group).
+    StackOverflow,
+
+    /// A filter of messages by id must give their source and type, and no severity.
+    InvalidFilter,
+
+    /// Inserted messages must come from `Source::Application` or `Source::ThirdParty`.
+    InvalidSource,
+}
+
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl std::fmt::Display for DebugError {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt.write_str(match self {
+            DebugError::NotSupported => "The backend doesn't support debug output",
+            DebugError::MessageTooLong => "The debug message is too long",
+            DebugError::LabelTooLong => "The object label is too long",
+            DebugError::StackOverflow => "The stack of debug groups is full",
+            DebugError::InvalidFilter => {
+                "A filter of debug messages by id must give their source and type, and no severity"
+            }
+            DebugError::InvalidSource => {
+                "Inserted debug messages must come from the application or a third party"
+            }
+        })
+    }
+}
+
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl std::error::Error for DebugError {}
+
+/// A debug message, inserted with `Context::insert_debug_message` or read from the message log
+/// with `Context::debug_message_log`.
+#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DebugMessage {
+    /// Where the message comes from.
+    pub source: Source,
+    /// The type of the message.
+    pub ty: MessageType,
+    /// An identifier of the message, chosen by its source.
+    pub id: u32,
+    /// The severity of the message.
+    pub severity: Severity,
+    /// The text of the message.
+    pub message: String,
+}
+
+/// The debug messages that `Context::set_debug_messages_enabled` enables or disables. A field
+/// that is `None` matches every value, and an empty `ids` every identifier.
+#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct DebugMessageFilter<'a> {
+    /// The source of the messages.
+    pub source: Option<Source>,
+    /// The type of the messages.
+    pub ty: Option<MessageType>,
+    /// The severity of the messages. Must be `None` when `ids` isn't empty.
+    pub severity: Option<Severity>,
+    /// The identifiers of the messages. When it isn't empty, `source` and `ty` must be given.
+    pub ids: &'a [u32],
+}
+
+#[cfg(any(safegl_gl43, safegl_gles32))]
+pub(crate) mod sealed {
+    use crate::context::Context;
+    use crate::gl;
+
+    /// The OpenGL object that a label applies to.
+    pub enum LabeledObject {
+        /// An object named by its namespace (`GL_BUFFER`, `GL_TEXTURE`, ...) and its name.
+        Object(gl::types::GLenum, gl::types::GLuint),
+        /// A sync object.
+        Sync(glow::Fence),
+    }
+
+    /// The objects that can have a label.
+    pub trait Labeled {
+        /// The context and the OpenGL object.
+        fn labeled_object(&self) -> (&Context, LabeledObject);
+
+        /// Where the label is kept while OpenGL hasn't created the object, or `None` if it has.
+        /// A query name only becomes an object when the query begins.
+        fn pending_label(&self) -> Option<&std::cell::RefCell<Option<String>>> {
+            None
+        }
+    }
+}
+
+/// An object that can have a label, a name that the debug messages about it show (OpenGL 4.3,
+/// OpenGL ES 3.2 or `GL_KHR_debug`): buffers, textures, render buffers, programs, compute
+/// shaders, queries and sync fences.
+#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+pub trait ObjectLabel: sealed::Labeled {
+    /// Gives the object a label. An empty label removes it.
+    fn set_label(&self, label: &str) -> Result<(), DebugError> {
+        let (context, object) = self.labeled_object();
+        crate::context::set_object_label(context, object, self.pending_label(), label)
+    }
+
+    /// Returns the label of the object, empty if it has none.
+    fn label(&self) -> Result<String, DebugError> {
+        let (context, object) = self.labeled_object();
+        crate::context::object_label(context, object, self.pending_label())
+    }
+}
+
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl<T: sealed::Labeled + ?Sized> ObjectLabel for T {}
 
 /// Allows you to obtain the timestamp inside the OpenGL commands queue.
 ///
@@ -195,6 +376,16 @@ impl TimestampQuery {
         } else {
             unreachable!();
         }
+    }
+}
+
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl sealed::Labeled for TimestampQuery {
+    fn labeled_object(&self) -> (&Context, sealed::LabeledObject) {
+        (
+            &self.context,
+            sealed::LabeledObject::Object(gl::QUERY, self.id.0.get()),
+        )
     }
 }
 

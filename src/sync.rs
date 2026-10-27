@@ -84,6 +84,14 @@ impl SyncFence {
     }
 }
 
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl crate::debug::sealed::Labeled for SyncFence {
+    fn labeled_object(&self) -> (&Context, crate::debug::sealed::LabeledObject) {
+        let sync = self.id.expect("the fence is only taken when it is consumed");
+        (&self.context, crate::debug::sealed::LabeledObject::Sync(sync))
+    }
+}
+
 impl Drop for SyncFence {
     #[inline]
     fn drop(&mut self) {

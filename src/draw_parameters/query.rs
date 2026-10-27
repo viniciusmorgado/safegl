@@ -38,6 +38,10 @@ pub struct RawQuery {
     // true means that this query has already been used or is being used to get data
     // this is important to know because we want to avoid erasing data
     has_been_used: Cell<bool>,
+
+    /// The label given before the query began, when OpenGL creates the query object.
+    #[cfg(any(safegl_gl43, safegl_gles32))]
+    pending_label: std::cell::RefCell<Option<String>>,
 }
 
 #[derive(Copy, Clone)]
@@ -281,7 +285,24 @@ impl RawQuery {
             id,
             ty,
             has_been_used: Cell::new(false),
+            #[cfg(any(safegl_gl43, safegl_gles32))]
+            pending_label: Default::default(),
         })
+    }
+
+    /// Records that the query has begun, which creates its OpenGL object, and gives the object
+    /// the label it was given before.
+    fn mark_used(&self, ctxt: &mut CommandContext<'_>) {
+        self.has_been_used.set(true);
+        #[cfg(any(safegl_gl43, safegl_gles32))]
+        if let Some(label) = self.pending_label.borrow_mut().take() {
+            unsafe {
+                ctxt.glow
+                    .object_label(gl::QUERY, self.id.0.get(), Some(label))
+            };
+        }
+        #[cfg(not(any(safegl_gl43, safegl_gles32)))]
+        let _ = ctxt;
     }
 
     /// Queries the counter to see if the result is already available.
@@ -505,7 +526,7 @@ impl RawQuery {
             }
         }
 
-        self.has_been_used.set(true);
+        self.mark_used(ctxt);
         ctxt.state.indexed_queries.push((target, index, self.id));
         Ok(())
     }
@@ -611,7 +632,7 @@ impl QueryExt for RawQuery {
                         raw_begin_query(ctxt, gl::SAMPLES_PASSED, self.id);
                     }
 
-                    self.has_been_used.set(true);
+                    self.mark_used(ctxt);
                     ctxt.state.samples_passed_query = Some(self.id);
                 }
             }
@@ -643,7 +664,7 @@ impl QueryExt for RawQuery {
                         raw_begin_query(ctxt, gl::ANY_SAMPLES_PASSED, self.id);
                     }
 
-                    self.has_been_used.set(true);
+                    self.mark_used(ctxt);
                     ctxt.state.any_samples_passed_query = Some(self.id);
                 }
             }
@@ -675,7 +696,7 @@ impl QueryExt for RawQuery {
                         raw_begin_query(ctxt, gl::ANY_SAMPLES_PASSED_CONSERVATIVE, self.id);
                     }
 
-                    self.has_been_used.set(true);
+                    self.mark_used(ctxt);
                     ctxt.state.any_samples_passed_conservative_query = Some(self.id);
                 }
             }
@@ -693,7 +714,7 @@ impl QueryExt for RawQuery {
                         raw_begin_query(ctxt, gl::TIME_ELAPSED, self.id);
                     }
 
-                    self.has_been_used.set(true);
+                    self.mark_used(ctxt);
                     ctxt.state.time_elapsed_query = Some(self.id);
                 }
             }
@@ -713,7 +734,7 @@ impl QueryExt for RawQuery {
                         raw_begin_query(ctxt, gl::PRIMITIVES_GENERATED, self.id);
                     }
 
-                    self.has_been_used.set(true);
+                    self.mark_used(ctxt);
                     ctxt.state.primitives_generated_query = Some(self.id);
                 }
             }
@@ -743,7 +764,7 @@ impl QueryExt for RawQuery {
                         raw_begin_query(ctxt, gl::TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN, self.id);
                     }
 
-                    self.has_been_used.set(true);
+                    self.mark_used(ctxt);
                     ctxt.state.transform_feedback_primitives_written_query = Some(self.id);
                 }
             }
@@ -906,6 +927,26 @@ impl fmt::Debug for RawQuery {
     }
 }
 
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl crate::debug::sealed::Labeled for RawQuery {
+    fn labeled_object(
+        &self,
+    ) -> (&crate::context::Context, crate::debug::sealed::LabeledObject) {
+        (
+            &self.context,
+            crate::debug::sealed::LabeledObject::Object(crate::gl::QUERY, self.id.0.get()),
+        )
+    }
+
+    fn pending_label(&self) -> Option<&std::cell::RefCell<Option<String>>> {
+        if self.has_been_used.get() {
+            None
+        } else {
+            Some(&self.pending_label)
+        }
+    }
+}
+
 impl GlObject for RawQuery {
     type Id = glow::Query;
 
@@ -974,6 +1015,19 @@ macro_rules! impl_helper {
             #[inline]
             pub fn to_buffer_u32(&self, target: BufferSlice<'_, u32>) -> Result<(), ToBufferError> {
                 self.query.write_u32_to_buffer(target)
+            }
+        }
+
+        #[cfg(any(safegl_gl43, safegl_gles32))]
+        impl crate::debug::sealed::Labeled for $name {
+            fn labeled_object(
+                &self,
+            ) -> (&crate::context::Context, crate::debug::sealed::LabeledObject) {
+                crate::debug::sealed::Labeled::labeled_object(&self.query)
+            }
+
+            fn pending_label(&self) -> Option<&std::cell::RefCell<Option<String>>> {
+                crate::debug::sealed::Labeled::pending_label(&self.query)
             }
         }
 
