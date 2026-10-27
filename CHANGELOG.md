@@ -391,6 +391,9 @@ Fixes:
   called the unsuffixed name, which panics when the driver doesn't export it.
   `Capabilities::can_lose_context` reads the reset strategy of OpenGL ES 3.2 contexts without
   robustness extensions, and an unknown strategy is reported as `false` instead of panicking.
+- Programs whose interleaved transform feedback varyings contain `gl_SkipComponents1` to `4` or
+  `gl_NextBuffer` are created, with their buffers, offsets and strides reflected, instead of
+  panicking on these names.
 
 ## [0.2.0]
 

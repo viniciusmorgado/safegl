@@ -581,7 +581,7 @@ pub unsafe fn reflect_transform_feedback(
             .expect("glGetTransformFeedbackVarying failed");
 
         if buffer_mode == TransformFeedbackMode::Interleaved {
-            if result.len() == 0 {
+            if result.is_empty() {
                 result.push(TransformFeedbackBuffer {
                     id: 0,
                     elements: vec![],
@@ -589,16 +589,35 @@ pub unsafe fn reflect_transform_feedback(
                 });
             }
 
+            // the special names of interleaved varyings (OpenGL 4.0): `gl_NextBuffer` starts the
+            // next buffer, and `gl_SkipComponents1` to `4` leave floats unwritten
+            if name == "gl_NextBuffer" {
+                let id = result.len() as i32;
+                result.push(TransformFeedbackBuffer {
+                    id,
+                    elements: vec![],
+                    stride: 0,
+                });
+                continue;
+            }
+            if let Some(count) = name
+                .strip_prefix("gl_SkipComponents")
+                .and_then(|count| count.parse::<usize>().ok())
+            {
+                result.last_mut().unwrap().stride += count * 4;
+                continue;
+            }
+
             let ty = glenum_to_attribute_type(ty as gl::types::GLenum)
                 .expect("transform feedback varyings have standard types");
 
-            let prev_size = result[0].stride;
-            result[0].stride += size as usize * ty.get_size_bytes();
-            result[0].elements.push(TransformFeedbackVarying {
-                // TODO: handle arrays
+            let buffer = result.last_mut().unwrap();
+            let offset = buffer.stride;
+            buffer.stride += size as usize * ty.get_size_bytes();
+            buffer.elements.push(TransformFeedbackVarying {
                 name,
                 size: size as usize * ty.get_size_bytes(),
-                offset: prev_size,
+                offset,
                 ty,
             });
         } else if buffer_mode == TransformFeedbackMode::Separate {

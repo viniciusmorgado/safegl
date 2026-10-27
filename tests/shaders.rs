@@ -470,6 +470,102 @@ fn get_transform_feedback_varyings() {
 }
 
 #[test]
+fn get_transform_feedback_skipped_components_and_buffers() {
+    let display = support::build_display();
+
+    // `gl_SkipComponents` and `gl_NextBuffer` are desktop OpenGL 4.0 names
+    if support::is_gles(&display) {
+        return;
+    }
+
+    let source = safegl::program::ProgramCreationInput::SourceCode {
+        tessellation_control_shader: None,
+        tessellation_evaluation_shader: None,
+        geometry_shader: None,
+        outputs_srgb: false,
+        uses_point_size: false,
+
+        vertex_shader: "
+            #version 400
+
+            out vec2 normal;
+            out float color;
+            out vec4 tangent;
+
+            void main() {
+                normal = vec2(0.0, 0.0);
+                color = 5.0;
+                tangent = vec4(1.0);
+                gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+            }
+        ",
+        fragment_shader: "
+            #version 400
+
+            out vec4 color;
+
+            void main() {
+                color = vec4(1.0, 1.0, 1.0, 1.0);
+            }
+        ",
+
+        transform_feedback_varyings: Some((
+            [
+                "normal",
+                "gl_SkipComponents2",
+                "color",
+                "gl_NextBuffer",
+                "gl_SkipComponents1",
+                "tangent",
+                "gl_SkipComponents3",
+            ]
+            .iter()
+            .map(|name| name.to_string())
+            .collect(),
+            safegl::program::TransformFeedbackMode::Interleaved,
+        )),
+    };
+
+    let program = safegl::Program::new(&display, source).unwrap();
+
+    assert_eq!(
+        program.get_transform_feedback_buffers(),
+        &[
+            safegl::program::TransformFeedbackBuffer {
+                id: 0,
+                stride: (2 + 2 + 1) * 4,
+                elements: vec![
+                    safegl::program::TransformFeedbackVarying {
+                        name: "normal".to_string(),
+                        offset: 0,
+                        size: 2 * 4,
+                        ty: safegl::vertex::AttributeType::F32F32,
+                    },
+                    safegl::program::TransformFeedbackVarying {
+                        name: "color".to_string(),
+                        offset: (2 + 2) * 4,
+                        size: 4,
+                        ty: safegl::vertex::AttributeType::F32,
+                    },
+                ]
+            },
+            safegl::program::TransformFeedbackBuffer {
+                id: 1,
+                stride: (1 + 4 + 3) * 4,
+                elements: vec![safegl::program::TransformFeedbackVarying {
+                    name: "tangent".to_string(),
+                    offset: 4,
+                    size: 4 * 4,
+                    ty: safegl::vertex::AttributeType::F32F32F32F32,
+                }]
+            },
+        ]
+    );
+
+    display.assert_no_error(None);
+}
+
+#[test]
 fn get_output_primitives_simple() {
     let display = support::build_display();
 
