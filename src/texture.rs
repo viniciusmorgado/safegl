@@ -156,6 +156,9 @@ pub use self::ops::{
 #[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
 pub use self::ops::RegionOutOfBoundsError;
 pub use self::parameters::MipmapRangeError;
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+pub use self::view::TextureViewError;
 #[cfg(any(safegl_desktop, safegl_gles30))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles30))))]
 pub use self::parameters::{Swizzle, SwizzleSource};
@@ -193,6 +196,8 @@ mod get_format;
 #[cfg(any(safegl_gl43, safegl_gles32))]
 mod ops;
 mod parameters;
+#[cfg(safegl_gl43)]
+mod view;
 mod pixel;
 mod ty_support;
 

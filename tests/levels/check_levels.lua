@@ -356,6 +356,14 @@ local cases = {
   { "gles31_has_no_buffer_texture_ranges", { "gles31" }, "RangeOutOfBounds", [[
     pub use safegl::texture::buffer_texture::TextureCreationError::RangeOutOfBounds;
   ]] },
+  { "gl43_has_texture_views", { "gl43" }, nil, [[
+    pub fn f(t: &safegl::texture::Texture2dArray) -> Result<safegl::texture::Texture2d, safegl::texture::TextureViewError> {
+        safegl::texture::Texture2d::view(t, safegl::texture::UncompressedFloatFormat::U8U8U8U8, 0..1, 0..1)
+    }
+  ]] },
+  { "gl42_has_no_texture_views", { "gl42" }, "TextureViewError", [[
+    pub use safegl::texture::TextureViewError;
+  ]] },
   { "gl43_has_texture_invalidation", { "gl43" }, nil, [[
     pub fn f(t: &safegl::texture::Texture2d) { t.main_level().invalidate(); }
   ]] },

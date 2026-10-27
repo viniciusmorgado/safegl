@@ -548,3 +548,181 @@ fn rectangle_textures() {
 
     display.assert_no_error(None);
 }
+
+/// Texture views share the storage of their source, with another kind, format, range of levels
+/// or range of layers.
+#[cfg(safegl_gl43)]
+#[test]
+fn texture_views() {
+    use safegl::texture::{
+        Cubemap, MipmapsOption, SrgbFormat, SrgbTexture2d, Texture2dArray, Texture3d,
+        TextureViewError, UncompressedFloatFormat, UncompressedUintFormat, UnsignedTexture2d,
+    };
+
+    let display = support::build_display();
+    let source = Texture2d::with_format(
+        &display,
+        vec![vec![(1u8, 2u8, 3u8, 4u8); 4]; 4],
+        UncompressedFloatFormat::U8U8U8U8,
+        MipmapsOption::NoMipmap,
+    )
+    .unwrap();
+    // an RGBA8 texel read as a single 32-bit unsigned integer
+    let as_uint = match UnsignedTexture2d::view(&source, UncompressedUintFormat::U32, 0..1, 0..1) {
+        Err(TextureViewError::NotSupported) => return,
+        result => result.unwrap(),
+    };
+    let uint_program = program(
+        &display,
+        330,
+        0,
+        "uniform usampler2D tex;",
+        "uint v = texelFetch(tex, ivec2(0), 0).r;\n\
+         color = vec4(float(v & 255u), float((v >> 8) & 255u), float((v >> 16) & 255u), \
+         float(v >> 24)) / 255.0;",
+    );
+    assert_eq!(
+        draw(&display, &uint_program, &uniform! { tex: &as_uint }).unwrap()[0][0],
+        (1, 2, 3, 4)
+    );
+
+    // drawing into a view writes the source
+    let view = Texture2d::view(&source, UncompressedFloatFormat::U8U8U8U8, 0..1, 0..1).unwrap();
+    view.as_surface().clear_color(0.0, 1.0, 0.0, 1.0);
+    let data: Vec<Vec<Pixel>> = source.read().unwrap();
+    assert_eq!(data[2][2], (0, 255, 0, 255));
+
+    // an sRGB view of linear texels samples them darker: 128 in sRGB is about 55 in linear
+    let gray = Texture2d::with_format(
+        &display,
+        vec![vec![(128u8, 128u8, 128u8, 255u8); 4]; 4],
+        UncompressedFloatFormat::U8U8U8U8,
+        MipmapsOption::NoMipmap,
+    )
+    .unwrap();
+    let srgb = SrgbTexture2d::view(&gray, SrgbFormat::U8U8U8U8, 0..1, 0..1).unwrap();
+    let sample = program(
+        &display,
+        330,
+        0,
+        "uniform sampler2D tex;",
+        "color = texture(tex, uv);",
+    );
+    let pixel = draw(&display, &sample, &uniform! { tex: &srgb }).unwrap()[0][0];
+    assert!((54..=56).contains(&pixel.0), "{pixel:?}");
+    assert_eq!(pixel.3, 255);
+
+    // a layer of an array texture as a two-dimensional texture
+    let array = Texture2dArray::with_format(
+        &display,
+        (0..3u8)
+            .map(|layer| vec![vec![(layer * 100, 0u8, 0u8, 255u8); 2]; 2])
+            .collect(),
+        UncompressedFloatFormat::U8U8U8U8,
+        MipmapsOption::NoMipmap,
+    )
+    .unwrap();
+    let layer = Texture2d::view(&array, UncompressedFloatFormat::U8U8U8U8, 0..1, 2..3).unwrap();
+    let data: Vec<Vec<Pixel>> = layer.read().unwrap();
+    assert_eq!(data[0][0], (200, 0, 0, 255));
+
+    // a range of levels: the view's level 0 is the source's level 1
+    let levels = Texture2d::empty_with_format(
+        &display,
+        UncompressedFloatFormat::U8U8U8U8,
+        MipmapsOption::EmptyMipmaps,
+        4,
+        4,
+    )
+    .unwrap();
+    levels
+        .mipmap(1)
+        .unwrap()
+        .write(
+            safegl::Rect {
+                left: 0,
+                bottom: 0,
+                width: 2,
+                height: 2,
+            },
+            vec![vec![(9u8, 8u8, 7u8, 6u8); 2]; 2],
+        )
+        .unwrap();
+    let small = Texture2d::view(&levels, UncompressedFloatFormat::U8U8U8U8, 1..3, 0..1).unwrap();
+    assert_eq!((small.width(), small.get_mipmap_levels()), (2, 2));
+    let data: Vec<Vec<Pixel>> = small.read().unwrap();
+    assert_eq!(data[1][1], (9, 8, 7, 6));
+
+    // six layers of an array as a cube map
+    let six = Texture2dArray::empty_with_format(
+        &display,
+        UncompressedFloatFormat::U8U8U8U8,
+        MipmapsOption::NoMipmap,
+        2,
+        2,
+        6,
+    )
+    .unwrap();
+    let cube = Cubemap::view(&six, UncompressedFloatFormat::U8U8U8U8, 0..1, 0..6).unwrap();
+    assert_eq!(cube.dimensions(), 2);
+
+    // errors
+    let f = UncompressedFloatFormat::U8U8U8U8;
+    assert_eq!(
+        Texture2d::view(&source, UncompressedFloatFormat::U16, 0..1, 0..1).err(),
+        Some(TextureViewError::IncompatibleFormat)
+    );
+    assert_eq!(
+        Texture3d::view(&source, f, 0..1, 0..1).err(),
+        Some(TextureViewError::IncompatibleTarget)
+    );
+    assert_eq!(
+        Texture2d::view(&source, f, 0..2, 0..1).err(),
+        Some(TextureViewError::LevelsOutOfRange)
+    );
+    assert_eq!(
+        Texture2d::view(&array, f, 0..1, 1..3).err(),
+        Some(TextureViewError::LayersOutOfRange)
+    );
+    assert_eq!(
+        Cubemap::view(&array, f, 0..1, 0..3).err(),
+        Some(TextureViewError::LayersOutOfRange)
+    );
+
+    // a texture created outside SafeGL with `glTexImage2D` has mutable storage
+    let mutable = unsafe {
+        use safegl::glow::HasContext;
+        let gl = display.glow_context();
+        let id = gl.create_texture().unwrap();
+        gl.bind_texture(safegl::glow::TEXTURE_2D, Some(id));
+        gl.tex_image_2d(
+            safegl::glow::TEXTURE_2D,
+            0,
+            safegl::glow::RGBA8 as i32,
+            2,
+            2,
+            0,
+            safegl::glow::RGBA,
+            safegl::glow::UNSIGNED_BYTE,
+            safegl::glow::PixelUnpackData::Slice(None),
+        );
+        display.restore_state();
+        Texture2d::from_id(
+            &display,
+            f,
+            id,
+            true,
+            MipmapsOption::NoMipmap,
+            safegl::texture::Dimensions::Texture2d {
+                width: 2,
+                height: 2,
+            },
+        )
+    };
+    assert_eq!(
+        Texture2d::view(&mutable, f, 0..1, 0..1).err(),
+        Some(TextureViewError::SourceNotImmutable)
+    );
+
+    display.assert_no_error(None);
+}

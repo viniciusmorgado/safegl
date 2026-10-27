@@ -447,6 +447,14 @@ Additions:
   `border_color_uint`, `glSamplerParameterIiv` and `glSamplerParameterIuiv`;
   `any(desktop, gles32)`), and `BorderColor::value` with `uniforms::BorderColorValue`. A border
   color of another kind than its texture returns `DrawError::BorderColorMismatch`.
+- Every texture type has a `view` constructor that builds a texture sharing the storage of
+  another one, with another kind, format of the same size, range of levels or range of layers
+  (`gl43`, `glTextureView`; OpenGL 4.3 or `GL_ARB_texture_view` at runtime), such as a layer of
+  an array texture as a two-dimensional texture, six layers as a cube map, an RGBA8 texture as
+  32-bit unsigned integers or as sRGB, or a range of mipmap levels. The target and format
+  compatibility of OpenGL, the ranges and the immutable storage of the source are checked
+  (`texture::TextureViewError`), and the memory barriers of shader writes through a view also
+  cover its source.
 - `TextureAnyMipmap::invalidate` and `invalidate_region` discard the content of a mipmap level
   or of a box of it, a hint like framebuffer invalidation (`gl43`, `glInvalidateTexImage`,
   `glInvalidateTexSubImage`, `texture::RegionOutOfBoundsError`).

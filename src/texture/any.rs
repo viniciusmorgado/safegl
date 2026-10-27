@@ -121,8 +121,9 @@ pub struct TextureAny {
     /// Is this texture owned by us? If not, we won't clean it up on drop.
     owned: bool,
 
-    /// ID of the draw call where the texture was last written as a texture unit.
-    latest_shader_write: Cell<u64>,
+    /// ID of the draw call where the texture was last written as a texture unit. Shared with the
+    /// views of the same storage, which see the same writes.
+    latest_shader_write: Rc<Cell<u64>>,
 
     /// The latest swizzle of the texture, `None` while unknown, for textures created outside
     /// SafeGL.
@@ -884,12 +885,210 @@ where
         generate_mipmaps: should_generate_mipmaps,
         can_generate_mipmaps,
         owned: true,
-        latest_shader_write: Cell::new(0),
+        latest_shader_write: Rc::new(Cell::new(0)),
         swizzle: Cell::new(Some([gl::RED, gl::GREEN, gl::BLUE, gl::ALPHA])),
         // the defaults of OpenGL, or the range set above for textures without mipmaps
         mipmap_range: Cell::new(Some((0, if texture_levels > 1 { 1000 } else { 0 }))),
         depth_stencil_mode: Cell::new(Some(gl::DEPTH_COMPONENT)),
         fixed_sample_locations,
+    })
+}
+
+/// Builds a view of the levels `levels` and the layers `layers` of `source`, of the kind whose
+/// bind point is `target`, with the format `format` (`glTextureView`).
+#[cfg(safegl_gl43)]
+pub fn new_texture_view(
+    source: &TextureAny,
+    target: gl::types::GLenum,
+    format: TextureFormatRequest,
+    levels: std::ops::Range<u32>,
+    layers: std::ops::Range<u32>,
+) -> Result<TextureAny, super::TextureViewError> {
+    use super::view::{formats_compatible, targets_compatible};
+    use super::TextureViewError;
+    use crate::handles::RawName;
+
+    let context = &source.context;
+    let mut ctxt = context.make_current();
+    if !(ctxt.version >= &Version(Api::Gl, 4, 3) || ctxt.extensions.gl_arb_texture_view) {
+        return Err(TextureViewError::NotSupported);
+    }
+    let source_target = source.get_bind_point();
+    if !targets_compatible(source_target, target) {
+        return Err(TextureViewError::IncompatibleTarget);
+    }
+
+    // the levels, and the layers, which are the faces of cube maps
+    if levels.is_empty() || levels.end > source.levels {
+        return Err(TextureViewError::LevelsOutOfRange);
+    }
+    let source_layers = match source.ty {
+        Dimensions::Texture1dArray { array_size, .. }
+        | Dimensions::Texture2dArray { array_size, .. }
+        | Dimensions::Texture2dMultisampleArray { array_size, .. } => array_size,
+        Dimensions::Cubemap { .. } => 6,
+        Dimensions::CubemapArray { array_size, .. } => 6 * array_size,
+        _ => 1,
+    };
+    let count = layers.len() as u32;
+    let fits_target = match target {
+        gl::TEXTURE_1D_ARRAY | gl::TEXTURE_2D_ARRAY | gl::TEXTURE_2D_MULTISAMPLE_ARRAY => true,
+        gl::TEXTURE_CUBE_MAP => count == 6,
+        gl::TEXTURE_CUBE_MAP_ARRAY => count % 6 == 0,
+        _ => count == 1,
+    };
+    if layers.is_empty() || layers.end > source_layers || !fits_target {
+        return Err(TextureViewError::LayersOutOfRange);
+    }
+
+    // the formats, and the immutable storage that views need
+    let view_format = image_format::format_request_to_glenum(
+        context,
+        format,
+        image_format::RequestType::TexStorage(None),
+    )
+    .map_err(|_| TextureViewError::FormatNotSupported)?;
+    let (source_format, immutable) = unsafe {
+        let bind_point = source.bind_to_current(&mut ctxt);
+        let face = if bind_point == gl::TEXTURE_CUBE_MAP {
+            gl::TEXTURE_CUBE_MAP_POSITIVE_X
+        } else {
+            bind_point
+        };
+        (
+            ctxt.glow
+                .get_tex_level_parameter_i32(face, 0, gl::TEXTURE_INTERNAL_FORMAT)
+                as gl::types::GLenum,
+            ctxt.glow
+                .get_tex_parameter_i32(bind_point, gl::TEXTURE_IMMUTABLE_FORMAT)
+                != 0,
+        )
+    };
+    if !immutable {
+        return Err(TextureViewError::SourceNotImmutable);
+    }
+    if !formats_compatible(source_format, view_format) {
+        return Err(TextureViewError::IncompatibleFormat);
+    }
+
+    // the view's level 0 is the source's level `levels.start`
+    let size = |size: u32| cmp::max(1, size >> levels.start);
+    let (width, height, depth, _, samples) = extract_dimensions(source.ty);
+    let (width, height) = (size(width), height.map(size).unwrap_or(1));
+    let ty = match target {
+        gl::TEXTURE_1D => Dimensions::Texture1d { width },
+        gl::TEXTURE_1D_ARRAY => Dimensions::Texture1dArray {
+            width,
+            array_size: count,
+        },
+        gl::TEXTURE_2D => Dimensions::Texture2d { width, height },
+        gl::TEXTURE_RECTANGLE => Dimensions::TextureRectangle { width, height },
+        gl::TEXTURE_2D_ARRAY => Dimensions::Texture2dArray {
+            width,
+            height,
+            array_size: count,
+        },
+        gl::TEXTURE_2D_MULTISAMPLE => Dimensions::Texture2dMultisample {
+            width,
+            height,
+            samples: samples.unwrap_or(1),
+        },
+        gl::TEXTURE_2D_MULTISAMPLE_ARRAY => Dimensions::Texture2dMultisampleArray {
+            width,
+            height,
+            array_size: count,
+            samples: samples.unwrap_or(1),
+        },
+        gl::TEXTURE_3D => Dimensions::Texture3d {
+            width,
+            height,
+            depth: size(depth.unwrap_or(1)),
+        },
+        gl::TEXTURE_CUBE_MAP => Dimensions::Cubemap { dimension: width },
+        gl::TEXTURE_CUBE_MAP_ARRAY => Dimensions::CubemapArray {
+            dimension: width,
+            array_size: count / 6,
+        },
+        _ => return Err(TextureViewError::IncompatibleTarget),
+    };
+
+    let id = unsafe {
+        // `glTextureView` needs a name that was never bound
+        let id = ctxt.glow.create_texture().expect("failed to create a texture");
+        ctxt.extra.TextureView(
+            id.raw_name(),
+            target,
+            source.id.raw_name(),
+            view_format,
+            levels.start,
+            levels.len() as u32,
+            layers.start,
+            count,
+        );
+
+        // the sampling state of the view is set like the one of a new texture
+        let integer = matches!(
+            format,
+            TextureFormatRequest::Specific(TextureFormat::UncompressedIntegral(_))
+                | TextureFormatRequest::Specific(TextureFormat::UncompressedUnsigned(_))
+                | TextureFormatRequest::Specific(TextureFormat::StencilFormat(_))
+        );
+        let filter = if integer { gl::NEAREST } else { gl::LINEAR };
+        let mipmap_filter = if integer {
+            gl::NEAREST_MIPMAP_NEAREST
+        } else {
+            gl::LINEAR_MIPMAP_LINEAR
+        };
+        ctxt.glow.bind_texture(target, Some(id));
+        let unit = ctxt.state.active_texture as usize;
+        ctxt.state.texture_units[unit].texture = Some(id);
+        // the parameters that SafeGL caches start from their defaults, whatever the source has
+        for (name, value) in [
+            (gl::TEXTURE_SWIZZLE_R, gl::RED),
+            (gl::TEXTURE_SWIZZLE_G, gl::GREEN),
+            (gl::TEXTURE_SWIZZLE_B, gl::BLUE),
+            (gl::TEXTURE_SWIZZLE_A, gl::ALPHA),
+            (gl::DEPTH_STENCIL_TEXTURE_MODE, gl::DEPTH_COMPONENT),
+        ] {
+            ctxt.glow.tex_parameter_i32(target, name, value as i32);
+        }
+        if samples.is_none() {
+            ctxt.glow.tex_parameter_i32(target, gl::TEXTURE_BASE_LEVEL, 0);
+            ctxt.glow
+                .tex_parameter_i32(target, gl::TEXTURE_MAX_LEVEL, levels.len() as i32 - 1);
+            let wrap = if target == gl::TEXTURE_RECTANGLE {
+                gl::CLAMP_TO_EDGE
+            } else {
+                gl::REPEAT
+            };
+            for name in [gl::TEXTURE_WRAP_S, gl::TEXTURE_WRAP_T, gl::TEXTURE_WRAP_R] {
+                ctxt.glow.tex_parameter_i32(target, name, wrap as i32);
+            }
+            ctxt.glow
+                .tex_parameter_i32(target, gl::TEXTURE_MAG_FILTER, filter as i32);
+            let min_filter = if levels.len() > 1 { mipmap_filter } else { filter };
+            ctxt.glow
+                .tex_parameter_i32(target, gl::TEXTURE_MIN_FILTER, min_filter as i32);
+        }
+        id
+    };
+
+    Ok(TextureAny {
+        context: context.clone(),
+        id,
+        requested_format: format,
+        actual_format: Cell::new(None),
+        ty,
+        levels: levels.len() as u32,
+        generate_mipmaps: false,
+        can_generate_mipmaps: source.can_generate_mipmaps,
+        owned: true,
+        // the view and its source see the shader writes of each other
+        latest_shader_write: source.latest_shader_write.clone(),
+        swizzle: Cell::new(Some([gl::RED, gl::GREEN, gl::BLUE, gl::ALPHA])),
+        mipmap_range: Cell::new(Some((0, levels.len() as u32 - 1))),
+        depth_stencil_mode: Cell::new(Some(gl::DEPTH_COMPONENT)),
+        fixed_sample_locations: source.fixed_sample_locations,
     })
 }
 
@@ -922,7 +1121,7 @@ pub unsafe fn from_id<F: Facade + ?Sized>(
             Dimensions::Texture2dMultisample { .. } | Dimensions::Texture2dMultisampleArray { .. }
         ),
         owned,
-        latest_shader_write: Cell::new(0),
+        latest_shader_write: Rc::new(Cell::new(0)),
         swizzle: Cell::new(None),
         mipmap_range: Cell::new(None),
         depth_stencil_mode: Cell::new(None),

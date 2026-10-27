@@ -91,6 +91,7 @@ extensions! {
     "GL_ARB_texture_compression_bptc" => gl_arb_texture_compression_bptc,
     "GL_ARB_texture_stencil8" => gl_arb_texture_stencil8,
     "GL_ARB_texture_storage" => gl_arb_texture_storage,
+    "GL_ARB_texture_view" => gl_arb_texture_view,
     "GL_ARB_texture_storage_multisample" => gl_arb_texture_storage_multisample,
     "GL_ARB_transform_feedback_instanced" => gl_arb_transform_feedback_instanced,
     "GL_ARB_vertex_attrib_64bit" => gl_arb_vertex_attrib_64bit,
