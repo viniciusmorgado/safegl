@@ -18,7 +18,7 @@ use crate::fbo::{self, FramebufferTarget};
 
 use crate::index::{self, IndicesSource};
 use crate::uniforms::Uniforms;
-use crate::vertex::{MultiVerticesSource, TransformFeedbackSession, VerticesSource};
+use crate::vertex::{InstanceRate, MultiVerticesSource, TransformFeedbackSession, VerticesSource};
 use crate::vertex_array_object::VertexAttributesSystem;
 use crate::{Program, ToGlEnum};
 
@@ -130,7 +130,7 @@ where
             // Integrating the two matches wouldn't improve the code either.
             #[allow(clippy::single_match)]
             match src {
-                VerticesSource::VertexBuffer(buffer, format, per_instance) => {
+                VerticesSource::VertexBuffer(buffer, format, rate) => {
                     if !binder_context_owns(&buffer, context) {
                         return Err(DrawError::ContextMismatch {
                             object: "vertex buffer".to_owned(),
@@ -141,13 +141,17 @@ where
                         fences.push(fence);
                     }
 
-                    binder = binder.add(&buffer, format, if per_instance { Some(1) } else { None });
+                    let divisor = match rate {
+                        InstanceRate::PerVertex => None,
+                        InstanceRate::PerInstance(divisor) => Some(divisor.get()),
+                    };
+                    binder = binder.add(&buffer, format, divisor);
                 }
                 _ => {}
             }
 
             match src {
-                VerticesSource::VertexBuffer(ref buffer, _, false) => {
+                VerticesSource::VertexBuffer(ref buffer, _, InstanceRate::PerVertex) => {
                     if let Some(curr) = vertices_count {
                         if curr != buffer.get_elements_count() {
                             vertices_mismatch = true;
@@ -156,13 +160,17 @@ where
                         vertices_count = Some(buffer.get_elements_count());
                     }
                 }
-                VerticesSource::VertexBuffer(ref buffer, _, true) => {
+                VerticesSource::VertexBuffer(ref buffer, _, InstanceRate::PerInstance(divisor)) => {
+                    // each element provides the attributes of `divisor` instances
+                    let instances = buffer
+                        .get_elements_count()
+                        .saturating_mul(divisor.get() as usize);
                     if let Some(curr) = instances_count {
-                        if curr != buffer.get_elements_count() {
+                        if curr != instances {
                             return Err(DrawError::InstancesCountMismatch);
                         }
                     } else {
-                        instances_count = Some(buffer.get_elements_count());
+                        instances_count = Some(instances);
                     }
                 }
                 VerticesSource::Marker { len, per_instance } if !per_instance => {

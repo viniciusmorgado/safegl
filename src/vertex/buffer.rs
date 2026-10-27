@@ -9,7 +9,7 @@ use crate::buffer::{
     Content,
 };
 use crate::vertex::format::VertexFormat;
-use crate::vertex::{PerInstance, Vertex, VerticesSource};
+use crate::vertex::{InstanceRate, PerInstance, Vertex, VerticesSource};
 
 use crate::GlObject;
 
@@ -105,7 +105,7 @@ where
             .buffer
             .as_slice_any()
             .with_elements_size(self.elements_size);
-        PerInstance(slice, self.bindings)
+        PerInstance::new(slice, self.bindings)
     }
 }
 
@@ -391,7 +391,7 @@ where
             .buffer
             .as_slice_any()
             .with_elements_size(self.elements_size);
-        PerInstance(slice, self.bindings)
+        PerInstance::new(slice, self.bindings)
     }
 }
 
@@ -497,7 +497,7 @@ where
             .buffer
             .as_slice_any()
             .with_elements_size(this.elements_size);
-        VerticesSource::VertexBuffer(slice, this.bindings, false)
+        VerticesSource::VertexBuffer(slice, this.bindings, InstanceRate::PerVertex)
     }
 }
 
@@ -543,7 +543,7 @@ where
             .buffer
             .as_slice_any()
             .with_elements_size(this.elements_size);
-        VerticesSource::VertexBuffer(slice, this.bindings, false)
+        VerticesSource::VertexBuffer(slice, this.bindings, InstanceRate::PerVertex)
     }
 }
 
@@ -603,7 +603,7 @@ impl VertexBufferAny {
     #[inline]
     pub fn per_instance(&self) -> PerInstance<'_> {
         // instancing is core in OpenGL 3.3 and OpenGL ES 3.0
-        PerInstance(self.buffer.as_slice_any(), self.bindings)
+        PerInstance::new(self.buffer.as_slice_any(), self.bindings)
     }
 }
 
@@ -647,6 +647,10 @@ impl DerefMut for VertexBufferAny {
 impl<'a> From<&'a VertexBufferAny> for VerticesSource<'a> {
     #[inline]
     fn from(this: &VertexBufferAny) -> VerticesSource<'_> {
-        VerticesSource::VertexBuffer(this.buffer.as_slice_any(), this.bindings, false)
+        VerticesSource::VertexBuffer(
+            this.buffer.as_slice_any(),
+            this.bindings,
+            InstanceRate::PerVertex,
+        )
     }
 }

@@ -131,6 +131,7 @@ with, or else you will get an error.
 
 */
 use std::iter::Chain;
+use std::num::NonZeroU32;
 use std::option::IntoIter;
 
 pub use self::buffer::CreationError as BufferCreationError;
@@ -151,11 +152,9 @@ mod transform_feedback;
 pub enum VerticesSource<'a> {
     /// A buffer uploaded in the video memory.
     ///
-    /// The second parameter is the number of vertices in the buffer.
-    ///
-    /// The third parameter tells whether or not this buffer is "per instance" (true) or
-    /// "per vertex" (false).
-    VertexBuffer(BufferAnySlice<'a>, VertexFormat, bool),
+    /// The second parameter is the format of its vertices, and the third one how often its
+    /// attributes advance: per vertex, or per instance.
+    VertexBuffer(BufferAnySlice<'a>, VertexFormat, InstanceRate),
 
     /// A marker indicating a "phantom list of attributes".
     Marker {
@@ -199,13 +198,38 @@ impl<'a> From<EmptyInstanceAttributes> for VerticesSource<'a> {
     }
 }
 
+/// How often the attributes of a vertex source advance.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum InstanceRate {
+    /// Once per vertex.
+    PerVertex,
+
+    /// Once every this many instances (`glVertexAttribDivisor`): a buffer of `n` elements
+    /// provides the attributes of `n` times this many instances.
+    PerInstance(NonZeroU32),
+}
+
 /// Marker that instructs SafeGL that the buffer is to be used per instance.
-pub struct PerInstance<'a>(BufferAnySlice<'a>, VertexFormat);
+pub struct PerInstance<'a>(BufferAnySlice<'a>, VertexFormat, NonZeroU32);
+
+impl<'a> PerInstance<'a> {
+    /// Builds the marker from a slice and its format, for one element per instance.
+    pub(crate) fn new(slice: BufferAnySlice<'a>, format: VertexFormat) -> PerInstance<'a> {
+        PerInstance(slice, format, NonZeroU32::MIN)
+    }
+
+    /// Makes each element of the buffer provide the attributes of `divisor` consecutive
+    /// instances, instead of one.
+    #[inline]
+    pub fn with_divisor(self, divisor: NonZeroU32) -> PerInstance<'a> {
+        PerInstance(self.0, self.1, divisor)
+    }
+}
 
 impl<'a> From<PerInstance<'a>> for VerticesSource<'a> {
     #[inline]
     fn from(this: PerInstance<'a>) -> VerticesSource<'a> {
-        VerticesSource::VertexBuffer(this.0, this.1, true)
+        VerticesSource::VertexBuffer(this.0, this.1, InstanceRate::PerInstance(this.2))
     }
 }
 

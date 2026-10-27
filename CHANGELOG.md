@@ -218,6 +218,8 @@ Breaking changes:
   `DrawError::FixedIndexRestartingNotSupported` is replaced by
   `PrimitiveRestartIndexNotSupported`, for `Index` on OpenGL ES: restarting at the largest index
   works on every desktop driver now.
+- The third field of `VerticesSource::VertexBuffer` is an `InstanceRate` (`PerVertex` or
+  `PerInstance(divisor)`) instead of a `bool`.
 
 Additions:
 
@@ -326,6 +328,8 @@ Additions:
 - `DrawParameters::patch_default_levels` (`desktop`) sets the tessellation levels of programs with
   a tessellation evaluation shader and no tessellation control shader, in a
   `PatchDefaultLevels`.
+- `PerInstance::with_divisor` makes each element of a per-instance buffer provide the attributes
+  of several consecutive instances (`glVertexAttribDivisor`).
 
 Fixes:
 
