@@ -383,6 +383,7 @@ impl VertexArrayObject {
 
                 if ty.get_num_components() != attribute.ty.get_num_components()
                     || attribute.size != 1
+                    || (is_bgra(ty) && attribute.ty != AttributeType::F32F32F32F32)
                 {
                     return Err(DrawError::AttributeTypeMismatch);
                 }
@@ -635,7 +636,32 @@ fn vertex_binding_type_to_gl(
         AttributeType::F10F11F11UnsignedIntReversed => (gl::UNSIGNED_INT_10F_11F_11F_REV, 3, 1),
         #[cfg(any(safegl_desktop, safegl_gles30))]
         AttributeType::FixedFloatI16U16 => (gl::FIXED, 1, 1),
+        // `GL_BGRA` takes the place of the number of components
+        #[cfg(safegl_desktop)]
+        AttributeType::U8U8U8U8Bgra => (gl::UNSIGNED_BYTE, gl::BGRA as gl::types::GLint, 1),
+        #[cfg(safegl_desktop)]
+        AttributeType::I2I10I10I10ReversedBgra => {
+            (gl::INT_2_10_10_10_REV, gl::BGRA as gl::types::GLint, 1)
+        }
+        #[cfg(safegl_desktop)]
+        AttributeType::U2U10U10U10ReversedBgra => {
+            (gl::UNSIGNED_INT_2_10_10_10_REV, gl::BGRA as gl::types::GLint, 1)
+        }
     }
+}
+
+/// Returns true if `ty` is one of the `GL_BGRA` types, which OpenGL always normalizes and
+/// only feeds to `vec4`s.
+fn is_bgra(ty: AttributeType) -> bool {
+    #[cfg(safegl_desktop)]
+    if let AttributeType::U8U8U8U8Bgra
+    | AttributeType::I2I10I10I10ReversedBgra
+    | AttributeType::U2U10U10U10ReversedBgra = ty
+    {
+        return true;
+    }
+    let _ = ty;
+    false
 }
 
 /// Binds the vertex array object as the current one. Unbinds if `None` is passed.
@@ -701,7 +727,7 @@ fn attribute_columns(program: &Program, bindings: &VertexFormat) -> SmallVec<[Co
         };
 
         let (data_type, components, columns_count) = vertex_binding_type_to_gl(ty);
-        let kind = if normalize {
+        let kind = if normalize || is_bgra(ty) {
             ColumnKind::Float(true)
         } else {
             match vertex_binding_type_to_gl(attribute.ty).0 {

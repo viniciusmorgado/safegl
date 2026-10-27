@@ -220,6 +220,8 @@ Breaking changes:
   works on every desktop driver now.
 - The third field of `VerticesSource::VertexBuffer` is an `InstanceRate` (`PerVertex` or
   `PerInstance(divisor)`) instead of a `bool`.
+- `AttributeType` has the `U8U8U8U8Bgra`, `I2I10I10I10ReversedBgra` and `U2U10U10U10ReversedBgra`
+  variants at the desktop levels.
 
 Additions:
 
@@ -330,6 +332,8 @@ Additions:
   `PatchDefaultLevels`.
 - `PerInstance::with_divisor` makes each element of a per-instance buffer provide the attributes
   of several consecutive instances (`glVertexAttribDivisor`).
+- BGRA vertex attributes (`desktop`): `vertex::Bgra8` and the `*Bgra` attribute types reach the
+  vertex shader as RGBA `vec4`s, always normalized.
 
 Fixes:
 

@@ -138,6 +138,9 @@ pub use self::buffer::CreationError as BufferCreationError;
 pub use self::buffer::VertexBufferSlice;
 pub use self::buffer::{VertexBuffer, VertexBufferAny};
 pub use self::format::{AttributeType, VertexFormat};
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+pub use self::format::Bgra8;
 pub use self::transform_feedback::TransformFeedbackSession;
 
 use crate::buffer::BufferAnySlice;

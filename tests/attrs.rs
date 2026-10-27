@@ -526,3 +526,64 @@ attribute_test!(
     (0, 0, 0, 0),
     "field1"
 );
+
+/// A BGRA color reaches the shader as RGBA.
+#[cfg(safegl_desktop)]
+#[test]
+fn bgra_attribute() {
+    use safegl::vertex::Bgra8;
+
+    let display = support::build_display();
+    if support::is_gles(&display) {
+        return;
+    }
+
+    #[derive(Copy, Clone)]
+    struct Vertex {
+        position: [f32; 2],
+        color: Bgra8,
+    }
+    implement_vertex!(Vertex, position, color);
+
+    // blue, green, red, alpha: red
+    let color = Bgra8([0, 0, 255, 255]);
+    let vertices =
+        [[-1.0, -1.0], [3.0, -1.0], [-1.0, 3.0]].map(|position| Vertex { position, color });
+    let vertices = safegl::VertexBuffer::new(&display, &vertices).unwrap();
+    let draw = |attribute: &str| {
+        let program = safegl::Program::from_source(
+            &display,
+            &format!(
+                "#version 140\nin vec2 position;\nin {attribute} color;\nflat out vec4 v_color;\n\
+                 void main() {{ v_color = vec4(color); gl_Position = vec4(position, 0.0, 1.0); }}"
+            ),
+            "#version 140\nflat in vec4 v_color;\nout vec4 f_color;\n\
+             void main() { f_color = v_color; }",
+            None,
+        )
+        .unwrap();
+        let target = support::build_renderable_texture(&display);
+        target
+            .as_surface()
+            .draw(
+                &vertices,
+                safegl::index::NoIndices(safegl::index::PrimitiveType::TrianglesList),
+                &program,
+                &uniform! {},
+                &Default::default(),
+            )
+            .map(|()| {
+                let data: Vec<Vec<(u8, u8, u8, u8)>> = target.read().unwrap();
+                data[0][0]
+            })
+    };
+
+    assert_eq!(draw("vec4").unwrap(), (255, 0, 0, 255));
+    // OpenGL only normalizes BGRA attributes to floats
+    assert!(matches!(
+        draw("ivec4"),
+        Err(safegl::DrawError::AttributeTypeMismatch)
+    ));
+
+    display.assert_no_error(None);
+}
