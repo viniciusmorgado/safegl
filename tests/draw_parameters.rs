@@ -1407,7 +1407,7 @@ fn primitive_restart_index() {
 
     match res {
         Ok(_) => (),
-        Err(safegl::DrawError::DepthClampNotSupported) => {
+        Err(safegl::DrawError::FixedIndexRestartingNotSupported) => {
             display.assert_no_error(None);
             return;
         }
