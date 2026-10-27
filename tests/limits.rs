@@ -13,6 +13,8 @@ mod support;
 type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
 
 /// Desktop OpenGL `major.minor` or above.
+// unused at the OpenGL 4.0 level
+#[allow(dead_code)]
 fn gl(display: &Display, major: u8, minor: u8) -> bool {
     display.get_opengl_version() >= &Version(Api::Gl, major, minor)
 }
