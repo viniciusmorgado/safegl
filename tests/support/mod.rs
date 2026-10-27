@@ -211,9 +211,12 @@ pub fn build_display_with_debug(debug: safegl::debug::DebugCallbackBehavior) -> 
 
 /// Builds a display whose context is created with the given attributes, or returns `None` if
 /// the driver can't create such a context.
+///
+/// The display keeps its window, which must outlive the context and the surface: a window
+/// destroyed under a current context breaks the next contexts made current with GLX.
 pub fn try_build_display_with(
     attributes: glutin::context::ContextAttributesBuilder,
-) -> Option<Result<Display<WindowSurface>, safegl::IncompatibleOpenGl>> {
+) -> Option<Result<WindowDisplay, safegl::IncompatibleOpenGl>> {
     let (sender, receiver) = std::sync::mpsc::channel();
     event_loop_proxy()
         .send_event(DisplayRequest::Window(sender))
@@ -228,10 +231,14 @@ pub fn try_build_display_with(
             .ok()?
     };
     let context = context.make_current(&surface).unwrap();
-    Some(Display::new(context, surface).map_err(|error| match error {
-        safegl::backend::glutin::DisplayCreationError::IncompatibleOpenGl(error) => error,
-        error => panic!("{error}"),
-    }))
+    Some(
+        Display::new(context, surface)
+            .map(|display| WindowDisplay { display, window })
+            .map_err(|error| match error {
+                safegl::backend::glutin::DisplayCreationError::IncompatibleOpenGl(error) => error,
+                error => panic!("{error}"),
+            }),
+    )
 }
 
 /// Returns true if the context compiles GLSL `desktop` on desktop OpenGL, or GLSL `es` ES on
