@@ -22,10 +22,11 @@ use safegl::winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use safegl::winit::window::{Window, WindowId};
 
 use std::env;
+use std::io::Write;
 use std::num::NonZeroU32;
 use std::ops::Deref;
 use std::rc::Rc;
-use std::sync::{mpsc::Sender, Once, RwLock};
+use std::sync::{mpsc::Sender, Mutex, Once, RwLock};
 use std::thread;
 
 // The code below here down to `build_display` is a workaround due to a lack of a test initialization hook
@@ -84,13 +85,22 @@ impl ApplicationHandler<DisplayRequest> for Tests {
 /// Sends `request` to the event loop and waits for its answer, panicking with the error that
 /// the event loop gave.
 fn request<T>(request: impl FnOnce(Sender<Result<T, String>>) -> DisplayRequest) -> T {
+    let stopped = || -> ! {
+        let reason = EVENT_LOOP_STOPPED.lock().unwrap().clone();
+        panic!("the event loop of the tests has stopped: {reason:?}")
+    };
     let (sender, receiver) = std::sync::mpsc::channel();
-    event_loop_proxy().send_event(request(sender)).unwrap();
-    receiver
-        .recv()
-        .expect("the event loop of the tests has stopped")
-        .unwrap_or_else(|error| panic!("{error}"))
+    if event_loop_proxy().send_event(request(sender)).is_err() {
+        stopped();
+    }
+    match receiver.recv() {
+        Ok(result) => result.unwrap_or_else(|error| panic!("{error}")),
+        Err(_) => stopped(),
+    }
 }
+
+/// Why the event loop of the tests stopped, if it did.
+static EVENT_LOOP_STOPPED: Mutex<Option<String>> = Mutex::new(None);
 
 /// Creates a hidden window, its surface, and the configuration of the contexts that can use it.
 fn create_window(
@@ -198,8 +208,27 @@ fn event_loop_proxy() -> EventLoopProxy<DisplayRequest> {
 
                 sender.send(event_loop.create_proxy()).unwrap();
 
-                let mut app = Tests {};
-                event_loop.run_app(&mut app).unwrap();
+                // the event loop thread inherits the output capture of the test that started it,
+                // which hides its panics: the reason it stops is written to the standard error
+                // directly and given to the tests that come after
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let mut app = Tests {};
+                    event_loop.run_app(&mut app)
+                }));
+                let reason = match result {
+                    Ok(Ok(())) => "it exited".to_owned(),
+                    Ok(Err(error)) => format!("{error}"),
+                    Err(payload) => payload
+                        .downcast_ref::<String>()
+                        .cloned()
+                        .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+                        .unwrap_or_else(|| "it panicked".to_owned()),
+                };
+                let _ = writeln!(
+                    std::io::stderr().lock(),
+                    "the event loop of the tests stopped: {reason}"
+                );
+                *EVENT_LOOP_STOPPED.lock().unwrap() = Some(reason);
             })
             .unwrap();
 
