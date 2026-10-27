@@ -72,6 +72,8 @@ extensions! {
     "GL_ARB_query_buffer_object" => gl_arb_query_buffer_object,
     "GL_ARB_indirect_parameters" => gl_arb_indirect_parameters,
     "GL_ARB_multi_draw_indirect" => gl_arb_multi_draw_indirect,
+    "GL_ARB_pipeline_statistics_query" => gl_arb_pipeline_statistics_query,
+    "GL_ARB_transform_feedback_overflow_query" => gl_arb_transform_feedback_overflow_query,
     "GL_ARB_robustness" => gl_arb_robustness,
     "GL_ARB_robust_buffer_access_behavior" => gl_arb_robust_buffer_access_behavior,
     "GL_ARB_shader_atomic_counters" => gl_arb_shader_atomic_counters,

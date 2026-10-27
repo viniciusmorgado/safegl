@@ -117,7 +117,7 @@ impl ComputeShader {
     where
         U: Uniforms,
     {
-        unsafe { self.raw.dispatch_compute(uniforms, x, y, z) }
+        unsafe { self.raw.dispatch_compute(uniforms, x, y, z, &[]) }
     }
 
     /// Executes the compute shader.
@@ -132,7 +132,29 @@ impl ComputeShader {
     where
         U: Uniforms,
     {
-        unsafe { self.raw.dispatch_compute_indirect(uniforms, buffer) }
+        unsafe { self.raw.dispatch_compute_indirect(uniforms, buffer, &[]) }
+    }
+
+    /// Executes the compute shader like `execute`, while the queries count their pipeline
+    /// statistics, such as `PipelineStatistic::ComputeShaderInvocations`. Like the queries of
+    /// draws, a query keeps counting through the dispatches and draws that follow each other
+    /// and are given it; each query must count another statistic, or this returns
+    /// `DrawError::WrongQueryOperation`.
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    #[inline]
+    pub fn execute_with_statistics<U>(
+        &self,
+        uniforms: U,
+        x: u32,
+        y: u32,
+        z: u32,
+        statistics: &[&crate::draw_parameters::PipelineStatisticsQuery],
+    ) -> Result<(), DrawError>
+    where
+        U: Uniforms,
+    {
+        unsafe { self.raw.dispatch_compute(uniforms, x, y, z, statistics) }
     }
 
     /// Returns the program's compiled binary.

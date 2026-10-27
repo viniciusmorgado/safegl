@@ -44,6 +44,9 @@ local cases = {
   { "gl46_has_draw_counts", { "gl46" }, nil, [[
     pub use safegl::index::DrawCount;
   ]] },
+  { "gl46_has_pipeline_statistics", { "gl46" }, nil, [[
+    pub use safegl::draw_parameters::{PipelineStatisticsQuery, TransformFeedbackOverflowQuery};
+  ]] },
   { "gl46_has_spirv", { "gl46" }, nil, [[
     pub use safegl::program::SpirvProgram;
   ]] },
@@ -97,6 +100,9 @@ local cases = {
   ]] },
   { "gl45_has_no_draw_counts", { "gl45" }, "DrawCount", [[
     pub use safegl::index::DrawCount;
+  ]] },
+  { "gl45_has_no_pipeline_statistics", { "gl45" }, "PipelineStatisticsQuery", [[
+    pub use safegl::draw_parameters::PipelineStatisticsQuery;
   ]] },
   { "gl45_has_no_spirv", { "gl45" }, "SpirvProgram", [[
     pub use safegl::program::SpirvProgram;

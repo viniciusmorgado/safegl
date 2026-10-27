@@ -324,6 +324,10 @@ pub struct GlState {
     /// Current query being used for GL_TIME_ELAPSED​.
     pub time_elapsed_query: Option<glow::Query>,
 
+    /// The active queries of the other targets, the pipeline statistics and the transform
+    /// feedback overflows, with their target and index.
+    pub indexed_queries: SmallVec<[(gl::types::GLenum, gl::types::GLuint, glow::Query); 4]>,
+
     /// Latest value passed to `glBeginConditionalRender​`.
     pub conditional_render: Option<(glow::Query, gl::types::GLenum)>,
 
@@ -530,6 +534,7 @@ impl Default for GlState {
             primitives_generated_query: None,
             transform_feedback_primitives_written_query: None,
             time_elapsed_query: None,
+            indexed_queries: SmallVec::new(),
             conditional_render: None,
             transform_feedback_enabled: None,
             transform_feedback_paused: false,

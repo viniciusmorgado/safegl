@@ -197,9 +197,20 @@ Breaking changes:
   be negative.
 - At the `gl46` level, `IndicesSource::MultidrawArray` and `IndicesSource::MultidrawElement` have
   a `draw_count` field.
+- The query of `ConditionalRendering` is a `ConditionQuery`, which can also be a transform
+  feedback overflow query; `(&query).into()` still builds it from the samples queries, and from a
+  `SamplesQueryParam`.
 
 Additions:
 
+- `PipelineStatisticsQuery` counts one of the 11 statistics of `PipelineStatistic`, such as the
+  invocations of the fragment shader, during the draws of
+  `DrawParameters::pipeline_statistics_queries` and the dispatches of the new
+  `ComputeShader::execute_with_statistics`. `TransformFeedbackOverflowQuery`, of every vertex
+  stream or of one, tells whether transform feedback overflowed during the draws of
+  `DrawParameters::transform_feedback_overflow_query`, and can be the condition of a draw. Both
+  are at the `gl46` level and need OpenGL 4.6, `GL_ARB_pipeline_statistics_query` or
+  `GL_ARB_transform_feedback_overflow_query`.
 - Buffers and their slices can be filled with a value on the GPU (`glClearBufferSubData`,
   `gl43`): `clear(value)` on `Buffer`, `BufferSlice` and `BufferMutSlice`, whose content is the
   new `buffer::ClearValue`, writes its bits: integers of 8, 16 and 32 bits, `f32`, and arrays of

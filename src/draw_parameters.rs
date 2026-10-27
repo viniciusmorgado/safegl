@@ -103,6 +103,11 @@ pub use self::query::ToBufferError;
 pub use self::query::{AnySamplesPassedQuery, TransformFeedbackPrimitivesWrittenQuery};
 #[cfg(safegl_desktop)]
 pub use self::query::{SamplesPassedQuery, TimeElapsedQuery};
+#[cfg(safegl_gl46)]
+pub(crate) use self::query::{sync_indexed_queries, RawQuery};
+#[cfg(safegl_gl46)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+pub use self::query::{PipelineStatistic, PipelineStatisticsQuery, TransformFeedbackOverflowQuery};
 pub use self::stencil::{Stencil, StencilOperation, StencilTest};
 
 mod blend;
@@ -466,6 +471,17 @@ pub struct DrawParameters<'a> {
     pub transform_feedback_primitives_written_query:
         Option<&'a TransformFeedbackPrimitivesWrittenQuery>,
 
+    /// The pipeline statistics queries that count this draw, each of another statistic, or the
+    /// draw returns `DrawError::WrongQueryOperation`. The default is none.
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    pub pipeline_statistics_queries: &'a [&'a PipelineStatisticsQuery],
+
+    /// If set, the query tells whether transform feedback overflowed during this draw.
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    pub transform_feedback_overflow_query: Option<&'a TransformFeedbackOverflowQuery>,
+
     /// If set, the commands will only be executed if the specified query contains `true` or
     /// a number different than 0.
     ///
@@ -629,7 +645,7 @@ impl Default for OutputState {
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub struct ConditionalRendering<'a> {
     /// The query to use.
-    pub query: SamplesQueryParam<'a>,
+    pub query: ConditionQuery<'a>,
 
     /// If true, the GPU will wait until the query result has been obtained. If false, the GPU
     /// is free to ignore the query and draw anyway.
@@ -638,6 +654,86 @@ pub struct ConditionalRendering<'a> {
     /// If true, only samples that match those that were written with the query active will
     /// be drawn.
     pub per_region: bool,
+}
+
+/// The query whose result conditions a draw.
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+#[derive(Debug, Copy, Clone)]
+pub enum ConditionQuery<'a> {
+    /// A `SamplesPassedQuery`: draws if samples passed.
+    SamplesPassedQuery(&'a SamplesPassedQuery),
+    /// An `AnySamplesPassedQuery`: draws if samples passed.
+    AnySamplesPassedQuery(&'a AnySamplesPassedQuery),
+    /// A `TransformFeedbackOverflowQuery`: draws if transform feedback overflowed.
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    TransformFeedbackOverflowQuery(&'a TransformFeedbackOverflowQuery),
+}
+
+#[cfg(safegl_desktop)]
+impl<'a> ConditionQuery<'a> {
+    fn id(&self) -> glow::Query {
+        match *self {
+            ConditionQuery::SamplesPassedQuery(q) => q.get_id(),
+            ConditionQuery::AnySamplesPassedQuery(q) => q.get_id(),
+            #[cfg(safegl_gl46)]
+            ConditionQuery::TransformFeedbackOverflowQuery(q) => q.get_id(),
+        }
+    }
+
+    fn is_unused(&self) -> bool {
+        match *self {
+            ConditionQuery::SamplesPassedQuery(q) => q.is_unused(),
+            ConditionQuery::AnySamplesPassedQuery(q) => q.is_unused(),
+            #[cfg(safegl_gl46)]
+            ConditionQuery::TransformFeedbackOverflowQuery(q) => q.is_unused(),
+        }
+    }
+
+    fn get_context(&self) -> &Context {
+        match *self {
+            ConditionQuery::SamplesPassedQuery(q) => QueryExt::get_context(q),
+            ConditionQuery::AnySamplesPassedQuery(q) => QueryExt::get_context(q),
+            #[cfg(safegl_gl46)]
+            ConditionQuery::TransformFeedbackOverflowQuery(q) => QueryExt::get_context(q),
+        }
+    }
+}
+
+#[cfg(safegl_desktop)]
+impl<'a> From<&'a SamplesPassedQuery> for ConditionQuery<'a> {
+    #[inline]
+    fn from(query: &'a SamplesPassedQuery) -> ConditionQuery<'a> {
+        ConditionQuery::SamplesPassedQuery(query)
+    }
+}
+
+#[cfg(safegl_desktop)]
+impl<'a> From<&'a AnySamplesPassedQuery> for ConditionQuery<'a> {
+    #[inline]
+    fn from(query: &'a AnySamplesPassedQuery) -> ConditionQuery<'a> {
+        ConditionQuery::AnySamplesPassedQuery(query)
+    }
+}
+
+#[cfg(safegl_gl46)]
+impl<'a> From<&'a TransformFeedbackOverflowQuery> for ConditionQuery<'a> {
+    #[inline]
+    fn from(query: &'a TransformFeedbackOverflowQuery) -> ConditionQuery<'a> {
+        ConditionQuery::TransformFeedbackOverflowQuery(query)
+    }
+}
+
+#[cfg(safegl_desktop)]
+impl<'a> From<SamplesQueryParam<'a>> for ConditionQuery<'a> {
+    #[inline]
+    fn from(query: SamplesQueryParam<'a>) -> ConditionQuery<'a> {
+        match query {
+            SamplesQueryParam::SamplesPassedQuery(q) => ConditionQuery::SamplesPassedQuery(q),
+            SamplesQueryParam::AnySamplesPassedQuery(q) => ConditionQuery::AnySamplesPassedQuery(q),
+        }
+    }
 }
 
 /// The query to use for samples counting.
@@ -695,7 +791,16 @@ pub(crate) fn check_query_contexts(
         && draw_parameters
             .condition
             .as_ref()
-            .is_none_or(|condition| samples(&condition.query));
+            .is_none_or(|condition| ctxt.owns(condition.query.get_context()));
+    #[cfg(safegl_gl46)]
+    let owned = owned
+        && draw_parameters
+            .pipeline_statistics_queries
+            .iter()
+            .all(|q| ctxt.owns(QueryExt::get_context(*q)))
+        && draw_parameters
+            .transform_feedback_overflow_query
+            .is_none_or(|q| ctxt.owns(QueryExt::get_context(q)));
     #[cfg(any(safegl_desktop, safegl_gles32))]
     let owned = owned
         && draw_parameters
@@ -732,6 +837,12 @@ pub(crate) fn check_queries(draw_parameters: &DrawParameters<'_>) -> Result<bool
     // a query can't count the samples of the draw that it conditions
     if let Some(ref samples) = draw_parameters.samples_passed_query {
         if samples.id() == condition.query.id() {
+            return Err(DrawError::WrongQueryOperation);
+        }
+    }
+    #[cfg(safegl_gl46)]
+    if let Some(overflow) = draw_parameters.transform_feedback_overflow_query {
+        if overflow.get_id() == condition.query.id() {
             return Err(DrawError::WrongQueryOperation);
         }
     }
@@ -845,6 +956,10 @@ impl<'a> Default for DrawParameters<'a> {
             #[cfg(any(safegl_desktop, safegl_gles32))]
             primitives_generated_query: None,
             transform_feedback_primitives_written_query: None,
+            #[cfg(safegl_gl46)]
+            pipeline_statistics_queries: &[],
+            #[cfg(safegl_gl46)]
+            transform_feedback_overflow_query: None,
             #[cfg(safegl_desktop)]
             condition: None,
             transform_feedback: None,
@@ -1422,6 +1537,17 @@ fn sync_queries(
         AnySamplesPassedQuery::end_transform_feedback_primitives_written_query(ctxt);
     }
 
+    #[cfg(safegl_gl46)]
+    {
+        let mut queries: smallvec::SmallVec<[&RawQuery; 4]> = draw_parameters
+            .pipeline_statistics_queries
+            .iter()
+            .map(|q| q.raw())
+            .collect();
+        queries.extend(draw_parameters.transform_feedback_overflow_query.map(|q| q.raw()));
+        sync_indexed_queries(ctxt, &queries)?;
+    }
+
     Ok(())
 }
 
@@ -1437,10 +1563,14 @@ fn sync_conditional_render(
     }) = condition
     {
         match query {
-            SamplesQueryParam::SamplesPassedQuery(ref q) => {
+            ConditionQuery::SamplesPassedQuery(q) => {
                 q.begin_conditional_render(ctxt, wait, per_region)
             }
-            SamplesQueryParam::AnySamplesPassedQuery(ref q) => {
+            ConditionQuery::AnySamplesPassedQuery(q) => {
+                q.begin_conditional_render(ctxt, wait, per_region)
+            }
+            #[cfg(safegl_gl46)]
+            ConditionQuery::TransformFeedbackOverflowQuery(q) => {
                 q.begin_conditional_render(ctxt, wait, per_region)
             }
         }

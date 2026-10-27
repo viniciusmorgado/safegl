@@ -181,6 +181,8 @@ extra_functions! {
     fn InsertEventMarkerEXT(length: GLsizei, marker: *const GLchar) -> ();
     fn InvalidateBufferData(buffer: GLuint) -> ();
     fn InvalidateBufferSubData(buffer: GLuint, offset: GLintptr, length: GLsizeiptr) -> ();
+    fn BeginQueryIndexed(target: GLenum, index: GLuint, id: GLuint) -> ();
+    fn EndQueryIndexed(target: GLenum, index: GLuint) -> ();
     fn ClearBufferSubData(target: GLenum, internalformat: GLenum, offset: GLintptr, size: GLsizeiptr, format: GLenum, type_: GLenum, data: *const c_void) -> ();
     fn ClearNamedBufferSubData(buffer: GLuint, internalformat: GLenum, offset: GLintptr, size: GLsizeiptr, format: GLenum, type_: GLenum, data: *const c_void) -> ();
     fn MakeImageHandleResidentARB(handle: GLuint64, access: GLenum) -> ();

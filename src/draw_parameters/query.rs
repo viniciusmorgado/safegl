@@ -13,6 +13,9 @@ use std::error::Error;
 use std::fmt;
 use std::rc::Rc;
 
+#[cfg(safegl_gl46)]
+use smallvec::SmallVec;
+
 #[cfg(safegl_gl44)]
 use crate::buffer::Buffer;
 #[cfg(safegl_gl44)]
@@ -37,6 +40,7 @@ pub struct RawQuery {
     has_been_used: Cell<bool>,
 }
 
+#[derive(Copy, Clone)]
 pub enum QueryType {
     SamplesPassed,
     AnySamplesPassed,
@@ -45,6 +49,84 @@ pub enum QueryType {
     Timestamp,
     PrimitivesGenerated,
     TransformFeedbackPrimitivesWritten,
+    #[cfg(safegl_gl46)]
+    PipelineStatistic(PipelineStatistic),
+    #[cfg(safegl_gl46)]
+    TransformFeedbackOverflow,
+    #[cfg(safegl_gl46)]
+    TransformFeedbackStreamOverflow(u32),
+}
+
+impl QueryType {
+    /// The target and index of the queries that `indexed_queries` tracks.
+    #[cfg(safegl_gl46)]
+    fn indexed_target(&self) -> Option<(gl::types::GLenum, gl::types::GLuint)> {
+        match *self {
+            QueryType::PipelineStatistic(statistic) => Some((statistic.to_glenum(), 0)),
+            QueryType::TransformFeedbackOverflow => Some((gl::TRANSFORM_FEEDBACK_OVERFLOW, 0)),
+            QueryType::TransformFeedbackStreamOverflow(stream) => {
+                Some((gl::TRANSFORM_FEEDBACK_STREAM_OVERFLOW, stream))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// A statistic of the pipeline, which a `PipelineStatisticsQuery` counts.
+#[cfg(safegl_gl46)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum PipelineStatistic {
+    /// The vertices that the draws submit (`GL_VERTICES_SUBMITTED`).
+    VerticesSubmitted,
+    /// The primitives that the draws submit (`GL_PRIMITIVES_SUBMITTED`).
+    PrimitivesSubmitted,
+    /// The invocations of the vertex shader (`GL_VERTEX_SHADER_INVOCATIONS`), which can be fewer
+    /// than the vertices when the GPU reuses the results of repeated indices.
+    VertexShaderInvocations,
+    /// The patches that the tessellation control shader processes
+    /// (`GL_TESS_CONTROL_SHADER_PATCHES`).
+    TessellationControlShaderPatches,
+    /// The invocations of the tessellation evaluation shader
+    /// (`GL_TESS_EVALUATION_SHADER_INVOCATIONS`).
+    TessellationEvaluationShaderInvocations,
+    /// The invocations of the geometry shader (`GL_GEOMETRY_SHADER_INVOCATIONS`).
+    GeometryShaderInvocations,
+    /// The primitives that the geometry shader emits (`GL_GEOMETRY_SHADER_PRIMITIVES_EMITTED`).
+    GeometryShaderPrimitivesEmitted,
+    /// The invocations of the fragment shader (`GL_FRAGMENT_SHADER_INVOCATIONS`).
+    FragmentShaderInvocations,
+    /// The invocations of compute shaders (`GL_COMPUTE_SHADER_INVOCATIONS`), counted by
+    /// `ComputeShader::execute_with_statistics`.
+    ComputeShaderInvocations,
+    /// The primitives that reach the clipping stage (`GL_CLIPPING_INPUT_PRIMITIVES`).
+    ClippingInputPrimitives,
+    /// The primitives that leave the clipping stage (`GL_CLIPPING_OUTPUT_PRIMITIVES`).
+    ClippingOutputPrimitives,
+}
+
+#[cfg(safegl_gl46)]
+impl ToGlEnum for PipelineStatistic {
+    #[inline]
+    fn to_glenum(&self) -> gl::types::GLenum {
+        match *self {
+            PipelineStatistic::VerticesSubmitted => gl::VERTICES_SUBMITTED,
+            PipelineStatistic::PrimitivesSubmitted => gl::PRIMITIVES_SUBMITTED,
+            PipelineStatistic::VertexShaderInvocations => gl::VERTEX_SHADER_INVOCATIONS,
+            PipelineStatistic::TessellationControlShaderPatches => gl::TESS_CONTROL_SHADER_PATCHES,
+            PipelineStatistic::TessellationEvaluationShaderInvocations => {
+                gl::TESS_EVALUATION_SHADER_INVOCATIONS
+            }
+            PipelineStatistic::GeometryShaderInvocations => gl::GEOMETRY_SHADER_INVOCATIONS,
+            PipelineStatistic::GeometryShaderPrimitivesEmitted => {
+                gl::GEOMETRY_SHADER_PRIMITIVES_EMITTED
+            }
+            PipelineStatistic::FragmentShaderInvocations => gl::FRAGMENT_SHADER_INVOCATIONS,
+            PipelineStatistic::ComputeShaderInvocations => gl::COMPUTE_SHADER_INVOCATIONS,
+            PipelineStatistic::ClippingInputPrimitives => gl::CLIPPING_INPUT_PRIMITIVES,
+            PipelineStatistic::ClippingOutputPrimitives => gl::CLIPPING_OUTPUT_PRIMITIVES,
+        }
+    }
 }
 
 impl ToGlEnum for QueryType {
@@ -60,6 +142,12 @@ impl ToGlEnum for QueryType {
             QueryType::TransformFeedbackPrimitivesWritten => {
                 gl::TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN
             }
+            #[cfg(safegl_gl46)]
+            QueryType::PipelineStatistic(statistic) => statistic.to_glenum(),
+            #[cfg(safegl_gl46)]
+            QueryType::TransformFeedbackOverflow => gl::TRANSFORM_FEEDBACK_OVERFLOW,
+            #[cfg(safegl_gl46)]
+            QueryType::TransformFeedbackStreamOverflow(_) => gl::TRANSFORM_FEEDBACK_STREAM_OVERFLOW,
         }
     }
 }
@@ -151,6 +239,20 @@ impl RawQuery {
                     {
                         ()
                     }
+                    #[cfg(safegl_gl46)]
+                    QueryType::PipelineStatistic(_)
+                        if ctxt.version >= &Version(Api::Gl, 4, 6)
+                            || ctxt.extensions.gl_arb_pipeline_statistics_query => {}
+                    #[cfg(safegl_gl46)]
+                    QueryType::TransformFeedbackOverflow
+                        if ctxt.version >= &Version(Api::Gl, 4, 6)
+                            || ctxt.extensions.gl_arb_transform_feedback_overflow_query => {}
+                    #[cfg(safegl_gl46)]
+                    QueryType::TransformFeedbackStreamOverflow(stream)
+                        if (ctxt.version >= &Version(Api::Gl, 4, 6)
+                            || ctxt.extensions.gl_arb_transform_feedback_overflow_query)
+                            && (stream as gl::types::GLint)
+                                < ctxt.glow.get_parameter_i32(glow::MAX_VERTEX_STREAMS) => {}
                     _ => return Err(QueryCreationError::NotSupported),
                 };
 
@@ -354,6 +456,111 @@ impl RawQuery {
             unsafe { raw_end_query(ctxt, gl::TIME_ELAPSED) };
             ctxt.state.time_elapsed_query = None;
         }
+
+        while let Some(position) = ctxt
+            .state
+            .indexed_queries
+            .iter()
+            .position(|&(_, _, id)| id == self.id)
+        {
+            let (target, index, _) = ctxt.state.indexed_queries.remove(position);
+            unsafe { raw_end_indexed_query(ctxt, target, index) };
+        }
+    }
+
+    /// Begins the query on its target and index, which `indexed_queries` tracks.
+    #[cfg(safegl_gl46)]
+    fn begin_indexed_query(
+        &self,
+        ctxt: &mut CommandContext<'_>,
+        target: gl::types::GLenum,
+        index: gl::types::GLuint,
+    ) -> Result<(), DrawError> {
+        let active = ctxt
+            .state
+            .indexed_queries
+            .iter()
+            .position(|&(t, i, _)| t == target && i == index);
+        if let Some(position) = active {
+            if ctxt.state.indexed_queries[position].2 == self.id {
+                return Ok(());
+            }
+        }
+
+        if self.has_been_used.get() {
+            return Err(DrawError::WrongQueryOperation);
+        }
+
+        unsafe {
+            if let Some(position) = active {
+                ctxt.state.indexed_queries.remove(position);
+                raw_end_indexed_query(ctxt, target, index);
+            }
+
+            if index == 0 {
+                raw_begin_query(ctxt, target, self.id);
+            } else {
+                ctxt.extra
+                    .BeginQueryIndexed(target, index, self.id.raw_name());
+            }
+        }
+
+        self.has_been_used.set(true);
+        ctxt.state.indexed_queries.push((target, index, self.id));
+        Ok(())
+    }
+}
+
+/// Makes the given pipeline statistics and transform feedback overflow queries active for the
+/// next command, and ends the others: like the other queries, such a query counts the commands
+/// that it is given to, as long as they follow each other.
+///
+/// Two queries of the same statistic, or of the overflows of the same stream, return
+/// `DrawError::WrongQueryOperation`.
+#[cfg(safegl_gl46)]
+pub(crate) fn sync_indexed_queries(
+    ctxt: &mut CommandContext<'_>,
+    queries: &[&RawQuery],
+) -> Result<(), DrawError> {
+    let mut targets: SmallVec<[(gl::types::GLenum, gl::types::GLuint); 4]> = SmallVec::new();
+    for query in queries {
+        let target = query
+            .ty
+            .indexed_target()
+            .expect("not a pipeline statistics or overflow query");
+        if targets.contains(&target) {
+            return Err(DrawError::WrongQueryOperation);
+        }
+        targets.push(target);
+    }
+
+    let mut position = 0;
+    while position < ctxt.state.indexed_queries.len() {
+        let (target, index, id) = ctxt.state.indexed_queries[position];
+        if queries.iter().any(|query| query.id == id) {
+            position += 1;
+        } else {
+            ctxt.state.indexed_queries.remove(position);
+            unsafe { raw_end_indexed_query(ctxt, target, index) };
+        }
+    }
+
+    for query in queries {
+        query.begin_query(ctxt)?;
+    }
+    Ok(())
+}
+
+/// Ends the query of a target and index.
+unsafe fn raw_end_indexed_query(
+    ctxt: &mut CommandContext<'_>,
+    target: gl::types::GLenum,
+    index: gl::types::GLuint,
+) {
+    if index == 0 {
+        raw_end_query(ctxt, target);
+    } else {
+        ctxt.extra.EndQueryIndexed(target, index);
     }
 }
 
@@ -509,6 +716,14 @@ impl QueryExt for RawQuery {
                     self.has_been_used.set(true);
                     ctxt.state.primitives_generated_query = Some(self.id);
                 }
+            }
+
+            #[cfg(safegl_gl46)]
+            QueryType::PipelineStatistic(_)
+            | QueryType::TransformFeedbackOverflow
+            | QueryType::TransformFeedbackStreamOverflow(_) => {
+                let (target, index) = self.ty.indexed_target().unwrap();
+                self.begin_indexed_query(ctxt, target, index)?;
             }
 
             QueryType::TransformFeedbackPrimitivesWritten => {
@@ -927,6 +1142,99 @@ impl AnySamplesPassedQuery {
 }
 
 impl_helper!(AnySamplesPassedQuery, bool, get_bool);
+
+/// A query that counts a statistic of the pipeline, such as the invocations of the fragment
+/// shader, during the draws and the dispatches that it is given to
+/// (`DrawParameters::pipeline_statistics_queries`, `ComputeShader::execute_with_statistics`).
+///
+/// Needs OpenGL 4.6 or `GL_ARB_pipeline_statistics_query`, otherwise `new` returns
+/// `QueryCreationError::NotSupported`.
+#[cfg(safegl_gl46)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+#[derive(Debug)]
+pub struct PipelineStatisticsQuery {
+    query: RawQuery,
+    statistic: PipelineStatistic,
+}
+
+#[cfg(safegl_gl46)]
+impl PipelineStatisticsQuery {
+    /// Builds a new query of `statistic`.
+    #[inline]
+    pub fn new<F: ?Sized>(
+        facade: &F,
+        statistic: PipelineStatistic,
+    ) -> Result<PipelineStatisticsQuery, QueryCreationError>
+    where
+        F: Facade,
+    {
+        RawQuery::new(facade, QueryType::PipelineStatistic(statistic))
+            .map(|query| PipelineStatisticsQuery { query, statistic })
+    }
+
+    /// The statistic that this query counts.
+    #[inline]
+    pub fn statistic(&self) -> PipelineStatistic {
+        self.statistic
+    }
+
+    #[inline]
+    pub(crate) fn raw(&self) -> &RawQuery {
+        &self.query
+    }
+}
+
+#[cfg(safegl_gl46)]
+impl_helper!(PipelineStatisticsQuery, u64, get_u64);
+
+/// A query that tells whether transform feedback overflowed during the draws that it is given
+/// to (`DrawParameters::transform_feedback_overflow_query`): whether a draw wrote fewer
+/// primitives than it generated because the buffers of the session were full. It can also be
+/// the condition of a draw.
+///
+/// Needs OpenGL 4.6 or `GL_ARB_transform_feedback_overflow_query`, otherwise `new` returns
+/// `QueryCreationError::NotSupported`.
+#[cfg(safegl_gl46)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+#[derive(Debug)]
+pub struct TransformFeedbackOverflowQuery {
+    query: RawQuery,
+}
+
+#[cfg(safegl_gl46)]
+impl TransformFeedbackOverflowQuery {
+    /// Builds a new query of the overflows of any vertex stream.
+    #[inline]
+    pub fn new<F: ?Sized>(facade: &F) -> Result<TransformFeedbackOverflowQuery, QueryCreationError>
+    where
+        F: Facade,
+    {
+        RawQuery::new(facade, QueryType::TransformFeedbackOverflow)
+            .map(|query| TransformFeedbackOverflowQuery { query })
+    }
+
+    /// Builds a new query of the overflows of the vertex stream `stream`, which must be below
+    /// `GL_MAX_VERTEX_STREAMS`, otherwise it returns `QueryCreationError::NotSupported`.
+    #[inline]
+    pub fn with_stream<F: ?Sized>(
+        facade: &F,
+        stream: u32,
+    ) -> Result<TransformFeedbackOverflowQuery, QueryCreationError>
+    where
+        F: Facade,
+    {
+        RawQuery::new(facade, QueryType::TransformFeedbackStreamOverflow(stream))
+            .map(|query| TransformFeedbackOverflowQuery { query })
+    }
+
+    #[inline]
+    pub(crate) fn raw(&self) -> &RawQuery {
+        &self.query
+    }
+}
+
+#[cfg(safegl_gl46)]
+impl_helper!(TransformFeedbackOverflowQuery, bool, get_bool);
 
 /// Query that allows you to know the number of primitives generated by the last vertex
 /// processing stage: the geometry shader if there is one, otherwise the tessellation evaluation

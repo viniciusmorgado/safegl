@@ -576,6 +576,7 @@ impl RawProgram {
         x: u32,
         y: u32,
         z: u32,
+        statistics: &[&StatisticsQuery],
     ) -> Result<(), DrawError>
     where
         U: Uniforms,
@@ -606,6 +607,7 @@ impl RawProgram {
 
         self.use_program(&mut ctxt);
         uniforms.bind(&mut ctxt, self, &mut fences)?;
+        sync_statistics(&mut ctxt, statistics)?;
         ctxt.glow.dispatch_compute(x, y, z);
 
         for fence in fences {
@@ -628,6 +630,7 @@ impl RawProgram {
         &self,
         uniforms: U,
         buffer: BufferSlice<'_, ComputeCommand>,
+        statistics: &[&StatisticsQuery],
     ) -> Result<(), DrawError>
     where
         U: Uniforms,
@@ -671,6 +674,7 @@ impl RawProgram {
 
         let mut fences = crate::buffer::FenceInserters::new();
         uniforms.bind(&mut ctxt, self, &mut fences)?;
+        sync_statistics(&mut ctxt, statistics)?;
 
         ctxt.glow.dispatch_compute_indirect(offset as i32);
 
@@ -680,6 +684,33 @@ impl RawProgram {
 
         ctxt.state.next_draw_call_id += 1;
 
+        Ok(())
+    }
+}
+
+/// The query of a pipeline statistic given to a dispatch, which only exists at the `gl46` level.
+#[cfg(safegl_gl46)]
+pub type StatisticsQuery = crate::draw_parameters::PipelineStatisticsQuery;
+
+/// The query of a pipeline statistic given to a dispatch, which only exists at the `gl46` level.
+#[cfg(not(safegl_gl46))]
+pub enum StatisticsQuery {}
+
+/// Makes the statistics queries active for the next dispatch, and ends the other pipeline
+/// statistics and transform feedback overflow queries.
+#[cfg(any(safegl_gl43, safegl_gles31))]
+fn sync_statistics(
+    ctxt: &mut CommandContext<'_>,
+    statistics: &[&StatisticsQuery],
+) -> Result<(), DrawError> {
+    #[cfg(safegl_gl46)]
+    {
+        let queries: smallvec::SmallVec<[_; 4]> = statistics.iter().map(|q| q.raw()).collect();
+        crate::draw_parameters::sync_indexed_queries(ctxt, &queries)
+    }
+    #[cfg(not(safegl_gl46))]
+    {
+        let _ = (ctxt, statistics);
         Ok(())
     }
 }
