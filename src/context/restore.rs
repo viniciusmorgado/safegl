@@ -67,11 +67,14 @@ unsafe fn restore_capabilities(ctxt: &mut CommandContext<'_>) {
         state.enabled_sample_alpha_to_coverage,
     );
     set(ctxt, gl::SAMPLE_COVERAGE, state.enabled_sample_coverage);
+    ctxt.glow
+        .sample_coverage(state.sample_coverage.0, state.sample_coverage.1);
     set(ctxt, gl::SCISSOR_TEST, state.enabled_scissor_test);
     set(ctxt, gl::STENCIL_TEST, state.enabled_stencil_test);
 
     if desktop {
         set(ctxt, gl::MULTISAMPLE, state.enabled_multisample);
+        set(ctxt, gl::SAMPLE_ALPHA_TO_ONE, state.enabled_sample_alpha_to_one);
         set(
             ctxt,
             gl::POLYGON_OFFSET_LINE,

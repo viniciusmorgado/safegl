@@ -173,3 +173,51 @@ fn indexed_draws_across_frames() {
 
     display.assert_no_error(None);
 }
+
+/// The winding of the front faces and the sample coverage go back to what SafeGL set.
+#[test]
+fn rasterization_state_after_foreign_changes() {
+    let display = support::build_display();
+    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+    let texture = support::build_renderable_texture(&display);
+    let parameters = safegl::DrawParameters {
+        multisample: safegl::draw_parameters::MultisampleState {
+            sample_coverage: Some(safegl::draw_parameters::SampleCoverage {
+                value: 0.25,
+                invert: true,
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    texture
+        .as_surface()
+        .draw(&vb, &ib, &program, &uniform! {}, &parameters)
+        .unwrap();
+
+    unsafe {
+        display.exec_in_context(|| {
+            let gl = display.glow_context();
+            gl.front_face(glow::CW);
+            gl.sample_coverage(1.0, false);
+            gl.disable(glow::SAMPLE_COVERAGE);
+            if !support::is_gles(&display) {
+                gl.enable(glow::SAMPLE_ALPHA_TO_ONE);
+            }
+        });
+    }
+    display.restore_state();
+
+    let state = unsafe {
+        let gl = display.glow_context();
+        (
+            gl.get_parameter_i32(glow::FRONT_FACE) as u32,
+            gl.is_enabled(glow::SAMPLE_COVERAGE),
+            gl.get_parameter_f32(glow::SAMPLE_COVERAGE_VALUE),
+            gl.get_parameter_i32(glow::SAMPLE_COVERAGE_INVERT) != 0,
+            !support::is_gles(&display) && gl.is_enabled(glow::SAMPLE_ALPHA_TO_ONE),
+        )
+    };
+    assert_eq!(state, (glow::CCW, true, 0.25, true, false));
+    display.assert_no_error(None);
+}

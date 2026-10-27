@@ -489,12 +489,15 @@ impl ApplicationContext for Application {
 
         let params = safegl::DrawParameters {
             depth: depth_test,
-            alpha_to_coverage: self.mode != Mode::AlphaTest,
-            sample_shading: (self.mode == Mode::SampleShading).then_some(1.0),
-            // keep the first `kept` samples of each pixel
-            sample_mask: match self.mode {
-                Mode::SampleMask(kept) => Some((1 << kept) - 1),
-                _ => None,
+            multisample: safegl::draw_parameters::MultisampleState {
+                alpha_to_coverage: self.mode != Mode::AlphaTest,
+                sample_shading: (self.mode == Mode::SampleShading).then_some(1.0),
+                // keep the first `kept` samples of each pixel
+                sample_mask: match self.mode {
+                    Mode::SampleMask(kept) => Some((1 << kept) - 1),
+                    _ => None,
+                },
+                ..Default::default()
             },
             ..Default::default()
         };

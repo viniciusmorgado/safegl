@@ -243,6 +243,11 @@ Breaking changes:
   `TransformFeedbackBuffersMissing`, `TransformFeedbackPrimitivesMismatch`,
   `CapturedVerticesLost`, `CapturedVerticesOutOfBounds` and `CapturedVerticesDrawNotSupported`
   variants.
+- `DrawParameters::multisampling`, `alpha_to_coverage`, `sample_shading` and `sample_mask` move
+  into `DrawParameters::multisample`, a `draw_parameters::MultisampleState` with the fields
+  `enabled` (formerly `multisampling`), `alpha_to_coverage`, `sample_shading` and `sample_mask`:
+  write `multisample: MultisampleState { alpha_to_coverage: true, ..Default::default() }`.
+  `DrawError` has an `AlphaToOneNotSupported` variant at the desktop levels.
 
 Additions:
 
@@ -388,6 +393,11 @@ Additions:
   (`glFrontFace`, `FrontFace::CounterClockwise` or `Clockwise`), which `gl_FrontFacing` reads.
   `backface_culling` and the two-sided stencil settings keep naming the triangles by their
   winding.
+- `MultisampleState::sample_coverage` covers a fraction of the samples of each fragment, or the
+  other samples when inverted (`glSampleCoverage`, `SampleCoverage { value, invert }`), and
+  `MultisampleState::alpha_to_one` writes an alpha of 1 into the samples (`desktop`,
+  `GL_SAMPLE_ALPHA_TO_ONE`; drawing with it into an OpenGL ES context returns
+  `DrawError::AlphaToOneNotSupported`).
 
 Fixes:
 

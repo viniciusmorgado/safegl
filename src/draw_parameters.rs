@@ -380,54 +380,9 @@ pub struct DrawParameters<'a> {
     #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     pub polygon_mode: PolygonMode,
 
-    /// Whether multisample antialiasing (MSAA) should be used. Default value is `true`.
-    ///
-    /// Note that you will need to set the appropriate option when creating the window.
-    /// The recommended way to do is to leave this to `true`, and adjust the option when
-    /// creating the window.
-    ///
-    /// OpenGL ES and WebGL can't disable multisampling of a multisampled framebuffer; `false`
-    /// returns `DrawError::MultisamplingNotSupported`.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
-    pub multisampling: bool,
-
-    /// Whether the alpha of the first color output decides how many samples of each pixel the
-    /// fragment covers (`GL_SAMPLE_ALPHA_TO_COVERAGE`). Default value is `false`.
-    ///
-    /// An alpha of 0.5 covers about half of the samples, so after the multisample resolve the
-    /// fragment looks half transparent, without sorting and with depth writes intact. This is the
-    /// usual way to anti-alias alpha-tested foliage, fences and hair. The exact pattern of
-    /// samples is chosen by the implementation. It has no effect on a framebuffer that isn't
-    /// multisampled.
-    pub alpha_to_coverage: bool,
-
-    /// Minimum fraction of the samples of each pixel that get their own run of the fragment
-    /// shader (`glMinSampleShading`). Default value is `None`, which shades once per pixel.
-    ///
-    /// `Some(1.0)` shades every sample. This anti-aliases what the fragment shader computes
-    /// (texture lookups, the alpha used by `alpha_to_coverage`, specular highlights) and not
-    /// only the edges of triangles, at the cost of running the shader once per sample. Values are
-    /// clamped to `0.0..=1.0`. It has no effect on a framebuffer that isn't multisampled.
-    ///
-    /// Needs OpenGL 4.0, OpenGL ES 3.2 or `GL_OES_sample_shading`. Otherwise, and on WebGL,
-    /// returns `DrawError::SampleShadingNotSupported`.
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
-    pub sample_shading: Option<f32>,
-
-    /// Bitmask of the samples of each pixel that drawing may write (`glSampleMaski`). Bit `i`
-    /// stands for sample `i`. Default value is `None`, which doesn't mask any sample.
-    ///
-    /// The mask is combined with the coverage of the primitive (and with `alpha_to_coverage`):
-    /// a sample is written only if it is covered and its bit is set. Only the first 32 samples
-    /// can be masked. It has no effect on a framebuffer that isn't multisampled.
-    ///
-    /// Needs OpenGL 3.2 or OpenGL ES 3.1. Otherwise, and on WebGL, returns
-    /// `DrawError::SampleMaskNotSupported`.
-    #[cfg(any(safegl_desktop, safegl_gles31))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
-    pub sample_mask: Option<u32>,
+    /// The multisampling of the draw: whether it is used, how the alpha and the coverage of the
+    /// fragments choose the samples they write, and how often the fragment shader runs.
+    pub multisample: MultisampleState,
 
     /// Whether dithering is activated. Default value is `true`.
     ///
@@ -975,13 +930,7 @@ impl<'a> Default for DrawParameters<'a> {
             polygon_mode: PolygonMode::Fill,
             #[cfg(safegl_desktop)]
             clip_planes_bitmask: 0,
-            #[cfg(safegl_desktop)]
-            multisampling: true,
-            alpha_to_coverage: false,
-            #[cfg(any(safegl_desktop, safegl_gles32))]
-            sample_shading: None,
-            #[cfg(any(safegl_desktop, safegl_gles31))]
-            sample_mask: None,
+            multisample: Default::default(),
             dithering: true,
             viewport: None,
             scissor: None,
@@ -1070,12 +1019,15 @@ pub fn sync(
     #[cfg(safegl_desktop)]
     sync_clip_planes_bitmask(ctxt, draw_parameters.clip_planes_bitmask)?;
     #[cfg(safegl_desktop)]
-    sync_multisampling(ctxt, draw_parameters.multisampling)?;
-    sync_alpha_to_coverage(ctxt, draw_parameters.alpha_to_coverage);
+    sync_multisampling(ctxt, draw_parameters.multisample.enabled)?;
+    sync_alpha_to_coverage(ctxt, draw_parameters.multisample.alpha_to_coverage);
+    #[cfg(safegl_desktop)]
+    sync_alpha_to_one(ctxt, draw_parameters.multisample.alpha_to_one)?;
+    sync_sample_coverage(ctxt, draw_parameters.multisample.sample_coverage);
     #[cfg(any(safegl_desktop, safegl_gles32))]
-    sync_sample_shading(ctxt, draw_parameters.sample_shading)?;
+    sync_sample_shading(ctxt, draw_parameters.multisample.sample_shading)?;
     #[cfg(any(safegl_desktop, safegl_gles31))]
-    sync_sample_mask(ctxt, draw_parameters.sample_mask)?;
+    sync_sample_mask(ctxt, draw_parameters.multisample.sample_mask)?;
     sync_dithering(ctxt, draw_parameters.dithering);
     sync_viewport_scissor(
         ctxt,
@@ -1371,6 +1323,134 @@ fn sync_multisampling(
     }
 
     Ok(())
+}
+
+/// The multisampling of a draw (`DrawParameters::multisample`).
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct MultisampleState {
+    /// Whether multisample antialiasing (MSAA) should be used. Default value is `true`.
+    ///
+    /// Note that you will need to set the appropriate option when creating the window.
+    /// The recommended way to do is to leave this to `true`, and adjust the option when
+    /// creating the window.
+    ///
+    /// OpenGL ES and WebGL can't disable multisampling of a multisampled framebuffer; `false`
+    /// returns `DrawError::MultisamplingNotSupported`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    pub enabled: bool,
+
+    /// Whether the alpha of the first color output decides how many samples of each pixel the
+    /// fragment covers (`GL_SAMPLE_ALPHA_TO_COVERAGE`). Default value is `false`.
+    ///
+    /// An alpha of 0.5 covers about half of the samples, so after the multisample resolve the
+    /// fragment looks half transparent, without sorting and with depth writes intact. This is the
+    /// usual way to anti-alias alpha-tested foliage, fences and hair. The exact pattern of
+    /// samples is chosen by the implementation. It has no effect on a framebuffer that isn't
+    /// multisampled.
+    pub alpha_to_coverage: bool,
+
+    /// Minimum fraction of the samples of each pixel that get their own run of the fragment
+    /// shader (`glMinSampleShading`). Default value is `None`, which shades once per pixel.
+    ///
+    /// `Some(1.0)` shades every sample. This anti-aliases what the fragment shader computes
+    /// (texture lookups, the alpha used by `alpha_to_coverage`, specular highlights) and not
+    /// only the edges of triangles, at the cost of running the shader once per sample. Values are
+    /// clamped to `0.0..=1.0`. It has no effect on a framebuffer that isn't multisampled.
+    ///
+    /// Needs OpenGL 4.0, OpenGL ES 3.2 or `GL_OES_sample_shading`. Otherwise, and on WebGL,
+    /// returns `DrawError::SampleShadingNotSupported`.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    pub sample_shading: Option<f32>,
+
+    /// Bitmask of the samples of each pixel that drawing may write (`glSampleMaski`). Bit `i`
+    /// stands for sample `i`. Default value is `None`, which doesn't mask any sample.
+    ///
+    /// The mask is combined with the coverage of the primitive (and with `alpha_to_coverage`):
+    /// a sample is written only if it is covered and its bit is set. Only the first 32 samples
+    /// can be masked. It has no effect on a framebuffer that isn't multisampled.
+    ///
+    /// Needs OpenGL 3.2 or OpenGL ES 3.1. Otherwise, and on WebGL, returns
+    /// `DrawError::SampleMaskNotSupported`.
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
+    pub sample_mask: Option<u32>,
+
+    /// Whether the alpha of the color outputs becomes 1 after it chose the covered samples
+    /// (`GL_SAMPLE_ALPHA_TO_ONE`), so that `alpha_to_coverage` makes the fragments opaque instead
+    /// of also blending them. Default value is `false`.
+    ///
+    /// Only desktop OpenGL has it: OpenGL ES returns `DrawError::AlphaToOneNotSupported`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    pub alpha_to_one: bool,
+
+    /// A fraction of the samples of each pixel that the fragments cover, combined with their
+    /// coverage (`glSampleCoverage`). Default value is `None`, which doesn't change the coverage.
+    pub sample_coverage: Option<SampleCoverage>,
+}
+
+impl Default for MultisampleState {
+    fn default() -> MultisampleState {
+        MultisampleState {
+            #[cfg(safegl_desktop)]
+            enabled: true,
+            alpha_to_coverage: false,
+            #[cfg(safegl_desktop)]
+            alpha_to_one: false,
+            sample_coverage: None,
+            #[cfg(any(safegl_desktop, safegl_gles32))]
+            sample_shading: None,
+            #[cfg(any(safegl_desktop, safegl_gles31))]
+            sample_mask: None,
+        }
+    }
+}
+
+/// The coverage given by `MultisampleState::sample_coverage`.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct SampleCoverage {
+    /// The fraction of the samples, from 0 to 1.
+    pub value: f32,
+    /// Whether the fragments cover the other samples instead.
+    pub invert: bool,
+}
+
+#[cfg(safegl_desktop)]
+fn sync_alpha_to_one(
+    ctxt: &mut context::CommandContext<'_>,
+    alpha_to_one: bool,
+) -> Result<(), DrawError> {
+    if ctxt.version.0 != Api::Gl {
+        return if alpha_to_one {
+            Err(DrawError::AlphaToOneNotSupported)
+        } else {
+            Ok(())
+        };
+    }
+    if ctxt.state.enabled_sample_alpha_to_one != alpha_to_one {
+        ctxt.state.enabled_sample_alpha_to_one = alpha_to_one;
+        set_flag_enabled(ctxt, gl::SAMPLE_ALPHA_TO_ONE, alpha_to_one);
+    }
+    Ok(())
+}
+
+fn sync_sample_coverage(
+    ctxt: &mut context::CommandContext<'_>,
+    sample_coverage: Option<SampleCoverage>,
+) {
+    if ctxt.state.enabled_sample_coverage != sample_coverage.is_some() {
+        ctxt.state.enabled_sample_coverage = sample_coverage.is_some();
+        set_flag_enabled(ctxt, gl::SAMPLE_COVERAGE, sample_coverage.is_some());
+    }
+    if let Some(SampleCoverage { value, invert }) = sample_coverage {
+        let value = value.clamp(0.0, 1.0);
+        if ctxt.state.sample_coverage != (value, invert) {
+            unsafe { ctxt.glow.sample_coverage(value, invert) };
+            ctxt.state.sample_coverage = (value, invert);
+        }
+    }
 }
 
 fn sync_alpha_to_coverage(ctxt: &mut context::CommandContext<'_>, alpha_to_coverage: bool) {

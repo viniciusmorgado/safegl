@@ -874,8 +874,8 @@ impl ToGlEnum for BlitMask {
 ///
 /// If the target framebuffer has multisampling enabled, then each pixel of the target image is
 /// in turn split into four subpixels. The output of the fragment shader is copied and written into
-/// each subpixel. If `multisampling` in the draw parameters is `true` (its default value), only
-/// subpixels that belong to the triangle are written.
+/// each subpixel. If `multisample.enabled` in the draw parameters is `true` (its default value),
+/// only subpixels that belong to the triangle are written.
 ///
 /// If a query has been specified through `samples_passed_query`, then its value is updated.
 ///
@@ -1613,12 +1613,18 @@ pub enum DrawError {
     #[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
     ConditionalRenderingInvertedNotSupported,
 
-    /// Per-sample shading (`DrawParameters::sample_shading`) isn't supported by the backend.
+    /// Turning the alpha to one after alpha to coverage (`MultisampleState::alpha_to_one`) isn't
+    /// supported by the backend: only desktop OpenGL has it.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    AlphaToOneNotSupported,
+
+    /// Per-sample shading (`MultisampleState::sample_shading`) isn't supported by the backend.
     #[cfg(any(safegl_desktop, safegl_gles32))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     SampleShadingNotSupported,
 
-    /// Masking samples (`DrawParameters::sample_mask`) isn't supported by the backend.
+    /// Masking samples (`MultisampleState::sample_mask`) isn't supported by the backend.
     #[cfg(any(safegl_desktop, safegl_gles31))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
     SampleMaskNotSupported,
@@ -1864,6 +1870,8 @@ impl fmt::Display for DrawError {
             #[cfg(safegl_gl45)]
             ConditionalRenderingInvertedNotSupported =>
                 "Inverted conditional rendering is not supported by the backend",
+            #[cfg(safegl_desktop)]
+            AlphaToOneNotSupported => "Turning the alpha to one is not supported by the backend",
             #[cfg(any(safegl_desktop, safegl_gles32))]
             SampleShadingNotSupported =>
                 "Per-sample shading is not supported by the backend",

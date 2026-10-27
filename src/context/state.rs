@@ -84,6 +84,12 @@ pub struct GlState {
     /// Whether GL_SAMPLE_COVERAGE is enabled
     pub enabled_sample_coverage: bool,
 
+    /// The latest values passed to `glSampleCoverage`.
+    pub sample_coverage: (gl::types::GLfloat, bool),
+
+    /// Whether GL_SAMPLE_ALPHA_TO_ONE is enabled
+    pub enabled_sample_alpha_to_one: bool,
+
     /// Whether GL_SAMPLE_MASK is enabled
     pub enabled_sample_mask: bool,
 
@@ -492,6 +498,8 @@ impl Default for GlState {
             enabled_rasterizer_discard: false,
             enabled_sample_alpha_to_coverage: false,
             enabled_sample_coverage: false,
+            sample_coverage: (1.0, false),
+            enabled_sample_alpha_to_one: false,
             enabled_sample_mask: false,
             enabled_sample_shading: false,
             enabled_scissor_test: false,
