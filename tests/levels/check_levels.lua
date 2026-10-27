@@ -308,6 +308,18 @@ local cases = {
   { "gles30_has_no_sample_positions", { "gles30" }, "sample_positions", [[
     pub fn f(f: &safegl::Frame) { let _ = f.sample_positions(); }
   ]] },
+  { "gles30_has_swizzle", { "gles30" }, nil, [[
+    pub fn f(t: &safegl::texture::Texture2d) { t.set_swizzle(Default::default()); }
+  ]] },
+  { "gles30_has_no_depth_stencil_mode", { "gles30" }, "DepthStencilTextureMode", [[
+    pub use safegl::texture::DepthStencilTextureMode;
+  ]] },
+  { "gles31_has_depth_stencil_mode", { "gles31" }, nil, [[
+    pub use safegl::texture::{DepthStencilTextureMode, DepthStencilTextureModeError};
+  ]] },
+  { "gl42_has_no_depth_stencil_mode", { "gl42" }, "DepthStencilTextureMode", [[
+    pub use safegl::texture::DepthStencilTextureMode;
+  ]] },
   { "gles31_has_no_copy_image", { "gles31" }, "copy_image", [[
     pub use safegl::texture::copy_image;
   ]] },
@@ -346,6 +358,14 @@ local cases = {
     }
   ]] },
   -- WebGL 2 is the OpenGL ES 3.0 set
+  { "webgl_has_no_swizzle", { "webgl" }, "Swizzle", [[
+    pub use safegl::texture::Swizzle;
+  ]], WASM },
+  { "webgl_has_mipmap_ranges", { "webgl" }, nil, [[
+    pub fn f(t: &safegl::texture::Texture2d) -> Result<(), safegl::texture::MipmapRangeError> {
+        t.set_mipmap_range(0, 0)
+    }
+  ]], WASM },
   { "webgl_has_no_compute_shaders", { "webgl" }, "ComputeShader", [[
     pub use safegl::program::ComputeShader;
   ]], WASM },

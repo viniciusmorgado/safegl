@@ -152,6 +152,13 @@ pub use self::ops::{is_clear_texture_supported, ClearTextureError};
 pub use self::ops::{
     is_texture_barrier_supported, texture_barrier, TextureBarrierNotSupportedError,
 };
+pub use self::parameters::MipmapRangeError;
+#[cfg(any(safegl_desktop, safegl_gles30))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles30))))]
+pub use self::parameters::{Swizzle, SwizzleSource};
+#[cfg(any(safegl_gl43, safegl_gles31))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
+pub use self::parameters::{DepthStencilTextureMode, DepthStencilTextureModeError};
 pub use self::pixel::PixelValue;
 #[cfg(any(safegl_desktop, safegl_gles32))]
 pub use self::ty_support::is_cubemap_arrays_supported;
@@ -182,6 +189,7 @@ mod any;
 mod get_format;
 #[cfg(any(safegl_gl43, safegl_gles32))]
 mod ops;
+mod parameters;
 mod pixel;
 mod ty_support;
 

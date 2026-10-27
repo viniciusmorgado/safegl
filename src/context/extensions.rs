@@ -85,6 +85,7 @@ extensions! {
     "GL_ARB_shader_draw_parameters" => gl_arb_shader_draw_parameters,
     "GL_ARB_shader_image_load_store" => gl_arb_shader_image_load_store,
     "GL_ARB_shader_storage_buffer_object" => gl_arb_shader_storage_buffer_object,
+    "GL_ARB_stencil_texturing" => gl_arb_stencil_texturing,
     "GL_ARB_texture_barrier" => gl_arb_texture_barrier,
     "GL_ARB_texture_buffer_range" => gl_arb_texture_buffer_range,
     "GL_ARB_texture_compression_bptc" => gl_arb_texture_compression_bptc,

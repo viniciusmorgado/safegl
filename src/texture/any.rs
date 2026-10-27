@@ -115,6 +115,17 @@ pub struct TextureAny {
 
     /// ID of the draw call where the texture was last written as a texture unit.
     latest_shader_write: Cell<u64>,
+
+    /// The latest swizzle of the texture, `None` while unknown, for textures created outside
+    /// SafeGL.
+    pub(crate) swizzle: Cell<Option<[gl::types::GLenum; 4]>>,
+
+    /// The latest `GL_TEXTURE_BASE_LEVEL` and `GL_TEXTURE_MAX_LEVEL` of the texture, `None` while
+    /// unknown.
+    pub(crate) mipmap_range: Cell<Option<(u32, u32)>>,
+
+    /// The latest `GL_DEPTH_STENCIL_TEXTURE_MODE` of the texture, `None` while unknown.
+    pub(crate) depth_stencil_mode: Cell<Option<gl::types::GLenum>>,
 }
 
 fn extract_dimensions(ty: Dimensions) -> (u32, Option<u32>, Option<u32>, Option<u32>, Option<u32>) {
@@ -826,6 +837,10 @@ where
         can_generate_mipmaps,
         owned: true,
         latest_shader_write: Cell::new(0),
+        swizzle: Cell::new(Some([gl::RED, gl::GREEN, gl::BLUE, gl::ALPHA])),
+        // the defaults of OpenGL, or the range set above for textures without mipmaps
+        mipmap_range: Cell::new(Some((0, if texture_levels > 1 { 1000 } else { 0 }))),
+        depth_stencil_mode: Cell::new(Some(gl::DEPTH_COMPONENT)),
     })
 }
 
@@ -859,6 +874,9 @@ pub unsafe fn from_id<F: Facade + ?Sized>(
         ),
         owned,
         latest_shader_write: Cell::new(0),
+        swizzle: Cell::new(None),
+        mipmap_range: Cell::new(None),
+        depth_stencil_mode: Cell::new(None),
     };
 
     if should_generate_mipmaps {
@@ -1149,7 +1167,18 @@ impl TextureExt for TextureAny {
 
     #[inline]
     fn is_integer(&self) -> bool {
-        matches!(self.kind(), TextureKind::Integral | TextureKind::Unsigned)
+        // stencil indices are sampled as unsigned integers
+        match self.kind() {
+            TextureKind::Integral | TextureKind::Unsigned | TextureKind::Stencil => true,
+            TextureKind::DepthStencil => self.samples_stencil(),
+            _ => false,
+        }
+    }
+
+    #[inline]
+    fn has_integer_filters(&self) -> bool {
+        // SafeGL creates depth-stencil textures with the linear filters of depth textures
+        self.kind() != TextureKind::DepthStencil
     }
 
     #[inline]

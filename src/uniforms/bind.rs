@@ -846,7 +846,14 @@ where
     texture.prepare_for_access(ctxt, crate::TextureAccess::TextureFetch);
 
     // integer textures can only be sampled without filtering: with linear filters they are
-    // incomplete and read as zero
+    // incomplete and read as zero. Depth-stencil textures in stencil mode have the linear
+    // filters of depth textures, so they always get a sampler.
+    let sampler = if sampler.is_none() && texture.is_integer() && !texture.has_integer_filters()
+    {
+        Some(SamplerBehavior::default())
+    } else {
+        sampler
+    };
     let sampler = sampler.map(|mut sampler| {
         if texture.is_integer() {
             sampler.magnify_filter = MagnifySamplerFilter::Nearest;

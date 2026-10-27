@@ -450,7 +450,12 @@ fn sampler_types(texture: &texture::TextureAny) -> &'static [UniformType] {
     use crate::texture::TextureKind as K;
     use UniformType::*;
 
-    match (texture.kind(), texture.dimensions()) {
+    // depth-stencil textures in stencil mode are sampled like stencil textures
+    let kind = match texture.kind() {
+        K::DepthStencil if texture.samples_stencil() => K::Stencil,
+        kind => kind,
+    };
+    match (kind, texture.dimensions()) {
         (K::Float, D::Texture1d { .. }) => &[Sampler1d],
         (K::Float, D::Texture1dArray { .. }) => &[Sampler1dArray],
         (K::Float, D::Texture2d { .. }) => &[Sampler2d],

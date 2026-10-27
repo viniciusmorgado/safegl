@@ -657,7 +657,9 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
             | TextureType::CompressedSrgb
             | TextureType::Integral
             | TextureType::Unsigned
-            | TextureType::Depth => {
+            | TextureType::Depth
+            | TextureType::Stencil
+            | TextureType::DepthStencil => {
                 (writeln!(dest, "
                             impl<'a> AsUniformValue for &'a {myname} {{
                                 #[inline]
@@ -710,7 +712,6 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                             }}
                         ", myname = name)).unwrap();
             }
-            _ => (),
         }
     }
 

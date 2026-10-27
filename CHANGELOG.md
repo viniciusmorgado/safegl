@@ -412,6 +412,14 @@ Additions:
   `DrawError::PointCoordOriginNotSupported` in an OpenGL ES context), and
   `DrawParameters::point_fade_threshold` the size under which multisampled points fade
   (`GL_POINT_FADE_THRESHOLD_SIZE`).
+- Textures have a swizzle, which chooses the component or the constant that sampling returns in
+  each channel (`TextureAny::set_swizzle`, `texture::Swizzle`; `any(desktop, gles30)`), a mipmap
+  range, which limits the levels that sampling and mipmap generation use
+  (`TextureAny::set_mipmap_range`, `GL_TEXTURE_BASE_LEVEL` and `GL_TEXTURE_MAX_LEVEL`, every
+  level), and depth-stencil textures can be sampled for their stencil index
+  (`TextureAny::set_depth_stencil_mode`, `texture::DepthStencilTextureMode`; `any(gl43, gles31)`,
+  OpenGL 4.3, OpenGL ES 3.1 or `GL_ARB_stencil_texturing` at runtime) through `usampler*`
+  uniforms.
 - `DrawParameters::viewports` gives a draw several viewports, each with its depth range and
   scissor box, among which geometry shaders choose with `gl_ViewportIndex` (`gl41`,
   `glViewportArrayv`, `glDepthRangeArrayv`, `glScissorArrayv`, `ViewportState`; OpenGL 4.1 or
@@ -440,6 +448,10 @@ Additions:
 
 Fixes:
 
+- Stencil and depth-stencil textures can be used as texture uniforms and sampled, by `usampler*`
+  uniforms for stencil textures and by `sampler*` and `sampler*Shadow` uniforms for the depth
+  of depth-stencil textures, always with the nearest filters for stencil indices. They had no
+  uniform value and no `sampled()`.
 - A face of a cube map array can be attached to framebuffers (and read) without direct state
   access, on OpenGL ES and below OpenGL 4.5, instead of panicking.
 - The color of the fragment output at location n is attached at `GL_COLOR_ATTACHMENTn`. A

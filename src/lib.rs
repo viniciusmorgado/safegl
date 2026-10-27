@@ -484,6 +484,12 @@ trait TextureExt {
     fn is_integer(&self) -> bool {
         false
     }
+
+    /// Returns true if the filters of the texture itself, used without a sampler, can sample it
+    /// when it is integer.
+    fn has_integer_filters(&self) -> bool {
+        true
+    }
 }
 
 /// Ways a texture could possibly be accessed after being written to in a shader via an image unit
