@@ -119,6 +119,7 @@ pub enum BlockLayout {
 ///
 /// Internal struct. Not public.
 #[derive(Debug, Copy, Clone)]
+#[non_exhaustive]
 pub struct Attribute {
     /// The index of the uniform.
     ///
@@ -130,6 +131,11 @@ pub struct Attribute {
 
     /// Number of elements of the attribute.
     pub size: usize,
+
+    /// The first component of the location that the attribute reads, declared with
+    /// `layout(component = N)`; 0 for the others. Attributes that share a location read its
+    /// components from the same attribute array, in 32-bit units.
+    pub component: u32,
 }
 
 /// Describes the layout of a buffer that can receive transform feedback output.
@@ -399,17 +405,58 @@ pub unsafe fn reflect_attributes(
             continue;
         };
 
+        let component = attribute_component(ctxt, program, &attr_name);
         attributes.insert(
             attr_name,
             Attribute {
                 location,
                 ty,
                 size: data_size as usize,
+                component,
             },
         );
     }
 
     attributes
+}
+
+/// Returns the component that an attribute starts at, `layout(component = N)` of OpenGL 4.4 or
+/// `GL_ARB_enhanced_layouts`; 0 without them, and on OpenGL ES, which doesn't have it.
+unsafe fn attribute_component(
+    ctxt: &CommandContext<'_>,
+    program: glow::Program,
+    name: &str,
+) -> u32 {
+    if !(ctxt.version >= &Version(Api::Gl, 4, 4)
+        || (ctxt.version.0 == Api::Gl
+            && ctxt.extensions.gl_arb_enhanced_layouts
+            && ctxt.extensions.gl_arb_program_interface_query))
+    {
+        return 0;
+    }
+    let Ok(name) = std::ffi::CString::new(name) else {
+        return 0;
+    };
+    let index = ctxt.extra.GetProgramResourceIndex(
+        program.raw_name(),
+        gl::PROGRAM_INPUT,
+        name.as_ptr(),
+    );
+    if index == gl::INVALID_INDEX {
+        return 0;
+    }
+    let mut component = 0;
+    ctxt.extra.GetProgramResourceiv(
+        program.raw_name(),
+        gl::PROGRAM_INPUT,
+        index,
+        1,
+        &gl::LOCATION_COMPONENT,
+        1,
+        ptr::null_mut(),
+        &mut component,
+    );
+    component.clamp(0, 3) as u32
 }
 
 pub unsafe fn reflect_uniform_blocks(
