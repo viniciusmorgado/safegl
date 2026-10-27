@@ -272,6 +272,7 @@ extra_functions! {
     fn SamplerParameterIuivOES(sampler: GLuint, pname: GLenum, param: *const GLuint) -> ();
     fn ShaderBinary(count: GLsizei, shaders: *const GLuint, binaryformat: GLenum, binary: *const c_void, length: GLsizei) -> ();
     fn SpecializeShader(shader: GLuint, pEntryPoint: *const GLchar, numSpecializationConstants: GLuint, pConstantIndex: *const GLuint, pConstantValue: *const GLuint) -> ();
+    fn SpecializeShaderARB(shader: GLuint, pEntryPoint: *const GLchar, numSpecializationConstants: GLuint, pConstantIndex: *const GLuint, pConstantValue: *const GLuint) -> ();
     fn TexBufferEXT(target: GLenum, internalformat: GLenum, buffer: GLuint) -> ();
     fn TexBufferRange(target: GLenum, internalformat: GLenum, buffer: GLuint, offset: GLintptr, size: GLsizeiptr) -> ();
     fn TexBufferRangeEXT(target: GLenum, internalformat: GLenum, buffer: GLuint, offset: GLintptr, size: GLsizeiptr) -> ();

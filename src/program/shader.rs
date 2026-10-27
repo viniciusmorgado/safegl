@@ -176,13 +176,24 @@ where
         {
             ctxt.report_debug_output_errors.set(false);
 
-            ctxt.extra.SpecializeShader(
-                id,
-                entry_point.as_ptr() as _,
-                values.len() as gl::types::GLuint,
-                indices.as_ptr(),
-                bits.as_ptr(),
-            );
+            // below OpenGL 4.6, the extension only has its own entry point
+            if ctxt.version >= &Version(Api::Gl, 4, 6) {
+                ctxt.extra.SpecializeShader(
+                    id,
+                    entry_point.as_ptr() as _,
+                    values.len() as gl::types::GLuint,
+                    indices.as_ptr(),
+                    bits.as_ptr(),
+                );
+            } else {
+                ctxt.extra.SpecializeShaderARB(
+                    id,
+                    entry_point.as_ptr() as _,
+                    values.len() as gl::types::GLuint,
+                    indices.as_ptr(),
+                    bits.as_ptr(),
+                );
+            }
 
             ctxt.report_debug_output_errors.set(true);
         }
