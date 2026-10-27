@@ -29,7 +29,7 @@ implement_vertex!(Vertex, position);
 const SIZE: u32 = 4;
 
 /// A program whose geometry shader sends the triangle to the layers 0 to `layers - 1`, each with
-/// the red `(layer + 1) × 32` and the blue `blue`, at the depth `depth`. `None` without layered
+/// the red `(layer + 1) × 16` and the blue `blue`, at the depth `depth`. `None` without layered
 /// framebuffers.
 fn program(display: &Display, layers: u32, read_layer: bool) -> Option<Program> {
     if !LayeredFrameBuffer::is_supported(display) || !support::glsl_supported(display, 400, 320) {
@@ -60,7 +60,7 @@ fn program(display: &Display, layers: u32, read_layer: bool) -> Option<Program> 
         flat in int layer;
         uniform float blue;
         out vec4 color;
-        void main() {{ color = vec4(float({layer} + 1) * 32.0 / 255.0, 0.0, blue, 1.0); }}"
+        void main() {{ color = vec4(float({layer} + 1) * 16.0 / 255.0, 0.0, blue, 1.0); }}"
     );
     let vertex = "
         in vec2 position;
@@ -133,7 +133,7 @@ fn read(mipmap: &TextureAnyMipmap<'_>, layer: u32, face: Option<CubeLayer>) -> V
 }
 
 fn red(layer: u32) -> u8 {
-    ((layer + 1) * 32) as u8
+    ((layer + 1) * 16) as u8
 }
 
 #[test]
@@ -331,8 +331,8 @@ fn layered_outputs() {
         layout(location = 0) out vec4 first;
         layout(location = 1) out vec4 second;
         void main() {
-            first = vec4(float(layer + 1) * 32.0 / 255.0, 0.0, 0.0, 1.0);
-            second = vec4(0.0, float(layer + 1) * 32.0 / 255.0, 0.0, 1.0);
+            first = vec4(float(layer + 1) * 16.0 / 255.0, 0.0, 0.0, 1.0);
+            second = vec4(0.0, float(layer + 1) * 16.0 / 255.0, 0.0, 1.0);
         }";
     let vertex = "
         in vec2 position;
@@ -419,6 +419,48 @@ fn layer_targets_must_match() {
         Ok(framebuffer) => assert_eq!(framebuffer.layers(), 6),
         Err(ValidationError::Incomplete { .. }) => (),
         Err(error) => panic!("{error}"),
+    }
+
+    display.assert_no_error(None);
+}
+
+/// The layers of cube map arrays are the faces of their cube maps, six by six.
+#[test]
+fn cube_map_array_faces() {
+    use safegl::texture::CubemapArray;
+
+    let display = support::build_display();
+    let Some(program) = program(&display, 12, false) else {
+        return;
+    };
+    let texture = match CubemapArray::empty(&display, SIZE, 2) {
+        Ok(texture) => texture,
+        // OpenGL ES 3.2 has cube map arrays, but drivers of OpenGL 4.0 may lack the format
+        Err(safegl::texture::TextureCreationError::FormatNotSupported) => return,
+        Err(error) => panic!("{error}"),
+    };
+    let mut framebuffer = LayeredFrameBuffer::new(&display, &texture).unwrap();
+    assert_eq!(framebuffer.layers(), 12);
+    draw(
+        &display,
+        &mut framebuffer,
+        &program,
+        0.0,
+        0.0,
+        &Default::default(),
+    );
+    for layer in 0..12 {
+        // `layer` of a cube map array mipmap is a cube map, whose faces come in `CubeLayer` order
+        let face = [
+            CubeLayer::PositiveX,
+            CubeLayer::NegativeX,
+            CubeLayer::PositiveY,
+            CubeLayer::NegativeY,
+            CubeLayer::PositiveZ,
+            CubeLayer::NegativeZ,
+        ][layer as usize % 6];
+        let pixels = read(&texture.main_level(), layer / 6, Some(face));
+        assert_eq!(pixels[0][0], (red(layer), 0, 0, 255), "{layer}");
     }
 
     display.assert_no_error(None);

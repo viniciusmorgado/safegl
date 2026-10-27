@@ -1857,9 +1857,11 @@ unsafe fn attach(
                         bind_framebuffer(ctxt, Some(id), true, false);
 
                         match bind_point {
+                            // the layer of a cube map array is `6 × cube map + face`
                             gl::TEXTURE_1D_ARRAY
                             | gl::TEXTURE_2D_ARRAY
-                            | gl::TEXTURE_2D_MULTISAMPLE_ARRAY => {
+                            | gl::TEXTURE_2D_MULTISAMPLE_ARRAY
+                            | gl::TEXTURE_CUBE_MAP_ARRAY => {
                                 ctxt.glow.framebuffer_texture_layer(
                                     glow::DRAW_FRAMEBUFFER,
                                     slot,

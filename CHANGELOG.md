@@ -440,6 +440,8 @@ Additions:
 
 Fixes:
 
+- A face of a cube map array can be attached to framebuffers (and read) without direct state
+  access, on OpenGL ES and below OpenGL 4.5, instead of panicking.
 - The color of the fragment output at location n is attached at `GL_COLOR_ATTACHMENTn`. A
   `MultiOutputFrameBuffer` whose outputs weren't listed in the order of their locations made
   `glDrawBuffers` fail on OpenGL ES, which only accepts `GL_COLOR_ATTACHMENTn` or `GL_NONE` as the
