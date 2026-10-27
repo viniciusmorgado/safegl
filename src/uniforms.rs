@@ -144,12 +144,14 @@ pub use self::sampler::{
 };
 #[cfg(any(safegl_desktop, safegl_gles32))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
-pub use self::sampler::BorderColor;
-pub use self::sampler::{Sampler, SamplerBehavior};
+pub use self::sampler::{BorderColor, BorderColorValue};
+pub use self::sampler::{LevelOfDetail, Sampler, SamplerBehavior};
 pub use self::uniforms::{DynamicUniforms, EmptyUniforms, UniformsStorage};
 pub(crate) use self::value::{is_opaque, is_shadow_sampler};
+#[cfg(safegl_desktop)]
+pub(crate) use self::value::sampler_types;
 pub use self::value::Keep;
-pub use self::value::{UniformType, UniformValue};
+pub use self::value::{UniformArray, UniformType, UniformValue};
 
 use std::error::Error;
 use std::fmt;
@@ -160,6 +162,10 @@ use crate::program;
 use crate::program::BlockLayout;
 
 mod bind;
+#[cfg(safegl_gl41)]
+pub(crate) use self::bind::bind_subroutine_uniforms;
+#[cfg(any(safegl_gl41, safegl_gles31))]
+pub(crate) use self::bind::BindPoints;
 pub(crate) use self::bind::CollectedUniforms;
 mod buffer;
 #[cfg(any(safegl_gl42, safegl_gles31))]
@@ -181,7 +187,10 @@ pub trait Uniforms {
 }
 
 /// Error about a block layout mismatch.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum LayoutMismatchError {
     /// There is a mismatch in the type of one element.
     TypeMismatch {
@@ -222,6 +231,15 @@ pub enum LayoutMismatchError {
         /// Name of the field.
         name: String,
     },
+
+    /// The elements of an array are further apart in the block than in the input, like the
+    /// `float`s of a `std140` block, 16 bytes apart, given as a `[f32; N]`.
+    StrideMismatch {
+        /// Distance in bytes between the elements in the block.
+        expected: usize,
+        /// Distance in bytes between the elements in the input.
+        obtained: usize,
+    },
 }
 
 impl Error for LayoutMismatchError {
@@ -244,6 +262,9 @@ impl fmt::Display for LayoutMismatchError {
             MemberMismatch { .. } => "There is a mismatch in a submember of this layout",
             MissingField { .. } => {
                 "A field is missing in either the expected of the input data layout"
+            }
+            StrideMismatch { .. } => {
+                "The elements of an array are further apart in the block than in the input"
             }
         };
         match *self {
@@ -273,6 +294,9 @@ impl fmt::Display for LayoutMismatchError {
                 ref err,
             } => write!(fmt, "{}, {}: {}", desc, member, err,),
             MissingField { ref name } => write!(fmt, "{}: {}", desc, name,),
+            StrideMismatch { expected, obtained } => {
+                write!(fmt, "{}, got: {}, expected: {}", desc, obtained, expected)
+            }
         }
     }
 }
@@ -328,14 +352,19 @@ where
             }
         }
 
-        if let BlockLayout::DynamicSizedArray { content } = layout {
+        if let BlockLayout::DynamicSizedArray { content, stride } = layout {
+            check_stride::<T>(*stride)?;
             <T as UniformBlock>::matches(content, base_offset).map_err(|err| {
                 LayoutMismatchError::MemberMismatch {
                     member: "<dynamic array content>".to_owned(),
                     err: Box::new(err),
                 }
             })
-        } else if let BlockLayout::Array { content, .. } = layout {
+        } else if let BlockLayout::Array {
+            content, stride, ..
+        } = layout
+        {
+            check_stride::<T>(*stride)?;
             <T as UniformBlock>::matches(content, base_offset).map_err(|err| {
                 LayoutMismatchError::MemberMismatch {
                     member: "<dynamic array content>".to_owned(),
@@ -354,7 +383,22 @@ where
     fn build_layout(base_offset: usize) -> BlockLayout {
         BlockLayout::DynamicSizedArray {
             content: Box::new(<T as UniformBlock>::build_layout(base_offset)),
+            stride: std::mem::size_of::<T>(),
         }
+    }
+}
+
+/// Checks that the elements of an array of the block are `size_of::<T>()` bytes apart, like the
+/// elements of a Rust array. A stride of 0 is unknown, for an array of a single struct.
+fn check_stride<T>(stride: usize) -> Result<(), LayoutMismatchError> {
+    let obtained = std::mem::size_of::<T>();
+    if stride == 0 || stride == obtained {
+        Ok(())
+    } else {
+        Err(LayoutMismatchError::StrideMismatch {
+            expected: stride,
+            obtained,
+        })
     }
 }
 
@@ -377,8 +421,10 @@ macro_rules! impl_uniform_block_array {
                 if let &BlockLayout::Array {
                     ref content,
                     length,
+                    stride,
                 } = layout
                 {
+                    check_stride::<T>(stride)?;
                     if let Err(err) = T::matches(content, base_offset) {
                         return Err(LayoutMismatchError::MemberMismatch {
                             member: "<array content>".to_owned(),
@@ -407,6 +453,7 @@ macro_rules! impl_uniform_block_array {
                 BlockLayout::Array {
                     content: Box::new(T::build_layout(base_offset)),
                     length: $len,
+                    stride: std::mem::size_of::<T>(),
                 }
             }
         }

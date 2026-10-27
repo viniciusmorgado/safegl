@@ -459,6 +459,58 @@ macro_rules! implement_any_bit_pattern {
     };
 }
 
+/// Implements `safegl::index::DrawCommandLayout` for a struct with a draw command in a field, so
+/// that a buffer of such structs is a buffer of draw commands, read with the size of the struct
+/// as stride. The struct must also implement `safegl::buffer::AnyBitPattern`.
+///
+/// The macro checks that the field has the type given after it, `DrawCommandNoIndices` or
+/// `DrawCommandIndices`, and that the size of the struct and the offset of the field are
+/// multiples of 4, as OpenGL requires.
+///
+/// ## Example
+///
+/// ```rust
+/// # #[macro_use] extern crate safegl;
+/// # #[cfg(any(safegl_desktop, safegl_gles31))]
+/// # fn main() {
+/// use safegl::index::DrawCommandIndices;
+///
+/// #[repr(C)]
+/// #[derive(Copy, Clone)]
+/// struct Object {
+///     bounds: [f32; 4],
+///     command: DrawCommandIndices,
+/// }
+/// implement_any_bit_pattern!(Object, bounds, command);
+/// implement_draw_command!(Object, command: DrawCommandIndices);
+/// # }
+/// # #[cfg(not(any(safegl_desktop, safegl_gles31)))]
+/// # fn main() {}
+/// ```
+#[macro_export]
+macro_rules! implement_draw_command {
+    ($struct_name:ident, $field:ident : $command:ty) => {
+        const _: () = {
+            // the field has the type of the command
+            #[allow(dead_code)]
+            fn command(value: &$struct_name) -> &$command {
+                &value.$field
+            }
+            assert!(
+                ::std::mem::size_of::<$struct_name>() % 4 == 0
+                    && ::std::mem::offset_of!($struct_name, $field) % 4 == 0,
+                "the size of a draw command struct and the offset of its command must be \
+                 multiples of 4"
+            );
+        };
+
+        unsafe impl $crate::index::DrawCommandLayout for $struct_name {
+            type Command = $command;
+            const OFFSET: usize = ::std::mem::offset_of!($struct_name, $field);
+        }
+    };
+}
+
 /// Implements the `safegl::buffer::Content` trait for the given type.
 ///
 /// Contrary to the other similar macros, this one doesn't require you pass the list of parameters.
@@ -823,6 +875,7 @@ macro_rules! program {
                 transform_feedback_varyings: None,
                 outputs_srgb: __outputs_srgb,
                 uses_point_size: __uses_point_size,
+                locations: ::std::default::Default::default(),
             };
 
             $crate::program::Program::new($context, input)

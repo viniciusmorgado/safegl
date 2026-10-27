@@ -15,6 +15,7 @@ pub(crate) unsafe fn restore_state(ctxt: &mut CommandContext<'_>) {
     restore_capabilities(ctxt);
     restore_bindings(ctxt);
     restore_fixed_function(ctxt);
+    restore_constant_attributes(ctxt);
 
     // the other code may have bound an element array buffer, or changed the attributes, while a
     // vertex array object of SafeGL was bound: they are created again when needed
@@ -25,6 +26,15 @@ pub(crate) unsafe fn restore_state(ctxt: &mut CommandContext<'_>) {
 }
 
 /// Enables or disables `cap`.
+/// Sets the current values of the constant attributes again.
+unsafe fn restore_constant_attributes(ctxt: &mut CommandContext<'_>) {
+    for (location, value) in ctxt.state.vertex_attrib_values.iter().enumerate() {
+        if let Some(value) = *value {
+            crate::vertex_array_object::apply_constant_attribute(ctxt, location as u32, value);
+        }
+    }
+}
+
 unsafe fn set(ctxt: &CommandContext<'_>, cap: gl::types::GLenum, enabled: bool) {
     if enabled {
         ctxt.glow.enable(cap);
@@ -57,11 +67,15 @@ unsafe fn restore_capabilities(ctxt: &mut CommandContext<'_>) {
         state.enabled_sample_alpha_to_coverage,
     );
     set(ctxt, gl::SAMPLE_COVERAGE, state.enabled_sample_coverage);
+    ctxt.glow
+        .sample_coverage(state.sample_coverage.0, state.sample_coverage.1);
     set(ctxt, gl::SCISSOR_TEST, state.enabled_scissor_test);
     set(ctxt, gl::STENCIL_TEST, state.enabled_stencil_test);
 
     if desktop {
         set(ctxt, gl::MULTISAMPLE, state.enabled_multisample);
+        set(ctxt, gl::SAMPLE_ALPHA_TO_ONE, state.enabled_sample_alpha_to_one);
+        set(ctxt, gl::COLOR_LOGIC_OP, state.enabled_color_logic_op);
         set(
             ctxt,
             gl::POLYGON_OFFSET_LINE,
@@ -110,13 +124,32 @@ unsafe fn restore_capabilities(ctxt: &mut CommandContext<'_>) {
     }
 
     // always enabled on WebGL
-    if (ctxt.version >= &Version(Api::Gl, 4, 3) || ctxt.version >= &Version(Api::GlEs, 3, 0))
+    if (ctxt.version >= &Version(Api::Gl, 4, 3)
+        || ctxt.version >= &Version(Api::GlEs, 3, 0)
+        || ctxt.extensions.gl_arb_es3_compatibility)
         && !is_webgl()
     {
         set(
             ctxt,
             gl::PRIMITIVE_RESTART_FIXED_INDEX,
             state.enabled_primitive_fixed_restart,
+        );
+    }
+
+    // the bound transform feedback object, which is container state of the context
+    ctxt.glow
+        .bind_transform_feedback(glow::TRANSFORM_FEEDBACK, state.transform_feedback);
+
+    if desktop {
+        set(ctxt, gl::PRIMITIVE_RESTART, state.enabled_primitive_restart);
+        ctxt.extra.PrimitiveRestartIndex(state.primitive_restart_index);
+        ctxt.extra.PatchParameterfv(
+            gl::PATCH_DEFAULT_OUTER_LEVEL,
+            state.patch_default_outer_level.as_ptr(),
+        );
+        ctxt.extra.PatchParameterfv(
+            gl::PATCH_DEFAULT_INNER_LEVEL,
+            state.patch_default_inner_level.as_ptr(),
         );
     }
 
@@ -136,6 +169,9 @@ unsafe fn restore_capabilities(ctxt: &mut CommandContext<'_>) {
 
 unsafe fn restore_bindings(ctxt: &mut CommandContext<'_>) {
     ctxt.glow.use_program(ctxt.state.program);
+    if crate::program::are_pipelines_supported(ctxt) {
+        ctxt.extra.BindProgramPipeline(ctxt.state.program_pipeline);
+    }
     ctxt.glow.bind_vertex_array(ctxt.state.vertex_array);
     ctxt.glow
         .bind_framebuffer(gl::READ_FRAMEBUFFER, ctxt.state.read_framebuffer);
@@ -146,6 +182,8 @@ unsafe fn restore_bindings(ctxt: &mut CommandContext<'_>) {
 
     // the read buffer of the default framebuffer is set again before reading from it
     ctxt.state.default_framebuffer_read = None;
+    // other code may have chosen another draw buffer; the next draw selects it again
+    ctxt.state.default_draw_buffer = u32::MAX;
 
     crate::buffer::restore_bindings(ctxt);
 
@@ -197,6 +235,8 @@ unsafe fn restore_fixed_function(ctxt: &mut CommandContext<'_>) {
     let (r, g, b, a) = state.blend_color;
     ctxt.glow.blend_color(r, g, b, a);
     state.indexed_blend = true;
+    // other code may have changed the viewports of other indices; the next draw sets them all
+    state.viewport_array_dirty = desktop;
 
     ctxt.glow.depth_func(state.depth_func);
     ctxt.glow.depth_mask(state.depth_mask);
@@ -237,11 +277,19 @@ unsafe fn restore_fixed_function(ctxt: &mut CommandContext<'_>) {
 
     ctxt.glow.line_width(state.line_width);
     ctxt.glow.cull_face(state.cull_face);
+    ctxt.glow.front_face(state.front_face);
     let (factor, units) = state.polygon_offset;
     ctxt.glow.polygon_offset(factor, units);
 
     if desktop {
         ctxt.extra.PointSize(state.point_size);
+        ctxt.extra.LogicOp(state.logic_op);
+        ctxt.extra.PointParameteri(
+            gl::POINT_SPRITE_COORD_ORIGIN,
+            state.point_coord_origin as gl::types::GLint,
+        );
+        ctxt.extra
+            .PointParameterf(gl::POINT_FADE_THRESHOLD_SIZE, state.point_fade_threshold);
         ctxt.glow
             .polygon_mode(gl::FRONT_AND_BACK, state.polygon_mode);
         ctxt.glow.hint(gl::LINE_SMOOTH_HINT, state.smooth.0);

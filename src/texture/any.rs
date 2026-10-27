@@ -45,8 +45,11 @@ use crate::ops;
 use crate::ops::ReadError;
 
 /// Type of a texture.
+///
+/// New kinds of textures can be added without a major version, so matches need a wildcard arm.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[allow(missing_docs)] // TODO: document and remove
+#[non_exhaustive]
 pub enum Dimensions {
     Texture1d {
         width: u32,
@@ -56,6 +59,11 @@ pub enum Dimensions {
         array_size: u32,
     },
     Texture2d {
+        width: u32,
+        height: u32,
+    },
+    /// A rectangle texture, sampled with coordinates in texels. Only desktop OpenGL has them.
+    TextureRectangle {
         width: u32,
         height: u32,
     },
@@ -113,8 +121,23 @@ pub struct TextureAny {
     /// Is this texture owned by us? If not, we won't clean it up on drop.
     owned: bool,
 
-    /// ID of the draw call where the texture was last written as a texture unit.
-    latest_shader_write: Cell<u64>,
+    /// ID of the draw call where the texture was last written as a texture unit. Shared with the
+    /// views of the same storage, which see the same writes.
+    latest_shader_write: Rc<Cell<u64>>,
+
+    /// The latest swizzle of the texture, `None` while unknown, for textures created outside
+    /// SafeGL.
+    pub(crate) swizzle: Cell<Option<[gl::types::GLenum; 4]>>,
+
+    /// The latest `GL_TEXTURE_BASE_LEVEL` and `GL_TEXTURE_MAX_LEVEL` of the texture, `None` while
+    /// unknown.
+    pub(crate) mipmap_range: Cell<Option<(u32, u32)>>,
+
+    /// The latest `GL_DEPTH_STENCIL_TEXTURE_MODE` of the texture, `None` while unknown.
+    pub(crate) depth_stencil_mode: Cell<Option<gl::types::GLenum>>,
+
+    /// Whether the samples of a multisample texture are at the same positions in every texel.
+    fixed_sample_locations: bool,
 }
 
 fn extract_dimensions(ty: Dimensions) -> (u32, Option<u32>, Option<u32>, Option<u32>, Option<u32>) {
@@ -124,6 +147,7 @@ fn extract_dimensions(ty: Dimensions) -> (u32, Option<u32>, Option<u32>, Option<
             (width, None, None, Some(array_size), None)
         }
         Dimensions::Texture2d { width, height } => (width, Some(height), None, None, None),
+        Dimensions::TextureRectangle { width, height } => (width, Some(height), None, None, None),
         Dimensions::Texture2dArray {
             width,
             height,
@@ -159,6 +183,7 @@ fn get_bind_point(ty: Dimensions) -> gl::types::GLenum {
         Dimensions::Texture1d { .. } => gl::TEXTURE_1D,
         Dimensions::Texture1dArray { .. } => gl::TEXTURE_1D_ARRAY,
         Dimensions::Texture2d { .. } => gl::TEXTURE_2D,
+        Dimensions::TextureRectangle { .. } => gl::TEXTURE_RECTANGLE,
         Dimensions::Texture2dArray { .. } => gl::TEXTURE_2D_ARRAY,
         Dimensions::Texture2dMultisample { .. } => gl::TEXTURE_2D_MULTISAMPLE,
         Dimensions::Texture2dMultisampleArray { .. } => gl::TEXTURE_2D_MULTISAMPLE_ARRAY,
@@ -183,6 +208,8 @@ fn check_dimensions(context: &Context, ty: Dimensions) -> Result<(), TextureCrea
             super::ty_support::is_texture_2d_multisample_array_supported(context)
         }
         Dimensions::CubemapArray { .. } => super::ty_support::is_cubemap_arrays_supported(context),
+        // core in OpenGL 3.1, absent from OpenGL ES
+        Dimensions::TextureRectangle { .. } => context.get_opengl_version().0 == Api::Gl,
         _ => true,
     };
 
@@ -199,6 +226,11 @@ fn check_dimensions(context: &Context, ty: Dimensions) -> Result<(), TextureCrea
         ),
         Dimensions::Cubemap { .. } | Dimensions::CubemapArray { .. } => (
             capabilities.max_cube_map_texture_size,
+            capabilities.max_array_texture_layers,
+        ),
+        #[cfg(safegl_desktop)]
+        Dimensions::TextureRectangle { .. } => (
+            capabilities.limits.max_rectangle_texture_size.unwrap_or(0),
             capabilities.max_array_texture_layers,
         ),
         _ => (
@@ -285,6 +317,22 @@ where
     P: Send + Clone + 'a,
     F: Facade,
 {
+    new_texture_with_sample_locations(facade, format, data, mipmaps, ty, true)
+}
+
+/// Builds a new texture, multisampled with fixed sample locations or not.
+pub fn new_texture_with_sample_locations<'a, F: ?Sized, P>(
+    facade: &F,
+    format: TextureFormatRequest,
+    data: Option<(ClientFormatAny, Cow<'a, [P]>)>,
+    mipmaps: MipmapsOption,
+    ty: Dimensions,
+    fixed_sample_locations: bool,
+) -> Result<TextureAny, TextureCreationError>
+where
+    P: Send + Clone + 'a,
+    F: Facade,
+{
     // getting the width, height, depth, array_size, samples from the type
     let (width, height, depth, array_size, samples) = extract_dimensions(ty);
     let (is_client_compressed, data_bufsize) = match data {
@@ -312,6 +360,10 @@ where
 
     let should_generate_mipmaps = mipmaps.should_generate();
     let texture_levels = mipmaps.num_levels(width, height, depth) as gl::types::GLsizei;
+    // rectangle textures have a single level
+    if bind_point == gl::TEXTURE_RECTANGLE && texture_levels > 1 {
+        return Err(TextureCreationError::MipmapsNotSupported);
+    }
 
     let teximg_internal_format = image_format::format_request_to_glenum(
         facade.get_context(),
@@ -428,9 +480,15 @@ where
             ctxt.state.texture_units[act].texture = Some(id);
         }
 
+        // rectangle textures can only be clamped
+        let wrap = if bind_point == gl::TEXTURE_RECTANGLE {
+            gl::CLAMP_TO_EDGE
+        } else {
+            gl::REPEAT
+        };
         if !is_multisampled {
             ctxt.glow
-                .tex_parameter_i32(bind_point, glow::TEXTURE_WRAP_S, gl::REPEAT as i32);
+                .tex_parameter_i32(bind_point, glow::TEXTURE_WRAP_S, wrap as i32);
             ctxt.glow
                 .tex_parameter_i32(bind_point, glow::TEXTURE_MAG_FILTER, filtering as i32);
         }
@@ -441,7 +499,7 @@ where
             Dimensions::Texture2dMultisampleArray { .. } => (),
             _ => {
                 ctxt.glow
-                    .tex_parameter_i32(bind_point, glow::TEXTURE_WRAP_T, gl::REPEAT as i32);
+                    .tex_parameter_i32(bind_point, glow::TEXTURE_WRAP_T, wrap as i32);
             }
         };
 
@@ -449,6 +507,7 @@ where
         match ty {
             Dimensions::Texture1d { .. } => (),
             Dimensions::Texture2d { .. } => (),
+            Dimensions::TextureRectangle { .. } => (),
             Dimensions::Texture2dMultisample { .. } => (),
             Dimensions::Texture2dMultisampleArray { .. } => (),
             _ => {
@@ -572,6 +631,7 @@ where
                 );
             }
         } else if bind_point == gl::TEXTURE_2D
+            || bind_point == gl::TEXTURE_RECTANGLE
             || bind_point == gl::TEXTURE_1D_ARRAY
             || bind_point == gl::TEXTURE_CUBE_MAP
         {
@@ -673,7 +733,7 @@ where
                     storage_internal_format.unwrap() as gl::types::GLenum,
                     width,
                     height,
-                    true,
+                    fixed_sample_locations,
                 );
             } else if ctxt.version.0 == Api::Gl {
                 ctxt.glow.tex_image_2d_multisample(
@@ -682,7 +742,7 @@ where
                     teximg_internal_format as i32,
                     width,
                     height,
-                    true,
+                    fixed_sample_locations,
                 );
             } else {
                 unreachable!();
@@ -712,7 +772,7 @@ where
                     width,
                     height,
                     array_size.unwrap() as gl::types::GLsizei,
-                    gl::TRUE,
+                    fixed_sample_locations as u8,
                 );
             } else if storage_internal_format.is_some()
                 && ctxt.extensions.gl_oes_texture_storage_multisample_2d_array
@@ -724,7 +784,7 @@ where
                     width,
                     height,
                     array_size.unwrap() as gl::types::GLsizei,
-                    gl::TRUE,
+                    fixed_sample_locations as u8,
                 );
             } else if ctxt.version.0 == Api::Gl {
                 ctxt.extra.TexImage3DMultisample(
@@ -734,7 +794,7 @@ where
                     width,
                     height,
                     array_size.unwrap() as gl::types::GLsizei,
-                    gl::TRUE,
+                    fixed_sample_locations as u8,
                 );
             } else {
                 unreachable!();
@@ -825,7 +885,210 @@ where
         generate_mipmaps: should_generate_mipmaps,
         can_generate_mipmaps,
         owned: true,
-        latest_shader_write: Cell::new(0),
+        latest_shader_write: Rc::new(Cell::new(0)),
+        swizzle: Cell::new(Some([gl::RED, gl::GREEN, gl::BLUE, gl::ALPHA])),
+        // the defaults of OpenGL, or the range set above for textures without mipmaps
+        mipmap_range: Cell::new(Some((0, if texture_levels > 1 { 1000 } else { 0 }))),
+        depth_stencil_mode: Cell::new(Some(gl::DEPTH_COMPONENT)),
+        fixed_sample_locations,
+    })
+}
+
+/// Builds a view of the levels `levels` and the layers `layers` of `source`, of the kind whose
+/// bind point is `target`, with the format `format` (`glTextureView`).
+#[cfg(safegl_gl43)]
+pub fn new_texture_view(
+    source: &TextureAny,
+    target: gl::types::GLenum,
+    format: TextureFormatRequest,
+    levels: std::ops::Range<u32>,
+    layers: std::ops::Range<u32>,
+) -> Result<TextureAny, super::TextureViewError> {
+    use super::view::{formats_compatible, targets_compatible};
+    use super::TextureViewError;
+    use crate::handles::RawName;
+
+    let context = &source.context;
+    let mut ctxt = context.make_current();
+    if !(ctxt.version >= &Version(Api::Gl, 4, 3) || ctxt.extensions.gl_arb_texture_view) {
+        return Err(TextureViewError::NotSupported);
+    }
+    let source_target = source.get_bind_point();
+    if !targets_compatible(source_target, target) {
+        return Err(TextureViewError::IncompatibleTarget);
+    }
+
+    // the levels, and the layers, which are the faces of cube maps
+    if levels.is_empty() || levels.end > source.levels {
+        return Err(TextureViewError::LevelsOutOfRange);
+    }
+    let source_layers = match source.ty {
+        Dimensions::Texture1dArray { array_size, .. }
+        | Dimensions::Texture2dArray { array_size, .. }
+        | Dimensions::Texture2dMultisampleArray { array_size, .. } => array_size,
+        Dimensions::Cubemap { .. } => 6,
+        Dimensions::CubemapArray { array_size, .. } => 6 * array_size,
+        _ => 1,
+    };
+    let count = layers.len() as u32;
+    let fits_target = match target {
+        gl::TEXTURE_1D_ARRAY | gl::TEXTURE_2D_ARRAY | gl::TEXTURE_2D_MULTISAMPLE_ARRAY => true,
+        gl::TEXTURE_CUBE_MAP => count == 6,
+        gl::TEXTURE_CUBE_MAP_ARRAY => count % 6 == 0,
+        _ => count == 1,
+    };
+    if layers.is_empty() || layers.end > source_layers || !fits_target {
+        return Err(TextureViewError::LayersOutOfRange);
+    }
+
+    // the formats, and the immutable storage that views need
+    let view_format = image_format::format_request_to_glenum(
+        context,
+        format,
+        image_format::RequestType::TexStorage(None),
+    )
+    .map_err(|_| TextureViewError::FormatNotSupported)?;
+    let (source_format, immutable) = unsafe {
+        let bind_point = source.bind_to_current(&mut ctxt);
+        let face = if bind_point == gl::TEXTURE_CUBE_MAP {
+            gl::TEXTURE_CUBE_MAP_POSITIVE_X
+        } else {
+            bind_point
+        };
+        (
+            ctxt.glow
+                .get_tex_level_parameter_i32(face, 0, gl::TEXTURE_INTERNAL_FORMAT)
+                as gl::types::GLenum,
+            ctxt.glow
+                .get_tex_parameter_i32(bind_point, gl::TEXTURE_IMMUTABLE_FORMAT)
+                != 0,
+        )
+    };
+    if !immutable {
+        return Err(TextureViewError::SourceNotImmutable);
+    }
+    if !formats_compatible(source_format, view_format) {
+        return Err(TextureViewError::IncompatibleFormat);
+    }
+
+    // the view's level 0 is the source's level `levels.start`
+    let size = |size: u32| cmp::max(1, size >> levels.start);
+    let (width, height, depth, _, samples) = extract_dimensions(source.ty);
+    let (width, height) = (size(width), height.map(size).unwrap_or(1));
+    let ty = match target {
+        gl::TEXTURE_1D => Dimensions::Texture1d { width },
+        gl::TEXTURE_1D_ARRAY => Dimensions::Texture1dArray {
+            width,
+            array_size: count,
+        },
+        gl::TEXTURE_2D => Dimensions::Texture2d { width, height },
+        gl::TEXTURE_RECTANGLE => Dimensions::TextureRectangle { width, height },
+        gl::TEXTURE_2D_ARRAY => Dimensions::Texture2dArray {
+            width,
+            height,
+            array_size: count,
+        },
+        gl::TEXTURE_2D_MULTISAMPLE => Dimensions::Texture2dMultisample {
+            width,
+            height,
+            samples: samples.unwrap_or(1),
+        },
+        gl::TEXTURE_2D_MULTISAMPLE_ARRAY => Dimensions::Texture2dMultisampleArray {
+            width,
+            height,
+            array_size: count,
+            samples: samples.unwrap_or(1),
+        },
+        gl::TEXTURE_3D => Dimensions::Texture3d {
+            width,
+            height,
+            depth: size(depth.unwrap_or(1)),
+        },
+        gl::TEXTURE_CUBE_MAP => Dimensions::Cubemap { dimension: width },
+        gl::TEXTURE_CUBE_MAP_ARRAY => Dimensions::CubemapArray {
+            dimension: width,
+            array_size: count / 6,
+        },
+        _ => return Err(TextureViewError::IncompatibleTarget),
+    };
+
+    let id = unsafe {
+        // `glTextureView` needs a name that was never bound
+        let id = ctxt.glow.create_texture().expect("failed to create a texture");
+        ctxt.extra.TextureView(
+            id.raw_name(),
+            target,
+            source.id.raw_name(),
+            view_format,
+            levels.start,
+            levels.len() as u32,
+            layers.start,
+            count,
+        );
+
+        // the sampling state of the view is set like the one of a new texture
+        let integer = matches!(
+            format,
+            TextureFormatRequest::Specific(TextureFormat::UncompressedIntegral(_))
+                | TextureFormatRequest::Specific(TextureFormat::UncompressedUnsigned(_))
+                | TextureFormatRequest::Specific(TextureFormat::StencilFormat(_))
+        );
+        let filter = if integer { gl::NEAREST } else { gl::LINEAR };
+        let mipmap_filter = if integer {
+            gl::NEAREST_MIPMAP_NEAREST
+        } else {
+            gl::LINEAR_MIPMAP_LINEAR
+        };
+        ctxt.glow.bind_texture(target, Some(id));
+        let unit = ctxt.state.active_texture as usize;
+        ctxt.state.texture_units[unit].texture = Some(id);
+        // the parameters that SafeGL caches start from their defaults, whatever the source has
+        for (name, value) in [
+            (gl::TEXTURE_SWIZZLE_R, gl::RED),
+            (gl::TEXTURE_SWIZZLE_G, gl::GREEN),
+            (gl::TEXTURE_SWIZZLE_B, gl::BLUE),
+            (gl::TEXTURE_SWIZZLE_A, gl::ALPHA),
+            (gl::DEPTH_STENCIL_TEXTURE_MODE, gl::DEPTH_COMPONENT),
+        ] {
+            ctxt.glow.tex_parameter_i32(target, name, value as i32);
+        }
+        if samples.is_none() {
+            ctxt.glow.tex_parameter_i32(target, gl::TEXTURE_BASE_LEVEL, 0);
+            ctxt.glow
+                .tex_parameter_i32(target, gl::TEXTURE_MAX_LEVEL, levels.len() as i32 - 1);
+            let wrap = if target == gl::TEXTURE_RECTANGLE {
+                gl::CLAMP_TO_EDGE
+            } else {
+                gl::REPEAT
+            };
+            for name in [gl::TEXTURE_WRAP_S, gl::TEXTURE_WRAP_T, gl::TEXTURE_WRAP_R] {
+                ctxt.glow.tex_parameter_i32(target, name, wrap as i32);
+            }
+            ctxt.glow
+                .tex_parameter_i32(target, gl::TEXTURE_MAG_FILTER, filter as i32);
+            let min_filter = if levels.len() > 1 { mipmap_filter } else { filter };
+            ctxt.glow
+                .tex_parameter_i32(target, gl::TEXTURE_MIN_FILTER, min_filter as i32);
+        }
+        id
+    };
+
+    Ok(TextureAny {
+        context: context.clone(),
+        id,
+        requested_format: format,
+        actual_format: Cell::new(None),
+        ty,
+        levels: levels.len() as u32,
+        generate_mipmaps: false,
+        can_generate_mipmaps: source.can_generate_mipmaps,
+        owned: true,
+        // the view and its source see the shader writes of each other
+        latest_shader_write: source.latest_shader_write.clone(),
+        swizzle: Cell::new(Some([gl::RED, gl::GREEN, gl::BLUE, gl::ALPHA])),
+        mipmap_range: Cell::new(Some((0, levels.len() as u32 - 1))),
+        depth_stencil_mode: Cell::new(Some(gl::DEPTH_COMPONENT)),
+        fixed_sample_locations: source.fixed_sample_locations,
     })
 }
 
@@ -858,7 +1121,12 @@ pub unsafe fn from_id<F: Facade + ?Sized>(
             Dimensions::Texture2dMultisample { .. } | Dimensions::Texture2dMultisampleArray { .. }
         ),
         owned,
-        latest_shader_write: Cell::new(0),
+        latest_shader_write: Rc::new(Cell::new(0)),
+        swizzle: Cell::new(None),
+        mipmap_range: Cell::new(None),
+        depth_stencil_mode: Cell::new(None),
+        // the most common choice, which can't be queried below OpenGL ES 3.1
+        fixed_sample_locations: true,
     };
 
     if should_generate_mipmaps {
@@ -872,6 +1140,13 @@ pub unsafe fn from_id<F: Facade + ?Sized>(
 }
 
 impl TextureAny {
+    /// Returns the draw call that last wrote the texture through an image unit, shared with its
+    /// views.
+    #[cfg(safegl_desktop)]
+    pub(crate) fn latest_shader_write(&self) -> Rc<Cell<u64>> {
+        self.latest_shader_write.clone()
+    }
+
     /// Returns the width of the texture.
     #[inline]
     pub fn get_width(&self) -> u32 {
@@ -879,6 +1154,7 @@ impl TextureAny {
             Dimensions::Texture1d { width, .. } => width,
             Dimensions::Texture1dArray { width, .. } => width,
             Dimensions::Texture2d { width, .. } => width,
+            Dimensions::TextureRectangle { width, .. } => width,
             Dimensions::Texture2dArray { width, .. } => width,
             Dimensions::Texture2dMultisample { width, .. } => width,
             Dimensions::Texture2dMultisampleArray { width, .. } => width,
@@ -895,6 +1171,7 @@ impl TextureAny {
             Dimensions::Texture1d { .. } => None,
             Dimensions::Texture1dArray { .. } => None,
             Dimensions::Texture2d { height, .. } => Some(height),
+            Dimensions::TextureRectangle { height, .. } => Some(height),
             Dimensions::Texture2dArray { height, .. } => Some(height),
             Dimensions::Texture2dMultisample { height, .. } => Some(height),
             Dimensions::Texture2dMultisampleArray { height, .. } => Some(height),
@@ -970,6 +1247,7 @@ impl TextureAny {
             Dimensions::Texture1d { .. } => None,
             Dimensions::Texture1dArray { array_size, .. } => Some(array_size),
             Dimensions::Texture2d { .. } => None,
+            Dimensions::TextureRectangle { .. } => None,
             Dimensions::Texture2dArray { array_size, .. } => Some(array_size),
             Dimensions::Texture2dMultisample { .. } => None,
             Dimensions::Texture2dMultisampleArray { array_size, .. } => Some(array_size),
@@ -977,6 +1255,14 @@ impl TextureAny {
             Dimensions::Cubemap { .. } => None,
             Dimensions::CubemapArray { array_size, .. } => Some(array_size),
         }
+    }
+
+    /// Returns true if the samples of a multisample texture are at the same positions in every
+    /// texel (`GL_TEXTURE_FIXED_SAMPLE_LOCATIONS`), which is the default. Returns true for other
+    /// textures too.
+    #[inline]
+    pub fn has_fixed_sample_locations(&self) -> bool {
+        self.fixed_sample_locations
     }
 
     /// Returns the number of samples of the texture if it is a multisampling texture.
@@ -1133,6 +1419,8 @@ impl TextureAny {
         }
 
         let mut ctxt = self.context.make_current();
+        // shader writes made through image units must be done before the levels are generated
+        self.prepare_for_access(&mut ctxt, crate::TextureAccess::Update);
         let bind_point = self.bind_to_current(&mut ctxt);
         unsafe { generate_mipmaps(&ctxt, bind_point) };
         Ok(())
@@ -1147,7 +1435,18 @@ impl TextureExt for TextureAny {
 
     #[inline]
     fn is_integer(&self) -> bool {
-        matches!(self.kind(), TextureKind::Integral | TextureKind::Unsigned)
+        // stencil indices are sampled as unsigned integers
+        match self.kind() {
+            TextureKind::Integral | TextureKind::Unsigned | TextureKind::Stencil => true,
+            TextureKind::DepthStencil => self.samples_stencil(),
+            _ => false,
+        }
+    }
+
+    #[inline]
+    fn has_integer_filters(&self) -> bool {
+        // SafeGL creates depth-stencil textures with the linear filters of depth textures
+        self.kind() != TextureKind::DepthStencil
     }
 
     #[inline]
@@ -1173,51 +1472,19 @@ impl TextureExt for TextureAny {
     }
 
     fn prepare_for_access(&self, ctxt: &mut CommandContext<'_>, access_type: crate::TextureAccess) {
-        match access_type {
-            crate::TextureAccess::TextureFetch => {
-                if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_texture_fetch
-                {
-                    unsafe {
-                        ctxt.glow.memory_barrier(glow::TEXTURE_FETCH_BARRIER_BIT);
-                    }
-                    ctxt.state.latest_memory_barrier_texture_fetch = ctxt.state.next_draw_call_id;
-                }
-            }
-            crate::TextureAccess::ImageUnit { will_write } => {
-                if self.latest_shader_write.get()
-                    >= ctxt.state.latest_memory_barrier_shader_image_access
-                {
-                    unsafe {
-                        ctxt.glow
-                            .memory_barrier(glow::SHADER_IMAGE_ACCESS_BARRIER_BIT);
-                    }
-                    ctxt.state.latest_memory_barrier_shader_image_access =
-                        ctxt.state.next_draw_call_id;
-                }
+        prepare_for_access(&self.latest_shader_write, ctxt, access_type)
+    }
+}
 
-                if will_write {
-                    self.latest_shader_write.set(ctxt.state.next_draw_call_id);
-                }
-            }
-            crate::TextureAccess::Framebuffer => {
-                if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_framebuffer {
-                    unsafe {
-                        ctxt.glow.memory_barrier(glow::FRAMEBUFFER_BARRIER_BIT);
-                    }
-                    ctxt.state.latest_memory_barrier_framebuffer = ctxt.state.next_draw_call_id;
-                }
-            }
-            #[cfg(any(safegl_gl43, safegl_gles32))]
-            crate::TextureAccess::Update => {
-                if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_texture_update
-                {
-                    unsafe {
-                        ctxt.glow.memory_barrier(glow::TEXTURE_UPDATE_BARRIER_BIT);
-                    }
-                    ctxt.state.latest_memory_barrier_texture_update = ctxt.state.next_draw_call_id;
-                }
-            }
-        }
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl crate::debug::sealed::Labeled for TextureAny {
+    fn labeled_object(
+        &self,
+    ) -> (&crate::context::Context, crate::debug::sealed::LabeledObject) {
+        (
+            &self.context,
+            crate::debug::sealed::LabeledObject::Object(crate::gl::TEXTURE, self.id.0.get()),
+        )
     }
 }
 
@@ -1538,6 +1805,10 @@ impl<'a> TextureAnyMipmap<'a> {
 
         let mut ctxt = self.texture.context.make_current();
 
+        // shader writes made through image units must be done before the image is changed
+        self.texture
+            .prepare_for_access(&mut ctxt, crate::TextureAccess::Update);
+
         // binds the pixel buffer
         source.prepare_and_bind_for_pixel_unpack(&mut ctxt);
         let offset = source.get_offset_bytes();
@@ -1563,7 +1834,9 @@ impl<'a> TextureAnyMipmap<'a> {
                     );
                 }
 
-                Dimensions::Texture1dArray { .. } | Dimensions::Texture2d { .. } => {
+                Dimensions::Texture1dArray { .. }
+                | Dimensions::Texture2d { .. }
+                | Dimensions::TextureRectangle { .. } => {
                     ctxt.glow.tex_sub_image_2d(
                         bind_point,
                         level,
@@ -1666,6 +1939,24 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
             return Err(UploadError::OutOfBounds);
         }
 
+        // the regions of compressed textures are made of whole blocks
+        let compressed = matches!(
+            self.texture.requested_format,
+            TextureFormatRequest::AnyCompressed
+                | TextureFormatRequest::AnyCompressedSrgb
+                | TextureFormatRequest::Specific(TextureFormat::CompressedFormat(_))
+                | TextureFormatRequest::Specific(TextureFormat::CompressedSrgbFormat(_))
+        );
+        let aligned = |offset: u32, size: u32, extent: u32| {
+            offset % 4 == 0 && (size % 4 == 0 || offset + size == extent)
+        };
+        if compressed
+            && !(aligned(x_offset, width, self.width)
+                && aligned(y_offset, height.unwrap_or(1), self.height.unwrap_or(1)))
+        {
+            return Err(UploadError::MisalignedBlocks);
+        }
+
         if data.len() * mem::size_of::<P>() != data_bufsize {
             return Err(UploadError::DataSizeMismatch {
                 expected: data_bufsize,
@@ -1682,6 +1973,10 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
         .map_err(|_| UploadError::FormatNotSupported)?;
 
         let mut ctxt = self.texture.context.make_current();
+
+        // shader writes made through image units must be done before the image is changed
+        self.texture
+            .prepare_for_access(&mut ctxt, crate::TextureAccess::Update);
 
         unsafe {
             if ctxt.state.pixel_store_unpack_alignment != 1 {
@@ -1726,7 +2021,10 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
                         glow::PixelUnpackData::Slice(Some(data)),
                     );
                 }
-            } else if bind_point == gl::TEXTURE_2D || bind_point == gl::TEXTURE_1D_ARRAY {
+            } else if bind_point == gl::TEXTURE_2D
+                || bind_point == gl::TEXTURE_RECTANGLE
+                || bind_point == gl::TEXTURE_1D_ARRAY
+            {
                 assert!(z_offset == 0);
                 // FIXME should glTexImage be used here somewhere or glTexSubImage does it just fine?
                 if is_client_compressed {
@@ -1794,6 +2092,8 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
         let level = self.level as i32;
 
         let mut ctxt = texture.context.make_current();
+        // shader writes made through image units must be done before the image is read
+        texture.prepare_for_access(&mut ctxt, crate::TextureAccess::Update);
 
         // `glGetCompressedTexImage` only exists on desktop OpenGL, and the compression
         // parameters of `glGetTexLevelParameteriv` aren't available on OpenGL ES and WebGL
@@ -1842,11 +2142,18 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
                             ctxt.glow.pixel_store_i32(glow::PACK_ALIGNMENT, 1);
                         }
 
-                        ctxt.extra.GetCompressedTexImage(
-                            bind_point,
-                            level,
-                            buf.as_mut_ptr() as *mut _,
-                        );
+                        // the robust entry points never write past the end of the buffer
+                        let size = buf.len() as gl::types::GLsizei;
+                        let data = buf.as_mut_ptr() as *mut _;
+                        if ctxt.version >= &Version(Api::Gl, 4, 5) {
+                            ctxt.extra
+                                .GetnCompressedTexImage(bind_point, level, size, data);
+                        } else if ctxt.extensions.gl_arb_robustness {
+                            ctxt.extra
+                                .GetnCompressedTexImageARB(bind_point, level, size, data);
+                        } else {
+                            ctxt.extra.GetCompressedTexImage(bind_point, level, data);
+                        }
                         Some((known_format, buf))
                     }
                     None => None,
@@ -2055,6 +2362,10 @@ impl<'a> TextureAnyImage<'a> {
 
         let mut ctxt = self.texture.context.make_current();
 
+        // shader writes made through image units must be done before the image is changed
+        self.texture
+            .prepare_for_access(&mut ctxt, crate::TextureAccess::Update);
+
         unsafe {
             if ctxt.state.pixel_store_unpack_alignment != 1 {
                 ctxt.state.pixel_store_unpack_alignment = 1;
@@ -2098,7 +2409,9 @@ impl<'a> TextureAnyImage<'a> {
                         glow::PixelUnpackData::Slice(Some(data)),
                     );
                 }
-                Dimensions::Texture2d { .. } | Dimensions::Cubemap { .. } => {
+                Dimensions::Texture2d { .. }
+                | Dimensions::TextureRectangle { .. }
+                | Dimensions::Cubemap { .. } => {
                     let target = match self.cube_layer {
                         Some(face) => {
                             gl::TEXTURE_CUBE_MAP_POSITIVE_X + face.get_layer_index() as u32
@@ -2215,21 +2528,69 @@ impl<'a> TextureAnyImage<'a> {
         )
     }
 
-    /// Clears the content of the texture to a specific value.
+    /// Sets every texel of the image to `data` (`glClearBuffer`), through a framebuffer.
     ///
-    /// # Panic
-    ///
-    /// Panics if `data` does not match the kind of texture. For example passing a `[i32; 4]` when
-    /// using a regular (float) texture.
-    ///
-    pub fn raw_clear_buffer<D>(&self, data: D)
+    /// `data` must match the kind of the texture: `[f32; 4]` for float and normalized textures,
+    /// `[i32; 4]` or `[u32; 4]` for integer textures, an `f32` depth for depth textures, and
+    /// `ClearBufferData::Stencil` or `DepthStencil` for stencil and depth-stencil textures.
+    /// Otherwise `ClearBufferError::KindMismatch` is returned. The scissor box, the write masks
+    /// and the sRGB conversion don't apply.
+    pub fn raw_clear_buffer<D>(&self, data: D) -> Result<(), crate::fbo::ClearBufferError>
     where
         D: Into<ClearBufferData>,
     {
         unsafe {
             let mut ctxt = self.texture.context.make_current();
             let attachment = fbo::RegularAttachment::Texture(*self);
-            fbo::FramebuffersContainer::clear_buffer(&mut ctxt, &attachment, data);
+            fbo::FramebuffersContainer::clear_buffer(&mut ctxt, &attachment, data.into())
+        }
+    }
+}
+
+/// Adds the memory barrier that an access to a texture needs after the shader writes made
+/// through image units, `latest_shader_write` being the draw call that last made one.
+pub(crate) fn prepare_for_access(
+    latest_shader_write: &Cell<u64>,
+    ctxt: &mut CommandContext<'_>,
+    access_type: crate::TextureAccess,
+) {
+    match access_type {
+        crate::TextureAccess::TextureFetch => {
+            if latest_shader_write.get() >= ctxt.state.latest_memory_barrier_texture_fetch {
+                unsafe {
+                    ctxt.glow.memory_barrier(glow::TEXTURE_FETCH_BARRIER_BIT);
+                }
+                ctxt.state.latest_memory_barrier_texture_fetch = ctxt.state.next_draw_call_id;
+            }
+        }
+        crate::TextureAccess::ImageUnit { will_write } => {
+            if latest_shader_write.get() >= ctxt.state.latest_memory_barrier_shader_image_access {
+                unsafe {
+                    ctxt.glow
+                        .memory_barrier(glow::SHADER_IMAGE_ACCESS_BARRIER_BIT);
+                }
+                ctxt.state.latest_memory_barrier_shader_image_access = ctxt.state.next_draw_call_id;
+            }
+
+            if will_write {
+                latest_shader_write.set(ctxt.state.next_draw_call_id);
+            }
+        }
+        crate::TextureAccess::Framebuffer => {
+            if latest_shader_write.get() >= ctxt.state.latest_memory_barrier_framebuffer {
+                unsafe {
+                    ctxt.glow.memory_barrier(glow::FRAMEBUFFER_BARRIER_BIT);
+                }
+                ctxt.state.latest_memory_barrier_framebuffer = ctxt.state.next_draw_call_id;
+            }
+        }
+        crate::TextureAccess::Update => {
+            if latest_shader_write.get() >= ctxt.state.latest_memory_barrier_texture_update {
+                unsafe {
+                    ctxt.glow.memory_barrier(glow::TEXTURE_UPDATE_BARRIER_BIT);
+                }
+                ctxt.state.latest_memory_barrier_texture_update = ctxt.state.next_draw_call_id;
+            }
         }
     }
 }

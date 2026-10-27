@@ -78,7 +78,7 @@ jobs:
         run: lua5.4 tests/levels/check_levels.lua
 
   mesa:
-    name: Tests on Mesa (${{ matrix.level }})
+    name: Tests on Mesa (${{ matrix.name || matrix.level }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -91,6 +91,11 @@ jobs:
             env: MESA_GLES_VERSION_OVERRIDE=3.0
           - level: gl46
             env: ""
+          # the gl46 level on an OpenGL 4.0 driver: the runtime checks of the API above the driver
+          - level: gl46
+            name: gl46 on OpenGL 4.0
+            cache: gl46-on-gl40
+            env: SAFEGL_GL_VERSION='OpenGL 4.0' MESA_GL_VERSION_OVERRIDE=4.0 MESA_GLSL_VERSION_OVERRIDE=400
     env:
       LIBGL_ALWAYS_SOFTWARE: "1"
       MESA_SHADER_CACHE_DISABLE: "true"
@@ -99,7 +104,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          key: mesa-${{ matrix.level }}
+          key: mesa-${{ matrix.cache || matrix.level }}
 
       # llvmpipe gives OpenGL 4.6 from Mesa 24; the PPA has a recent Mesa
       - name: Install Mesa

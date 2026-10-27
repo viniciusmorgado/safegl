@@ -45,6 +45,8 @@ pub struct Program {
     raw: RawProgram,
     outputs_srgb: bool,
     uses_point_size: bool,
+    // the stages of a separable program, 0 for the others
+    separable_stages: gl::types::GLbitfield,
 }
 
 impl Program {
@@ -66,6 +68,7 @@ impl Program {
                 transform_feedback_varyings,
                 outputs_srgb,
                 uses_point_size,
+                locations,
             } => {
                 let mut has_geometry_shader = false;
                 let mut has_tessellation_control_shader = false;
@@ -110,6 +113,9 @@ impl Program {
                         has_tessellation_evaluation_shader,
                         transform_feedback_varyings,
                         Some(fragment_shader),
+                        locations,
+                        None,
+                        None,
                     )?,
                     outputs_srgb,
                     uses_point_size,
@@ -134,7 +140,6 @@ impl Program {
                 tessellation_evaluation_shader,
                 geometry_shader,
                 fragment_shader,
-                transform_feedback_varyings,
                 outputs_srgb,
                 uses_point_size,
             }) => {
@@ -164,14 +169,15 @@ impl Program {
 
                 let _lock = COMPILER_GLOBAL_LOCK.lock();
 
-                let shaders_store = {
-                    let mut shaders_store = Vec::new();
-                    for (src, ty) in shaders.into_iter() {
-                        shaders_store.push(build_spirv_shader(facade, ty.to_opengl_type(), &src)?);
-                    }
-                    shaders_store
-                };
+                let mut shaders_store = Vec::new();
+                let mut modules = Vec::new();
+                for (src, ty) in shaders.into_iter() {
+                    let (shader, module) = build_spirv_shader(facade, ty.to_opengl_type(), &src)?;
+                    shaders_store.push(shader);
+                    modules.push(module);
+                }
 
+                // the modules capture with `xfb_buffer` and `xfb_offset`
                 (
                     RawProgram::from_shaders(
                         facade,
@@ -179,7 +185,10 @@ impl Program {
                         has_geometry_shader,
                         has_tessellation_control_shader,
                         has_tessellation_evaluation_shader,
-                        transform_feedback_varyings,
+                        None,
+                        None,
+                        Default::default(),
+                        Some(&modules),
                         None,
                     )?,
                     outputs_srgb,
@@ -191,7 +200,38 @@ impl Program {
             raw,
             outputs_srgb,
             uses_point_size,
+            separable_stages: 0,
         })
+    }
+
+    /// A program linked to be used in program pipelines, with the stages of its shaders, as
+    /// `glUseProgramStages` names them.
+    #[cfg(any(safegl_gl41, safegl_gles31))]
+    pub(crate) fn separable(
+        raw: RawProgram,
+        outputs_srgb: bool,
+        uses_point_size: bool,
+        stages: gl::types::GLbitfield,
+    ) -> Program {
+        Program {
+            raw,
+            outputs_srgb,
+            uses_point_size,
+            separable_stages: stages,
+        }
+    }
+
+    /// For a program linked to be used in program pipelines, the stages of its shaders, as
+    /// `glUseProgramStages` names them; 0 for the other programs.
+    #[cfg(any(safegl_gl41, safegl_gles31))]
+    pub(crate) fn separable_stages(&self) -> gl::types::GLbitfield {
+        self.separable_stages
+    }
+
+    /// Returns the program, which knows its uniform values.
+    #[cfg(any(safegl_gl41, safegl_gles31))]
+    pub(crate) fn raw(&self) -> &RawProgram {
+        &self.raw
     }
 
     /// Builds a new program from GLSL source code.
@@ -236,6 +276,7 @@ impl Program {
                 transform_feedback_varyings: None,
                 outputs_srgb: true,
                 uses_point_size: false,
+                locations: Default::default(),
             },
         )
     }
@@ -265,6 +306,17 @@ impl Program {
     #[inline]
     pub fn get_frag_data_location(&self, name: &str) -> Option<u32> {
         self.raw.get_frag_data_location(name)
+    }
+
+    /// Returns the index of a fragment output: 1 for the second color output of dual-source
+    /// blending, declared with `layout(location = 0, index = 1)`, and 0 for the others. Returns
+    /// `None` if the program has no output with this name.
+    ///
+    /// The outputs at index 1 are blended with the `*SourceOne*` factors of
+    /// `LinearBlendingFactor`.
+    #[inline]
+    pub fn get_frag_data_index(&self, name: &str) -> Option<u32> {
+        self.raw.get_frag_data_index(name)
     }
 
     /// Returns informations about a uniform variable, if it exists.
@@ -463,10 +515,55 @@ impl Program {
     }
 }
 
+/// Enables `GL_PROGRAM_POINT_SIZE` for the programs that write `gl_PointSize` and disables it for
+/// the others, and converts the colors that the programs write to sRGB targets unless they
+/// output sRGB themselves.
+pub(crate) fn apply_output_state(
+    ctxt: &mut CommandContext<'_>,
+    uses_point_size: bool,
+    outputs_srgb: bool,
+) {
+    // compatibility was checked at program creation
+    if ctxt.version.0 == Api::Gl && ctxt.state.enabled_program_point_size != uses_point_size {
+        ctxt.state.enabled_program_point_size = uses_point_size;
+        unsafe {
+            if uses_point_size {
+                ctxt.glow.enable(glow::PROGRAM_POINT_SIZE);
+            } else {
+                ctxt.glow.disable(glow::PROGRAM_POINT_SIZE);
+            }
+        }
+    }
+
+    if (ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_srgb_write_control)
+        && ctxt.state.enabled_framebuffer_srgb == outputs_srgb
+    {
+        ctxt.state.enabled_framebuffer_srgb = !outputs_srgb;
+
+        if outputs_srgb {
+            unsafe { ctxt.glow.disable(glow::FRAMEBUFFER_SRGB) };
+        } else {
+            unsafe { ctxt.glow.enable(glow::FRAMEBUFFER_SRGB) };
+        }
+    }
+}
+
 impl fmt::Debug for Program {
     #[inline]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(formatter, "{:?}", self.raw)
+    }
+}
+
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl crate::debug::sealed::Labeled for Program {
+    fn labeled_object(
+        &self,
+    ) -> (&crate::context::Context, crate::debug::sealed::LabeledObject) {
+        (
+            ProgramExt::get_context(self),
+            crate::debug::sealed::LabeledObject::Object(crate::gl::PROGRAM, self.get_id().0.get()),
+        )
     }
 }
 
@@ -486,31 +583,7 @@ impl ProgramExt for Program {
     }
 
     fn use_program(&self, ctxt: &mut CommandContext<'_>) {
-        // compatibility was checked at program creation
-        if ctxt.version.0 == Api::Gl {
-            if self.uses_point_size && !ctxt.state.enabled_program_point_size {
-                unsafe {
-                    ctxt.glow.enable(glow::PROGRAM_POINT_SIZE);
-                }
-            } else if !self.uses_point_size && ctxt.state.enabled_program_point_size {
-                unsafe {
-                    ctxt.glow.disable(glow::PROGRAM_POINT_SIZE);
-                }
-            }
-        }
-
-        if (ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_srgb_write_control)
-            && ctxt.state.enabled_framebuffer_srgb == self.outputs_srgb
-        {
-            ctxt.state.enabled_framebuffer_srgb = !self.outputs_srgb;
-
-            if self.outputs_srgb {
-                unsafe { ctxt.glow.disable(glow::FRAMEBUFFER_SRGB) };
-            } else {
-                unsafe { ctxt.glow.enable(glow::FRAMEBUFFER_SRGB) };
-            }
-        }
-
+        apply_output_state(ctxt, self.uses_point_size, self.outputs_srgb);
         self.raw.use_program(ctxt)
     }
 

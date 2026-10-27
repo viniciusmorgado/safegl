@@ -1,6 +1,7 @@
 use crate::gl;
 
 use crate::context::CommandContext;
+use crate::handles::RawName;
 #[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::version::Api;
 #[cfg(any(safegl_gl43, safegl_gles31))]
@@ -9,9 +10,9 @@ use crate::version::Version;
 use crate::backend::Facade;
 use crate::context::Context;
 #[cfg(any(safegl_gl43, safegl_gles31))]
-use crate::vertex::TransformFeedbackSession;
+use crate::vertex::TransformFeedback;
 #[cfg(any(safegl_gl43, safegl_gles31))]
-use crate::TransformFeedbackSessionExt;
+use crate::TransformFeedbackExt;
 use crate::ContextExt;
 #[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::uniforms::CollectedUniforms;
@@ -44,9 +45,10 @@ use crate::BufferExt;
 use crate::BufferSliceExt;
 
 use crate::program::uniforms_storage::UniformsStorage;
-use crate::program::ProgramCreationError;
 #[cfg(any(safegl_gl41, safegl_gles30))]
 use crate::program::{is_binary_supported, Binary, GetBinaryError};
+use crate::program::spirv::Module;
+use crate::program::{LinkLocations, ProgramCreationError};
 
 #[cfg(any(safegl_gl41, safegl_gles30))]
 use crate::program::binary_header::{attach_safegl_header, process_safegl_header};
@@ -54,6 +56,8 @@ use crate::program::binary_header::{attach_safegl_header, process_safegl_header}
 use crate::program::compute::ComputeCommand;
 use crate::program::reflection::reflect_subroutine_data;
 use crate::program::reflection::reflect_transform_feedback;
+#[cfg(safegl_gl46)]
+use crate::program::reflection::reflect_spirv;
 use crate::program::reflection::{reflect_attributes, reflect_uniform_blocks, reflect_uniforms};
 use crate::program::reflection::{reflect_geometry_input_type, reflect_geometry_output_type};
 use crate::program::reflection::{reflect_shader_storage_blocks, reflect_tess_eval_output_type};
@@ -86,6 +90,9 @@ pub struct RawProgram {
     has_geometry_shader: bool,
     has_tessellation_control_shader: bool,
     has_tessellation_evaluation_shader: bool,
+    /// The locations and indices of the fragment outputs of a program linked from SPIR-V,
+    /// which OpenGL can't look up by name.
+    spirv_outputs: Option<HashMap<String, (u32, u32), BuildHasherDefault<FnvHasher>>>,
 }
 
 impl RawProgram {
@@ -99,12 +106,16 @@ impl RawProgram {
         has_tessellation_evaluation_shader: bool,
         transform_feedback: Option<(Vec<String>, TransformFeedbackMode)>,
         fragment_source: Option<&str>,
+        locations: LinkLocations<'_>,
+        spirv: Option<&[Module]>,
+        separable: Option<gl::types::GLbitfield>,
     ) -> Result<RawProgram, ProgramCreationError>
     where
         F: Facade,
         I: IntoIterator<Item = &'a Shader>,
     {
         let mut ctxt = facade.get_context().make_current();
+        check_link_locations(&ctxt, &locations)?;
 
         let shaders_ids = shaders.into_iter().map(|s| s.get_id()).collect::<Vec<_>>();
 
@@ -128,13 +139,46 @@ impl RawProgram {
                 ctxt.glow.transform_feedback_varyings(id, &names, mode);
             }
 
+            for &(name, location) in locations.attributes {
+                ctxt.glow.bind_attrib_location(id, location, name);
+            }
+
             // the fragment outputs without a location get locations in their declaration order,
             // so that the first one goes to the first draw buffer on every driver; OpenGL ES
-            // requires a location when there are several outputs
-            if ctxt.version.0 == crate::version::Api::Gl {
+            // requires a location when there are several outputs, unless the locations of some
+            // of them are given here
+            let given = locations.fragment_outputs;
+            if ctxt.version.0 == crate::version::Api::Gl || !given.is_empty() {
                 if let Some(source) = fragment_source {
-                    bind_fragment_output_locations(&ctxt, id, source);
+                    bind_fragment_output_locations(&ctxt, id, source, given);
                 }
+            }
+            for &(name, location, index) in given {
+                bind_frag_data_location(&ctxt, id, location, index, name);
+            }
+
+            // the binaries of programs can be retrieved after they are linked with this hint,
+            // which some drivers need (core in OpenGL 4.1 and OpenGL ES 3.0)
+            if !crate::version::is_webgl()
+                && (ctxt.version.0 == crate::version::Api::GlEs
+                    || ctxt.version >= &crate::version::Version(crate::version::Api::Gl, 4, 1)
+                    || ctxt.extensions.gl_arb_get_program_binary)
+            {
+                ctxt.extra.ProgramParameteri(
+                    id.raw_name(),
+                    gl::PROGRAM_BINARY_RETRIEVABLE_HINT,
+                    gl::TRUE as gl::types::GLint,
+                );
+            }
+
+            // programs used by program pipelines are linked separable, which callers check that
+            // the context supports
+            if separable.is_some() {
+                ctxt.extra.ProgramParameteri(
+                    id.raw_name(),
+                    gl::PROGRAM_SEPARABLE,
+                    gl::TRUE as gl::types::GLint,
+                );
             }
 
             // linking
@@ -150,12 +194,37 @@ impl RawProgram {
             id
         };
 
-        let (uniforms, atomic_counters, uniform_locations) =
-            unsafe { reflect_uniforms(&mut ctxt, id) };
-        let attributes = unsafe { reflect_attributes(&mut ctxt, id) };
-        let blocks = unsafe { reflect_uniform_blocks(&mut ctxt, id) };
+        // drivers can leave out the names of the resources of SPIR-V modules
+        let (uniforms, atomic_counters, uniform_locations, attributes, blocks, ssbos, outputs) =
+            match spirv {
+                #[cfg(safegl_gl46)]
+                Some(modules) => {
+                    let spirv = unsafe { reflect_spirv(&mut ctxt, id, modules) };
+                    (
+                        spirv.uniforms,
+                        spirv.atomic_counters,
+                        spirv.locations,
+                        spirv.attributes,
+                        spirv.uniform_blocks,
+                        spirv.ssbos,
+                        Some(spirv.outputs),
+                    )
+                }
+                _ => unsafe {
+                    let (uniforms, atomic_counters, uniform_locations) =
+                        reflect_uniforms(&mut ctxt, id);
+                    (
+                        uniforms,
+                        atomic_counters,
+                        uniform_locations,
+                        reflect_attributes(&mut ctxt, id),
+                        reflect_uniform_blocks(&mut ctxt, id),
+                        reflect_shader_storage_blocks(&mut ctxt, id),
+                        None,
+                    )
+                },
+            };
         let tf_buffers = unsafe { reflect_transform_feedback(&mut ctxt, id) };
-        let ssbos = unsafe { reflect_shader_storage_blocks(&mut ctxt, id) };
         let subroutine_data = unsafe {
             reflect_subroutine_data(
                 &mut ctxt,
@@ -163,6 +232,7 @@ impl RawProgram {
                 has_geometry_shader,
                 has_tessellation_control_shader,
                 has_tessellation_evaluation_shader,
+                separable,
             )
         };
 
@@ -196,6 +266,7 @@ impl RawProgram {
             has_geometry_shader,
             has_tessellation_control_shader,
             has_tessellation_evaluation_shader,
+            spirv_outputs: outputs,
         })
     }
 
@@ -262,6 +333,7 @@ impl RawProgram {
                     has_geometry_shader,
                     has_tessellation_control_shader,
                     has_tessellation_evaluation_shader,
+                    None,
                 ),
             )
         };
@@ -296,6 +368,7 @@ impl RawProgram {
             has_geometry_shader,
             has_tessellation_control_shader,
             has_tessellation_evaluation_shader,
+            spirv_outputs: None,
         })
     }
 
@@ -348,6 +421,10 @@ impl RawProgram {
     /// ```
     ///
     pub fn get_frag_data_location(&self, name: &str) -> Option<u32> {
+        if let Some(outputs) = &self.spirv_outputs {
+            return outputs.get(name).map(|output| output.0);
+        }
+
         // looking for a cached value
         if let Some(result) = self.frag_data_locations.borrow_mut().get(name) {
             return *result;
@@ -367,6 +444,53 @@ impl RawProgram {
             .borrow_mut()
             .insert(name.to_owned(), location);
         location
+    }
+
+    /// Forgets the values of the subroutine uniforms, which binding a program or a pipeline
+    /// resets.
+    #[cfg(all(safegl_desktop, safegl_gl41))]
+    pub(crate) fn flush_subroutine_uniforms(&self) {
+        self.uniform_values.flush_subroutine_uniforms();
+    }
+
+    /// Returns the index of a fragment output: 1 for the second color output of dual-source
+    /// blending, declared with `layout(location = 0, index = 1)`, and 0 for the others. Returns
+    /// `None` if the program has no output with this name.
+    pub fn get_frag_data_index(&self, name: &str) -> Option<u32> {
+        if let Some(outputs) = &self.spirv_outputs {
+            return outputs.get(name).map(|output| output.1);
+        }
+        self.get_frag_data_location(name)?;
+
+        let ctxt = self.context.make_current();
+        let name = std::ffi::CString::new(name).ok()?;
+        let index = unsafe {
+            if ctxt.version.0 == crate::version::Api::Gl {
+                ctxt.extra.GetFragDataIndex(self.id.raw_name(), name.as_ptr())
+            } else if ctxt.extensions.gl_ext_blend_func_extended {
+                ctxt.extra.GetFragDataIndexEXT(self.id.raw_name(), name.as_ptr())
+            } else {
+                // without dual-source blending, outputs can't have another index
+                0
+            }
+        };
+        u32::try_from(index).ok()
+    }
+
+    /// Returns the size of the local work groups of a compute program
+    /// (`GL_COMPUTE_WORK_GROUP_SIZE`).
+    #[cfg(any(safegl_gl43, safegl_gles31))]
+    pub fn compute_work_group_size(&self) -> [u32; 3] {
+        let ctxt = self.context.make_current();
+        let mut size = [0i32; 3];
+        unsafe {
+            ctxt.extra.GetProgramiv(
+                self.id.raw_name(),
+                gl::COMPUTE_WORK_GROUP_SIZE,
+                size.as_mut_ptr(),
+            )
+        };
+        size.map(|s| s.max(0) as u32)
     }
 
     /// Returns informations about a uniform variable, if it exists.
@@ -600,8 +724,8 @@ impl RawProgram {
         }
 
         AnySamplesPassedQuery::end_conditional_render(&mut ctxt);
-        // `glUseProgram` is invalid while transform feedback is active
-        TransformFeedbackSession::unbind(&mut ctxt);
+        // `glUseProgram` is invalid while transform feedback records
+        TransformFeedback::pause(&mut ctxt);
 
         let mut fences = crate::buffer::FenceInserters::new();
 
@@ -661,8 +785,8 @@ impl RawProgram {
         }
 
         AnySamplesPassedQuery::end_conditional_render(&mut ctxt);
-        // `glUseProgram` is invalid while transform feedback is active
-        TransformFeedbackSession::unbind(&mut ctxt);
+        // `glUseProgram` is invalid while transform feedback records
+        TransformFeedback::pause(&mut ctxt);
 
         buffer.prepare_and_bind_for_dispatch_indirect(&mut ctxt);
 
@@ -706,7 +830,7 @@ fn sync_statistics(
     #[cfg(safegl_gl46)]
     {
         let queries: smallvec::SmallVec<[_; 4]> = statistics.iter().map(|q| q.raw()).collect();
-        crate::draw_parameters::sync_indexed_queries(ctxt, &queries)
+        crate::draw_parameters::sync_indexed_queries(ctxt, &queries, true)
     }
     #[cfg(not(safegl_gl46))]
     {
@@ -900,25 +1024,109 @@ fn is_compute_supported(ctxt: &CommandContext<'_>) -> bool {
         || ctxt.extensions.gl_arb_compute_shader
 }
 
+/// Gives a location and an index to a fragment output before linking. OpenGL ES needs
+/// `GL_EXT_blend_func_extended`.
+unsafe fn bind_frag_data_location(
+    ctxt: &CommandContext<'_>,
+    program: glow::Program,
+    location: u32,
+    index: u32,
+    name: &str,
+) {
+    // `check_link_locations` checked the names given by the user, and GLSL names have no nul
+    let Ok(name) = std::ffi::CString::new(name) else {
+        return;
+    };
+    if ctxt.version.0 == crate::version::Api::Gl {
+        ctxt.extra
+            .BindFragDataLocationIndexed(program.raw_name(), location, index, name.as_ptr());
+    } else {
+        ctxt.extra.BindFragDataLocationIndexedEXT(
+            program.raw_name(),
+            location,
+            index,
+            name.as_ptr(),
+        );
+    }
+}
+
+/// Checks the locations given before linking, which OpenGL would refuse with an error.
+fn check_link_locations(
+    ctxt: &CommandContext<'_>,
+    locations: &LinkLocations<'_>,
+) -> Result<(), ProgramCreationError> {
+    let invalid = |name: &str| name.starts_with("gl_") || name.contains('\0') || name.is_empty();
+    let error = |name: &str| ProgramCreationError::InvalidLinkLocation {
+        name: name.to_owned(),
+    };
+
+    let limits = &ctxt.capabilities.limits;
+    for &(name, location) in locations.attributes {
+        if invalid(name) || location >= limits.max_vertex_attribs.max(0) as u32 {
+            return Err(error(name));
+        }
+    }
+
+    if locations.fragment_outputs.is_empty() {
+        return Ok(());
+    }
+    if !(ctxt.version.0 == crate::version::Api::Gl || ctxt.extensions.gl_ext_blend_func_extended) {
+        return Err(ProgramCreationError::LinkLocationsNotSupported);
+    }
+    let draw_buffers = ctxt.capabilities.max_draw_buffers.max(0) as u32;
+    let dual_source = limits.max_dual_source_draw_buffers.unwrap_or(0).max(0) as u32;
+    for &(name, location, index) in locations.fragment_outputs {
+        let max = match index {
+            0 => draw_buffers,
+            1 => dual_source,
+            _ => 0,
+        };
+        if invalid(name) || location >= max {
+            return Err(error(name));
+        }
+    }
+    Ok(())
+}
+
 /// Binds the outputs of a fragment shader that have no location to locations in their
-/// declaration order, skipping the locations given in the shader.
+/// declaration order, skipping the locations given in the shader and in `given`, the locations
+/// and indices given before linking.
 unsafe fn bind_fragment_output_locations(
     ctxt: &CommandContext<'_>,
     program: glow::Program,
     source: &str,
+    given: &[(&str, u32, u32)],
 ) {
     let outputs = crate::program::shader::fragment_outputs(source);
+
+    // the locations of index 0 given before linking, with the sizes of their outputs
+    let given_locations: Vec<(u32, u32)> = given
+        .iter()
+        .filter(|&&(_, _, index)| index == 0)
+        .map(|&(name, location, _)| {
+            let size = outputs
+                .iter()
+                .find(|output| output.name == name)
+                .map_or(1, |output| output.size);
+            (location, size)
+        })
+        .collect();
 
     let is_free = |location: u32, size: u32| {
         outputs.iter().all(|output| match output.location {
             Some(taken) => location + size <= taken || taken + output.size <= location,
             None => true,
-        })
+        }) && given_locations
+            .iter()
+            .all(|&(taken, taken_size)| location + size <= taken || taken + taken_size <= location)
     };
 
     let mut next = 0;
     let mut assigned: Vec<(u32, u32)> = Vec::new();
-    for output in outputs.iter().filter(|output| output.location.is_none()) {
+    let unplaced = outputs.iter().filter(|output| {
+        output.location.is_none() && !given.iter().any(|&(name, _, _)| name == output.name)
+    });
+    for output in unplaced {
         while !is_free(next, output.size)
             || assigned
                 .iter()
@@ -926,8 +1134,7 @@ unsafe fn bind_fragment_output_locations(
         {
             next += 1;
         }
-        ctxt.glow
-            .bind_frag_data_location(program, next, &output.name);
+        bind_frag_data_location(ctxt, program, next, 0, &output.name);
         assigned.push((next, output.size));
         next += output.size;
     }

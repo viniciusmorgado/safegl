@@ -14,6 +14,12 @@ use crate::version::Version;
 #[cfg(any(safegl_gl43, safegl_gles31))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
 pub use self::compute::{ComputeCommand, ComputeShader};
+pub use self::pipeline::DrawProgram;
+#[cfg(any(safegl_gl41, safegl_gles31))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles31))))]
+pub use self::pipeline::{
+    ProgramPipeline, ProgramPipelineCreationError, SeparableProgram, SeparableSource,
+};
 pub use self::program::Program;
 pub use self::reflection::ShaderStage;
 #[cfg(not(safegl_desktop))]
@@ -30,10 +36,12 @@ pub use self::reflection::{SubroutineData, SubroutineUniform};
 mod binary_header;
 #[cfg(any(safegl_gl43, safegl_gles31))]
 mod compute;
+mod pipeline;
 mod program;
 mod raw;
 mod reflection;
 mod shader;
+mod spirv;
 mod uniforms_storage;
 
 /// Returns true if the backend supports geometry shaders.
@@ -69,6 +77,20 @@ where
             || ctxt.get_extensions().gl_arb_get_program_binary)
 }
 
+/// Returns true if the backend supports program pipelines: OpenGL 4.1,
+/// `GL_ARB_separate_shader_objects` or OpenGL ES 3.1. WebGL doesn't have them.
+pub(crate) fn are_pipelines_supported<C: ?Sized>(ctxt: &C) -> bool
+where
+    C: CapabilitiesSource,
+{
+    use crate::version::{Api, Version};
+    let version = ctxt.get_version();
+    !crate::version::is_webgl()
+        && (version >= &Version(Api::Gl, 4, 1)
+            || (version.0 == Api::Gl && ctxt.get_extensions().gl_arb_separate_shader_objects)
+            || version >= &Version(Api::GlEs, 3, 1))
+}
+
 /// Returns true if the backend supports shader subroutines.
 #[cfg(safegl_desktop)]
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
@@ -102,6 +124,54 @@ pub enum ShaderType {
     Compute,
 }
 
+/// A precision qualifier of GLSL ES and of GLSL 4.10 and above, for
+/// `Context::shader_precision_format`.
+#[cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum PrecisionQualifier {
+    /// `lowp float`.
+    LowFloat,
+    /// `mediump float`.
+    MediumFloat,
+    /// `highp float`.
+    HighFloat,
+    /// `lowp int`.
+    LowInt,
+    /// `mediump int`.
+    MediumInt,
+    /// `highp int`.
+    HighInt,
+}
+
+#[cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))]
+impl PrecisionQualifier {
+    pub(crate) fn to_glenum(self) -> gl::types::GLenum {
+        match self {
+            PrecisionQualifier::LowFloat => gl::LOW_FLOAT,
+            PrecisionQualifier::MediumFloat => gl::MEDIUM_FLOAT,
+            PrecisionQualifier::HighFloat => gl::HIGH_FLOAT,
+            PrecisionQualifier::LowInt => gl::LOW_INT,
+            PrecisionQualifier::MediumInt => gl::MEDIUM_INT,
+            PrecisionQualifier::HighInt => gl::HIGH_INT,
+        }
+    }
+}
+
+/// The range and the precision of the numbers of a precision qualifier in a shader stage
+/// (`glGetShaderPrecisionFormat`).
+#[cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ShaderPrecision {
+    /// The base 2 logarithms of the absolute values of the smallest and the largest numbers: the
+    /// numbers are in `-2^range.0` to `2^range.1`.
+    pub range: (i32, i32),
+    /// The number of bits of precision of floats: their relative precision is `2^-precision`. 0
+    /// for integers.
+    pub precision: i32,
+}
+
 impl ShaderType {
     /// Creates an instance of gl::types::GLenum corresponding to the given ShaderType
     pub fn to_opengl_type(self) -> gl::types::GLenum {
@@ -132,7 +202,10 @@ impl ShaderType {
 }
 
 /// Error that can be triggered when creating a `Program`.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum ProgramCreationError {
     /// Error while compiling one of the shaders.
     CompilationError(String, ShaderType),
@@ -155,6 +228,29 @@ pub enum ProgramCreationError {
 
     /// The backend doesn't support loading program binaries (WebGL). See `is_binary_supported`.
     BinaryNotSupported,
+
+    /// A location of `LinkLocations` can't be given: it is too large for the implementation,
+    /// the index of a fragment output isn't 0 or 1, or the name starts with `gl_` or holds a nul
+    /// character.
+    InvalidLinkLocation {
+        /// The name of the attribute or output.
+        name: String,
+    },
+
+    /// Separable programs need OpenGL 4.1, `GL_ARB_separate_shader_objects` or OpenGL ES 3.1.
+    ProgramPipelinesNotSupported,
+
+    /// A separable program was given no shader.
+    NoShader,
+
+    /// A SPIR-V module is invalid: it isn't a module, it has no such entry point for the stage
+    /// of the shader, or a specialization constant doesn't exist or has another type. The
+    /// string says why.
+    InvalidSpirvModule(String),
+
+    /// Locations of fragment outputs can't be given before linking: OpenGL ES needs
+    /// `GL_EXT_blend_func_extended`, and WebGL can't. Declare them with `layout(location = N)`.
+    LinkLocationsNotSupported,
 }
 
 impl fmt::Display for ProgramCreationError {
@@ -179,10 +275,21 @@ impl fmt::Display for ProgramCreationError {
             #[cfg(any(safegl_gl41, safegl_gles30))]
             BinaryHeaderError => "The SafeGL-specific binary header was not found or is corrupt.",
             BinaryNotSupported => "Program binaries are not supported by the backend.",
+            InvalidLinkLocation { .. } => "A location given before linking is invalid",
+            InvalidSpirvModule(_) => "Invalid SPIR-V module",
+            ProgramPipelinesNotSupported => {
+                "Separable programs and program pipelines are not supported by the backend"
+            }
+            NoShader => "A separable program needs a shader",
+            LinkLocationsNotSupported => {
+                "Fragment output locations can't be given before linking by the backend"
+            }
         };
         match *self {
             CompilationError(ref s, _) => write!(fmt, "{}: {}", desc, s),
             LinkingError(ref s) => write!(fmt, "{}: {}", desc, s),
+            InvalidLinkLocation { ref name } => write!(fmt, "{}: `{}`", desc, name),
+            InvalidSpirvModule(ref s) => write!(fmt, "{}: {}", desc, s),
             _ => write!(fmt, "{}", desc),
         }
     }
@@ -327,6 +434,10 @@ pub enum ProgramCreationInput<'a> {
 
         /// Whether the shader uses point size.
         uses_point_size: bool,
+
+        /// The locations that the linker gives to attributes and fragment outputs that the
+        /// shaders don't declare with `layout(location = N)`. See [`LinkLocations`].
+        locations: LinkLocations<'a>,
     },
 
     /// Use a precompiled binary.
@@ -369,17 +480,19 @@ pub struct SpirvProgram<'a> {
     /// Optional geometry shader.
     pub geometry_shader: Option<SpirvEntryPoint<'a>>,
 
-    /// The list of variables and mode to use for transform feedback.
-    ///
-    /// The information specified here will be passed to the OpenGL linker. If you pass
-    /// `None`, then you won't be able to use transform feedback.
-    pub transform_feedback_varyings: Option<(Vec<String>, TransformFeedbackMode)>,
-
     /// See [`ProgramCreationInput::SourceCode::outputs_srgb`].
     pub outputs_srgb: bool,
 
     /// Whether the shader uses point size.
     pub uses_point_size: bool,
+}
+
+#[cfg(safegl_gl46)]
+impl<'a> From<SpirvProgram<'a>> for ProgramCreationInput<'a> {
+    #[inline]
+    fn from(program: SpirvProgram<'a>) -> ProgramCreationInput<'a> {
+        ProgramCreationInput::SpirV(program)
+    }
 }
 
 #[cfg(safegl_gl46)]
@@ -395,7 +508,6 @@ impl<'a> SpirvProgram<'a> {
             tessellation_control_shader: None,
             tessellation_evaluation_shader: None,
             geometry_shader: None,
-            transform_feedback_varyings: None,
             outputs_srgb: true,
             uses_point_size: false,
         }
@@ -425,15 +537,6 @@ impl<'a> SpirvProgram<'a> {
         self
     }
 
-    /// Builder method to set `transform_feedback_varyings`.
-    pub fn transform_feedback_varyings(
-        mut self,
-        transform_feedback_varyings: Option<(Vec<String>, TransformFeedbackMode)>,
-    ) -> Self {
-        self.transform_feedback_varyings = transform_feedback_varyings;
-        self
-    }
-
     /// Builder method to set `outputs_srgb`.
     pub fn outputs_srgb(mut self, outputs_srgb: bool) -> Self {
         self.outputs_srgb = outputs_srgb;
@@ -447,16 +550,155 @@ impl<'a> SpirvProgram<'a> {
     }
 }
 
-/// Represents an entry point of a binary SPIR-V module.
+/// Locations that the linker gives to the attributes and the fragment outputs of a program whose
+/// shaders don't declare them with `layout(location = N)` (`glBindAttribLocation` and
+/// `glBindFragDataLocationIndexed`). The locations declared in the shaders win.
+///
+/// ```no_run
+/// # fn example(display: &safegl::Display<safegl::glutin::surface::WindowSurface>,
+/// #            vertex_shader: &str, fragment_shader: &str) {
+/// use safegl::program::{LinkLocations, ProgramCreationInput};
+///
+/// let input = ProgramCreationInput::SourceCode {
+///     vertex_shader,
+///     fragment_shader,
+///     tessellation_control_shader: None,
+///     tessellation_evaluation_shader: None,
+///     geometry_shader: None,
+///     transform_feedback_varyings: None,
+///     outputs_srgb: true,
+///     uses_point_size: false,
+///     locations: LinkLocations {
+///         attributes: &[("position", 0), ("normal", 1)],
+///         // the two colors of dual-source blending
+///         fragment_outputs: &[("color", 0, 0), ("blend_factor", 0, 1)],
+///     },
+/// };
+/// let program = safegl::Program::new(display, input).unwrap();
+/// # }
+/// ```
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct LinkLocations<'a> {
+    /// The names of attributes and their locations, smaller than
+    /// `Limits::max_vertex_attribs`. A matrix takes a location per column.
+    pub attributes: &'a [(&'a str, u32)],
+
+    /// The names of fragment outputs, their locations and their indices: index 1 is the second
+    /// color of dual-source blending, at a location smaller than
+    /// `Limits::max_dual_source_draw_buffers`, and index 0 the other outputs, at locations
+    /// smaller than the number of draw buffers. An array takes a location per element.
+    ///
+    /// The outputs that have no location get the free ones, in their declaration order.
+    /// OpenGL ES needs `GL_EXT_blend_func_extended`, which a GLSL ES fragment shader with
+    /// several outputs without a location enables with `#extension`, and WebGL can't give them.
+    pub fragment_outputs: &'a [(&'a str, u32, u32)],
+}
+
+/// Represents an entry point of a binary SPIR-V module, with the values of its specialization
+/// constants.
+///
+/// SafeGL checks that the module has the entry point for the stage of the shader and the
+/// specialization constants with the types of their values. Since drivers can ignore the names
+/// that SPIR-V modules hold, and the modules can have none, SafeGL reads the names of the
+/// resources of the program from the modules, and gives them names from their locations and
+/// bindings too:
+///
+/// - uniforms are named `location=N`, and the elements of an array at location `N` are named
+///   `location=N[i]` too;
+/// - uniform blocks, shader storage blocks and atomic counters are named `binding=N`;
+/// - attributes are named `location=N`, or `location=N,component=C` after the first component;
+/// - fragment outputs are named `location=N`, and `location=N,index=1` for the second color of
+///   dual-source blending.
+///
+/// The members of blocks that the module doesn't name are named after their indices, `0`,
+/// `1`, ...
+///
+/// ```no_run
+/// # fn example(display: &safegl::Display<safegl::glutin::surface::WindowSurface>,
+/// #            vertex: &[u8], fragment: &[u8]) {
+/// use safegl::program::{SpecializationConstant, SpirvEntryPoint, SpirvProgram};
+///
+/// // `layout(constant_id = 0) const float scale = 1.0;` in the fragment shader
+/// let fragment = SpirvEntryPoint::new(fragment, "main")
+///     .specialized(&[(0, SpecializationConstant::Float(2.0))]);
+/// let program = safegl::Program::new(
+///     display,
+///     SpirvProgram::from_vs_and_fs(SpirvEntryPoint::new(vertex, "main"), fragment),
+/// )
+/// .unwrap();
+/// let uniforms = safegl::uniform! { "location=1": [1.0f32, 0.0, 0.0, 1.0] };
+/// # }
+/// ```
 #[cfg(safegl_gl46)]
 #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct SpirvEntryPoint<'a> {
     /// The binary module data.
     pub binary: &'a [u8],
 
     /// The entry point to use, e.g. "main".
     pub entry_point: &'a str,
+
+    /// The values of specialization constants, by `constant_id`. The others keep the values of
+    /// the module.
+    pub specialization: &'a [(u32, SpecializationConstant)],
+}
+
+#[cfg(safegl_gl46)]
+impl<'a> SpirvEntryPoint<'a> {
+    /// The entry point `entry_point` of a module, with the specialization constants of the
+    /// module.
+    #[inline]
+    pub fn new(binary: &'a [u8], entry_point: &'a str) -> SpirvEntryPoint<'a> {
+        SpirvEntryPoint {
+            binary,
+            entry_point,
+            specialization: &[],
+        }
+    }
+
+    /// Gives values to specialization constants, by `constant_id`.
+    #[inline]
+    pub fn specialized(
+        self,
+        specialization: &'a [(u32, SpecializationConstant)],
+    ) -> SpirvEntryPoint<'a> {
+        SpirvEntryPoint {
+            specialization,
+            ..self
+        }
+    }
+}
+
+/// The value of a specialization constant of a SPIR-V module. OpenGL can't specialize 64-bit
+/// constants.
+#[cfg(safegl_gl46)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum SpecializationConstant {
+    /// A `bool` constant.
+    Bool(bool),
+    /// An `int` constant.
+    Int(i32),
+    /// A `uint` constant.
+    UnsignedInt(u32),
+    /// A `float` constant.
+    Float(f32),
+}
+
+#[cfg(safegl_gl46)]
+impl SpecializationConstant {
+    /// Returns the kind and the bits that OpenGL takes.
+    pub(crate) fn to_spirv(self, id: u32) -> spirv::Specialization {
+        use spirv::SpecializationKind as K;
+        let (kind, bits) = match self {
+            SpecializationConstant::Bool(value) => (K::Bool, value as u32),
+            SpecializationConstant::Int(value) => (K::Int, value as u32),
+            SpecializationConstant::UnsignedInt(value) => (K::UnsignedInt, value),
+            SpecializationConstant::Float(value) => (K::Float, value.to_bits()),
+        };
+        spirv::Specialization { id, kind, bits }
+    }
 }
 
 /// Represents the source code of a program.
@@ -497,6 +739,7 @@ impl<'a> From<SourceCode<'a>> for ProgramCreationInput<'a> {
             transform_feedback_varyings: None,
             outputs_srgb: true,
             uses_point_size: false,
+            locations: LinkLocations::default(),
         }
     }
 }

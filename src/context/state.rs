@@ -11,6 +11,10 @@ pub struct GlState {
     /// to check for lost context as long as this is false.
     pub lost_context: bool,
 
+    /// The `glGetGraphicsResetStatus` value that told that the context was lost, or
+    /// `GL_UNKNOWN_CONTEXT_RESET` when something else told it.
+    pub reset_status: gl::types::GLenum,
+
     /// Whether GL_BLEND is enabled
     pub enabled_blend: bool,
 
@@ -41,6 +45,9 @@ pub struct GlState {
     /// Whether GL_MULTISAMPLE is enabled
     pub enabled_multisample: bool,
 
+    /// Whether GL_COLOR_LOGIC_OP is enabled
+    pub enabled_color_logic_op: bool,
+
     /// Whether GL_POLYGON_OFFSET_FILL is enabled
     pub enabled_polygon_offset_fill: bool,
 
@@ -55,6 +62,22 @@ pub struct GlState {
     /// Always true on WebGL 2, which can't disable it.
     pub enabled_primitive_fixed_restart: bool,
 
+    /// Whether GL_PRIMITIVE_RESTART is enabled.
+    pub enabled_primitive_restart: bool,
+
+    /// The value of `glPrimitiveRestartIndex`.
+    pub primitive_restart_index: u32,
+
+    /// The value of `GL_PATCH_DEFAULT_OUTER_LEVEL`.
+    pub patch_default_outer_level: [f32; 4],
+
+    /// The value of `GL_PATCH_DEFAULT_INNER_LEVEL`.
+    pub patch_default_inner_level: [f32; 2],
+
+    /// The current values of the vertex attributes set by `glVertexAttrib*`, by location, or
+    /// `None` for those that SafeGL never set.
+    pub vertex_attrib_values: Vec<Option<crate::vertex::AttributeValue>>,
+
     /// Whether GL_RASTERIZER_DISCARD is enabled
     pub enabled_rasterizer_discard: bool,
 
@@ -63,6 +86,12 @@ pub struct GlState {
 
     /// Whether GL_SAMPLE_COVERAGE is enabled
     pub enabled_sample_coverage: bool,
+
+    /// The latest values passed to `glSampleCoverage`.
+    pub sample_coverage: (gl::types::GLfloat, bool),
+
+    /// Whether GL_SAMPLE_ALPHA_TO_ONE is enabled
+    pub enabled_sample_alpha_to_one: bool,
 
     /// Whether GL_SAMPLE_MASK is enabled
     pub enabled_sample_mask: bool,
@@ -90,6 +119,10 @@ pub struct GlState {
 
     /// The latest value passed to `glUseProgram`.
     pub program: Option<glow::Program>,
+
+    /// The latest value passed to `glBindProgramPipeline`, 0 for none. A program given to
+    /// `glUseProgram` is used instead of it.
+    pub program_pipeline: gl::types::GLuint,
 
     /// The latest value passed to `glBindVertexArray`.
     pub vertex_array: Option<glow::VertexArray>,
@@ -123,6 +156,10 @@ pub struct GlState {
     /// some draw buffers a blending state other than `enabled_blend`, `blend_equation` and
     /// `blend_func`.
     pub indexed_blend: bool,
+
+    /// Whether a draw gave the viewport indices other than 0 their own viewport, depth range or
+    /// scissor state, which the single viewport doesn't override until they are set again.
+    pub viewport_array_dirty: bool,
 
     /// The latest buffer bound to `GL_ARRAY_BUFFER`.
     pub array_buffer_binding: Option<glow::Buffer>,
@@ -183,6 +220,9 @@ pub struct GlState {
 
     /// The latest buffer bound to `GL_DRAW_FRAMEBUFFER`.
     pub draw_framebuffer: Option<glow::Framebuffer>,
+
+    /// The latest value passed to `glDrawBuffer` with the default framebuffer.
+    pub default_draw_buffer: gl::types::GLenum,
 
     /// The latest values passed to `glReadBuffer` with the default framebuffer.
     /// `None` means "unknown".
@@ -259,8 +299,20 @@ pub struct GlState {
     /// The latest value passed to `glPointSize`.
     pub point_size: gl::types::GLfloat,
 
+    /// The latest value of `GL_POINT_SPRITE_COORD_ORIGIN`.
+    pub point_coord_origin: gl::types::GLenum,
+
+    /// The latest value of `GL_POINT_FADE_THRESHOLD_SIZE`.
+    pub point_fade_threshold: gl::types::GLfloat,
+
     /// The latest value passed to `glCullFace`.
     pub cull_face: gl::types::GLenum,
+
+    /// The latest value passed to `glFrontFace`.
+    pub front_face: gl::types::GLenum,
+
+    /// The latest value passed to `glLogicOp`.
+    pub logic_op: gl::types::GLenum,
 
     /// The latest value passed to `glPolygonMode`.
     pub polygon_mode: gl::types::GLenum,
@@ -315,12 +367,6 @@ pub struct GlState {
     /// Current query being used for GL_ANY_SAMPLES_PASSED​_CONSERVATIVE.
     pub any_samples_passed_conservative_query: Option<glow::Query>,
 
-    /// Current query being used for GL_PRIMITIVES_GENERATED​.
-    pub primitives_generated_query: Option<glow::Query>,
-
-    /// Current query being used for GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN​.
-    pub transform_feedback_primitives_written_query: Option<glow::Query>,
-
     /// Current query being used for GL_TIME_ELAPSED​.
     pub time_elapsed_query: Option<glow::Query>,
 
@@ -331,13 +377,12 @@ pub struct GlState {
     /// Latest value passed to `glBeginConditionalRender​`.
     pub conditional_render: Option<(glow::Query, gl::types::GLenum)>,
 
-    /// If `glBeginTransformFeedback​` has been called, the current primitive types. Otherwise None.
-    // TODO: move this inside transform feedback objects
-    pub transform_feedback_enabled: Option<gl::types::GLenum>,
+    /// The bound transform feedback object, `None` for the default one.
+    pub transform_feedback: Option<glow::TransformFeedback>,
 
-    /// True if `glPauseTransformFeedback` has been called.
-    // TODO: move this inside transform feedback objects
-    pub transform_feedback_paused: bool,
+    /// The transform feedback objects whose capture began and didn't end, of which at most one
+    /// isn't paused.
+    pub transform_feedbacks: SmallVec<[RecordingTransformFeedback; 2]>,
 
     /// The latest value passed to `glPrimitiveBoundingBox`.
     pub primitive_bounding_box: (f32, f32, f32, f32, f32, f32, f32, f32),
@@ -417,6 +462,19 @@ pub struct TextureUnitState {
     pub sampler: Option<glow::Sampler>,
 }
 
+/// A transform feedback object whose capture began and didn't end.
+#[derive(Clone, Debug)]
+pub struct RecordingTransformFeedback {
+    /// The object.
+    pub id: glow::TransformFeedback,
+    /// The type of primitives that it captures (`glBeginTransformFeedback`).
+    pub primitives: gl::types::GLenum,
+    /// True if the capture is paused (`glPauseTransformFeedback`).
+    pub paused: bool,
+    /// The buffers that it captures into.
+    pub buffers: SmallVec<[glow::Buffer; 4]>,
+}
+
 /// State of an indexed buffer target (`glBindBufferRange`/`glBindBufferBase`).
 #[derive(Copy, Clone, Debug)]
 pub struct IndexedBufferState {
@@ -445,6 +503,7 @@ impl Default for GlState {
 
         GlState {
             lost_context: false,
+            reset_status: gl::NO_ERROR,
 
             enabled_blend: false,
             enabled_cull_face: false,
@@ -456,12 +515,15 @@ impl Default for GlState {
             enabled_dither: false,
             enabled_framebuffer_srgb: false,
             enabled_multisample: true,
+            enabled_color_logic_op: false,
             enabled_polygon_offset_fill: false,
             enabled_polygon_offset_line: false,
             enabled_polygon_offset_point: false,
             enabled_rasterizer_discard: false,
             enabled_sample_alpha_to_coverage: false,
             enabled_sample_coverage: false,
+            sample_coverage: (1.0, false),
+            enabled_sample_alpha_to_one: false,
             enabled_sample_mask: false,
             enabled_sample_shading: false,
             enabled_scissor_test: false,
@@ -469,10 +531,16 @@ impl Default for GlState {
             enabled_line_smooth: false,
             enabled_polygon_smooth: false,
             enabled_primitive_fixed_restart: crate::version::is_webgl(),
+            enabled_primitive_restart: false,
+            primitive_restart_index: 0,
+            patch_default_outer_level: [1.0; 4],
+            patch_default_inner_level: [1.0; 2],
+            vertex_attrib_values: Vec::new(),
             enabled_program_point_size: false,
             enabled_clip_planes: 0,
 
             program: None,
+            program_pipeline: 0,
             vertex_array: None,
             clear_color: (0.0, 0.0, 0.0, 0.0),
             clear_depth: 1.0,
@@ -480,6 +548,7 @@ impl Default for GlState {
             color_mask: (1, 1, 1, 1),
             indexed_color_mask: false,
             indexed_blend: false,
+            viewport_array_dirty: false,
             array_buffer_binding: None,
             pixel_pack_buffer_binding: None,
             pixel_unpack_buffer_binding: None,
@@ -500,6 +569,7 @@ impl Default for GlState {
             indexed_transform_feedback_buffer_bindings: small_vec_one(),
             read_framebuffer: None,
             draw_framebuffer: None,
+            default_draw_buffer: gl::BACK,
             default_framebuffer_read: None,
             renderbuffer: None,
             depth_func: gl::LESS,
@@ -518,7 +588,11 @@ impl Default for GlState {
             scissor: None,
             line_width: 1.0,
             point_size: 1.0,
+            point_coord_origin: gl::UPPER_LEFT,
+            point_fade_threshold: 1.0,
             cull_face: gl::BACK,
+            front_face: gl::CCW,
+            logic_op: gl::COPY,
             polygon_mode: gl::FILL,
             smooth: (gl::DONT_CARE, gl::DONT_CARE),
             provoking_vertex: gl::LAST_VERTEX_CONVENTION,
@@ -531,13 +605,11 @@ impl Default for GlState {
             samples_passed_query: None,
             any_samples_passed_query: None,
             any_samples_passed_conservative_query: None,
-            primitives_generated_query: None,
-            transform_feedback_primitives_written_query: None,
             time_elapsed_query: None,
             indexed_queries: SmallVec::new(),
             conditional_render: None,
-            transform_feedback_enabled: None,
-            transform_feedback_paused: false,
+            transform_feedback: None,
+            transform_feedbacks: SmallVec::new(),
             primitive_bounding_box: (-1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0),
             polygon_offset: (0.0, 0.0),
             polygon_offset_clamp: 0.0,

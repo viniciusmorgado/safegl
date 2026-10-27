@@ -1075,3 +1075,88 @@ fn normalized_vertex() {
 
     display.assert_no_error(None);
 }
+
+/// A buffer of 2 colors with a divisor of 3 colors 6 instances, drawn in 6 columns.
+#[test]
+fn instance_divisor() {
+    use std::num::NonZeroU32;
+
+    let display = support::build_display();
+
+    #[derive(Copy, Clone)]
+    struct Corner {
+        corner: [f32; 2],
+    }
+    implement_vertex!(Corner, corner);
+    #[derive(Copy, Clone)]
+    struct Column {
+        column: f32,
+    }
+    implement_vertex!(Column, column);
+    #[derive(Copy, Clone)]
+    struct Color {
+        color: [f32; 3],
+    }
+    implement_vertex!(Color, color);
+
+    let corners =
+        [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]].map(|corner| Corner { corner });
+    let corners = safegl::VertexBuffer::new(&display, &corners).unwrap();
+    let columns: Vec<Column> = (0..6).map(|column| Column { column: column as f32 }).collect();
+    let columns = safegl::VertexBuffer::new(&display, &columns).unwrap();
+    let colors = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]].map(|color| Color { color });
+    let colors = safegl::VertexBuffer::new(&display, &colors).unwrap();
+
+    let program = support::program_from_legacy(
+        &display,
+        "#version 110
+         attribute vec2 corner;
+         attribute float column;
+         attribute vec3 color;
+         varying vec3 v_color;
+         void main() {
+             v_color = color;
+             vec2 position = vec2((column + corner.x) / 3.0 - 1.0, corner.y * 2.0 - 1.0);
+             gl_Position = vec4(position, 0.0, 1.0);
+         }",
+        "#version 110
+         varying vec3 v_color;
+         void main() { gl_FragColor = vec4(v_color, 1.0); }",
+    )
+    .unwrap();
+
+    let target = safegl::Texture2d::empty(&display, 6, 1).unwrap();
+    target
+        .as_surface()
+        .draw(
+            (
+                &corners,
+                columns.per_instance(),
+                colors
+                    .per_instance()
+                    .with_divisor(NonZeroU32::new(3).unwrap()),
+            ),
+            &safegl::index::NoIndices(safegl::index::PrimitiveType::TriangleStrip),
+            &program,
+            &uniform! {},
+            &Default::default(),
+        )
+        .unwrap();
+
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = target.read().unwrap();
+    let red = (255, 0, 0, 255);
+    let green = (0, 255, 0, 255);
+    assert_eq!(data[0], [red, red, red, green, green, green]);
+
+    // the colors don't provide 6 instances without the divisor
+    let result = target.as_surface().draw(
+        (&corners, columns.per_instance(), colors.per_instance()),
+        &safegl::index::NoIndices(safegl::index::PrimitiveType::TriangleStrip),
+        &program,
+        &uniform! {},
+        &Default::default(),
+    );
+    assert!(matches!(result, Err(safegl::DrawError::InstancesCountMismatch)));
+
+    display.assert_no_error(None);
+}

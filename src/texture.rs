@@ -135,6 +135,8 @@ use std::fmt;
 
 use crate::image_format::FormatNotSupportedError;
 
+#[cfg(safegl_desktop)]
+pub(crate) use self::any::prepare_for_access;
 pub use self::any::{Dimensions, TextureAnyImage};
 pub use self::any::{TextureAny, TextureAnyLayer, TextureAnyLayerMipmap, TextureAnyMipmap};
 #[cfg(safegl_desktop)]
@@ -152,6 +154,19 @@ pub use self::ops::{is_clear_texture_supported, ClearTextureError};
 pub use self::ops::{
     is_texture_barrier_supported, texture_barrier, TextureBarrierNotSupportedError,
 };
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+pub use self::ops::RegionOutOfBoundsError;
+pub use self::parameters::MipmapRangeError;
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+pub use self::view::TextureViewError;
+#[cfg(any(safegl_desktop, safegl_gles30))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles30))))]
+pub use self::parameters::{Swizzle, SwizzleSource};
+#[cfg(any(safegl_gl43, safegl_gles31))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
+pub use self::parameters::{DepthStencilTextureMode, DepthStencilTextureModeError};
 pub use self::pixel::PixelValue;
 #[cfg(any(safegl_desktop, safegl_gles32))]
 pub use self::ty_support::is_cubemap_arrays_supported;
@@ -182,6 +197,11 @@ mod any;
 mod get_format;
 #[cfg(any(safegl_gl43, safegl_gles32))]
 mod ops;
+mod parameters;
+#[cfg(safegl_gl45)]
+mod sub_image;
+#[cfg(safegl_gl43)]
+mod view;
 mod pixel;
 mod ty_support;
 
@@ -895,9 +915,12 @@ impl<P> Texture3dDataSink<P> for Vec<Vec<Vec<P>>>
 where
     P: Copy + Clone,
 {
+    /// The slices from the first to the last, each made of its rows from the bottom.
     #[inline]
-    fn from_raw(_data: Cow<'_, [P]>, _width: u32, _height: u32, _depth: u32) -> Self {
-        unimplemented!()
+    fn from_raw(data: Cow<'_, [P]>, width: u32, height: u32, _depth: u32) -> Self {
+        data.chunks((width * height) as usize)
+            .map(|slice| slice.chunks(width as usize).map(|row| row.to_vec()).collect())
+            .collect()
     }
 }
 
@@ -940,7 +963,10 @@ impl fmt::Display for TextureCreationError {
 impl Error for TextureCreationError {}
 
 /// Error that can happen when uploading data to a texture.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum UploadError {
     /// The region is outside of the texture, or its dimensions don't match the data.
     OutOfBounds,
@@ -965,6 +991,10 @@ pub enum UploadError {
 
     /// The pixel buffer doesn't hold enough pixels for the region.
     BufferTooSmall,
+
+    /// The region of a compressed texture doesn't start on the blocks of its format (4 × 4
+    /// texels), or doesn't end on them or on the edge of the image.
+    MisalignedBlocks,
 }
 
 impl fmt::Display for UploadError {
@@ -989,6 +1019,9 @@ impl fmt::Display for UploadError {
             ),
             UploadError::BufferTooSmall => {
                 fmt.write_str("The pixel buffer doesn't hold enough pixels for the region")
+            }
+            UploadError::MisalignedBlocks => {
+                fmt.write_str("The region doesn't fit the blocks of the compressed texture")
             }
         }
     }

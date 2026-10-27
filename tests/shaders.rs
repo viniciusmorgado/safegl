@@ -201,9 +201,11 @@ fn get_uniform_blocks() {
         if let safegl::program::BlockLayout::Array {
             ref content,
             length,
+            stride,
         } = members[0].1
         {
             assert_eq!(length, 12);
+            assert!(stride >= 4);
             if let safegl::program::BlockLayout::BasicType {
                 ty,
                 offset_in_buffer,
@@ -421,6 +423,7 @@ fn get_transform_feedback_varyings() {
         geometry_shader: None,
         outputs_srgb: false,
         uses_point_size: false,
+        locations: Default::default(),
 
         vertex_shader,
         fragment_shader,
@@ -465,6 +468,103 @@ fn get_transform_feedback_varyings() {
     );
 
     assert_eq!(program.get_transform_feedback_buffers().len(), 2);
+
+    display.assert_no_error(None);
+}
+
+#[test]
+fn get_transform_feedback_skipped_components_and_buffers() {
+    let display = support::build_display();
+
+    // `gl_SkipComponents` and `gl_NextBuffer` are desktop OpenGL 4.0 names
+    if support::is_gles(&display) {
+        return;
+    }
+
+    let source = safegl::program::ProgramCreationInput::SourceCode {
+        tessellation_control_shader: None,
+        tessellation_evaluation_shader: None,
+        geometry_shader: None,
+        outputs_srgb: false,
+        uses_point_size: false,
+        locations: Default::default(),
+
+        vertex_shader: "
+            #version 400
+
+            out vec2 normal;
+            out float color;
+            out vec4 tangent;
+
+            void main() {
+                normal = vec2(0.0, 0.0);
+                color = 5.0;
+                tangent = vec4(1.0);
+                gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+            }
+        ",
+        fragment_shader: "
+            #version 400
+
+            out vec4 color;
+
+            void main() {
+                color = vec4(1.0, 1.0, 1.0, 1.0);
+            }
+        ",
+
+        transform_feedback_varyings: Some((
+            [
+                "normal",
+                "gl_SkipComponents2",
+                "color",
+                "gl_NextBuffer",
+                "gl_SkipComponents1",
+                "tangent",
+                "gl_SkipComponents3",
+            ]
+            .iter()
+            .map(|name| name.to_string())
+            .collect(),
+            safegl::program::TransformFeedbackMode::Interleaved,
+        )),
+    };
+
+    let program = safegl::Program::new(&display, source).unwrap();
+
+    assert_eq!(
+        program.get_transform_feedback_buffers(),
+        &[
+            safegl::program::TransformFeedbackBuffer {
+                id: 0,
+                stride: (2 + 2 + 1) * 4,
+                elements: vec![
+                    safegl::program::TransformFeedbackVarying {
+                        name: "normal".to_string(),
+                        offset: 0,
+                        size: 2 * 4,
+                        ty: safegl::vertex::AttributeType::F32F32,
+                    },
+                    safegl::program::TransformFeedbackVarying {
+                        name: "color".to_string(),
+                        offset: (2 + 2) * 4,
+                        size: 4,
+                        ty: safegl::vertex::AttributeType::F32,
+                    },
+                ]
+            },
+            safegl::program::TransformFeedbackBuffer {
+                id: 1,
+                stride: (1 + 4 + 3) * 4,
+                elements: vec![safegl::program::TransformFeedbackVarying {
+                    name: "tangent".to_string(),
+                    offset: 4,
+                    size: 4 * 4,
+                    ty: safegl::vertex::AttributeType::F32F32F32F32,
+                }]
+            },
+        ]
+    );
 
     display.assert_no_error(None);
 }
@@ -565,9 +665,11 @@ fn ssbos() {
         if let safegl::program::BlockLayout::Array {
             ref content,
             length,
+            stride,
         } = members[0].1
         {
             assert_eq!(length, 12);
+            assert!(stride >= 4);
             if let safegl::program::BlockLayout::BasicType {
                 ty,
                 offset_in_buffer,
@@ -655,9 +757,11 @@ fn complex_layout() {
             if let safegl::program::BlockLayout::Array {
                 ref content,
                 length,
+                stride,
             } = members[0].1
             {
                 assert_eq!(length, 3);
+                assert_eq!(stride, 16);
                 if let safegl::program::BlockLayout::BasicType { ty, .. } = **content {
                     assert_eq!(ty, safegl::uniforms::UniformType::IntVec3);
                     //assert_eq!(offset_in_buffer, 4 * 3);      // TODO: sort offsets out
@@ -681,9 +785,11 @@ fn complex_layout() {
         if let safegl::program::BlockLayout::Array {
             ref content,
             length,
+            stride,
         } = members[1].1
         {
             assert_eq!(length, 12);
+            assert_eq!(stride, 16);
             if let safegl::program::BlockLayout::BasicType { ty, .. } = **content {
                 assert_eq!(ty, safegl::uniforms::UniformType::Float);
                 //assert_eq!(offset_in_buffer, 4 * 3);      // TODO: sort offsets out
@@ -698,9 +804,11 @@ fn complex_layout() {
         if let safegl::program::BlockLayout::Array {
             ref content,
             length,
+            stride,
         } = members[2].1
         {
             assert_eq!(length, 2);
+            assert_eq!(stride, 64);
 
             if let safegl::program::BlockLayout::Struct { ref members } = **content {
                 assert_eq!(members.len(), 2);
@@ -711,9 +819,11 @@ fn complex_layout() {
                 if let safegl::program::BlockLayout::Array {
                     ref content,
                     length,
+                    stride,
                 } = members[0].1
                 {
                     assert_eq!(length, 3);
+                    assert_eq!(stride, 16);
                     if let safegl::program::BlockLayout::BasicType { ty, .. } = **content {
                         assert_eq!(ty, safegl::uniforms::UniformType::IntVec3);
                         //assert!(offset_in_buffer >= 4 * 3);       // TODO: sort offsets out
@@ -821,6 +931,7 @@ fn unsized_array() {
                                             offset_in_buffer: 16,
                                         }),
                                         length: 3,
+                                        stride: 16,
                                     }
                                 ),
                                 (
@@ -833,6 +944,7 @@ fn unsized_array() {
                             ],
                         }),
                         length: 1,
+                        stride: 64,
                     }
                 ),
                 (
@@ -848,6 +960,7 @@ fn unsized_array() {
                                             offset_in_buffer: 80,
                                         }),
                                         length: 3,
+                                        stride: 16,
                                     }
                                 ),
                                 (
@@ -858,7 +971,8 @@ fn unsized_array() {
                                     }
                                 ),
                             ],
-                        })
+                        }),
+                        stride: 64,
                     }
                 ),
             ]
@@ -946,10 +1060,71 @@ fn array_layout_offsets() {
                         ],
                     }),
                     length: 256,
+                    stride: 32,
                 }
             ),]
         }
     );
+
+    display.assert_no_error(None);
+}
+
+#[cfg(any(safegl_gl41, safegl_gles30))]
+#[test]
+fn precision_of_shaders() {
+    use safegl::program::{PrecisionQualifier, ShaderType};
+
+    let display = support::build_display();
+
+    let highp = match display
+        .shader_precision_format(ShaderType::Fragment, PrecisionQualifier::HighFloat)
+    {
+        Some(highp) => highp,
+        None => {
+            use safegl::CapabilitiesSource;
+            assert!(!support::is_gles(&display));
+            assert!(!display.get_extensions().gl_arb_es2_compatibility);
+            return;
+        }
+    };
+    // the highp floats of the fragment shaders of OpenGL ES 3.0 are 32-bit floats
+    assert!(highp.range.0 >= 126 && highp.range.1 >= 127);
+    assert!(highp.precision >= 23);
+
+    let int = display
+        .shader_precision_format(ShaderType::Vertex, PrecisionQualifier::HighInt)
+        .unwrap();
+    assert!(int.range.1 >= 30);
+    assert_eq!(int.precision, 0);
+
+    assert_eq!(
+        display.shader_precision_format(ShaderType::Compute, PrecisionQualifier::HighFloat),
+        None
+    );
+
+    display.assert_no_error(None);
+}
+
+/// Programs are linked with `GL_PROGRAM_BINARY_RETRIEVABLE_HINT`, so that their binaries can be
+/// retrieved on every driver.
+#[cfg(any(safegl_gl41, safegl_gles30))]
+#[test]
+fn programs_are_linked_with_the_binary_hint() {
+    use safegl::glow::HasContext;
+    use safegl::GlObject;
+
+    let display = support::build_display();
+    if !safegl::program::is_binary_supported(&display) {
+        return;
+    }
+    let (_, _, program) = support::build_fullscreen_red_pipeline(&display);
+    let hint = unsafe {
+        display.glow_context().get_program_parameter_i32(
+            program.get_id(),
+            safegl::glow::PROGRAM_BINARY_RETRIEVABLE_HINT,
+        )
+    };
+    assert_eq!(hint, 1);
 
     display.assert_no_error(None);
 }

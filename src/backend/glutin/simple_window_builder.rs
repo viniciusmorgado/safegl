@@ -78,6 +78,7 @@ pub struct SimpleWindowBuilder {
     attributes: WindowAttributes,
     config_template_builder: ConfigTemplateBuilder,
     context_attributes_builder: Option<ContextAttributesBuilder>,
+    robustness: Option<glutin::context::Robustness>,
     vsync: bool,
 }
 
@@ -90,6 +91,7 @@ impl SimpleWindowBuilder {
                 .with_inner_size(winit::dpi::PhysicalSize::new(800, 480)),
             config_template_builder: ConfigTemplateBuilder::new(),
             context_attributes_builder: None,
+            robustness: None,
             vsync: true,
         }
     }
@@ -135,6 +137,18 @@ impl SimpleWindowBuilder {
         context_attributes_builder: ContextAttributesBuilder,
     ) -> Self {
         self.context_attributes_builder = Some(context_attributes_builder);
+        self
+    }
+
+    /// Requests a context with the given robustness: robust buffer access, with or without
+    /// being lost on GPU resets, or no error checking (`Robustness::NoError`).
+    ///
+    /// The context is created without robustness if the driver doesn't have it.
+    /// `Capabilities::robustness` and `Capabilities::reset_notification` tell what the context
+    /// has. This applies to the contexts of the selected levels: a builder given to
+    /// `with_context_attributes_builder` has its own robustness.
+    pub fn with_robustness(mut self, robustness: glutin::context::Robustness) -> Self {
+        self.robustness = Some(robustness);
         self
     }
 
@@ -202,13 +216,25 @@ impl SimpleWindowBuilder {
             .window_handle()
             .expect("couldn't obtain raw window handle");
 
-        // Without a user-provided builder, try the versions of the selected levels in order
+        // Without a user-provided builder, try the versions of the selected levels in order, with
+        // the requested robustness and then without it
         let attribute_candidates = match self.context_attributes_builder {
             Some(builder) => vec![builder.build(Some(window_handle.into()))],
-            None => super::level_context_apis()
-                .into_iter()
-                .map(|api| super::context_attributes_builder(api).build(Some(window_handle.into())))
-                .collect(),
+            None => {
+                let robustness = self.robustness.into_iter().map(Some).chain([None]);
+                robustness
+                    .flat_map(|robustness| {
+                        super::level_context_apis().into_iter().map(move |api| {
+                            let builder = super::context_attributes_builder(api);
+                            match robustness {
+                                Some(robustness) => builder.with_robustness(robustness),
+                                None => builder,
+                            }
+                        })
+                    })
+                    .map(|builder| builder.build(Some(window_handle.into())))
+                    .collect()
+            }
         };
 
         let not_current_context = attribute_candidates

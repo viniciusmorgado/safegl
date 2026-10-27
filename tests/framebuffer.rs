@@ -550,3 +550,114 @@ fn empty_framebuffer_simple_draw() {
 
     display.assert_no_error(None);
 }
+
+/// The outputs can be listed in any order: each color is written by the output of its name,
+/// whatever its location. OpenGL ES only accepts the color attachment n as the draw buffer n.
+#[test]
+fn multioutput_in_another_order() {
+    use safegl::framebuffer::MultiOutputFrameBuffer;
+
+    let display = support::build_display();
+    let program = safegl::program!(&display,
+        330 => {
+            vertex: "#version 330 core
+                in vec2 position;
+                void main() { gl_Position = vec4(position, 0.0, 1.0); }",
+            fragment: "#version 330 core
+                layout(location = 0) out vec4 first;
+                layout(location = 1) out vec4 second;
+                void main() {
+                    first = vec4(1.0, 0.0, 0.0, 1.0);
+                    second = vec4(0.0, 1.0, 0.0, 1.0);
+                }",
+        },
+        300 es => {
+            vertex: "#version 300 es
+                in vec2 position;
+                void main() { gl_Position = vec4(position, 0.0, 1.0); }",
+            fragment: "#version 300 es
+                precision mediump float;
+                layout(location = 0) out vec4 first;
+                layout(location = 1) out vec4 second;
+                void main() {
+                    first = vec4(1.0, 0.0, 0.0, 1.0);
+                    second = vec4(0.0, 1.0, 0.0, 1.0);
+                }",
+        },
+    )
+    .unwrap();
+    let (vb, ib) = support::build_rectangle_vb_ib(&display);
+    let first = safegl::Texture2d::empty(&display, 4, 4).unwrap();
+    let second = safegl::Texture2d::empty(&display, 4, 4).unwrap();
+    let mut framebuffer =
+        MultiOutputFrameBuffer::new(&display, [("second", &second), ("first", &first)]).unwrap();
+    framebuffer.clear_color(0.0, 0.0, 0.0, 0.0);
+    framebuffer
+        .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &Default::default())
+        .unwrap();
+
+    let read = |texture: &safegl::Texture2d| {
+        let data: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
+        data[2][2]
+    };
+    assert_eq!(read(&first), (255, 0, 0, 255));
+    assert_eq!(read(&second), (0, 255, 0, 255));
+
+    display.assert_no_error(None);
+}
+
+/// A `DefaultFramebuffer` draws into the color buffer it was given, and blits from it.
+#[test]
+fn default_framebuffer_buffers() {
+    use safegl::framebuffer::{
+        DefaultFramebuffer, DefaultFramebufferAttachment, DefaultFramebufferAttachmentMissingError,
+    };
+    use safegl::uniforms::MagnifySamplerFilter;
+    use safegl::BlitTarget;
+
+    let display = support::build_display();
+    let mut back =
+        DefaultFramebuffer::new(&display, DefaultFramebufferAttachment::BackLeft).unwrap();
+    let front = DefaultFramebuffer::new(&display, DefaultFramebufferAttachment::FrontLeft);
+    if support::is_gles(&display) {
+        assert_eq!(front.err(), Some(DefaultFramebufferAttachmentMissingError));
+        return;
+    }
+    // contexts without stereoscopy have no right buffers
+    let stereo = unsafe {
+        use safegl::glow::HasContext;
+        display.glow_context().get_parameter_bool(safegl::glow::STEREO)
+    };
+    if !stereo {
+        let right = DefaultFramebuffer::new(&display, DefaultFramebufferAttachment::BackRight);
+        assert!(right.is_err());
+    }
+    // the front buffer of most window surfaces of EGL doesn't exist
+    let Ok(mut front) = front else {
+        return;
+    };
+
+    back.clear_color(1.0, 0.0, 0.0, 1.0);
+    front.clear_color(0.0, 1.0, 0.0, 1.0);
+    let copy = |source: &DefaultFramebuffer| {
+        let target = safegl::Texture2d::empty(&display, 4, 4).unwrap();
+        source
+            .blit_whole_color_to(
+                &target.as_surface(),
+                &BlitTarget {
+                    left: 0,
+                    bottom: 0,
+                    width: 4,
+                    height: 4,
+                },
+                MagnifySamplerFilter::Nearest,
+            )
+            .unwrap();
+        let data: Vec<Vec<(u8, u8, u8, u8)>> = target.read().unwrap();
+        data[0][0]
+    };
+    assert_eq!(copy(&front), (0, 255, 0, 255));
+    assert_eq!(copy(&back), (255, 0, 0, 255));
+
+    display.assert_no_error(None);
+}

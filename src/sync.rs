@@ -10,6 +10,7 @@ use crate::ContextExt;
 use std::rc::Rc;
 
 use std::thread;
+use std::time::Duration;
 
 /// Provides a way to wait for a server-side operation to be finished.
 ///
@@ -65,6 +66,60 @@ impl SyncFence {
         matches!(result, gl::ALREADY_SIGNALED | gl::CONDITION_SATISFIED)
     }
 
+    /// Blocks until the operations before the fence have finished on the server, or until
+    /// `timeout` has passed, and tells which happened. The fence stays usable.
+    ///
+    /// This flushes the command queue so that the fence eventually gets signaled. WebGL limits
+    /// the timeout to `GL_MAX_CLIENT_WAIT_TIMEOUT_WEBGL`, which is often 0.
+    pub fn wait_timeout(&self, timeout: Duration) -> SyncWaitResult {
+        let sync = match self.id {
+            Some(sync) => sync,
+            None => return SyncWaitResult::Signaled,
+        };
+
+        let ctxt = self.context.make_current();
+        let timeout = u64::try_from(timeout.as_nanos()).unwrap_or(u64::MAX);
+        let result = unsafe {
+            if is_webgl() {
+                let max = ctxt
+                    .glow
+                    .get_parameter_i64(gl::MAX_CLIENT_WAIT_TIMEOUT_WEBGL)
+                    .max(0) as u64;
+                let timeout = timeout.min(max).min(i32::MAX as u64) as i32;
+                ctxt.glow
+                    .client_wait_sync(sync, gl::SYNC_FLUSH_COMMANDS_BIT, timeout)
+            } else {
+                ctxt.extra.ClientWaitSync(
+                    handles::raw_sync(sync),
+                    gl::SYNC_FLUSH_COMMANDS_BIT,
+                    timeout,
+                )
+            }
+        };
+
+        match result {
+            gl::ALREADY_SIGNALED | gl::CONDITION_SATISFIED => SyncWaitResult::Signaled,
+            gl::TIMEOUT_EXPIRED => SyncWaitResult::TimedOut,
+            _ => SyncWaitResult::Failed,
+        }
+    }
+
+    /// Makes the server wait for the fence before it runs the commands that follow, without
+    /// blocking the client (`glWaitSync`).
+    ///
+    /// The commands of a context already run in order, so this only orders them after the
+    /// operations before the fence in the way the driver sees them, such as the end of a
+    /// transfer the driver runs asynchronously.
+    pub fn wait_on_gpu(&self) {
+        let sync = match self.id {
+            Some(sync) => sync,
+            None => return,
+        };
+
+        let ctxt = self.context.make_current();
+        unsafe { ctxt.glow.wait_sync(sync, 0, gl::TIMEOUT_IGNORED) };
+    }
+
     /// Blocks until the operation has finished on the server.
     ///
     /// WebGL can't block on a fence: if the fence isn't signaled yet, this calls `glFinish`
@@ -81,6 +136,25 @@ impl SyncFence {
             gl::ALREADY_SIGNALED | gl::CONDITION_SATISFIED => (),
             _ => panic!("Could not wait for the fence"),
         };
+    }
+}
+
+/// What `SyncFence::wait_timeout` saw.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum SyncWaitResult {
+    /// The operations before the fence have finished.
+    Signaled,
+    /// The timeout passed before they finished.
+    TimedOut,
+    /// The wait failed, which happens when the context is lost.
+    Failed,
+}
+
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl crate::debug::sealed::Labeled for SyncFence {
+    fn labeled_object(&self) -> (&Context, crate::debug::sealed::LabeledObject) {
+        let sync = self.id.expect("the fence is only taken when it is consumed");
+        (&self.context, crate::debug::sealed::LabeledObject::Sync(sync))
     }
 }
 

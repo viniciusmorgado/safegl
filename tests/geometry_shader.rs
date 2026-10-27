@@ -50,6 +50,7 @@ fn geometry_program(display: &Display, layout: &str, body: &str) -> Option<safeg
             transform_feedback_varyings: None,
             outputs_srgb: true,
             uses_point_size: false,
+            locations: Default::default(),
         },
     )
     .unwrap();
@@ -192,7 +193,7 @@ fn primitives_generated_by_the_geometry_shader() {
             &program,
             &uniform! {},
             &DrawParameters {
-                primitives_generated_query: Some(&query),
+                primitives_generated_queries: &[&query],
                 ..Default::default()
             },
         )

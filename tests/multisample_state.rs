@@ -152,7 +152,10 @@ fn alpha_to_coverage_covers_part_of_the_samples() {
             &mut texture.as_surface(),
             0.5,
             &safegl::DrawParameters {
-                alpha_to_coverage: true,
+                multisample: safegl::draw_parameters::MultisampleState {
+                    alpha_to_coverage: true,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         )
@@ -177,7 +180,10 @@ fn alpha_to_coverage_covers_part_of_the_samples() {
             &mut texture.as_surface(),
             0.0,
             &safegl::DrawParameters {
-                alpha_to_coverage: true,
+                multisample: safegl::draw_parameters::MultisampleState {
+                    alpha_to_coverage: true,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         )
@@ -200,7 +206,10 @@ fn sample_mask_writes_only_the_selected_samples() {
         &mut texture.as_surface(),
         1.0,
         &safegl::DrawParameters {
-            sample_mask: Some(0b0011),
+            multisample: safegl::draw_parameters::MultisampleState {
+                sample_mask: Some(0b0011),
+                ..Default::default()
+            },
             ..Default::default()
         },
     ) {
@@ -219,7 +228,10 @@ fn sample_mask_writes_only_the_selected_samples() {
             &mut texture.as_surface(),
             1.0,
             &safegl::DrawParameters {
-                sample_mask: Some(0),
+                multisample: safegl::draw_parameters::MultisampleState {
+                    sample_mask: Some(0),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         )
@@ -260,7 +272,10 @@ fn sample_shading_sets_the_minimum_fraction() {
         &mut texture.as_surface(),
         1.0,
         &safegl::DrawParameters {
-            sample_shading: Some(0.75),
+            multisample: safegl::draw_parameters::MultisampleState {
+                sample_shading: Some(0.75),
+                ..Default::default()
+            },
             ..Default::default()
         },
     ) {
@@ -275,7 +290,10 @@ fn sample_shading_sets_the_minimum_fraction() {
             &mut texture.as_surface(),
             1.0,
             &safegl::DrawParameters {
-                sample_shading: Some(4.0),
+                multisample: safegl::draw_parameters::MultisampleState {
+                    sample_shading: Some(4.0),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         )
@@ -287,6 +305,110 @@ fn sample_shading_sets_the_minimum_fraction() {
         .unwrap();
     assert!(!gl_state(&display).0);
     assert_eq!(resolved_red(&display, &texture), 255.0);
+
+    display.assert_no_error(None);
+}
+
+/// Resolves a multisample texture and returns the average of its alpha channel, from 0 to 255.
+#[cfg(safegl_desktop)]
+fn resolved_alpha(
+    display: &safegl::Display<safegl::glutin::surface::WindowSurface>,
+    texture: &Texture2dMultisample,
+) -> f32 {
+    let resolved = safegl::Texture2d::empty(display, SIZE, SIZE).unwrap();
+    texture
+        .as_surface()
+        .blit_whole_color_to(
+            &resolved.as_surface(),
+            &BlitTarget {
+                left: 0,
+                bottom: 0,
+                width: SIZE as i32,
+                height: SIZE as i32,
+            },
+            MagnifySamplerFilter::Nearest,
+        )
+        .unwrap();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = resolved.read().unwrap();
+    let sum: u32 = data.iter().flatten().map(|pixel| pixel.3 as u32).sum();
+    sum as f32 / (SIZE * SIZE) as f32
+}
+
+#[test]
+fn sample_coverage_covers_a_fraction_of_the_samples() {
+    use safegl::draw_parameters::{MultisampleState, SampleCoverage};
+
+    let display = support::build_display();
+    if !safegl::texture::is_texture_2d_multisample_supported(&display) {
+        return;
+    }
+    let pipeline = Pipeline::new(&display);
+    let draw = |value, invert| {
+        let texture = multisample_texture(&display);
+        pipeline
+            .draw(
+                &mut texture.as_surface(),
+                1.0,
+                &safegl::DrawParameters {
+                    multisample: MultisampleState {
+                        sample_coverage: Some(SampleCoverage { value, invert }),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        resolved_red(&display, &texture)
+    };
+
+    // half of the samples, either half
+    for invert in [false, true] {
+        let red = draw(0.5, invert);
+        assert!((255.0 * 0.3..=255.0 * 0.7).contains(&red), "covered a red of {red}");
+    }
+    assert_eq!(draw(1.0, false), 255.0);
+    assert_eq!(draw(1.0, true), 0.0);
+
+    display.assert_no_error(None);
+}
+
+/// The alpha of the samples becomes 1, on desktop OpenGL.
+#[cfg(safegl_desktop)]
+#[test]
+fn alpha_to_one_writes_opaque_samples() {
+    use safegl::draw_parameters::MultisampleState;
+
+    let display = support::build_display();
+    if !safegl::texture::is_texture_2d_multisample_supported(&display) {
+        return;
+    }
+    let pipeline = Pipeline::new(&display);
+    let draw = |alpha_to_one| {
+        let texture = multisample_texture(&display);
+        let result = pipeline.draw(
+            &mut texture.as_surface(),
+            0.5,
+            &safegl::DrawParameters {
+                multisample: MultisampleState {
+                    alpha_to_one,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        result.map(|()| resolved_alpha(&display, &texture))
+    };
+
+    match draw(true) {
+        Ok(alpha) => assert_eq!(alpha, 255.0),
+        Err(DrawError::AlphaToOneNotSupported) => {
+            assert!(support::is_gles(&display));
+            return;
+        }
+        Err(error) => panic!("{error}"),
+    }
+    let alpha = draw(false).unwrap();
+    assert!((127.0..=128.0).contains(&alpha), "wrote an alpha of {alpha}");
 
     display.assert_no_error(None);
 }

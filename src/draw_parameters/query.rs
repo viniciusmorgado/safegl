@@ -13,7 +13,6 @@ use std::error::Error;
 use std::fmt;
 use std::rc::Rc;
 
-#[cfg(safegl_gl46)]
 use smallvec::SmallVec;
 
 #[cfg(safegl_gl44)]
@@ -38,6 +37,10 @@ pub struct RawQuery {
     // true means that this query has already been used or is being used to get data
     // this is important to know because we want to avoid erasing data
     has_been_used: Cell<bool>,
+
+    /// The label given before the query began, when OpenGL creates the query object.
+    #[cfg(any(safegl_gl43, safegl_gles32))]
+    pending_label: std::cell::RefCell<Option<String>>,
 }
 
 #[derive(Copy, Clone)]
@@ -47,8 +50,10 @@ pub enum QueryType {
     AnySamplesPassedConservative,
     TimeElapsed,
     Timestamp,
-    PrimitivesGenerated,
-    TransformFeedbackPrimitivesWritten,
+    /// The primitives generated for a vertex stream.
+    PrimitivesGenerated(u32),
+    /// The primitives written by transform feedback for a vertex stream.
+    TransformFeedbackPrimitivesWritten(u32),
     #[cfg(safegl_gl46)]
     PipelineStatistic(PipelineStatistic),
     #[cfg(safegl_gl46)]
@@ -59,11 +64,17 @@ pub enum QueryType {
 
 impl QueryType {
     /// The target and index of the queries that `indexed_queries` tracks.
-    #[cfg(safegl_gl46)]
     fn indexed_target(&self) -> Option<(gl::types::GLenum, gl::types::GLuint)> {
         match *self {
+            QueryType::PrimitivesGenerated(stream) => Some((gl::PRIMITIVES_GENERATED, stream)),
+            QueryType::TransformFeedbackPrimitivesWritten(stream) => {
+                Some((gl::TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN, stream))
+            }
+            #[cfg(safegl_gl46)]
             QueryType::PipelineStatistic(statistic) => Some((statistic.to_glenum(), 0)),
+            #[cfg(safegl_gl46)]
             QueryType::TransformFeedbackOverflow => Some((gl::TRANSFORM_FEEDBACK_OVERFLOW, 0)),
+            #[cfg(safegl_gl46)]
             QueryType::TransformFeedbackStreamOverflow(stream) => {
                 Some((gl::TRANSFORM_FEEDBACK_STREAM_OVERFLOW, stream))
             }
@@ -138,8 +149,8 @@ impl ToGlEnum for QueryType {
             QueryType::AnySamplesPassedConservative => gl::ANY_SAMPLES_PASSED_CONSERVATIVE,
             QueryType::TimeElapsed => gl::TIME_ELAPSED,
             QueryType::Timestamp => gl::TIMESTAMP,
-            QueryType::PrimitivesGenerated => gl::PRIMITIVES_GENERATED,
-            QueryType::TransformFeedbackPrimitivesWritten => {
+            QueryType::PrimitivesGenerated(_) => gl::PRIMITIVES_GENERATED,
+            QueryType::TransformFeedbackPrimitivesWritten(_) => {
                 gl::TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN
             }
             #[cfg(safegl_gl46)]
@@ -174,10 +185,14 @@ impl Error for QueryCreationError {}
 /// Error that can happen when writing the value of a query to a buffer.
 #[cfg(safegl_gl44)]
 #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ToBufferError {
-    /// Writing the result to a buffer is not supported.
+    /// Writing the result to a buffer is not supported: it needs OpenGL 4.4,
+    /// `GL_ARB_query_buffer_object` or `GL_AMD_query_buffer_object`.
     NotSupported,
+
+    /// The buffer belongs to another context than the query.
+    ContextMismatch,
 }
 
 #[cfg(safegl_gl44)]
@@ -186,6 +201,7 @@ impl fmt::Display for ToBufferError {
         use self::ToBufferError::*;
         let desc = match *self {
             NotSupported => "Writing the result to a buffer is not supported",
+            ContextMismatch => "The buffer belongs to another context than the query",
         };
         fmt.write_str(desc)
     }
@@ -193,6 +209,144 @@ impl fmt::Display for ToBufferError {
 
 #[cfg(safegl_gl44)]
 impl Error for ToBufferError {}
+
+/// What a query writes to a buffer.
+#[cfg(safegl_gl44)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum QueryBufferMode {
+    /// The result, which the GPU waits for before running the next commands
+    /// (`GL_QUERY_RESULT`).
+    Result,
+
+    /// The result if it is available when the GPU runs the command, and nothing otherwise: the
+    /// buffer keeps its value (`GL_QUERY_RESULT_NO_WAIT`).
+    ResultNoWait,
+
+    /// 1 if the result is available when the GPU runs the command, and 0 otherwise
+    /// (`GL_QUERY_RESULT_AVAILABLE`).
+    Availability,
+}
+
+#[cfg(safegl_gl44)]
+impl QueryBufferMode {
+    fn to_glenum(self) -> gl::types::GLenum {
+        match self {
+            QueryBufferMode::Result => gl::QUERY_RESULT,
+            QueryBufferMode::ResultNoWait => gl::QUERY_RESULT_NO_WAIT,
+            QueryBufferMode::Availability => gl::QUERY_RESULT_AVAILABLE,
+        }
+    }
+}
+
+#[cfg(safegl_gl44)]
+mod query_value {
+    use crate::gl;
+
+    pub trait Sealed: Sized {
+        /// The value of a query that was never used: its result is 0 and available.
+        fn unused(mode: super::QueryBufferMode) -> Self;
+
+        /// Calls the `glGetQueryObject*v` of the type, which writes at `offset` in the query
+        /// buffer.
+        unsafe fn write(
+            extra: &gl::Extra,
+            query: gl::types::GLuint,
+            pname: gl::types::GLenum,
+            offset: usize,
+        );
+    }
+
+    macro_rules! value {
+        ($ty:ty, $get:ident) => {
+            impl Sealed for $ty {
+                fn unused(mode: super::QueryBufferMode) -> $ty {
+                    (mode == super::QueryBufferMode::Availability) as $ty
+                }
+
+                unsafe fn write(
+                    extra: &gl::Extra,
+                    query: gl::types::GLuint,
+                    pname: gl::types::GLenum,
+                    offset: usize,
+                ) {
+                    extra.$get(query, pname, offset as *mut _)
+                }
+            }
+        };
+    }
+
+    value!(u32, GetQueryObjectuiv);
+    value!(i32, GetQueryObjectiv);
+    value!(u64, GetQueryObjectui64v);
+    value!(i64, GetQueryObjecti64v);
+}
+
+/// A type that queries can write to buffers: `u32`, `i32`, `u64` or `i64`. A result that doesn't
+/// fit the type is truncated.
+#[cfg(safegl_gl44)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
+pub trait QueryBufferValue: query_value::Sealed + crate::buffer::Content + Copy + 'static {}
+
+#[cfg(safegl_gl44)]
+impl QueryBufferValue for u32 {}
+#[cfg(safegl_gl44)]
+impl QueryBufferValue for i32 {}
+#[cfg(safegl_gl44)]
+impl QueryBufferValue for u64 {}
+#[cfg(safegl_gl44)]
+impl QueryBufferValue for i64 {}
+
+/// Writes the result of the query `query` to `target`, or its availability. `used` is false for
+/// a query that never began, which OpenGL refuses to write.
+#[cfg(safegl_gl44)]
+pub(crate) fn write_query_to_buffer<T: QueryBufferValue>(
+    context: &Context,
+    query: glow::Query,
+    used: bool,
+    target: BufferSlice<'_, T>,
+    mode: QueryBufferMode,
+) -> Result<(), ToBufferError> {
+    let mut ctxt = context.make_current();
+
+    if !(ctxt.version >= &Version(Api::Gl, 4, 4)
+        || ctxt.extensions.gl_arb_query_buffer_object
+        || ctxt.extensions.gl_amd_query_buffer_object)
+    {
+        return Err(ToBufferError::NotSupported);
+    }
+    if !ctxt.owns(target.get_context()) {
+        return Err(ToBufferError::ContextMismatch);
+    }
+
+    if !used {
+        // the result of a query that was never used is 0 and available, like `get` returns,
+        // but OpenGL refuses to write the result of a query object that never started
+        drop(ctxt);
+        target.write(&T::unused(mode));
+        return Ok(());
+    }
+
+    assert!(target
+        .get_offset_bytes()
+        .is_multiple_of(std::mem::size_of::<T>()));
+
+    target.prepare_and_bind_for_query(&mut ctxt);
+    unsafe {
+        T::write(
+            ctxt.extra,
+            query.raw_name(),
+            mode.to_glenum(),
+            target.get_offset_bytes(),
+        );
+    }
+
+    if let Some(fence) = target.add_fence() {
+        fence.insert(&mut ctxt);
+    }
+
+    Ok(())
+}
 
 /// Error that can happen when getting the result of a query.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -230,9 +384,11 @@ impl RawQuery {
                 match ty {
                     QueryType::AnySamplesPassed
                     | QueryType::SamplesPassed
-                    | QueryType::PrimitivesGenerated
-                    | QueryType::TimeElapsed
-                    | QueryType::TransformFeedbackPrimitivesWritten => (),
+                    | QueryType::TimeElapsed => (),
+                    QueryType::PrimitivesGenerated(stream)
+                    | QueryType::TransformFeedbackPrimitivesWritten(stream)
+                        if (stream as gl::types::GLint)
+                            < ctxt.glow.get_parameter_i32(glow::MAX_VERTEX_STREAMS) => {}
                     QueryType::AnySamplesPassedConservative
                         if ctxt.extensions.gl_arb_es3_compatibility
                             || ctxt.version >= &Version(Api::Gl, 4, 3) =>
@@ -263,8 +419,8 @@ impl RawQuery {
                 match ty {
                     QueryType::AnySamplesPassed
                     | QueryType::AnySamplesPassedConservative
-                    | QueryType::TransformFeedbackPrimitivesWritten => (),
-                    QueryType::PrimitivesGenerated
+                    | QueryType::TransformFeedbackPrimitivesWritten(0) => (),
+                    QueryType::PrimitivesGenerated(0)
                         if ctxt.version >= &Version(Api::GlEs, 3, 2)
                             || ctxt.extensions.gl_ext_geometry_shader
                             || ctxt.extensions.gl_oes_geometry_shader => {}
@@ -281,7 +437,24 @@ impl RawQuery {
             id,
             ty,
             has_been_used: Cell::new(false),
+            #[cfg(any(safegl_gl43, safegl_gles32))]
+            pending_label: Default::default(),
         })
+    }
+
+    /// Records that the query has begun, which creates its OpenGL object, and gives the object
+    /// the label it was given before.
+    fn mark_used(&self, ctxt: &mut CommandContext<'_>) {
+        self.has_been_used.set(true);
+        #[cfg(any(safegl_gl43, safegl_gles32))]
+        if let Some(label) = self.pending_label.borrow_mut().take() {
+            unsafe {
+                ctxt.glow
+                    .object_label(gl::QUERY, self.id.0.get(), Some(label))
+            };
+        }
+        #[cfg(not(any(safegl_gl43, safegl_gles32)))]
+        let _ = ctxt;
     }
 
     /// Queries the counter to see if the result is already available.
@@ -295,8 +468,9 @@ impl RawQuery {
         let mut ctxt = self.context.make_current();
         self.deactivate(&mut ctxt);
 
+        // the result of a query that never began is 0, which `get` returns at once
         if !self.has_been_used.get() {
-            return false;
+            return true;
         }
 
         #[cfg(safegl_gl44)]
@@ -338,43 +512,22 @@ impl RawQuery {
 
     /// Writes the value of the query to a buffer.
     #[cfg(safegl_gl44)]
-    pub fn write_u32_to_buffer(&self, target: BufferSlice<'_, u32>) -> Result<(), ToBufferError> {
-        let mut ctxt = self.context.make_current();
-
-        if !(ctxt.version >= &Version(Api::Gl, 4, 4)
-            || ctxt.extensions.gl_arb_query_buffer_object
-            || ctxt.extensions.gl_amd_query_buffer_object)
+    pub fn write_to_buffer<T: QueryBufferValue>(
+        &self,
+        target: BufferSlice<'_, T>,
+        mode: QueryBufferMode,
+    ) -> Result<(), ToBufferError> {
         {
-            return Err(ToBufferError::NotSupported);
+            let mut ctxt = self.context.make_current();
+            self.deactivate(&mut ctxt);
         }
-
-        self.deactivate(&mut ctxt);
-
-        if !self.has_been_used.get() {
-            // the result of a query that was never used is 0, like `get` returns, but OpenGL
-            // refuses to write the result of a query object that never started
-            drop(ctxt);
-            target.write(&0);
-            return Ok(());
-        }
-
-        assert!(target.get_offset_bytes() % 4 == 0);
-
-        target.prepare_and_bind_for_query(&mut ctxt);
-        unsafe {
-            self.raw_get_u32(&mut ctxt, target.get_offset_bytes() as *mut _);
-        }
-
-        if let Some(fence) = target.add_fence() {
-            fence.insert(&mut ctxt);
-        }
-
-        Ok(())
-    }
-
-    unsafe fn raw_get_u32(&self, ctxt: &mut CommandContext<'_>, target: *mut gl::types::GLuint) {
-        ctxt.extra
-            .GetQueryObjectuiv(self.id.raw_name(), gl::QUERY_RESULT, target);
+        write_query_to_buffer(
+            &self.context,
+            self.id,
+            self.has_been_used.get(),
+            target,
+            mode,
+        )
     }
 
     /// Returns the value of the query. Blocks until it is available.
@@ -442,16 +595,6 @@ impl RawQuery {
             ctxt.state.any_samples_passed_conservative_query = None;
         }
 
-        if ctxt.state.primitives_generated_query == Some(self.id) {
-            unsafe { raw_end_query(ctxt, gl::PRIMITIVES_GENERATED) };
-            ctxt.state.primitives_generated_query = None;
-        }
-
-        if ctxt.state.transform_feedback_primitives_written_query == Some(self.id) {
-            unsafe { raw_end_query(ctxt, gl::TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN) };
-            ctxt.state.transform_feedback_primitives_written_query = None;
-        }
-
         if ctxt.state.time_elapsed_query == Some(self.id) {
             unsafe { raw_end_query(ctxt, gl::TIME_ELAPSED) };
             ctxt.state.time_elapsed_query = None;
@@ -469,7 +612,6 @@ impl RawQuery {
     }
 
     /// Begins the query on its target and index, which `indexed_queries` tracks.
-    #[cfg(safegl_gl46)]
     fn begin_indexed_query(
         &self,
         ctxt: &mut CommandContext<'_>,
@@ -505,29 +647,30 @@ impl RawQuery {
             }
         }
 
-        self.has_been_used.set(true);
+        self.mark_used(ctxt);
         ctxt.state.indexed_queries.push((target, index, self.id));
         Ok(())
     }
 }
 
-/// Makes the given pipeline statistics and transform feedback overflow queries active for the
-/// next command, and ends the others: like the other queries, such a query counts the commands
-/// that it is given to, as long as they follow each other.
+/// Makes the given primitives, pipeline statistics and transform feedback overflow queries
+/// active for the next command, and ends the others: like the other queries, such a query counts
+/// the commands that it is given to, as long as they follow each other. A compute dispatch only
+/// gives its pipeline statistics queries (`dispatch`), and leaves the queries of primitives,
+/// which it doesn't count, as they are.
 ///
-/// Two queries of the same statistic, or of the overflows of the same stream, return
-/// `DrawError::WrongQueryOperation`.
-#[cfg(safegl_gl46)]
+/// Two queries of the same target and stream return `DrawError::WrongQueryOperation`.
 pub(crate) fn sync_indexed_queries(
     ctxt: &mut CommandContext<'_>,
     queries: &[&RawQuery],
+    dispatch: bool,
 ) -> Result<(), DrawError> {
     let mut targets: SmallVec<[(gl::types::GLenum, gl::types::GLuint); 4]> = SmallVec::new();
     for query in queries {
         let target = query
             .ty
             .indexed_target()
-            .expect("not a pipeline statistics or overflow query");
+            .expect("not a primitives, pipeline statistics or overflow query");
         if targets.contains(&target) {
             return Err(DrawError::WrongQueryOperation);
         }
@@ -537,7 +680,9 @@ pub(crate) fn sync_indexed_queries(
     let mut position = 0;
     while position < ctxt.state.indexed_queries.len() {
         let (target, index, id) = ctxt.state.indexed_queries[position];
-        if queries.iter().any(|query| query.id == id) {
+        let primitives = target == gl::PRIMITIVES_GENERATED
+            || target == gl::TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN;
+        if queries.iter().any(|query| query.id == id) || (dispatch && primitives) {
             position += 1;
         } else {
             ctxt.state.indexed_queries.remove(position);
@@ -611,7 +756,7 @@ impl QueryExt for RawQuery {
                         raw_begin_query(ctxt, gl::SAMPLES_PASSED, self.id);
                     }
 
-                    self.has_been_used.set(true);
+                    self.mark_used(ctxt);
                     ctxt.state.samples_passed_query = Some(self.id);
                 }
             }
@@ -643,7 +788,7 @@ impl QueryExt for RawQuery {
                         raw_begin_query(ctxt, gl::ANY_SAMPLES_PASSED, self.id);
                     }
 
-                    self.has_been_used.set(true);
+                    self.mark_used(ctxt);
                     ctxt.state.any_samples_passed_query = Some(self.id);
                 }
             }
@@ -675,7 +820,7 @@ impl QueryExt for RawQuery {
                         raw_begin_query(ctxt, gl::ANY_SAMPLES_PASSED_CONSERVATIVE, self.id);
                     }
 
-                    self.has_been_used.set(true);
+                    self.mark_used(ctxt);
                     ctxt.state.any_samples_passed_conservative_query = Some(self.id);
                 }
             }
@@ -693,29 +838,17 @@ impl QueryExt for RawQuery {
                         raw_begin_query(ctxt, gl::TIME_ELAPSED, self.id);
                     }
 
-                    self.has_been_used.set(true);
+                    self.mark_used(ctxt);
                     ctxt.state.time_elapsed_query = Some(self.id);
                 }
             }
 
             QueryType::Timestamp => panic!(),
 
-            QueryType::PrimitivesGenerated => {
-                if ctxt.state.primitives_generated_query != Some(self.id) {
-                    if self.has_been_used.get() {
-                        return Err(DrawError::WrongQueryOperation);
-                    }
-
-                    unsafe {
-                        if ctxt.state.primitives_generated_query.is_some() {
-                            raw_end_query(ctxt, gl::PRIMITIVES_GENERATED);
-                        }
-                        raw_begin_query(ctxt, gl::PRIMITIVES_GENERATED, self.id);
-                    }
-
-                    self.has_been_used.set(true);
-                    ctxt.state.primitives_generated_query = Some(self.id);
-                }
+            QueryType::PrimitivesGenerated(_)
+            | QueryType::TransformFeedbackPrimitivesWritten(_) => {
+                let (target, index) = self.ty.indexed_target().unwrap();
+                self.begin_indexed_query(ctxt, target, index)?;
             }
 
             #[cfg(safegl_gl46)]
@@ -724,28 +857,6 @@ impl QueryExt for RawQuery {
             | QueryType::TransformFeedbackStreamOverflow(_) => {
                 let (target, index) = self.ty.indexed_target().unwrap();
                 self.begin_indexed_query(ctxt, target, index)?;
-            }
-
-            QueryType::TransformFeedbackPrimitivesWritten => {
-                if ctxt.state.transform_feedback_primitives_written_query != Some(self.id) {
-                    if self.has_been_used.get() {
-                        return Err(DrawError::WrongQueryOperation);
-                    }
-
-                    unsafe {
-                        if ctxt
-                            .state
-                            .transform_feedback_primitives_written_query
-                            .is_some()
-                        {
-                            raw_end_query(ctxt, gl::TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN);
-                        }
-                        raw_begin_query(ctxt, gl::TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN, self.id);
-                    }
-
-                    self.has_been_used.set(true);
-                    ctxt.state.transform_feedback_primitives_written_query = Some(self.id);
-                }
             }
         };
 
@@ -785,48 +896,36 @@ impl QueryExt for RawQuery {
         }
     }
 
-    #[inline]
-    fn end_primitives_generated_query(ctxt: &mut CommandContext<'_>) {
-        if ctxt.state.primitives_generated_query.is_some() {
-            ctxt.state.primitives_generated_query = None;
-            unsafe {
-                raw_end_query(ctxt, gl::PRIMITIVES_GENERATED);
-            }
-        }
-    }
-
-    #[inline]
-    fn end_transform_feedback_primitives_written_query(ctxt: &mut CommandContext<'_>) {
-        if ctxt
-            .state
-            .transform_feedback_primitives_written_query
-            .is_some()
-        {
-            ctxt.state.transform_feedback_primitives_written_query = None;
-            unsafe {
-                raw_end_query(ctxt, gl::TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN);
-            }
-        }
-    }
-
     #[cfg(safegl_desktop)]
     fn begin_conditional_render(
         &self,
         ctxt: &mut CommandContext<'_>,
         wait: bool,
         per_region: bool,
+        inverted: bool,
     ) -> Result<(), DrawError> {
         // conditional rendering is core in OpenGL 3.0, but OpenGL ES and WebGL need
         // GL_NV_conditional_render
         if ctxt.version.0 != Api::Gl && !ctxt.extensions.gl_nv_conditional_render {
             return Err(DrawError::ConditionalRenderingNotSupported);
         }
+        #[cfg(safegl_gl45)]
+        if inverted
+            && !(ctxt.version >= &Version(Api::Gl, 4, 5)
+                || ctxt.extensions.gl_arb_conditional_render_inverted)
+        {
+            return Err(DrawError::ConditionalRenderingInvertedNotSupported);
+        }
 
-        let new_mode = match (wait, per_region) {
-            (true, true) => gl::QUERY_BY_REGION_WAIT,
-            (true, false) => gl::QUERY_WAIT,
-            (false, true) => gl::QUERY_BY_REGION_NO_WAIT,
-            (false, false) => gl::QUERY_NO_WAIT,
+        let new_mode = match (wait, per_region, inverted) {
+            (true, true, false) => gl::QUERY_BY_REGION_WAIT,
+            (true, false, false) => gl::QUERY_WAIT,
+            (false, true, false) => gl::QUERY_BY_REGION_NO_WAIT,
+            (false, false, false) => gl::QUERY_NO_WAIT,
+            (true, true, true) => gl::QUERY_BY_REGION_WAIT_INVERTED,
+            (true, false, true) => gl::QUERY_WAIT_INVERTED,
+            (false, true, true) => gl::QUERY_BY_REGION_NO_WAIT_INVERTED,
+            (false, false, true) => gl::QUERY_NO_WAIT_INVERTED,
         };
 
         // returning if the active conditional rendering is already good
@@ -838,6 +937,10 @@ impl QueryExt for RawQuery {
                     (a, b) if a == b => return Ok(()),
                     (gl::QUERY_NO_WAIT, gl::QUERY_WAIT) => return Ok(()),
                     (gl::QUERY_BY_REGION_NO_WAIT, gl::QUERY_BY_REGION_WAIT) => return Ok(()),
+                    (gl::QUERY_NO_WAIT_INVERTED, gl::QUERY_WAIT_INVERTED) => return Ok(()),
+                    (gl::QUERY_BY_REGION_NO_WAIT_INVERTED, gl::QUERY_BY_REGION_WAIT_INVERTED) => {
+                        return Ok(())
+                    }
                     _ => (),
                 }
             }
@@ -903,6 +1006,26 @@ impl fmt::Debug for RawQuery {
     #[inline]
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(fmt, "Query object {:?}", self.id)
+    }
+}
+
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl crate::debug::sealed::Labeled for RawQuery {
+    fn labeled_object(
+        &self,
+    ) -> (&crate::context::Context, crate::debug::sealed::LabeledObject) {
+        (
+            &self.context,
+            crate::debug::sealed::LabeledObject::Object(crate::gl::QUERY, self.id.0.get()),
+        )
+    }
+
+    fn pending_label(&self) -> Option<&std::cell::RefCell<Option<String>>> {
+        if self.has_been_used.get() {
+            None
+        } else {
+            Some(&self.pending_label)
+        }
     }
 }
 
@@ -973,7 +1096,35 @@ macro_rules! impl_helper {
             #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
             #[inline]
             pub fn to_buffer_u32(&self, target: BufferSlice<'_, u32>) -> Result<(), ToBufferError> {
-                self.query.write_u32_to_buffer(target)
+                self.query.write_to_buffer(target, QueryBufferMode::Result)
+            }
+
+            /// Writes the result of the query, or its availability, to a buffer of `u32`, `i32`,
+            /// `u64` or `i64`, without blocking: the GPU writes it when it runs the command.
+            ///
+            /// Needs OpenGL 4.4, `GL_ARB_query_buffer_object` or `GL_AMD_query_buffer_object`.
+            #[cfg(safegl_gl44)]
+            #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
+            #[inline]
+            pub fn to_buffer<T: QueryBufferValue>(
+                &self,
+                target: BufferSlice<'_, T>,
+                mode: QueryBufferMode,
+            ) -> Result<(), ToBufferError> {
+                self.query.write_to_buffer(target, mode)
+            }
+        }
+
+        #[cfg(any(safegl_gl43, safegl_gles32))]
+        impl crate::debug::sealed::Labeled for $name {
+            fn labeled_object(
+                &self,
+            ) -> (&crate::context::Context, crate::debug::sealed::LabeledObject) {
+                crate::debug::sealed::Labeled::labeled_object(&self.query)
+            }
+
+            fn pending_label(&self) -> Option<&std::cell::RefCell<Option<String>>> {
+                crate::debug::sealed::Labeled::pending_label(&self.query)
             }
         }
 
@@ -1003,24 +1154,16 @@ macro_rules! impl_helper {
             }
 
             #[inline]
-            fn end_primitives_generated_query(ctxt: &mut CommandContext<'_>) {
-                RawQuery::end_primitives_generated_query(ctxt)
-            }
-
-            #[inline]
-            fn end_transform_feedback_primitives_written_query(ctxt: &mut CommandContext<'_>) {
-                RawQuery::end_transform_feedback_primitives_written_query(ctxt)
-            }
-
-            #[inline]
             #[cfg(safegl_desktop)]
             fn begin_conditional_render(
                 &self,
                 ctxt: &mut CommandContext<'_>,
                 wait: bool,
                 per_region: bool,
+                inverted: bool,
             ) -> Result<(), DrawError> {
-                self.query.begin_conditional_render(ctxt, wait, per_region)
+                self.query
+                    .begin_conditional_render(ctxt, wait, per_region, inverted)
             }
 
             #[inline]
@@ -1256,8 +1399,28 @@ impl PrimitivesGeneratedQuery {
     where
         F: Facade,
     {
-        RawQuery::new(facade, QueryType::PrimitivesGenerated)
+        RawQuery::new(facade, QueryType::PrimitivesGenerated(0))
             .map(|q| PrimitivesGeneratedQuery { query: q })
+    }
+
+    /// Builds a query of the primitives generated for a vertex stream of geometry shaders,
+    /// below `Limits::max_vertex_streams` (`glBeginQueryIndexed`).
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[inline]
+    pub fn with_stream<F: ?Sized>(
+        facade: &F,
+        stream: u32,
+    ) -> Result<PrimitivesGeneratedQuery, QueryCreationError>
+    where
+        F: Facade,
+    {
+        RawQuery::new(facade, QueryType::PrimitivesGenerated(stream))
+            .map(|q| PrimitivesGeneratedQuery { query: q })
+    }
+    #[inline]
+    pub(crate) fn raw(&self) -> &RawQuery {
+        &self.query
     }
 }
 
@@ -1279,8 +1442,28 @@ impl TransformFeedbackPrimitivesWrittenQuery {
     where
         F: Facade,
     {
-        RawQuery::new(facade, QueryType::TransformFeedbackPrimitivesWritten)
+        RawQuery::new(facade, QueryType::TransformFeedbackPrimitivesWritten(0))
             .map(|q| TransformFeedbackPrimitivesWrittenQuery { query: q })
+    }
+
+    /// Builds a query of the primitives written by transform feedback for a vertex stream of
+    /// geometry shaders, below `Limits::max_vertex_streams` (`glBeginQueryIndexed`).
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[inline]
+    pub fn with_stream<F: ?Sized>(
+        facade: &F,
+        stream: u32,
+    ) -> Result<TransformFeedbackPrimitivesWrittenQuery, QueryCreationError>
+    where
+        F: Facade,
+    {
+        RawQuery::new(facade, QueryType::TransformFeedbackPrimitivesWritten(stream))
+            .map(|q| TransformFeedbackPrimitivesWrittenQuery { query: q })
+    }
+    #[inline]
+    pub(crate) fn raw(&self) -> &RawQuery {
+        &self.query
     }
 }
 

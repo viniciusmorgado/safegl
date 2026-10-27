@@ -44,6 +44,30 @@ impl Blend {
     }
 }
 
+impl Blend {
+    /// Whether drawing with it enables `GL_BLEND`.
+    pub(crate) fn is_enabled(&self) -> bool {
+        BlendState::new(*self).enabled
+    }
+
+    /// Whether it blends with the second color output of the fragment shader, which is
+    /// dual-source blending.
+    pub(crate) fn uses_second_source(&self) -> bool {
+        let state = BlendState::new(*self);
+        let (a, b, c, d) = state.func;
+        state.enabled
+            && [a, b, c, d].iter().any(|factor| {
+                matches!(
+                    *factor,
+                    gl::SRC1_COLOR
+                        | gl::ONE_MINUS_SRC1_COLOR
+                        | gl::SRC1_ALPHA
+                        | gl::ONE_MINUS_SRC1_ALPHA
+                )
+            })
+    }
+}
+
 impl Default for Blend {
     fn default() -> Blend {
         Blend {
@@ -183,11 +207,16 @@ pub enum LinearBlendingFactor {
     /// `Blend::const_value`.
     OneMinusConstantAlpha,
 
-    /// Multiply the source or destination component by its corresponding value
-    /// in source index one (you need to explicitly specify `layout(location=0, index=1)`
-    /// to bind it in your shader.
-    /// This is useful in Dual Source Blending
-    /// <https://www.khronos.org/registry/OpenGL/extensions/ARB/ARB_blend_func_extended.txt>
+    /// Multiply the source or destination component by its corresponding value in the second
+    /// color output of the fragment shader, the one declared with
+    /// `layout(location = 0, index = 1)`. This is dual-source blending.
+    ///
+    /// It needs desktop OpenGL or `GL_EXT_blend_func_extended` (whose GLSL ES shaders declare
+    /// `#extension GL_EXT_blend_func_extended : require`), and drawing into at most
+    /// `Limits::max_dual_source_draw_buffers` color buffers, usually 1. Otherwise, and on
+    /// WebGL, drawing returns `DrawError::DualSourceBlendingNotSupported` or
+    /// `DrawError::DualSourceBlendingTooManyDrawBuffers`. These requirements apply to the four
+    /// `*SourceOne*` factors.
     SourceOneColor,
 
     /// Equivalent to `1 - SourceOneColor`.

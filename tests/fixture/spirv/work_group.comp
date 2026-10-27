@@ -1,0 +1,12 @@
+#version 460
+
+// the width of the work groups is specialized
+layout(local_size_x_id = 3, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, binding = 0) buffer Values {
+    uint values[];
+};
+
+void main() {
+    values[gl_GlobalInvocationID.x] = gl_WorkGroupSize.x;
+}

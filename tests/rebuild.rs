@@ -63,6 +63,9 @@ fn objects_keep_working() {
 
 #[test]
 fn debug_callback_follows_the_context() {
+    if !support::contexts_check_errors() {
+        return;
+    }
     let errors = Rc::new(RefCell::new(Vec::new()));
     let recorded = errors.clone();
     let mut display =

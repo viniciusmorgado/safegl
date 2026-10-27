@@ -90,6 +90,9 @@ fn safegl_inside_uniforms() {
 
 #[test]
 fn panicking_debug_callback() {
+    if !support::contexts_check_errors() {
+        return;
+    }
     let display = support::build_display_with_debug(
         safegl::debug::DebugCallbackBehavior::Custom {
             callback: Box::new(|_, ty, _, _, _, message| {

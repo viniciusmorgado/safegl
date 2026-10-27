@@ -19,7 +19,7 @@ use crate::ToGlEnum;
 use crate::{BlitMask, DrawParameters};
 
 use crate::DrawError;
-use crate::{Program, Surface};
+use crate::Surface;
 
 use crate::fbo;
 #[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
@@ -144,6 +144,20 @@ impl ExternalFramebuffer {
         }
     }
 
+    /// Returns the position of each sample inside the pixels, from `[0.0, 0.0]` (the lower left
+    /// corner) to `[1.0, 1.0]`, as the GPU places them (`glGetMultisamplefv(GL_SAMPLE_POSITION)`).
+    /// The list is empty if the framebuffer isn't multisampled.
+    ///
+    /// Needs OpenGL ES 3.1 on OpenGL ES.
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
+    pub fn sample_positions(
+        &self,
+    ) -> Result<Vec<[f32; 2]>, crate::framebuffer::SamplePositionsNotSupportedError> {
+        let mut ctxt = self.context.make_current();
+        fbo::sample_positions(&mut ctxt, self.get_attachments())
+    }
+
     /// Like `invalidate`, but only inside `rect` (`glInvalidateSubFramebuffer`).
     #[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))))]
@@ -196,11 +210,11 @@ impl Surface for ExternalFramebuffer {
         self.stencil_buffer_bits
     }
 
-    fn draw<'a, 'b, V, I, U>(
+    fn draw<'a, 'b, 'p, V, I, U>(
         &mut self,
         vertex_buffer: V,
         index_buffer: I,
-        program: &Program,
+        program: impl Into<crate::program::DrawProgram<'p>>,
         uniforms: &U,
         draw_parameters: &DrawParameters<'_>,
     ) -> Result<(), DrawError>
@@ -233,7 +247,7 @@ impl Surface for ExternalFramebuffer {
             self.get_attachments(),
             vertex_buffer,
             index_buffer.into(),
-            program,
+            program.into(),
             uniforms,
             draw_parameters,
             self.get_dimensions(),
@@ -321,6 +335,48 @@ impl Surface for ExternalFramebuffer {
     fn blit_buffers_from_external_framebuffer(
         &self,
         source: &ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
+
+    fn blit_buffers_from_default_framebuffer(
+        &self,
+        source: &crate::framebuffer::DefaultFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
+
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    fn blit_buffers_from_layered_framebuffer(
+        &self,
+        source: &crate::framebuffer::LayeredFrameBuffer<'_>,
         source_rect: &Rect,
         target_rect: &BlitTarget,
         filter: MagnifySamplerFilter,

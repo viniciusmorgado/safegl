@@ -39,12 +39,28 @@ use crate::texture;
 use crate::uniforms;
 use crate::vertex_array_object;
 
-pub use self::capabilities::{Capabilities, ReleaseBehavior};
+#[cfg(any(safegl_gl45, safegl_gles32))]
+pub use self::capabilities::GraphicsResetStatus;
+pub use self::capabilities::{Capabilities, ReleaseBehavior, ResetNotificationStrategy};
 pub use self::extensions::ExtensionsList;
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+pub use self::format_info::{FormatInfo, FormatInfoNotSupportedError, FormatSupport, FormatTarget};
+#[cfg(any(safegl_gl43, safegl_gles32))]
+pub use self::debug_output::DebugGroup;
+#[cfg(any(safegl_gl43, safegl_gles32))]
+pub(crate) use self::debug_output::{object_label, set_object_label};
+pub use self::limits::{Limits, ProvokingVertexConvention, QueryCounterBits, StageLimits};
 pub use self::state::GlState;
+pub(crate) use self::state::RecordingTransformFeedback;
 
 mod capabilities;
 mod extensions;
+#[cfg(safegl_gl43)]
+mod format_info;
+mod limits;
+#[cfg(any(safegl_gl43, safegl_gles32))]
+mod debug_output;
 mod restore;
 mod state;
 
@@ -98,6 +114,16 @@ pub struct Context {
     /// driver doesn't need to generate the others.
     debug_output_errors_only: bool,
 
+    /// Whether the debug messages go to the message log of the context instead of a callback.
+    debug_output_log: bool,
+
+    /// The number of debug groups pushed by `push_debug_group` and not popped yet.
+    debug_group_depth: Cell<u32>,
+
+    /// Incremented when the OpenGL context changes, which loses the debug groups and the objects
+    /// that contexts don't share, such as transform feedback objects.
+    generation: Cell<u64>,
+
     /// Whether or not errors triggered by ARB_debug_output (and similar extensions) should be
     /// reported to the user when `DebugCallbackBehavior::DebugMessageOnError` is used. This must
     /// be set to `false` in some situations, like compiling/linking shaders.
@@ -120,9 +146,15 @@ pub struct Context {
         >,
     >,
 
+    /// The answers of `format_info`.
+    #[cfg(safegl_gl43)]
+    format_infos: RefCell<
+        HashMap<(FormatTarget, crate::image_format::TextureFormat), FormatInfo>,
+    >,
+
     /// List of texture handles that are resident. We need to call `MakeTextureHandleResidentARB`
     /// when rebuilding the context.
-    resident_texture_handles: RefCell<Vec<gl::types::GLuint64>>,
+    resident_texture_handles: RefCell<Vec<ResidentHandle>>,
 
     /// List of images handles that are resident. We need to call `MakeImageHandleResidentARB`
     /// when rebuilding the context.
@@ -130,6 +162,19 @@ pub struct Context {
 }
 
 /// This struct is a guard that is returned when you want to access the OpenGL backend.
+/// A bindless texture handle that a `ResidentTexture` made resident, with what draw commands
+/// check when it is the value of a sampler uniform.
+pub struct ResidentHandle {
+    /// The handle.
+    pub handle: gl::types::GLuint64,
+    /// The types of the samplers that can sample the texture.
+    pub sampler_types: &'static [crate::uniforms::UniformType],
+    /// Whether the sampler of the handle compares depths.
+    pub compares: bool,
+    /// The draw call that last wrote the texture through an image unit.
+    pub latest_shader_write: Rc<Cell<u64>>,
+}
+
 pub struct CommandContext<'a> {
     /// The context that is current.
     pub context: &'a Context,
@@ -174,7 +219,7 @@ pub struct CommandContext<'a> {
     >,
 
     /// List of texture handles that need to be made resident.
-    pub resident_texture_handles: RefMut<'a, Vec<gl::types::GLuint64>>,
+    pub resident_texture_handles: RefMut<'a, Vec<ResidentHandle>>,
 
     /// List of image handles and their access that need to be made resident.
     pub resident_image_handles: RefMut<'a, Vec<(gl::types::GLuint64, gl::types::GLenum)>>,
@@ -203,6 +248,13 @@ pub(crate) unsafe fn set_patch_vertices(
 }
 
 impl Context {
+    /// Returns the number of times that the OpenGL context changed (`rebuild`): the objects
+    /// that contexts don't share, created in a previous generation, are gone.
+    #[inline]
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation.get()
+    }
+
     /// Marks the start of a `Frame`. Returns false if another one is in progress.
     pub(crate) fn begin_frame(&self) -> bool {
         !self.frame_in_progress.replace(true)
@@ -268,7 +320,7 @@ impl Context {
         let extensions = extensions::get_extensions(&glow);
         check_gl_compatibility(&glow, &version)?;
 
-        let capabilities = capabilities::get_capabilities(&glow, &version, &extensions);
+        let capabilities = capabilities::get_capabilities(&glow, &extra, &version, &extensions);
         let report_debug_output_errors = Cell::new(true);
 
         let vertex_array_objects = vertex_array_object::VertexAttributesSystem::new();
@@ -282,8 +334,15 @@ impl Context {
         let resident_image_handles = RefCell::new(Vec::new());
 
         let errors_only = matches!(callback_behavior, DebugCallbackBehavior::DebugMessageOnError);
+        #[cfg(any(safegl_gl43, safegl_gles32))]
+        let log = matches!(callback_behavior, DebugCallbackBehavior::Log);
+        #[cfg(not(any(safegl_gl43, safegl_gles32)))]
+        let log = false;
         let (debug_callback, synchronous) = match callback_behavior {
             DebugCallbackBehavior::Ignore => (None, false),
+            // logged in the order of the commands
+            #[cfg(any(safegl_gl43, safegl_gles32))]
+            DebugCallbackBehavior::Log => (None, true),
             DebugCallbackBehavior::DebugMessageOnError => (
                 Some(Box::new(default_debug_callback) as debug::DebugCallback),
                 true,
@@ -310,17 +369,22 @@ impl Context {
             debug_callback_panic: Cell::new(None),
             debug_output_synchronous: synchronous,
             debug_output_errors_only: errors_only,
+            debug_output_log: log,
+            debug_group_depth: Cell::new(0),
+            generation: Cell::new(0),
             report_debug_output_errors,
             backend: RefCell::new(Box::new(backend)),
             check_current_context,
             framebuffer_objects: Some(framebuffer_objects),
             vertex_array_objects,
             samplers,
+            #[cfg(safegl_gl43)]
+            format_infos: RefCell::new(HashMap::new()),
             resident_texture_handles,
             resident_image_handles,
         });
 
-        if context.debug_callback.borrow().is_some() {
+        if context.debug_callback.borrow().is_some() || context.debug_output_log {
             init_debug_callback(&context);
         }
 
@@ -407,24 +471,26 @@ impl Context {
         if let Err(error) = compatible {
             switch_back(self);
             self.backend.borrow().make_current();
-            if self.debug_callback.borrow().is_some() {
+            if self.debug_callback.borrow().is_some() || self.debug_output_log {
                 init_debug_callback(self);
             }
             return Err(error);
         }
 
         *self.state.borrow_mut() = Default::default();
+        self.debug_group_depth.set(0);
+        self.generation.set(self.generation.get() + 1);
 
         // the debug output and the other state are set up again in the new context
-        if self.debug_callback.borrow().is_some() {
+        if self.debug_callback.borrow().is_some() || self.debug_output_log {
             init_debug_callback(self);
         }
         init_state(&self.make_current());
 
         // making textures resident
         let textures = self.resident_texture_handles.borrow();
-        for &texture in textures.iter() {
-            self.extra.MakeTextureHandleResidentARB(texture);
+        for texture in textures.iter() {
+            self.extra.MakeTextureHandleResidentARB(texture.handle);
         }
 
         // making images resident
@@ -466,7 +532,9 @@ impl Context {
         // swapping
         let err = backend.swap_buffers();
         if let Err(SwapBuffersError::ContextLost) = err {
-            self.state.borrow_mut().lost_context = true;
+            let mut state = self.state.borrow_mut();
+            state.lost_context = true;
+            state.reset_status = gl::UNKNOWN_CONTEXT_RESET;
         }
         err
     }
@@ -548,10 +616,21 @@ impl Context {
         self.capabilities().robustness
     }
 
-    /// Returns true if a context loss is possible.
+    /// Returns true if a context loss is possible: the context was created with the
+    /// `LoseContextOnReset` reset notification strategy.
     #[inline]
     pub fn is_context_loss_possible(&self) -> bool {
-        self.capabilities().can_lose_context
+        self.capabilities().reset_notification == ResetNotificationStrategy::LoseContextOnReset
+    }
+
+    /// Returns true if the context was created without error checking (OpenGL 4.6 or
+    /// `GL_KHR_no_error`), in which OpenGL errors are undefined behavior. SafeGL validates its
+    /// calls itself, but the debug callback receives no error messages from such a context.
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    #[inline]
+    pub fn is_no_error(&self) -> bool {
+        self.capabilities().no_error
     }
 
     /// Returns true if the context has been lost and needs to be recreated.
@@ -563,36 +642,55 @@ impl Context {
     /// is detected), then calls `glGetGraphicsResetStatus`. If this function is not available,
     /// returns false.
     pub fn is_context_lost(&self) -> bool {
-        if self.state.borrow().lost_context {
-            return true;
+        self.reset_status() != gl::NO_ERROR
+    }
+
+    /// Returns how the GPU reset that lost the context involved it, or `None` if the context
+    /// isn't lost, or if the backend can't tell resets (OpenGL 4.5, OpenGL ES 3.2,
+    /// `GL_KHR_robustness`, `GL_ARB_robustness` or `GL_EXT_robustness`).
+    ///
+    /// A context created with the `NoResetNotification` strategy (see
+    /// `Capabilities::reset_notification`) isn't told about resets, so this is always `None`.
+    /// The status stays once the context is known to be lost, like `is_context_lost`.
+    #[cfg(any(safegl_gl45, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_gles32))))]
+    pub fn graphics_reset_status(&self) -> Option<GraphicsResetStatus> {
+        match self.reset_status() {
+            gl::NO_ERROR => None,
+            gl::GUILTY_CONTEXT_RESET => Some(GraphicsResetStatus::Guilty),
+            gl::INNOCENT_CONTEXT_RESET => Some(GraphicsResetStatus::Innocent),
+            _ => Some(GraphicsResetStatus::Unknown),
+        }
+    }
+
+    /// Returns the reset status that made the context lost, or `GL_NO_ERROR` if it isn't lost.
+    ///
+    /// If the context has been determined lost before, returns the status of then. Otherwise,
+    /// asks the backend (which is how a WebGL context loss is detected), then calls
+    /// `glGetGraphicsResetStatus` if the context has it.
+    fn reset_status(&self) -> gl::types::GLenum {
+        {
+            let state = self.state.borrow();
+            if state.lost_context {
+                return state.reset_status;
+            }
         }
 
         let lost_by_backend = self.backend.borrow().is_context_lost();
 
         let mut ctxt = self.make_current();
 
-        let lost = if lost_by_backend {
-            true
-        } else if is_webgl() {
-            // WebGL has no `glGetGraphicsResetStatus`; the backend is the only source
-            false
-        } else if ctxt.version >= &Version(Api::Gl, 4, 5)
-            || ctxt.version >= &Version(Api::GlEs, 3, 2)
-            || ctxt.extensions.gl_khr_robustness
-        {
-            unsafe { ctxt.extra.GetGraphicsResetStatus() != gl::NO_ERROR }
-        } else if ctxt.extensions.gl_ext_robustness {
-            unsafe { ctxt.extra.GetGraphicsResetStatusEXT() != gl::NO_ERROR }
-        } else if ctxt.extensions.gl_arb_robustness {
-            unsafe { ctxt.extra.GetGraphicsResetStatusARB() != gl::NO_ERROR }
+        let status = if lost_by_backend {
+            gl::UNKNOWN_CONTEXT_RESET
         } else {
-            false
+            query_graphics_reset_status(&ctxt).unwrap_or(gl::NO_ERROR)
         };
 
-        if lost {
+        if status != gl::NO_ERROR {
             ctxt.state.lost_context = true;
+            ctxt.state.reset_status = status;
         }
-        lost
+        status
     }
 
     /// Returns the behavior when the current OpenGL context is changed.
@@ -602,6 +700,57 @@ impl Context {
     #[inline]
     pub fn get_release_behavior(&self) -> ReleaseBehavior {
         self.capabilities().release_behavior
+    }
+
+    /// Returns the range and the precision of the numbers of a precision qualifier in the vertex
+    /// or fragment shader, or `None` for another stage or without OpenGL 4.1, OpenGL ES or
+    /// `GL_ARB_ES2_compatibility`.
+    ///
+    /// Desktop OpenGL has the same precision for every qualifier: the qualifiers only matter to
+    /// OpenGL ES, where `mediump` and `lowp` can be less precise than `highp`, which the fragment
+    /// shaders of OpenGL ES 3.0 always have.
+    #[cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))))]
+    pub fn shader_precision_format(
+        &self,
+        shader: crate::program::ShaderType,
+        qualifier: crate::program::PrecisionQualifier,
+    ) -> Option<crate::program::ShaderPrecision> {
+        use crate::program::ShaderType;
+
+        if !matches!(shader, ShaderType::Vertex | ShaderType::Fragment) {
+            return None;
+        }
+        let ctxt = self.make_current();
+        if ctxt.version.0 != Api::GlEs
+            && ctxt.version < &Version(Api::Gl, 4, 1)
+            && !ctxt.extensions.gl_arb_es2_compatibility
+        {
+            return None;
+        }
+
+        let format = unsafe {
+            ctxt.glow
+                .get_shader_precision_format(shader.to_opengl_type(), qualifier.to_glenum())
+        }?;
+        Some(crate::program::ShaderPrecision {
+            range: (format.range_min, format.range_max),
+            precision: format.precision,
+        })
+    }
+
+    /// Returns the time of the GPU in nanoseconds, when it has received every previous command
+    /// but not necessarily run them (`GL_TIMESTAMP`), or `None` on OpenGL ES without
+    /// `GL_EXT_disjoint_timer_query`. `debug::TimestampQuery` gives the time when the commands
+    /// have run, and the two use the same clock.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    pub fn gpu_timestamp(&self) -> Option<u64> {
+        let ctxt = self.make_current();
+        if ctxt.version.0 != Api::Gl && !ctxt.extensions.gl_ext_disjoint_timer_query {
+            return None;
+        }
+        Some(unsafe { ctxt.glow.get_parameter_i64(gl::TIMESTAMP) } as u64)
     }
 
     /// Returns the maximum value that can be used for anisotropic filtering, or `None`
@@ -843,10 +992,12 @@ impl Context {
     pub fn insert_debug_marker(&self, marker: &str) -> Result<(), ()> {
         let ctxt = self.make_current();
 
-        // `glDebugMessageInsert` is core in OpenGL 4.3 and OpenGL ES 3.2
-        if ctxt.version >= &Version(Api::Gl, 4, 3)
-            || ctxt.version >= &Version(Api::GlEs, 3, 2)
-            || (ctxt.version.0 == Api::Gl && ctxt.extensions.gl_khr_debug)
+        // `glDebugMessageInsert` is core in OpenGL 4.3 and OpenGL ES 3.2, and glow calls
+        // `glDebugMessageInsertKHR` on OpenGL ES with `GL_KHR_debug`
+        if !is_webgl()
+            && (ctxt.version >= &Version(Api::Gl, 4, 3)
+                || ctxt.version >= &Version(Api::GlEs, 3, 2)
+                || ctxt.extensions.gl_khr_debug)
         {
             unsafe {
                 ctxt.glow.debug_message_insert(
@@ -1019,6 +1170,34 @@ impl<'a> CapabilitiesSource for CommandContext<'a> {
     }
 }
 
+/// Calls the `glGetGraphicsResetStatus` of the context, or returns `None` if it has none.
+///
+/// The function is core in OpenGL 4.5 and OpenGL ES 3.2, and desktop `GL_KHR_robustness` uses the
+/// same name; OpenGL ES names it with a `KHR` suffix, and `GL_EXT_robustness` and
+/// `GL_ARB_robustness` with their suffixes. WebGL has none: the backend is its only source.
+fn query_graphics_reset_status(ctxt: &CommandContext<'_>) -> Option<gl::types::GLenum> {
+    let version = ctxt.version;
+    let extensions = ctxt.extensions;
+    unsafe {
+        if is_webgl() {
+            None
+        } else if version >= &Version(Api::Gl, 4, 5)
+            || version >= &Version(Api::GlEs, 3, 2)
+            || (version.0 == Api::Gl && extensions.gl_khr_robustness)
+        {
+            Some(ctxt.extra.GetGraphicsResetStatus())
+        } else if extensions.gl_khr_robustness {
+            Some(ctxt.extra.GetGraphicsResetStatusKHR())
+        } else if extensions.gl_ext_robustness {
+            Some(ctxt.extra.GetGraphicsResetStatusEXT())
+        } else if extensions.gl_arb_robustness {
+            Some(ctxt.extra.GetGraphicsResetStatusARB())
+        } else {
+            None
+        }
+    }
+}
+
 /// Minimum desktop OpenGL version supported by SafeGL, whatever the level.
 const MIN_GL_VERSION: Version = Version(Api::Gl, 4, 0);
 /// Minimum OpenGL ES version supported by SafeGL, whatever the level (also WebGL 2).
@@ -1075,6 +1254,13 @@ pub enum DebugCallbackBehavior {
 
     /// Print every single output received by the driver.
     PrintAll,
+
+    /// Don't call a callback, but keep the messages in the message log of the context, which
+    /// `Context::debug_message_log` reads (OpenGL 4.3, OpenGL ES 3.2 or `GL_KHR_debug`). Every
+    /// message is logged, synchronously.
+    #[cfg(any(safegl_gl43, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+    Log,
 
     /// Use a custom callback.
     Custom {
@@ -1216,7 +1402,7 @@ fn init_debug_callback(context: &Context) {
         ty: gl::types::GLenum,
         id: gl::types::GLuint,
         severity: gl::types::GLenum,
-        _length: gl::types::GLsizei,
+        length: gl::types::GLsizei,
         message: *const gl::types::GLchar,
         user_param: *mut raw::c_void,
     ) {
@@ -1224,38 +1410,25 @@ fn init_debug_callback(context: &Context) {
         // destructor, so that it outlives the messages
         let context: &Context = unsafe { &*(user_param as *const Context) };
 
-        let message =
-            unsafe { String::from_utf8(CStr::from_ptr(message).to_bytes().to_vec()).unwrap() };
-
-        let severity = match severity {
-            gl::DEBUG_SEVERITY_NOTIFICATION => debug::Severity::Notification,
-            gl::DEBUG_SEVERITY_LOW => debug::Severity::Low,
-            gl::DEBUG_SEVERITY_MEDIUM => debug::Severity::Medium,
-            gl::DEBUG_SEVERITY_HIGH => debug::Severity::High,
-            _ => return, // TODO: what to do in this situation?
+        // the message has `length` bytes: drivers pass the messages of debug groups and of
+        // inserted messages as they were given, without a null terminator
+        let message = unsafe {
+            let bytes = if length >= 0 {
+                std::slice::from_raw_parts(message as *const u8, length as usize)
+            } else {
+                CStr::from_ptr(message).to_bytes()
+            };
+            String::from_utf8_lossy(bytes).into_owned()
         };
 
-        let source = match source {
-            gl::DEBUG_SOURCE_API => debug::Source::Api,
-            gl::DEBUG_SOURCE_WINDOW_SYSTEM => debug::Source::WindowSystem,
-            gl::DEBUG_SOURCE_SHADER_COMPILER => debug::Source::ShaderCompiler,
-            gl::DEBUG_SOURCE_THIRD_PARTY => debug::Source::ThirdParty,
-            gl::DEBUG_SOURCE_APPLICATION => debug::Source::Application,
-            gl::DEBUG_SOURCE_OTHER => debug::Source::OtherSource,
-            _ => return, // TODO: what to do in this situation?
-        };
-
-        let ty = match ty {
-            gl::DEBUG_TYPE_ERROR => debug::MessageType::Error,
-            gl::DEBUG_TYPE_DEPRECATED_BEHAVIOR => debug::MessageType::DeprecatedBehavior,
-            gl::DEBUG_TYPE_UNDEFINED_BEHAVIOR => debug::MessageType::UndefinedBehavior,
-            gl::DEBUG_TYPE_PORTABILITY => debug::MessageType::Portability,
-            gl::DEBUG_TYPE_PERFORMANCE => debug::MessageType::Performance,
-            gl::DEBUG_TYPE_MARKER => debug::MessageType::Marker,
-            gl::DEBUG_TYPE_PUSH_GROUP => debug::MessageType::PushGroup,
-            gl::DEBUG_TYPE_POP_GROUP => debug::MessageType::PopGroup,
-            gl::DEBUG_TYPE_OTHER => debug::MessageType::Other,
-            _ => return, // TODO: what to do in this situation?
+        // a message with a value outside of the specification is dropped
+        let (severity, source, ty) = match (
+            debug::Severity::from_glenum(severity),
+            debug::Source::from_glenum(source),
+            debug::MessageType::from_glenum(ty),
+        ) {
+            (Some(severity), Some(source), Some(ty)) => (severity, source, ty),
+            _ => return,
         };
 
         // a callback that triggers messages itself isn't called again for them
@@ -1279,6 +1452,13 @@ fn init_debug_callback(context: &Context) {
     unsafe impl Send for ContextRawPtr {}
     let context_raw_ptr = ContextRawPtr(context);
 
+    // without a callback, the messages go to the message log
+    let callback: gl::types::GLDEBUGPROC = if context.debug_output_log {
+        None
+    } else {
+        Some(callback_wrapper)
+    };
+
     unsafe {
         let mut ctxt = context.make_current();
 
@@ -1297,7 +1477,7 @@ fn init_debug_callback(context: &Context) {
                 || (ctxt.version.0 == Api::Gl && ctxt.extensions.gl_khr_debug)
             {
                 ctxt.extra
-                    .DebugMessageCallback(Some(callback_wrapper), context_raw_ptr.0 as *const _);
+                    .DebugMessageCallback(callback, context_raw_ptr.0 as *const _);
                 ctxt.extra.DebugMessageControl(
                     gl::DONT_CARE,
                     gl::DONT_CARE,
@@ -1322,7 +1502,7 @@ fn init_debug_callback(context: &Context) {
                 }
             } else if ctxt.extensions.gl_khr_debug {
                 ctxt.extra
-                    .DebugMessageCallbackKHR(Some(callback_wrapper), context_raw_ptr.0 as *const _);
+                    .DebugMessageCallbackKHR(callback, context_raw_ptr.0 as *const _);
                 ctxt.extra.DebugMessageControlKHR(
                     gl::DONT_CARE,
                     gl::DONT_CARE,
@@ -1347,7 +1527,7 @@ fn init_debug_callback(context: &Context) {
                 }
             } else {
                 ctxt.extra
-                    .DebugMessageCallbackARB(Some(callback_wrapper), context_raw_ptr.0 as *const _);
+                    .DebugMessageCallbackARB(callback, context_raw_ptr.0 as *const _);
                 ctxt.extra.DebugMessageControlARB(
                     gl::DONT_CARE,
                     gl::DONT_CARE,

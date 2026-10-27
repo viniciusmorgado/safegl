@@ -800,6 +800,26 @@ where
             marker: PhantomData,
         })
     }
+
+    /// Builds a slice of the element at `index`, for the operations that take a single value,
+    /// such as writing the result of a query. Returns `None` if out of range.
+    #[inline]
+    pub fn get(&self, index: usize) -> Option<BufferSlice<'a, T>>
+    where
+        T: Content,
+    {
+        if index >= self.len() {
+            return None;
+        }
+
+        Some(BufferSlice {
+            alloc: self.alloc,
+            bytes_start: self.bytes_start + index * mem::size_of::<T>(),
+            bytes_end: self.bytes_start + (index + 1) * mem::size_of::<T>(),
+            fence: self.fence,
+            marker: PhantomData,
+        })
+    }
 }
 
 impl<'a, T> BufferSlice<'a, [T]>
@@ -1646,6 +1666,48 @@ impl<'a> BufferAnySlice<'a> {
     pub(crate) fn with_elements_size(mut self, elements_size: usize) -> BufferAnySlice<'a> {
         self.elements_size = elements_size;
         self
+    }
+
+    /// Calls `glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT)` if a shader wrote the buffer since
+    /// the last barrier, before a buffer texture of it is sampled.
+    #[inline]
+    pub(crate) fn prepare_for_texture_fetch(&self, ctxt: &mut CommandContext<'_>) {
+        self.alloc.prepare_for_texture_fetch(ctxt);
+    }
+
+    /// Calls `glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)` if a shader wrote the buffer
+    /// since the last barrier, before a buffer texture of it is bound to an image unit.
+    #[cfg(any(safegl_gl42, safegl_gles32))]
+    #[inline]
+    pub(crate) fn prepare_for_image_access(&self, ctxt: &mut CommandContext<'_>, will_write: bool) {
+        self.alloc.prepare_for_image_access(ctxt, will_write);
+    }
+}
+
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl<T: ?Sized + Content> crate::debug::sealed::Labeled for Buffer<T> {
+    fn labeled_object(
+        &self,
+    ) -> (&crate::context::Context, crate::debug::sealed::LabeledObject) {
+        (
+            self.get_context(),
+            crate::debug::sealed::LabeledObject::Object(crate::gl::BUFFER, self.get_id().0.get()),
+        )
+    }
+}
+
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl crate::debug::sealed::Labeled for BufferAny {
+    fn labeled_object(
+        &self,
+    ) -> (&crate::context::Context, crate::debug::sealed::LabeledObject) {
+        (
+            self.alloc.get_context(),
+            crate::debug::sealed::LabeledObject::Object(
+                crate::gl::BUFFER,
+                self.alloc.get_id().0.get(),
+            ),
+        )
     }
 }
 

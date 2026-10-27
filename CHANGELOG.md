@@ -200,6 +200,134 @@ Breaking changes:
 - The query of `ConditionalRendering` is a `ConditionQuery`, which can also be a transform
   feedback overflow query; `(&query).into()` still builds it from the samples queries, and from a
   `SamplesQueryParam`.
+- `Capabilities` is `#[non_exhaustive]`, and has a `limits` field: code that builds it or
+  destructures it without `..` doesn't compile anymore. Reading its fields is unchanged.
+- `RenderBufferCreationError` is `#[non_exhaustive]` and has two new variants: render buffers
+  larger than `Limits::max_renderbuffer_size` return `DimensionsNotSupported`, and those with more
+  samples than `Limits::max_samples` or than their format has return `SamplesNotSupported`,
+  instead of being created without storage and failing when drawn to.
+- `Capabilities::can_lose_context: bool` is replaced by `Capabilities::reset_notification`, a
+  `ResetNotificationStrategy` (`NoResetNotification` or `LoseContextOnReset`).
+  `Context::is_context_loss_possible()` is unchanged.
+- `DebugCallbackBehavior` has a `Log` variant (`gl43`, `gles32`), so matches on it need an arm for
+  it at these levels.
+- `ConditionalRendering` has an `inverted` field at the `gl45` level, and `ToBufferError` has a
+  `ContextMismatch` variant: a query refuses to write to a buffer of another context.
+- `DrawParameters::primitive_restart_index: bool` is replaced by `primitive_restart`, a
+  `PrimitiveRestart` (`Disabled`, `FixedIndex`, or `Index(u32)` on desktop OpenGL), and
+  `DrawError::FixedIndexRestartingNotSupported` is replaced by
+  `PrimitiveRestartIndexNotSupported`, for `Index` on OpenGL ES: restarting at the largest index
+  works on every desktop driver now.
+- The third field of `VerticesSource::VertexBuffer` is an `InstanceRate` (`PerVertex` or
+  `PerInstance(divisor)`) instead of a `bool`.
+- `AttributeType` has the `U8U8U8U8Bgra`, `I2I10I10I10ReversedBgra` and `U2U10U10U10ReversedBgra`
+  variants at the desktop levels, `VerticesSource` a `Constant` variant, and `DrawError` an
+  `AttributeProvidedTwice` variant.
+- The draw command buffers and their `IndicesSource` variants exist at the levels with indirect
+  draws (`any(desktop, gles31)`), and the variants have a `command_offset` field; drawing all the
+  commands of a buffer with `with_primitive_type` and `with_index_buffer` stays at `gl43`.
+  `DrawError` has `IndirectDrawsNotSupported`, `MultidrawNotSupported` and
+  `IndirectDrawWithTransformFeedback` variants, and indirect buffers can be created on OpenGL 4.0
+  to 4.2 and OpenGL ES 3.1 without multidraw. `IndicesSource` also has `NoIndicesRanges` and
+  `IndexBufferRanges` variants at the desktop levels, and `DrawError` `DrawRangesNotSupported`,
+  `DrawRangeOutOfBounds` and `InstancedDrawRangesNotSupported` variants.
+- `DrawParameters::primitives_generated_query` and `transform_feedback_primitives_written_query`
+  are replaced by `primitives_generated_queries` and
+  `transform_feedback_primitives_written_queries`, slices of queries of different vertex streams:
+  write `&[&query]` instead of `Some(&query)`.
+- `vertex::TransformFeedbackSession` is replaced by `vertex::TransformFeedback`, a transform
+  feedback object built with `TransformFeedback::new(facade, program)` and given the buffers of
+  the program with `with_buffer(buffer)`; `TransformFeedbackSessionCreationError` becomes
+  `TransformFeedbackCreationError`. A draw without the object pauses its capture instead of ending
+  it. `IndicesSource` has a `TransformFeedback` variant at the desktop levels, and `DrawError` has
+  `TransformFeedbackBuffersMissing`, `TransformFeedbackPrimitivesMismatch`,
+  `CapturedVerticesLost`, `CapturedVerticesOutOfBounds` and `CapturedVerticesDrawNotSupported`
+  variants.
+- `DrawParameters::multisampling`, `alpha_to_coverage`, `sample_shading` and `sample_mask` move
+  into `DrawParameters::multisample`, a `draw_parameters::MultisampleState` with the fields
+  `enabled` (formerly `multisampling`), `alpha_to_coverage`, `sample_shading` and `sample_mask`:
+  write `multisample: MultisampleState { alpha_to_coverage: true, ..Default::default() }`.
+  `DrawError` has an `AlphaToOneNotSupported` variant at the desktop levels.
+- `program::BlockLayout::Array` and `DynamicSizedArray` have a `stride` field, the distance
+  between their elements reflected from OpenGL (`GL_UNIFORM_ARRAY_STRIDE`, `GL_ARRAY_STRIDE`,
+  `GL_TOP_LEVEL_ARRAY_STRIDE`). `uniforms::LayoutMismatchError` is `#[non_exhaustive]`, and a
+  Rust array whose elements are closer than the ones of the block, like a `[f32; N]` for the
+  `float` array of a `std140` block, returns its new `StrideMismatch` variant instead of being
+  bound with its data read at the wrong offsets.
+- `texture::UploadError` is `#[non_exhaustive]`, and writing a region of a compressed texture
+  that doesn't start on the blocks of its format, or doesn't end on them or on the edge of the
+  image, returns its new `MisalignedBlocks` variant instead of an OpenGL error.
+- `ReadError` is `#[non_exhaustive]`, with the `NotSupported` and `MisalignedBlocks` variants.
+  `TextureAnyMipmap::read_box` reads a box of a level of any texture but a multisample one,
+  depth, stencil, integer and compressed (decompressed) ones included, converted to a pixel type
+  (`gl45`, `glGetTextureSubImage`; OpenGL 4.5 or `GL_ARB_get_texture_sub_image` at runtime),
+  `read_volume` a whole level into a `Texture3dDataSink`, whose `Vec<Vec<Vec<P>>>`
+  implementation reached `unimplemented!()`, and `read_compressed_box` the blocks of a box of a
+  compressed texture as they are stored (`glGetCompressedTextureSubImage`).
+- `BlitError` is `#[non_exhaustive]`, and blitting the color of an `EmptyFrameBuffer` returns
+  its new `NoColorBuffer` variant instead of reaching `unimplemented!()`.
+- `TextureAnyImage::raw_clear_buffer` returns `Result<(), framebuffer::ClearBufferError>`
+  instead of panicking when the value doesn't match the kind of the texture, and clears depth,
+  stencil and depth-stencil textures too (`ClearBufferData::{Depth, Stencil, DepthStencil}`, and
+  an `f32` for a depth), where it reached `unimplemented!()`. `framebuffer::ClearBufferData` and
+  `ClearBufferError` are exported. Clears of single attachments ignore the scissor box, the write
+  masks, the rasterizer discard, the conditional rendering and the sRGB conversion that earlier
+  draws left. `MultiOutputFrameBuffer::clear_output` clears the attachment of one output,
+  integer attachments included.
+- `texture::Dimensions` is `#[non_exhaustive]`, with a `TextureRectangle` variant for the
+  rectangle textures of desktop OpenGL: `TextureRectangle`, `SrgbTextureRectangle`,
+  `IntegralTextureRectangle`, `UnsignedTextureRectangle`, `DepthTextureRectangle` and
+  `DepthStencilTextureRectangle` (`desktop`), sampled by `sampler2DRect` uniforms with
+  coordinates in texels. They have a single level (`TextureCreationError::MipmapsNotSupported`
+  otherwise), are created clamped, and their `sampled()` clamps them and filters them without
+  mipmaps; a sampler that repeats them or uses mipmaps returns
+  `DrawError::RectangleTextureSampler`.
+- `UniformValue` and `uniforms::ImageUnitError` are `#[non_exhaustive]`. Multisample textures
+  can be bound to image units (`image_unit()`, `image2DMS` uniforms, `gl42`; up to
+  `Limits::max_image_samples` samples, beyond which `ImageUnitError::TooManySamples` is
+  returned), and buffer textures too (`BufferTexture::image_unit`, `BufferImageUnit`,
+  `UniformValue::BufferImage`, `imageBuffer` uniforms; `any(gl42, gles32)`), whose shader
+  writes are made visible to the later uses of the buffer. `ImageUnit::new` returns
+  `ImageUnitError::GetFormat` instead of panicking when the format of the texture can't be
+  queried.
+- `texture::buffer_texture::TextureCreationError` is `#[non_exhaustive]`, and
+  `BufferTexture::from_buffer_range` builds a buffer texture that reads a range of its buffer
+  (`any(gl43, gles32)`, `glTexBufferRange`; OpenGL 4.3, OpenGL ES 3.2,
+  `GL_ARB_texture_buffer_range` or the texture buffer extensions of OpenGL ES at runtime), whose
+  offset must be a multiple of `Limits::texture_buffer_offset_alignment`
+  (`TextureCreationError::{RangeNotSupported, RangeOutOfBounds, MisalignedRange}`).
+  `BufferTexture::range` returns it.
+- `texture::CompressedFormat` and `CompressedSrgbFormat` are `#[non_exhaustive]`, and have the
+  ETC2 and EAC formats of mobile GPUs: `Etc2Rgb8`, `Etc2Rgb8PunchthroughAlpha1`, `Etc2Rgba8Eac`,
+  `EacR11Unsigned`, `EacR11Signed`, `EacRg11Unsigned` and `EacRg11Signed`, and their sRGB
+  variants (`any(gl43, gles30)`; OpenGL 4.3 or `GL_ARB_ES3_compatibility` on desktop OpenGL).
+- `SamplerBehavior` has a `level_of_detail` field, a `uniforms::LevelOfDetail` with the lowest
+  and highest levels of detail (`GL_TEXTURE_MIN_LOD` and `GL_TEXTURE_MAX_LOD`) and, on desktop
+  OpenGL, the bias added to them (`GL_TEXTURE_LOD_BIAS`), set with `Sampler::lod_range` and
+  `Sampler::lod_bias`: struct literals of `SamplerBehavior` need it, or `..Default::default()`.
+- `framebuffer::ValidationError` is `#[non_exhaustive]` too.
+- `DrawError` is `#[non_exhaustive]`: matches on it need a wildcard arm. It has the new variants
+  `LogicOpNotSupported`, `LogicOpWithBlending` and `PointCoordOriginNotSupported` at the desktop
+  levels, and `DualSourceBlendingNotSupported` and `DualSourceBlendingTooManyDrawBuffers`.
+- `program::Attribute` is `#[non_exhaustive]`, with a `component` field: the first component of
+  its location that an attribute declared with `layout(component = N)` reads.
+- `ProgramCreationInput::SourceCode` has a `locations` field, the `program::LinkLocations` given
+  to the linker, which `locations: Default::default()` leaves empty, as before.
+  `ProgramCreationError` is `#[non_exhaustive]`, with the variants
+  `InvalidLinkLocation`, `LinkLocationsNotSupported`, `InvalidSpirvModule`,
+  `ProgramPipelinesNotSupported` and `NoShader`.
+- `program::SpirvEntryPoint` has a `specialization` field, the values of the specialization
+  constants of the module: build it with `SpirvEntryPoint::new(binary, entry_point)`.
+  `SpirvProgram` loses `transform_feedback_varyings` and its builder method, since SPIR-V
+  modules capture with `xfb_buffer` and `xfb_offset`. The resources of programs linked from
+  SPIR-V are reflected from their modules (see the additions): uniform blocks are named after
+  their block, like `Factors`, where some drivers named them after the instance too.
+- `Surface::draw` and `TransformFeedback::new` take `impl Into<program::DrawProgram>`, which
+  `&Program` and `&ProgramPipeline` convert into: callers are unchanged, implementations of
+  `Surface` outside SafeGL change their signature.
+- Two members of a vertex format with the same location return
+  `DrawError::AttributeProvidedTwice` instead of panicking, and `DrawError` has the new variants
+  `AttributeComponentsMismatch` and `IncompleteProgram`.
 
 Additions:
 
@@ -259,9 +387,240 @@ Additions:
 - `Display::rebuild(context, surface)` moves a display to another glutin context and surface,
   for example of another window, keeping its objects, and `Display::gl_context()` gives the glutin
   context to share them with.
+- `Capabilities::limits` gives the implementation limits of OpenGL 4.6 and OpenGL ES 3.2 that
+  `Capabilities` didn't have, in a `Limits`: those of each shader stage (`StageLimits`: uniform
+  components and blocks, texture image units, inputs, outputs, image uniforms, atomic counters,
+  shader storage blocks) and of all stages together, vertex attributes and varyings, element
+  indices, tessellation, geometry shaders, transform feedback, viewport arrays, clip and cull
+  distances, point and line sizes, samples of each kind of target, texel, gather and
+  interpolation offsets, image units, block sizes, alignments, compute work groups, uniform
+  locations, subroutines, binary formats, debug output, the server wait timeout and the bits of
+  query counters (`QueryCounterBits`). Each limit exists at the levels whose versions have it,
+  like the rest of the API, and is `None` when the driver lacks the version or extension that
+  brings it. `ReleaseBehavior`, the type of `Capabilities::release_behavior`, is exported.
+- `Context::graphics_reset_status()` (`gl45`, `gles32`) tells whether the GPU reset that lost the
+  context was caused by it (`GraphicsResetStatus::Guilty`), by another context (`Innocent`) or by
+  an unknown cause.
+- `SimpleWindowBuilder::with_robustness` requests a context with robust buffer access, lost or not
+  on GPU resets, or without error checking (`Robustness::NoError`), and falls back to a context
+  without robustness. `Capabilities::no_error` and `Context::is_no_error()` (`gl46`) tell whether
+  the context checks errors. The tests run in such contexts with `SAFEGL_ROBUSTNESS=robust`,
+  `lose` or `no_error`.
+- Debug output (`gl43`, `gles32`; OpenGL 4.3, OpenGL ES 3.2 or `GL_KHR_debug` at runtime):
+  `Context::push_debug_group` returns a `DebugGroup` that pops the group when dropped; the
+  `debug::ObjectLabel` trait gives labels to buffers, textures, render buffers, programs, compute
+  shaders, queries and sync fences, and reads them back; `Context::set_debug_messages_enabled`
+  enables or disables the messages that a `DebugMessageFilter` matches;
+  `Context::insert_debug_message` sends a `DebugMessage` from the application or a third party;
+  `DebugCallbackBehavior::Log` keeps the messages in the message log of the context, which
+  `Context::debug_message_log` reads. Lengths and the depth of debug groups are checked against
+  the limits, and errors are `DebugError`s. `Context::is_debug_output_supported` tells whether the
+  context has all of it.
+- `Context::shader_precision_format` (`gl41`, `gles30`, `webgl`) gives the range and the precision
+  of a `PrecisionQualifier` (`lowp`, `mediump` or `highp` floats and integers) in the vertex or
+  fragment shader.
+- Queries write their result or its availability to buffers of `u32`, `i32`, `u64` or `i64`
+  with `to_buffer(target, mode)` (`gl44`), where `QueryBufferMode` is the result, the result if
+  it is available without waiting, or the availability. `debug::TimestampQuery::to_buffer` writes
+  timestamps, and `BufferSlice::get` gives the slice of one element of an array, to write several
+  results to one buffer.
+- `ConditionalRendering::inverted` (`gl45`; OpenGL 4.5 or `GL_ARB_conditional_render_inverted`)
+  draws when the query found no samples, or no overflow, instead.
+- `SyncFence::wait_timeout` waits for a fence with a timeout and tells whether it was signaled,
+  `SyncFence::wait_on_gpu` makes the GPU wait for it (`glWaitSync`), and
+  `Context::gpu_timestamp` (`desktop`) reads the clock of the GPU (`GL_TIMESTAMP`).
+- `PrimitiveRestart::Index` (`desktop`) restarts primitives at any index value
+  (`glPrimitiveRestartIndex`), and `PrimitiveRestart::FixedIndex` works on OpenGL 4.0 to 4.2
+  without `GL_ARB_ES3_compatibility`, with `GL_PRIMITIVE_RESTART` at the largest value of the
+  index type.
+- `DrawParameters::patch_default_levels` (`desktop`) sets the tessellation levels of programs with
+  a tessellation evaluation shader and no tessellation control shader, in a
+  `PatchDefaultLevels`.
+- `PerInstance::with_divisor` makes each element of a per-instance buffer provide the attributes
+  of several consecutive instances (`glVertexAttribDivisor`).
+- BGRA vertex attributes (`desktop`): `vertex::Bgra8` and the `*Bgra` attribute types reach the
+  vertex shader as RGBA `vec4`s, always normalized.
+- `vertex::ConstantAttribute` gives an attribute the same value for every vertex
+  (`glVertexAttrib*`), among the vertex sources of a draw: floats, signed and unsigned integers,
+  and doubles at the `gl41` level, as an `AttributeValue`. Its type is checked against the
+  attribute, `restore_state` sets the values again, and a constant for an attribute that a buffer
+  provides too is a `DrawError::AttributeProvidedTwice`.
+- Indirect draws of one command (`any(desktop, gles31)`): `command(index, primitives)` and
+  `command_with_index_buffer(index, index_buffer)` on the draw command buffers draw one of their
+  commands with `glDrawArraysIndirect` or `glDrawElementsIndirect`, on OpenGL 4.0 and OpenGL ES
+  3.1, and a buffer of a single command draws without multidraw. Commands can be inside other
+  values: `implement_draw_command!` implements `index::DrawCommandLayout` for a struct with a
+  command field, and `from_buffer` makes a buffer of such structs a buffer of draw commands, read
+  with the size of the struct as stride.
+- Several ranges of vertices or indices drawn with one call (`desktop`): `index::NoIndicesRanges`
+  (`glMultiDrawArrays`), and `IndexBuffer::ranges` and `ranges_with_base_vertices`
+  (`glMultiDrawElementsBaseVertex`). The ranges are checked against the vertices and the indices.
+- `PrimitivesGeneratedQuery::with_stream` and `TransformFeedbackPrimitivesWrittenQuery::with_stream`
+  (`desktop`) count the primitives of a vertex stream of geometry shaders, and a draw can count
+  several streams at once. A compute dispatch with statistics leaves these queries active.
+- Transform feedback objects (`vertex::TransformFeedback`) capture into all the buffers of a
+  program: separate buffers, the buffers that `gl_NextBuffer` separates, and the vertex streams of
+  geometry shaders. Several objects capture in turn, each pausing and resuming where it was, and
+  a capture survives draws and dispatches without it. `finish` returns the `CapturedVertices`,
+  which draw again without reading their number back (`desktop`, `glDrawTransformFeedback*`,
+  instanced at OpenGL 4.2 or with `GL_ARB_transform_feedback_instanced`): `indices(primitives)`
+  for stream 0 and `stream_indices(stream, primitives)` for the others. Transform feedback
+  objects are created again after `Display::rebuild`, which loses the captures.
+- Programs that place their captured varyings with the `xfb_buffer`, `xfb_offset` and `xfb_stride`
+  qualifiers (OpenGL 4.4 or `GL_ARB_enhanced_layouts`) reflect their transform feedback buffers,
+  offsets and strides, read from the program interface.
+- `DrawParameters::front_face` chooses the winding of the triangles that face the camera
+  (`glFrontFace`, `FrontFace::CounterClockwise` or `Clockwise`), which `gl_FrontFacing` reads.
+  `backface_culling` and the two-sided stencil settings keep naming the triangles by their
+  winding.
+- `MultisampleState::sample_coverage` covers a fraction of the samples of each fragment, or the
+  other samples when inverted (`glSampleCoverage`, `SampleCoverage { value, invert }`), and
+  `MultisampleState::alpha_to_one` writes an alpha of 1 into the samples (`desktop`,
+  `GL_SAMPLE_ALPHA_TO_ONE`; drawing with it into an OpenGL ES context returns
+  `DrawError::AlphaToOneNotSupported`).
+- `DrawParameters::logic_op` replaces the colors written into normalized and integer color buffers
+  with a bitwise operation between them and the colors already there (`desktop`, `glLogicOp`,
+  `LogicOp`). Since OpenGL disables blending on those buffers, a logic operation with blending
+  returns `DrawError::LogicOpWithBlending`, and one drawn into an OpenGL ES context
+  `DrawError::LogicOpNotSupported`.
+- `DrawParameters::point_coord_origin` chooses the corner of points where `gl_PointCoord` is
+  `(0, 0)` (`desktop`, `GL_POINT_SPRITE_COORD_ORIGIN`, `PointCoordOrigin`; `LowerLeft` returns
+  `DrawError::PointCoordOriginNotSupported` in an OpenGL ES context), and
+  `DrawParameters::point_fade_threshold` the size under which multisampled points fade
+  (`GL_POINT_FADE_THRESHOLD_SIZE`).
+- Border colors of integers, for integer and stencil textures (`Sampler::border_color_int` and
+  `border_color_uint`, `glSamplerParameterIiv` and `glSamplerParameterIuiv`;
+  `any(desktop, gles32)`), and `BorderColor::value` with `uniforms::BorderColorValue`. A border
+  color of another kind than its texture returns `DrawError::BorderColorMismatch`.
+- `ComputeShader::work_group_size` returns the size of the local work groups of the compute
+  shader (`GL_COMPUTE_WORK_GROUP_SIZE`).
+- `DefaultFramebuffer::new` returns a framebuffer that draws into, clears and is blitted from
+  one of the color buffers of the default framebuffer, back or front, left or right
+  (`glDrawBuffer` and `glReadBuffer`; `DefaultFramebufferAttachmentMissingError` if the buffer
+  doesn't exist), and `Surface::blit_from_default_framebuffer` copies from it. The attachment
+  of a `DefaultFramebuffer` was ignored, drawing into the back buffer.
+- `Context::format_info` tells what the implementation supports for an internal format and a
+  kind of texture or render buffer: whether it is supported, its largest dimensions, whether it
+  is renderable, blendable, filterable and usable by image units and texture views, its mipmaps
+  and its numbers of samples (`gl43`, `glGetInternalformativ`, `FormatTarget`, `FormatInfo`,
+  `FormatSupport`; OpenGL 4.3 or `GL_ARB_internalformat_query2` at runtime). The answers are
+  cached.
+- Every texture type has a `view` constructor that builds a texture sharing the storage of
+  another one, with another kind, format of the same size, range of levels or range of layers
+  (`gl43`, `glTextureView`; OpenGL 4.3 or `GL_ARB_texture_view` at runtime), such as a layer of
+  an array texture as a two-dimensional texture, six layers as a cube map, an RGBA8 texture as
+  32-bit unsigned integers or as sRGB, or a range of mipmap levels. The target and format
+  compatibility of OpenGL, the ranges and the immutable storage of the source are checked
+  (`texture::TextureViewError`), and the memory barriers of shader writes through a view also
+  cover its source.
+- `TextureAnyMipmap::invalidate` and `invalidate_region` discard the content of a mipmap level
+  or of a box of it, a hint like framebuffer invalidation (`gl43`, `glInvalidateTexImage`,
+  `glInvalidateTexSubImage`, `texture::RegionOutOfBoundsError`).
+- Multisample textures can place their samples differently in each texel
+  (`empty_with_sample_locations` with `fixed_sample_locations: false`,
+  `GL_TEXTURE_FIXED_SAMPLE_LOCATIONS`), and `TextureAny::has_fixed_sample_locations` tells how
+  they were created.
+- Textures have a swizzle, which chooses the component or the constant that sampling returns in
+  each channel (`TextureAny::set_swizzle`, `texture::Swizzle`; `any(desktop, gles30)`), a mipmap
+  range, which limits the levels that sampling and mipmap generation use
+  (`TextureAny::set_mipmap_range`, `GL_TEXTURE_BASE_LEVEL` and `GL_TEXTURE_MAX_LEVEL`, every
+  level), and depth-stencil textures can be sampled for their stencil index
+  (`TextureAny::set_depth_stencil_mode`, `texture::DepthStencilTextureMode`; `any(gl43, gles31)`,
+  OpenGL 4.3, OpenGL ES 3.1 or `GL_ARB_stencil_texturing` at runtime) through `usampler*`
+  uniforms.
+- `DrawParameters::viewports` gives a draw several viewports, each with its depth range and
+  scissor box, among which geometry shaders choose with `gl_ViewportIndex` (`gl41`,
+  `glViewportArrayv`, `glDepthRangeArrayv`, `glScissorArrayv`, `ViewportState`; OpenGL 4.1 or
+  `GL_ARB_viewport_array` at runtime). Viewports keep fractions of pixels.
+- `framebuffer::LayeredFrameBuffer` attaches whole texture levels with their layers (array
+  textures, cube maps, cube map arrays and 3D textures), into which geometry shaders send each
+  primitive with `gl_Layer`, such as the six faces of a shadow cube map in one draw
+  (`any(desktop, gles32)`, `glFramebufferTexture`; OpenGL ES 3.2 or `GL_EXT_geometry_shader` at
+  runtime). It has one color attachment, several named outputs (`with_outputs`), depth and
+  stencil attachments (`LayeredDepthStencil`) or only a depth attachment, and the layers of its
+  attachment that has the fewest (`layers`). Clears clear every layer and blits read layer 0
+  (`Surface::blit_from_layered_framebuffer`). The mipmaps of the textures with layers and the
+  textures themselves implement `ToLayeredColorAttachment` and its depth and stencil variants.
+  `ValidationError` has the `LayeredFramebuffersNotSupported` and `LayerTargetsMismatch`
+  variants: the color attachments must be textures of the same kind.
+- `sample_positions` on `SimpleFrameBuffer`, `MultiOutputFrameBuffer`, `DefaultFramebuffer`,
+  `ExternalFramebuffer` and `Frame` returns where the GPU places the samples inside the pixels
+  (`glGetMultisamplefv(GL_SAMPLE_POSITION)`, `any(desktop, gles31)`), or nothing if the
+  framebuffer isn't multisampled.
+- `Limits::max_cull_distances` and `max_combined_clip_and_cull_distances` exist at the OpenGL ES
+  levels too, `Some` with `GL_EXT_clip_cull_distance`, under which shaders write
+  `gl_CullDistance`.
+- `Program::get_frag_data_index` returns the index of a fragment output, 1 for the second color
+  output of dual-source blending (`glGetFragDataIndex`), and `Limits::max_dual_source_draw_buffers`
+  exists at every level, `Some` on OpenGL ES with `GL_EXT_blend_func_extended`.
+- Uniform arrays take slices, arrays and vectors of values (`uniforms::UniformArray`,
+  `UniformValue::Array`): `uniform! { weights: &[0.25f32, 0.5, 0.25], textures: &[&a, &b] }`.
+  Element `i` is given to `name[i]`, so the elements can be samplers, images, blocks of an array
+  of blocks or arrays themselves, for arrays of arrays. `Keep` keeps every element of an array.
+- Attributes that share a location with `layout(component = N)` (OpenGL 4.4 or
+  `GL_ARB_enhanced_layouts`) are given together: by members of the same vertex placed like the
+  components that they read, by one member with the location of the attributes, or by constant
+  attributes of the same kind. Members that can't feed them return
+  `DrawError::AttributeComponentsMismatch`.
+- `program::LinkLocations` gives locations to attributes (`glBindAttribLocation`) and locations
+  and indices to fragment outputs (`glBindFragDataLocationIndexed`, with
+  `GL_EXT_blend_func_extended` on OpenGL ES) before linking. The outputs without a location take
+  the free ones in their declaration order, on OpenGL ES too once some are given.
+- SPIR-V modules are read by SafeGL, which checks them, their entry point for the stage of the
+  shader and the values of their specialization constants before OpenGL sees them
+  (`SpirvEntryPoint::specialized`, `program::SpecializationConstant`). Since drivers can leave
+  out the names of the modules, the resources of SPIR-V programs are reflected from the program
+  interface queries with the names and block layouts of the modules, and also named after their
+  locations and bindings: `location=N` for uniforms, attributes and fragment outputs, and
+  `binding=N` for blocks and atomic counters. Stripped modules work, with the members of their
+  blocks named after their indices. `ProgramCreationInput` converts from `SpirvProgram`.
+- `Capabilities::spirv_extensions` lists the SPIR-V extensions that modules can use
+  (`GL_SPIR_V_EXTENSIONS`).
+- `program::SeparableProgram` links the shaders of one or several stages to be used in program
+  pipelines (`GL_PROGRAM_SEPARABLE`), from GLSL (`SeparableSource`, `from_source`) or SPIR-V
+  (`from_spirv`), and `program::ProgramPipeline` combines them (`glUseProgramStages`), validated
+  when it is built (`ProgramPipelineCreationError`). Pipelines are drawn with like programs: the
+  uniforms of the draw are given to every program, which share the units of textures, buffers
+  and images, their subroutine uniforms are set once the pipeline is bound, transform feedback
+  captures the last stage before rasterization, and the fragment program gives the outputs.
 
 Fixes:
 
+- `TextureHandle::new` makes the handle of the texture with the sampler given
+  (`glGetTextureSamplerHandleARB`), resident as long as the `ResidentTexture`, where it ignored
+  the sampler, and a `TextureHandle` can be the value of a `sampler*` uniform declared with
+  `layout(bindless_sampler)` (`UniformValue::TextureHandle`, checked against the type of the
+  texture and its depth comparison), where it reached `unimplemented!()`. Integer textures are
+  sampled through handles without filtering, and rectangle textures without repetition.
+- Programs are linked with `GL_PROGRAM_BINARY_RETRIEVABLE_HINT` where program binaries exist,
+  without which some drivers return no binary from `Program::get_binary`.
+- Pixels are read with the robust `glReadnPixels` and compressed images with
+  `glGetnCompressedTexImage` where they exist (OpenGL 4.5, OpenGL ES 3.2 and the robustness
+  extensions), which never write past the end of the destination.
+- Stencil and depth-stencil textures have the `write` methods of the other textures, and
+  stencil textures are given stencil indices (`GL_STENCIL_INDEX`), where creating one with data
+  made an OpenGL error. Depth-stencil textures are given `u32`s that pack a 24-bit depth above
+  an 8-bit stencil index. Uploading data of another client format to a depth, stencil or
+  depth-stencil texture returns `UploadError::FormatNotSupported` or
+  `TextureCreationError::FormatNotSupported` instead of panicking or reaching `unimplemented!()`.
+- Binding a texture to an image unit returns `ImageUnitError::FormatClassMismatch` when the
+  texture is only compatible with the image formats of its class
+  (`GL_IMAGE_FORMAT_COMPATIBILITY_BY_CLASS`) and the format has the same size but another
+  class, such as `RGBA8` for an `R11F_G11F_B10F` texture, whose image accesses were undefined.
+- Stencil and depth-stencil textures can be used as texture uniforms and sampled, by `usampler*`
+  uniforms for stencil textures and by `sampler*` and `sampler*Shadow` uniforms for the depth
+  of depth-stencil textures, always with the nearest filters for stencil indices. They had no
+  uniform value and no `sampled()`.
+- A face of a cube map array can be attached to framebuffers (and read) without direct state
+  access, on OpenGL ES and below OpenGL 4.5, instead of panicking.
+- The color of the fragment output at location n is attached at `GL_COLOR_ATTACHMENTn`. A
+  `MultiOutputFrameBuffer` whose outputs weren't listed in the order of their locations made
+  `glDrawBuffers` fail on OpenGL ES, which only accepts `GL_COLOR_ATTACHMENTn` or `GL_NONE` as the
+  n-th draw buffer, and drew nothing.
+- Dual-source blending (the `*SourceOne*` factors of `LinearBlendingFactor`) returns
+  `DrawError::DualSourceBlendingNotSupported` on OpenGL ES without `GL_EXT_blend_func_extended`
+  and on WebGL, and `DrawError::DualSourceBlendingTooManyDrawBuffers` when the framebuffer has
+  more draw buffers than `Limits::max_dual_source_draw_buffers`, instead of OpenGL errors.
 - The columns of a matrix attribute whose components aren't 32-bit floats, such as
   `AttributeType::F16x4x4` fed to a `mat4`, are read at the offsets of their components instead of
   4 bytes per component.
@@ -383,6 +742,45 @@ Fixes:
 - Creating a `BufferTexture` without buffer texture support (OpenGL ES 3.0 and 3.1 without
   `GL_EXT_texture_buffer`) returns `TextureCreationError::NotSupported`, instead of the
   `BufferTypeNotSupported` of the buffer it starts with.
+- Anisotropic filtering works on OpenGL 4.6, where it is core, and with
+  `GL_ARB_texture_filter_anisotropic`: `Capabilities::max_texture_max_anisotropy` was `None` and
+  samplers ignored their anisotropy unless the driver listed `GL_EXT_texture_filter_anisotropic`.
+- Checking whether the context is lost calls the `glGetGraphicsResetStatus` of the context: on
+  OpenGL ES 3.0 and 3.1 with `GL_KHR_robustness` it is `glGetGraphicsResetStatusKHR`, while SafeGL
+  called the unsuffixed name, which panics when the driver doesn't export it.
+  `Capabilities::can_lose_context` reads the reset strategy of OpenGL ES 3.2 contexts without
+  robustness extensions, and an unknown strategy is reported as `false` instead of panicking.
+- Programs whose interleaved transform feedback varyings contain `gl_SkipComponents1` to `4` or
+  `gl_NextBuffer` are created, with their buffers, offsets and strides reflected, instead of
+  panicking on these names.
+- The debug callback receives the messages with the length the driver gives: the messages of
+  debug groups and inserted messages aren't null-terminated with some drivers, which made the
+  callback read past them.
+- `Context::insert_debug_marker` works on OpenGL ES 3.0 and 3.1 with `GL_KHR_debug`, instead of
+  returning `Err` there.
+- `debug::TimestampQuery::get` and `is_ready` unbind the query buffer first: after a query wrote to
+  a buffer, they made OpenGL write the timestamp in that buffer and returned 0.
+- `is_ready` returns `true` for a query that never began, whose result `get` returns at once,
+  instead of `false` forever.
+- Memory barriers cover every use of what shaders write: buffer copies, transform feedback
+  buffers and buffer textures after storage writes, textures drawn to or read through
+  framebuffers, uploaded, downloaded or given mipmaps after image stores (also at the `gl42` and
+  `gles31` levels, where only clears and copies had the barrier), and persistent mappings, which
+  now wait for their barrier before the CPU reads them.
+- `restore_state` restores `GL_PRIMITIVE_RESTART_FIXED_INDEX` on OpenGL 4.0 to 4.2 with
+  `GL_ARB_ES3_compatibility`, where SafeGL uses it.
+- Programs that don't write `gl_PointSize` disable `GL_PROGRAM_POINT_SIZE` again after a program
+  that writes it, where they kept it and drew points of an undefined size.
+- The resources of programs linked from SPIR-V on drivers that drop the names of the modules,
+  like Mesa, were all named with the empty string and overwrote each other: only one uniform,
+  block or attribute was left.
+- A SPIR-V entry point name with a nul character returns an error instead of panicking, and the
+  shader objects of SPIR-V modules that fail to compile are deleted.
+- Subroutine uniforms are reflected for programs with a single shader when it isn't a compute
+  shader.
+- Fragment shaders that redeclare a built-in output, like `layout(depth_greater) out float
+  gl_FragDepth`, link: SafeGL gave the built-in output a location like the other outputs, which
+  OpenGL refuses.
 
 ## [0.2.0]
 

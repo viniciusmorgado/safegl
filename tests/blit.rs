@@ -287,3 +287,32 @@ fn blit_to_itself() {
 
     display.assert_no_error(None);
 }
+
+/// An empty framebuffer has no color to copy.
+#[cfg(any(safegl_gl43, safegl_gles31))]
+#[test]
+fn blit_from_empty_framebuffer() {
+    use safegl::framebuffer::EmptyFrameBuffer;
+
+    let display = support::build_display();
+    if !EmptyFrameBuffer::is_supported(&display) {
+        return;
+    }
+    let empty = EmptyFrameBuffer::new(&display, 4, 4, None, None, true).unwrap();
+    let target = support::build_renderable_texture(&display);
+    assert_eq!(
+        empty.blit_whole_color_to(
+            &target.as_surface(),
+            &BlitTarget {
+                left: 0,
+                bottom: 0,
+                width: 4,
+                height: 4,
+            },
+            MagnifySamplerFilter::Nearest,
+        ),
+        Err(safegl::BlitError::NoColorBuffer)
+    );
+
+    display.assert_no_error(None);
+}

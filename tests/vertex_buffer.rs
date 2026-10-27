@@ -68,6 +68,7 @@ fn transform_feedback() {
         geometry_shader: None,
         outputs_srgb: false,
         uses_point_size: false,
+        locations: Default::default(),
 
         vertex_shader,
         fragment_shader,
@@ -95,13 +96,14 @@ fn transform_feedback() {
 
     {
         let session =
-            safegl::vertex::TransformFeedbackSession::new(&display, &program, &mut out_buffer)
+            safegl::vertex::TransformFeedback::new(&display, &program)
+            .and_then(|transform_feedback| transform_feedback.with_buffer(&mut out_buffer))
                 .unwrap();
 
         // only capturing the vertices, on OpenGL and OpenGL ES alike
         let params = safegl::DrawParameters {
             transform_feedback: Some(&session),
-            transform_feedback_primitives_written_query: Some(&query),
+            transform_feedback_primitives_written_queries: &[&query],
             draw_primitives: false,
             ..Default::default()
         };
@@ -154,6 +156,7 @@ fn capturing_program(display: &safegl::Display<safegl::glutin::surface::WindowSu
         geometry_shader: None,
         outputs_srgb: false,
         uses_point_size: false,
+        locations: Default::default(),
         vertex_shader,
         fragment_shader,
         transform_feedback_varyings: Some((
@@ -183,7 +186,8 @@ fn transform_feedback_session_continues() {
 
     {
         let session =
-            safegl::vertex::TransformFeedbackSession::new(&display, &program, &mut out_buffer)
+            safegl::vertex::TransformFeedback::new(&display, &program)
+            .and_then(|transform_feedback| transform_feedback.with_buffer(&mut out_buffer))
                 .unwrap();
         let params = safegl::DrawParameters {
             transform_feedback: Some(&session),
@@ -226,7 +230,9 @@ fn transform_feedback_session_of_another_program() {
     let texture = support::build_renderable_texture(&display);
 
     let session =
-        safegl::vertex::TransformFeedbackSession::new(&display, &program, &mut out_buffer).unwrap();
+        safegl::vertex::TransformFeedback::new(&display, &program)
+            .and_then(|transform_feedback| transform_feedback.with_buffer(&mut out_buffer))
+            .unwrap();
     let params = safegl::DrawParameters {
         transform_feedback: Some(&session),
         ..Default::default()
@@ -259,7 +265,9 @@ fn transform_feedback_of_strips() {
         safegl::VertexBuffer::empty(&display, 6).unwrap();
     let texture = support::build_renderable_texture(&display);
     let session =
-        safegl::vertex::TransformFeedbackSession::new(&display, &program, &mut out_buffer).unwrap();
+        safegl::vertex::TransformFeedback::new(&display, &program)
+            .and_then(|transform_feedback| transform_feedback.with_buffer(&mut out_buffer))
+            .unwrap();
     let result = texture.as_surface().draw(
         &vb,
         &ib,

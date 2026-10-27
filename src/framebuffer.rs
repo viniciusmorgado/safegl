@@ -67,7 +67,11 @@ You can check whether they are supported by calling `EmptyFrameBuffer::is_suppor
 
 # Layered framebuffers
 
-Not yet supported
+A `LayeredFrameBuffer` attaches whole texture levels with their layers: the layers of array
+textures, the faces of cube maps and the slices of 3D textures. A geometry shader sends each
+primitive to a layer by writing `gl_Layer`, so that one draw renders into all of them, such as
+the six faces of a shadow cube map. It needs desktop OpenGL or OpenGL ES 3.2 (the `gles32`
+level), and `GL_EXT_geometry_shader` on OpenGL ES below 3.2.
 
 */
 use smallvec::SmallVec;
@@ -99,15 +103,29 @@ use crate::{Program, Surface};
 
 use crate::fbo;
 
-pub use self::default_fb::{DefaultFramebuffer, DefaultFramebufferAttachment};
+pub use self::default_fb::{
+    DefaultFramebuffer, DefaultFramebufferAttachment, DefaultFramebufferAttachmentMissingError,
+};
 pub use self::external_fb::ExternalFramebuffer;
 pub use self::render_buffer::CreationError as RenderBufferCreationError;
 pub use self::render_buffer::{DepthRenderBuffer, RenderBuffer, RenderBufferAny};
 pub use self::render_buffer::{DepthStencilRenderBuffer, StencilRenderBuffer};
 pub use crate::fbo::ValidationError;
+pub use crate::fbo::{ClearBufferData, ClearBufferError};
 use crate::uniforms::MagnifySamplerFilter;
 
 mod default_fb;
+#[cfg(any(safegl_desktop, safegl_gles32))]
+mod layered;
+
+#[cfg(any(safegl_desktop, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+pub use self::layered::{
+    LayeredColorAttachment, LayeredDepthAttachment, LayeredDepthStencil,
+    LayeredDepthStencilAttachment, LayeredFrameBuffer, LayeredStencilAttachment,
+    ToLayeredColorAttachment, ToLayeredDepthAttachment, ToLayeredDepthStencilAttachment,
+    ToLayeredStencilAttachment,
+};
 mod external_fb;
 mod render_buffer;
 
@@ -131,6 +149,22 @@ pub struct InvalidateAttachments {
     /// The stencil attachment, or the stencil of a depth-stencil attachment.
     pub stencil: bool,
 }
+
+/// The sample positions of framebuffers can't be read: OpenGL ES 3.1 is needed.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg(any(safegl_desktop, safegl_gles31))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
+pub struct SamplePositionsNotSupportedError;
+
+#[cfg(any(safegl_desktop, safegl_gles31))]
+impl std::fmt::Display for SamplePositionsNotSupportedError {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt.write_str("Reading the sample positions is not supported by the backend")
+    }
+}
+
+#[cfg(any(safegl_desktop, safegl_gles31))]
+impl std::error::Error for SamplePositionsNotSupportedError {}
 
 #[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
 impl InvalidateAttachments {
@@ -194,6 +228,18 @@ impl<'a> SimpleFrameBuffer<'a> {
         unsafe {
             fbo::FramebuffersContainer::invalidate(&mut ctxt, self.get_attachments(), which, None)
         }
+    }
+
+    /// Returns the position of each sample inside the pixels, from `[0.0, 0.0]` (the lower left
+    /// corner) to `[1.0, 1.0]`, as the GPU places them (`glGetMultisamplefv(GL_SAMPLE_POSITION)`).
+    /// The list is empty if the framebuffer isn't multisampled.
+    ///
+    /// Needs OpenGL ES 3.1 on OpenGL ES.
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
+    pub fn sample_positions(&self) -> Result<Vec<[f32; 2]>, SamplePositionsNotSupportedError> {
+        let mut ctxt = self.context.make_current();
+        fbo::sample_positions(&mut ctxt, self.get_attachments())
     }
 
     /// Like `invalidate`, but only inside `rect` (`glInvalidateSubFramebuffer`).
@@ -488,11 +534,11 @@ impl<'a> Surface for SimpleFrameBuffer<'a> {
         self.attachments.get_stencil_buffer_bits()
     }
 
-    fn draw<'b, 'v, V, I, U>(
+    fn draw<'b, 'v, 'p, V, I, U>(
         &mut self,
         vb: V,
         ib: I,
-        program: &crate::Program,
+        program: impl Into<crate::program::DrawProgram<'p>>,
         uniforms: &U,
         draw_parameters: &crate::DrawParameters<'_>,
     ) -> Result<(), DrawError>
@@ -525,7 +571,7 @@ impl<'a> Surface for SimpleFrameBuffer<'a> {
             fbo::FramebufferTarget::Attachments(&self.attachments),
             vb,
             ib.into(),
-            program,
+            program.into(),
             uniforms,
             draw_parameters,
             self.get_dimensions(),
@@ -629,6 +675,48 @@ impl<'a> Surface for SimpleFrameBuffer<'a> {
             filter.to_glenum(),
         )
     }
+
+    fn blit_buffers_from_default_framebuffer(
+        &self,
+        source: &crate::framebuffer::DefaultFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
+
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    fn blit_buffers_from_layered_framebuffer(
+        &self,
+        source: &crate::framebuffer::LayeredFrameBuffer<'_>,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
 }
 
 impl<'a> FboAttachments for SimpleFrameBuffer<'a> {
@@ -670,6 +758,18 @@ impl<'a> MultiOutputFrameBuffer<'a> {
         unsafe {
             fbo::FramebuffersContainer::invalidate(&mut ctxt, self.get_attachments(), which, None)
         }
+    }
+
+    /// Returns the position of each sample inside the pixels, from `[0.0, 0.0]` (the lower left
+    /// corner) to `[1.0, 1.0]`, as the GPU places them (`glGetMultisamplefv(GL_SAMPLE_POSITION)`).
+    /// The list is empty if the framebuffer isn't multisampled.
+    ///
+    /// Needs OpenGL ES 3.1 on OpenGL ES.
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
+    pub fn sample_positions(&self) -> Result<Vec<[f32; 2]>, SamplePositionsNotSupportedError> {
+        let mut ctxt = self.context.make_current();
+        fbo::sample_positions(&mut ctxt, self.get_attachments())
     }
 
     /// Like `invalidate`, but only inside `rect` (`glInvalidateSubFramebuffer`).
@@ -895,14 +995,38 @@ impl<'a> MultiOutputFrameBuffer<'a> {
         })
     }
 
+    /// Sets every texel of the attachment of the output `name` to `data` (`glClearBuffer`),
+    /// leaving the other attachments as they are.
+    ///
+    /// `data` must match the kind of the attachment: `[f32; 4]` for float and normalized
+    /// attachments, and `[i32; 4]` or `[u32; 4]` for integer ones, which `Surface::clear_color`
+    /// can only clear with converted floats. The scissor box, the write masks and the sRGB
+    /// conversion don't apply. Returns `ClearBufferError::OutputMissing` if no attachment has
+    /// this name.
+    pub fn clear_output<D>(&self, name: &str, data: D) -> Result<(), ClearBufferError>
+    where
+        D: Into<ClearBufferData>,
+    {
+        let attachment = self
+            .color_attachments
+            .iter()
+            .find(|(output, _)| output == name)
+            .map(|(_, attachment)| *attachment)
+            .ok_or(ClearBufferError::OutputMissing)?;
+        let mut ctxt = self.context.make_current();
+        unsafe { fbo::FramebuffersContainer::clear_buffer(&mut ctxt, &attachment, data.into()) }
+    }
+
+    /// Returns the attachments with the colors at the locations of their outputs in `program`,
+    /// the program of the fragment stage, if there is one.
     fn build_attachments(
         &self,
-        program: &Program,
+        program: Option<&Program>,
     ) -> Result<fbo::ValidatedAttachments<'_>, DrawError> {
         let mut colors = SmallVec::new();
 
         for &(ref name, attachment) in self.color_attachments.iter() {
-            let location = match program.get_frag_data_location(name) {
+            let location = match program.and_then(|p| p.get_frag_data_location(name)) {
                 Some(l) => l,
                 None => {
                     return Err(DrawError::FragmentOutputMissing {
@@ -962,11 +1086,11 @@ impl<'a> Surface for MultiOutputFrameBuffer<'a> {
         self.example_attachments.get_stencil_buffer_bits()
     }
 
-    fn draw<'i, 'v, V, I, U>(
+    fn draw<'i, 'v, 'p, V, I, U>(
         &mut self,
         vb: V,
         ib: I,
-        program: &crate::Program,
+        program: impl Into<crate::program::DrawProgram<'p>>,
         uniforms: &U,
         draw_parameters: &crate::DrawParameters<'_>,
     ) -> Result<(), DrawError>
@@ -994,12 +1118,13 @@ impl<'a> Surface for MultiOutputFrameBuffer<'a> {
             }
         }
 
+        let program = program.into();
         ops::draw(
             &self.context,
-            fbo::FramebufferTarget::Attachments(&self.build_attachments(program)?),
+            fbo::FramebufferTarget::Attachments(&self.build_attachments(program.fragment())?),
             vb,
             ib.into(),
-            program,
+            program.into(),
             uniforms,
             draw_parameters,
             self.get_dimensions(),
@@ -1087,6 +1212,48 @@ impl<'a> Surface for MultiOutputFrameBuffer<'a> {
     fn blit_buffers_from_external_framebuffer(
         &self,
         source: &ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
+
+    fn blit_buffers_from_default_framebuffer(
+        &self,
+        source: &crate::framebuffer::DefaultFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
+
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    fn blit_buffers_from_layered_framebuffer(
+        &self,
+        source: &crate::framebuffer::LayeredFrameBuffer<'_>,
         source_rect: &Rect,
         target_rect: &BlitTarget,
         filter: MagnifySamplerFilter,
@@ -1275,11 +1442,11 @@ impl Surface for EmptyFrameBuffer {
         None
     }
 
-    fn draw<'b, 'v, V, I, U>(
+    fn draw<'b, 'v, 'p, V, I, U>(
         &mut self,
         vb: V,
         ib: I,
-        program: &crate::Program,
+        program: impl Into<crate::program::DrawProgram<'p>>,
         uniforms: &U,
         draw_parameters: &crate::DrawParameters<'_>,
     ) -> Result<(), DrawError>
@@ -1312,7 +1479,7 @@ impl Surface for EmptyFrameBuffer {
             fbo::FramebufferTarget::Attachments(&self.attachments),
             vb,
             ib.into(),
-            program,
+            program.into(),
             uniforms,
             draw_parameters,
             self.get_dimensions(),
@@ -1330,7 +1497,9 @@ impl Surface for EmptyFrameBuffer {
     where
         S: Surface,
     {
-        unimplemented!() // TODO:
+        // an empty framebuffer has no color to copy
+        let _ = (source_rect, target, target_rect, filter);
+        Err(BlitError::NoColorBuffer)
     }
 
     #[inline]
@@ -1400,6 +1569,48 @@ impl Surface for EmptyFrameBuffer {
     fn blit_buffers_from_external_framebuffer(
         &self,
         source: &ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
+
+    fn blit_buffers_from_default_framebuffer(
+        &self,
+        source: &crate::framebuffer::DefaultFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
+
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    fn blit_buffers_from_layered_framebuffer(
+        &self,
+        source: &crate::framebuffer::LayeredFrameBuffer<'_>,
         source_rect: &Rect,
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,

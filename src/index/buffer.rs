@@ -242,6 +242,44 @@ where
             primitives: self.primitives,
         })
     }
+
+    /// Builds an indices source that draws several ranges of the indices with one call
+    /// (`glMultiDrawElements`), on desktop OpenGL. The ranges must be in the buffer, and the draw
+    /// has no instances.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[inline]
+    pub fn ranges<'a>(&'a self, ranges: &'a [std::ops::Range<usize>]) -> IndicesSource<'a> {
+        IndicesSource::IndexBufferRanges {
+            buffer: self.buffer.as_slice_any(),
+            data_type: self.get_indices_type(),
+            primitives: self.primitives,
+            ranges,
+            base_vertices: None,
+        }
+    }
+
+    /// Like `ranges`, with a value added to the indices of each range
+    /// (`glMultiDrawElementsBaseVertex`). Returns `None` if there isn't one value per range.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[inline]
+    pub fn ranges_with_base_vertices<'a>(
+        &'a self,
+        ranges: &'a [std::ops::Range<usize>],
+        base_vertices: &'a [i32],
+    ) -> Option<IndicesSource<'a>> {
+        if ranges.len() != base_vertices.len() {
+            return None;
+        }
+        Some(IndicesSource::IndexBufferRanges {
+            buffer: self.buffer.as_slice_any(),
+            data_type: self.get_indices_type(),
+            primitives: self.primitives,
+            ranges,
+            base_vertices: Some(base_vertices),
+        })
+    }
 }
 
 impl<T> Deref for IndexBuffer<T>

@@ -184,6 +184,22 @@ pub enum AttributeType {
     #[cfg(any(safegl_desktop, safegl_gles30))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles30))))]
     FixedFloatI16U16,
+    /// Four normalized `u8`s in the order blue, green, red, alpha, read as `(r, g, b, a)`, like
+    /// the colors of Direct3D (`GL_BGRA` of `GL_UNSIGNED_BYTE`). The attribute must be a `vec4`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    U8U8U8U8Bgra,
+    /// `I2I10I10I10Reversed` with the blue in the low bits, read as `(r, g, b, a)`
+    /// (`GL_BGRA` of `GL_INT_2_10_10_10_REV`), always normalized. The attribute must be a `vec4`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    I2I10I10I10ReversedBgra,
+    /// `U2U10U10U10Reversed` with the blue in the low bits, read as `(r, g, b, a)`
+    /// (`GL_BGRA` of `GL_UNSIGNED_INT_2_10_10_10_REV`), always normalized. The attribute must be
+    /// a `vec4`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    U2U10U10U10ReversedBgra,
 }
 
 impl AttributeType {
@@ -292,6 +308,12 @@ impl AttributeType {
 
             &AttributeType::I2I10I10I10Reversed | &AttributeType::U2U10U10U10Reversed => true,
 
+            // `GL_BGRA` sizes are core in OpenGL 3.2, and not part of OpenGL ES
+            #[cfg(safegl_desktop)]
+            &AttributeType::U8U8U8U8Bgra
+            | &AttributeType::I2I10I10I10ReversedBgra
+            | &AttributeType::U2U10U10U10ReversedBgra => caps.get_version().0 == Api::Gl,
+
             // core in OpenGL 4.4, and not part of OpenGL ES
             #[cfg(safegl_desktop)]
             &AttributeType::F10F11F11UnsignedIntReversed => {
@@ -399,6 +421,10 @@ impl AttributeType {
             AttributeType::I2I10I10I10Reversed => 4,
             AttributeType::U2U10U10U10Reversed => 4,
             #[cfg(safegl_desktop)]
+            AttributeType::U8U8U8U8Bgra
+            | AttributeType::I2I10I10I10ReversedBgra
+            | AttributeType::U2U10U10U10ReversedBgra => 4,
+            #[cfg(safegl_desktop)]
             AttributeType::F10F11F11UnsignedIntReversed => 4,
             #[cfg(any(safegl_desktop, safegl_gles30))]
             AttributeType::FixedFloatI16U16 => 4,
@@ -503,6 +529,10 @@ impl AttributeType {
             AttributeType::I2I10I10I10Reversed => 4,
             AttributeType::U2U10U10U10Reversed => 4,
             #[cfg(safegl_desktop)]
+            AttributeType::U8U8U8U8Bgra
+            | AttributeType::I2I10I10I10ReversedBgra
+            | AttributeType::U2U10U10U10ReversedBgra => 4,
+            #[cfg(safegl_desktop)]
             AttributeType::F10F11F11UnsignedIntReversed => 3,
             #[cfg(any(safegl_desktop, safegl_gles30))]
             AttributeType::FixedFloatI16U16 => 1,
@@ -574,6 +604,19 @@ unsafe impl Attribute for (u8, u8, u8, u8) {
 
 unsafe impl Attribute for [u8; 4] {
     const TYPE: AttributeType = AttributeType::U8U8U8U8;
+}
+
+/// A color of four normalized `u8`s in the order blue, green, red, alpha, which the vertex
+/// shader reads as a `vec4` in the order red, green, blue, alpha (`AttributeType::U8U8U8U8Bgra`).
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct Bgra8(pub [u8; 4]);
+
+#[cfg(safegl_desktop)]
+unsafe impl Attribute for Bgra8 {
+    const TYPE: AttributeType = AttributeType::U8U8U8U8Bgra;
 }
 
 unsafe impl Attribute for i16 {

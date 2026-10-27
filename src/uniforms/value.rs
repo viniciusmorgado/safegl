@@ -143,8 +143,11 @@ pub enum UniformType {
 }
 
 /// Represents a value to bind to a uniform.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[allow(missing_docs)]
 #[derive(Copy)]
+#[non_exhaustive]
 pub enum UniformValue<'a> {
     /// Contains a handle to the buffer, and a function that indicates whether this buffer
     /// can be bound on a block with the given layout.
@@ -278,6 +281,126 @@ pub enum UniformValue<'a> {
     #[cfg(any(safegl_gl42, safegl_gles31))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_gles31))))]
     Image(&'a texture::TextureAny, ImageUnitBehavior),
+    /// A bindless handle of a texture, for a `sampler*` uniform declared with
+    /// `layout(bindless_sampler)`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    TextureHandle(texture::TextureHandle<'a>),
+    /// A buffer texture bound to an image unit, with how to bind it. See
+    /// `BufferTexture::image_unit`.
+    #[cfg(any(safegl_gl42, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_gles32))))]
+    BufferImage(texture::buffer_texture::BufferTextureRef<'a>, ImageUnitBehavior),
+    /// The values of the elements of a uniform array: element `i` is given to the uniform
+    /// `name[i]`. Built from slices, arrays and vectors of values, see `UniformArray`.
+    Array(&'a dyn UniformArray),
+}
+
+/// The values of the elements of a uniform array, given to a uniform with `UniformValue::Array`.
+///
+/// It is implemented by slices, arrays and vectors of values. Their element `i` is given to the
+/// uniform `name[i]`, so the elements can be samplers, images or arrays themselves, for arrays
+/// of arrays. References to slices and arrays, and vectors, can be given to a uniform array
+/// directly:
+///
+/// ```no_run
+/// # #[macro_use] extern crate safegl;
+/// # fn example(first: &safegl::Texture2d, second: &safegl::Texture2d) {
+/// // `uniform float weights[3];` and `uniform sampler2D textures[2];` in the shader
+/// let weights = [0.25f32, 0.5, 0.25];
+/// let textures = [first.sampled(), second.sampled()];
+/// let uniforms = uniform! { weights: &weights, textures: &textures };
+/// # }
+/// ```
+///
+/// Elements past the end of the array of the program are ignored, like the uniforms that the
+/// program doesn't have: the compiler can shorten the arrays whose last elements aren't used.
+pub trait UniformArray {
+    /// Returns the number of elements.
+    fn len(&self) -> usize;
+
+    /// Returns true if there are no elements.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the value of an element. `index` is smaller than `len()`.
+    fn element(&self, index: usize) -> UniformValue<'_>;
+}
+
+impl<T> UniformArray for &[T]
+where
+    T: AsUniformValue,
+{
+    #[inline]
+    fn len(&self) -> usize {
+        <[T]>::len(self)
+    }
+
+    #[inline]
+    fn element(&self, index: usize) -> UniformValue<'_> {
+        self[index].as_uniform_value()
+    }
+}
+
+impl<T, const N: usize> UniformArray for [T; N]
+where
+    T: AsUniformValue,
+{
+    #[inline]
+    fn len(&self) -> usize {
+        N
+    }
+
+    #[inline]
+    fn element(&self, index: usize) -> UniformValue<'_> {
+        self[index].as_uniform_value()
+    }
+}
+
+impl<T> UniformArray for Vec<T>
+where
+    T: AsUniformValue,
+{
+    #[inline]
+    fn len(&self) -> usize {
+        Vec::len(self)
+    }
+
+    #[inline]
+    fn element(&self, index: usize) -> UniformValue<'_> {
+        self[index].as_uniform_value()
+    }
+}
+
+impl<T> AsUniformValue for &[T]
+where
+    T: AsUniformValue,
+{
+    #[inline]
+    fn as_uniform_value(&self) -> UniformValue<'_> {
+        UniformValue::Array(self)
+    }
+}
+
+impl<T, const N: usize> AsUniformValue for &[T; N]
+where
+    T: AsUniformValue,
+{
+    #[inline]
+    fn as_uniform_value(&self) -> UniformValue<'_> {
+        UniformValue::Array(*self)
+    }
+}
+
+impl<T> AsUniformValue for Vec<T>
+where
+    T: AsUniformValue,
+{
+    #[inline]
+    fn as_uniform_value(&self) -> UniformValue<'_> {
+        UniformValue::Array(self)
+    }
 }
 
 /// Keeps the value that a uniform has in the program, instead of giving it a new one: the value
@@ -425,6 +548,9 @@ impl<'a> UniformValue<'a> {
             #[cfg(safegl_desktop)]
             (&UniformValue::DoubleMat4x3(_), UniformType::DoubleMat4x3) => true,
             (&UniformValue::Texture(texture, _), ty) => sampler_types(texture).contains(&ty),
+            // the texture of the handle is checked when it is bound
+            #[cfg(safegl_desktop)]
+            (&UniformValue::TextureHandle(_), ty) => is_opaque(ty),
             #[cfg(any(safegl_desktop, safegl_gles32))]
             (&UniformValue::BufferTexture(tex), UniformType::SamplerBuffer) => {
                 tex.get_texture_type() == texture::buffer_texture::BufferTextureType::Float
@@ -439,21 +565,37 @@ impl<'a> UniformValue<'a> {
             }
             #[cfg(any(safegl_gl42, safegl_gles31))]
             (&UniformValue::Image(texture, _), ty) => image_types(texture).contains(&ty),
+            #[cfg(any(safegl_gl42, safegl_gles32))]
+            (&UniformValue::BufferImage(texture, _), ty) => {
+                use crate::texture::buffer_texture::BufferTextureType;
+                let expected = match texture.get_texture_type() {
+                    BufferTextureType::Float => UniformType::ImageBuffer,
+                    BufferTextureType::Integral => UniformType::IImageBuffer,
+                    BufferTextureType::Unsigned => UniformType::UImageBuffer,
+                };
+                ty == expected
+            }
             _ => false,
         }
     }
 }
 
 /// The types of the samplers that can sample a texture.
-fn sampler_types(texture: &texture::TextureAny) -> &'static [UniformType] {
+pub(crate) fn sampler_types(texture: &texture::TextureAny) -> &'static [UniformType] {
     use crate::texture::Dimensions as D;
     use crate::texture::TextureKind as K;
     use UniformType::*;
 
-    match (texture.kind(), texture.dimensions()) {
+    // depth-stencil textures in stencil mode are sampled like stencil textures
+    let kind = match texture.kind() {
+        K::DepthStencil if texture.samples_stencil() => K::Stencil,
+        kind => kind,
+    };
+    match (kind, texture.dimensions()) {
         (K::Float, D::Texture1d { .. }) => &[Sampler1d],
         (K::Float, D::Texture1dArray { .. }) => &[Sampler1dArray],
         (K::Float, D::Texture2d { .. }) => &[Sampler2d],
+        (K::Float, D::TextureRectangle { .. }) => &[Sampler2dRect],
         (K::Float, D::Texture2dArray { .. }) => &[Sampler2dArray],
         (K::Float, D::Texture2dMultisample { .. }) => &[Sampler2dMultisample],
         (K::Float, D::Texture2dMultisampleArray { .. }) => &[Sampler2dMultisampleArray],
@@ -464,6 +606,7 @@ fn sampler_types(texture: &texture::TextureAny) -> &'static [UniformType] {
         (K::Integral, D::Texture1d { .. }) => &[ISampler1d],
         (K::Integral, D::Texture1dArray { .. }) => &[ISampler1dArray],
         (K::Integral, D::Texture2d { .. }) => &[ISampler2d],
+        (K::Integral, D::TextureRectangle { .. }) => &[ISampler2dRect],
         (K::Integral, D::Texture2dArray { .. }) => &[ISampler2dArray],
         (K::Integral, D::Texture2dMultisample { .. }) => &[ISampler2dMultisample],
         (K::Integral, D::Texture2dMultisampleArray { .. }) => &[ISampler2dMultisampleArray],
@@ -475,6 +618,7 @@ fn sampler_types(texture: &texture::TextureAny) -> &'static [UniformType] {
         (K::Unsigned | K::Stencil, D::Texture1d { .. }) => &[USampler1d],
         (K::Unsigned | K::Stencil, D::Texture1dArray { .. }) => &[USampler1dArray],
         (K::Unsigned | K::Stencil, D::Texture2d { .. }) => &[USampler2d],
+        (K::Unsigned | K::Stencil, D::TextureRectangle { .. }) => &[USampler2dRect],
         (K::Unsigned | K::Stencil, D::Texture2dArray { .. }) => &[USampler2dArray],
         (K::Unsigned | K::Stencil, D::Texture2dMultisample { .. }) => &[USampler2dMultisample],
         (K::Unsigned | K::Stencil, D::Texture2dMultisampleArray { .. }) => {
@@ -490,6 +634,9 @@ fn sampler_types(texture: &texture::TextureAny) -> &'static [UniformType] {
             &[Sampler1dArray, Sampler1dArrayShadow]
         }
         (K::Depth | K::DepthStencil, D::Texture2d { .. }) => &[Sampler2d, Sampler2dShadow],
+        (K::Depth | K::DepthStencil, D::TextureRectangle { .. }) => {
+            &[Sampler2dRect, Sampler2dRectShadow]
+        }
         (K::Depth | K::DepthStencil, D::Texture2dArray { .. }) => {
             &[Sampler2dArray, Sampler2dArrayShadow]
         }
@@ -585,6 +732,7 @@ fn image_types(texture: &texture::TextureAny) -> &'static [UniformType] {
         (K::Float, D::Texture1d { .. }) => &[Image1d],
         (K::Float, D::Texture1dArray { .. }) => &[Image1dArray],
         (K::Float, D::Texture2d { .. }) => &[Image2d],
+        (K::Float, D::TextureRectangle { .. }) => &[Image2dRect],
         (K::Float, D::Texture2dArray { .. }) => &[Image2dArray],
         (K::Float, D::Texture2dMultisample { .. }) => &[Image2dMultisample],
         (K::Float, D::Texture2dMultisampleArray { .. }) => &[Image2dMultisampleArray],
@@ -595,6 +743,7 @@ fn image_types(texture: &texture::TextureAny) -> &'static [UniformType] {
         (K::Integral, D::Texture1d { .. }) => &[IImage1d],
         (K::Integral, D::Texture1dArray { .. }) => &[IImage1dArray],
         (K::Integral, D::Texture2d { .. }) => &[IImage2d],
+        (K::Integral, D::TextureRectangle { .. }) => &[IImage2dRect],
         (K::Integral, D::Texture2dArray { .. }) => &[IImage2dArray],
         (K::Integral, D::Texture2dMultisample { .. }) => &[IImage2dMultisample],
         (K::Integral, D::Texture2dMultisampleArray { .. }) => &[IImage2dMultisampleArray],
@@ -605,6 +754,7 @@ fn image_types(texture: &texture::TextureAny) -> &'static [UniformType] {
         (K::Unsigned, D::Texture1d { .. }) => &[UImage1d],
         (K::Unsigned, D::Texture1dArray { .. }) => &[UImage1dArray],
         (K::Unsigned, D::Texture2d { .. }) => &[UImage2d],
+        (K::Unsigned, D::TextureRectangle { .. }) => &[UImage2dRect],
         (K::Unsigned, D::Texture2dArray { .. }) => &[UImage2dArray],
         (K::Unsigned, D::Texture2dMultisample { .. }) => &[UImage2dMultisample],
         (K::Unsigned, D::Texture2dMultisampleArray { .. }) => &[UImage2dMultisampleArray],

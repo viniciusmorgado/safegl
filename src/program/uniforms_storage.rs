@@ -252,6 +252,12 @@ impl UniformsStorage {
                 ()
             }
             #[cfg(safegl_desktop)]
+            (&RawUniformValue::TextureHandle(a), &mut Some(RawUniformValue::TextureHandle(b)))
+                if a == b =>
+            {
+                ()
+            }
+            #[cfg(safegl_desktop)]
             (
                 &RawUniformValue::UnsignedInt64Vec2(a),
                 &mut Some(RawUniformValue::UnsignedInt64Vec2(b)),
@@ -574,6 +580,11 @@ impl UniformsStorage {
                 uniform_i64!(ctxt, Uniform1ui64ARB, location, v);
             }
             #[cfg(safegl_desktop)]
+            (&RawUniformValue::TextureHandle(v), target) => {
+                *target = Some(RawUniformValue::TextureHandle(v));
+                unsafe { ctxt.extra.UniformHandleui64ARB(location, v) };
+            }
+            #[cfg(safegl_desktop)]
             (&RawUniformValue::UnsignedInt64Vec2(v), target) => {
                 *target = Some(RawUniformValue::UnsignedInt64Vec2(v));
                 uniform_i64!(
@@ -705,8 +716,8 @@ impl UniformsStorage {
                 return;
             }
         }
-        // TODO: don't assume that, instead use DSA if the program is not current
-        assert!(ctxt.state.program == Some(program));
+        // the program is current, or active for the stage in the current pipeline
+        assert!(ctxt.state.program == Some(program) || ctxt.state.program.is_none());
         subroutine_uniforms.insert(stage, indices.to_vec());
         unsafe {
             ctxt.extra.UniformSubroutinesuiv(

@@ -255,7 +255,8 @@ impl ApplicationContext for Application {
                 .first_layer()
                 .into_image(None)
                 .unwrap()
-                .raw_clear_buffer([0u32, 0, 0, 0]);
+                .raw_clear_buffer([0u32, 0, 0, 0])
+                .unwrap();
 
             let mut picking_target = safegl::framebuffer::SimpleFrameBuffer::with_depth_buffer(
                 display,

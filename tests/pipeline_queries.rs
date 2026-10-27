@@ -61,6 +61,7 @@ fn program(display: &Display) -> Program {
         )),
         outputs_srgb: false,
         uses_point_size: false,
+        locations: Default::default(),
     };
     Program::new(display, source).unwrap()
 }
@@ -183,7 +184,8 @@ fn a_query_ends_when_a_command_is_not_given_it() {
 #[test]
 fn compute_shader_invocations() {
     let display = support::build_display();
-    if !ComputeShader::is_supported(&display) {
+    // a driver below OpenGL 4.3 can have compute shaders without GLSL 4.30
+    if !ComputeShader::is_supported(&display) || !support::glsl_supported(&display, 430, 310) {
         return;
     }
     let query = match statistic(&display, PipelineStatistic::ComputeShaderInvocations) {
@@ -219,7 +221,8 @@ fn captures_overflow(display: &Display, capacity: usize, query: &TransformFeedba
     let mut captured: VertexBuffer<Captured> = VertexBuffer::empty(display, capacity).unwrap();
     let texture = safegl::Texture2d::empty(display, 8, 8).unwrap();
     let session =
-        safegl::vertex::TransformFeedbackSession::new(display, &program, &mut captured).unwrap();
+        safegl::vertex::TransformFeedback::new(display, &program)
+            .and_then(|transform_feedback| transform_feedback.with_buffer(&mut captured)).unwrap();
     let parameters = DrawParameters {
         transform_feedback: Some(&session),
         transform_feedback_overflow_query: Some(query),
@@ -284,6 +287,8 @@ fn overflow_as_condition() {
                 query: query.into(),
                 wait: true,
                 per_region: false,
+                #[cfg(safegl_gl45)]
+                inverted: false,
             }),
             ..Default::default()
         };

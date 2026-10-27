@@ -7,7 +7,7 @@ use crate::version::Version;
 use crate::CapabilitiesSource;
 use crate::ContextExt;
 use crate::GlObject;
-use crate::TransformFeedbackSessionExt;
+use crate::TransformFeedbackExt;
 use glow::HasContext;
 use std::cell::Cell;
 use std::error::Error;
@@ -17,7 +17,7 @@ use std::rc::Rc;
 use std::{fmt, mem, ptr};
 
 use crate::buffer::{AnyBitPattern, BufferCreationError, BufferMode, BufferType, Content};
-use crate::vertex::TransformFeedbackSession;
+use crate::vertex::TransformFeedback;
 use crate::vertex_array_object::VertexAttributesSystem;
 
 use crate::version::{is_webgl, Api};
@@ -210,7 +210,7 @@ impl Alloc {
     /// Ensures that the buffer isn't used by the transform feedback process.
     #[inline]
     fn assert_not_transform_feedback(&self, ctxt: &mut CommandContext<'_>) {
-        TransformFeedbackSession::ensure_buffer_out_of_transform_feedback(ctxt, self.id);
+        TransformFeedback::ensure_buffer_out_of_transform_feedback(ctxt, self.id);
     }
 
     /// Calls `glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT)` if necessary.
@@ -469,8 +469,9 @@ impl Alloc {
         self.latest_shader_write.set(ctxt.state.next_draw_call_id); // TODO: put this somewhere else
     }
 
-    /// Binds the buffer to `GL_TRANSFORM_FEEDBACk_BUFFER` regardless of the current transform
-    /// feedback object.
+    /// Binds the buffer to an index of `GL_TRANSFORM_FEEDBACK_BUFFER` of the bound transform
+    /// feedback object, and calls `glMemoryBarrier(GL_TRANSFORM_FEEDBACK_BARRIER_BIT)` if
+    /// necessary.
     #[inline]
     pub fn bind_to_transform_feedback(
         &self,
@@ -478,7 +479,56 @@ impl Alloc {
         index: gl::types::GLuint,
         range: Range<usize>,
     ) {
-        self.indexed_bind(ctxt, BufferType::TransformFeedbackBuffer, index, range);
+        if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_transform_feedback {
+            unsafe {
+                ctxt.glow
+                    .memory_barrier(glow::TRANSFORM_FEEDBACK_BARRIER_BIT);
+            }
+            ctxt.state.latest_memory_barrier_transform_feedback = ctxt.state.next_draw_call_id;
+        }
+        self.assert_unmapped(ctxt);
+
+        // the indexed bindings belong to the bound transform feedback object, so they aren't
+        // cached with the other indexed bindings of the context
+        unsafe {
+            ctxt.glow.bind_buffer_range(
+                glow::TRANSFORM_FEEDBACK_BUFFER,
+                index,
+                Some(self.id),
+                range.start as i32,
+                (range.end - range.start) as i32,
+            );
+        }
+        ctxt.state.transform_feedback_buffer_binding = Some(self.id);
+    }
+
+    /// Calls `glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)` if necessary, before a buffer
+    /// texture of the buffer is bound to an image unit, and records the shader write that the
+    /// image unit may make.
+    #[cfg(any(safegl_gl42, safegl_gles32))]
+    pub fn prepare_for_image_access(&self, ctxt: &mut CommandContext<'_>, will_write: bool) {
+        self.assert_unmapped(ctxt);
+        if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_shader_image_access {
+            unsafe {
+                ctxt.glow.memory_barrier(glow::SHADER_IMAGE_ACCESS_BARRIER_BIT);
+            }
+            ctxt.state.latest_memory_barrier_shader_image_access = ctxt.state.next_draw_call_id;
+        }
+        if will_write {
+            self.latest_shader_write.set(ctxt.state.next_draw_call_id);
+        }
+    }
+
+    /// Calls `glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT)` if necessary, before a buffer
+    /// texture of the buffer is sampled.
+    pub fn prepare_for_texture_fetch(&self, ctxt: &mut CommandContext<'_>) {
+        self.assert_unmapped(ctxt);
+        if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_texture_fetch {
+            unsafe {
+                ctxt.glow.memory_barrier(glow::TEXTURE_FETCH_BARRIER_BIT);
+            }
+            ctxt.state.latest_memory_barrier_texture_fetch = ctxt.state.next_draw_call_id;
+        }
     }
 
     /// Makes sure that the buffer is bound to a specific bind point.
@@ -695,12 +745,15 @@ impl Alloc {
         if let Some(existing_mapping) = self.persistent_mapping {
             // TODO: optimize so that it's not always necessary to make the context current
             let mut ctxt = self.context.make_current();
-            // shader writes must also be made visible to the persistent mapping that the CPU reads
+            // shader writes must also be made visible to the persistent mapping that the CPU reads,
+            // which only sees them once the barrier has completed
             if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_buffer_update {
                 ctxt.glow.memory_barrier(
                     glow::BUFFER_UPDATE_BARRIER_BIT | glow::CLIENT_MAPPED_BUFFER_BARRIER_BIT,
                 );
                 ctxt.state.latest_memory_barrier_buffer_update = ctxt.state.next_draw_call_id;
+                let fence = crate::sync::new_linear_sync_fence(&mut ctxt);
+                crate::sync::wait_linear_sync_fence_and_drop(fence, &mut ctxt);
             }
 
             let data = (existing_mapping as *mut u8).add(bytes_range.start);
@@ -1122,6 +1175,14 @@ impl Alloc {
         }
 
         let mut ctxt = self.context.make_current();
+
+        // shader writes to either buffer must be done before the copy, and the buffers must be
+        // out of mappings and transform feedback
+        for alloc in [self, target] {
+            alloc.barrier_for_buffer_update(&mut ctxt);
+            alloc.assert_unmapped(&mut ctxt);
+            alloc.assert_not_transform_feedback(&mut ctxt);
+        }
 
         unsafe {
             copy_buffer(
@@ -1611,13 +1672,10 @@ fn is_buffer_type_supported(ctxt: &mut CommandContext<'_>, ty: BufferType) -> bo
         | BufferType::CopyReadBuffer
         | BufferType::CopyWriteBuffer => true,
 
+        // core in OpenGL 4.0 and OpenGL ES 3.1, which draw one command; drawing several with one
+        // call needs multidraw, which the draw checks
         BufferType::DrawIndirectBuffer => {
-            // TODO: draw indirect buffers are actually supported in OpenGL 4.0 or
-            //       with GL_ARB_draw_indirect, but restricting to multidraw is more convenient
-            //       for index/multidraw.rs
-            ctxt.version >= &Version(Api::Gl, 4, 3)
-                || ctxt.extensions.gl_arb_multi_draw_indirect
-                || ctxt.extensions.gl_ext_multi_draw_indirect
+            ctxt.version.0 == Api::Gl || ctxt.version >= &Version(Api::GlEs, 3, 1)
         }
 
         #[cfg(any(safegl_gl43, safegl_gles31))]

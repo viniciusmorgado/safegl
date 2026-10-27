@@ -787,7 +787,10 @@ impl UncompressedUintFormat {
 }
 
 /// List of compressed texture formats.
+///
+/// New formats can be added without a major version, so matches need a wildcard arm.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CompressedFormat {
     /// Red/green compressed texture with one unsigned component.
     RgtcFormatU,
@@ -813,6 +816,38 @@ pub enum CompressedFormat {
     S3tcDxt3Alpha,
     /// S3TC DXT5, see <https://www.opengl.org/wiki/S3_Texture_Compression>.
     S3tcDxt5Alpha,
+
+    /// ETC2 with three components, the format of the textures of mobile GPUs
+    /// (`GL_COMPRESSED_RGB8_ETC2`). Core in OpenGL ES 3.0 and OpenGL 4.3.
+    #[cfg(any(safegl_gl43, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
+    Etc2Rgb8,
+    /// ETC2 with three components and an alpha of 0 or 1
+    /// (`GL_COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2`).
+    #[cfg(any(safegl_gl43, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
+    Etc2Rgb8PunchthroughAlpha1,
+    /// ETC2 with four components, the alpha compressed with EAC
+    /// (`GL_COMPRESSED_RGBA8_ETC2_EAC`).
+    #[cfg(any(safegl_gl43, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
+    Etc2Rgba8Eac,
+    /// EAC with one unsigned component (`GL_COMPRESSED_R11_EAC`).
+    #[cfg(any(safegl_gl43, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
+    EacR11Unsigned,
+    /// EAC with one signed component (`GL_COMPRESSED_SIGNED_R11_EAC`).
+    #[cfg(any(safegl_gl43, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
+    EacR11Signed,
+    /// EAC with two unsigned components (`GL_COMPRESSED_RG11_EAC`).
+    #[cfg(any(safegl_gl43, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
+    EacRg11Unsigned,
+    /// EAC with two signed components (`GL_COMPRESSED_SIGNED_RG11_EAC`).
+    #[cfg(any(safegl_gl43, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
+    EacRg11Signed,
 }
 
 impl CompressedFormat {
@@ -831,6 +866,20 @@ impl CompressedFormat {
             CompressedFormat::S3tcDxt1Alpha,
             CompressedFormat::S3tcDxt3Alpha,
             CompressedFormat::S3tcDxt5Alpha,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedFormat::Etc2Rgb8,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedFormat::Etc2Rgb8PunchthroughAlpha1,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedFormat::Etc2Rgba8Eac,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedFormat::EacR11Unsigned,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedFormat::EacR11Signed,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedFormat::EacRg11Unsigned,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedFormat::EacRg11Signed,
         ]
     }
 
@@ -866,6 +915,19 @@ impl CompressedFormat {
             CompressedFormat::S3tcDxt1Alpha => extensions.gl_ext_texture_compression_s3tc,
             CompressedFormat::S3tcDxt3Alpha => extensions.gl_ext_texture_compression_s3tc,
             CompressedFormat::S3tcDxt5Alpha => extensions.gl_ext_texture_compression_s3tc,
+            // core in OpenGL ES 3.0, and in OpenGL 4.3 with `GL_ARB_ES3_compatibility`
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedFormat::Etc2Rgb8
+            | CompressedFormat::Etc2Rgb8PunchthroughAlpha1
+            | CompressedFormat::Etc2Rgba8Eac
+            | CompressedFormat::EacR11Unsigned
+            | CompressedFormat::EacR11Signed
+            | CompressedFormat::EacRg11Unsigned
+            | CompressedFormat::EacRg11Signed => {
+                version >= &Version(Api::Gl, 4, 3)
+                    || version.0 == Api::GlEs
+                    || extensions.gl_arb_es3_compatibility
+            }
         }
     }
 
@@ -882,13 +944,32 @@ impl CompressedFormat {
             CompressedFormat::S3tcDxt1Alpha => gl::COMPRESSED_RGBA_S3TC_DXT1_EXT,
             CompressedFormat::S3tcDxt3Alpha => gl::COMPRESSED_RGBA_S3TC_DXT3_EXT,
             CompressedFormat::S3tcDxt5Alpha => gl::COMPRESSED_RGBA_S3TC_DXT5_EXT,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedFormat::Etc2Rgb8 => gl::COMPRESSED_RGB8_ETC2,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedFormat::Etc2Rgb8PunchthroughAlpha1 => {
+                gl::COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2
+            }
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedFormat::Etc2Rgba8Eac => gl::COMPRESSED_RGBA8_ETC2_EAC,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedFormat::EacR11Unsigned => gl::COMPRESSED_R11_EAC,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedFormat::EacR11Signed => gl::COMPRESSED_SIGNED_R11_EAC,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedFormat::EacRg11Unsigned => gl::COMPRESSED_RG11_EAC,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedFormat::EacRg11Signed => gl::COMPRESSED_SIGNED_RG11_EAC,
         }
     }
 }
 
 /// List of compressed pixel formats in the sRGB color space.
+///
+/// New formats can be added without a major version, so matches need a wildcard arm.
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CompressedSrgbFormat {
     /// BPTC format. sRGB with alpha. Also called `BC7` by DirectX.
     Bptc,
@@ -896,6 +977,19 @@ pub enum CompressedSrgbFormat {
     S3tcDxt1Alpha,
     S3tcDxt3Alpha,
     S3tcDxt5Alpha,
+    /// ETC2 in sRGB (`GL_COMPRESSED_SRGB8_ETC2`).
+    #[cfg(any(safegl_gl43, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
+    Etc2Rgb8,
+    /// ETC2 in sRGB with an alpha of 0 or 1
+    /// (`GL_COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2`).
+    #[cfg(any(safegl_gl43, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
+    Etc2Rgb8PunchthroughAlpha1,
+    /// ETC2 in sRGB with an alpha compressed with EAC (`GL_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC`).
+    #[cfg(any(safegl_gl43, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
+    Etc2Rgba8Eac,
 }
 
 impl CompressedSrgbFormat {
@@ -908,6 +1002,12 @@ impl CompressedSrgbFormat {
             CompressedSrgbFormat::S3tcDxt1Alpha,
             CompressedSrgbFormat::S3tcDxt3Alpha,
             CompressedSrgbFormat::S3tcDxt5Alpha,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedSrgbFormat::Etc2Rgb8,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedSrgbFormat::Etc2Rgb8PunchthroughAlpha1,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedSrgbFormat::Etc2Rgba8Eac,
         ]
     }
 
@@ -941,6 +1041,14 @@ impl CompressedSrgbFormat {
             CompressedSrgbFormat::S3tcDxt5Alpha => {
                 extensions.gl_ext_texture_compression_s3tc && extensions.gl_ext_texture_srgb
             }
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedSrgbFormat::Etc2Rgb8
+            | CompressedSrgbFormat::Etc2Rgb8PunchthroughAlpha1
+            | CompressedSrgbFormat::Etc2Rgba8Eac => {
+                version >= &Version(Api::Gl, 4, 3)
+                    || version.0 == Api::GlEs
+                    || extensions.gl_arb_es3_compatibility
+            }
         }
     }
 
@@ -951,6 +1059,14 @@ impl CompressedSrgbFormat {
             CompressedSrgbFormat::S3tcDxt1Alpha => gl::COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT,
             CompressedSrgbFormat::S3tcDxt3Alpha => gl::COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT,
             CompressedSrgbFormat::S3tcDxt5Alpha => gl::COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedSrgbFormat::Etc2Rgb8 => gl::COMPRESSED_SRGB8_ETC2,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedSrgbFormat::Etc2Rgb8PunchthroughAlpha1 => {
+                gl::COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2
+            }
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            CompressedSrgbFormat::Etc2Rgba8Eac => gl::COMPRESSED_SRGB8_ALPHA8_ETC2_EAC,
         }
     }
 }
@@ -1288,12 +1404,6 @@ impl ClientFormatAny {
         }
     }
 
-    /// Gets the size in bytes of the buffer required to store a uncompressed image
-    /// of the specified dimensions on this format.
-    ///
-    /// ## Panic
-    ///
-    /// Panics if the dimensions are invalid for this format.
     /// Returns the size in bytes of an image of these dimensions in this format, or `None` if
     /// the format can't have them: compressed formats are made of 4x4 blocks of two-dimensional
     /// images.
@@ -1322,6 +1432,16 @@ impl ClientFormatAny {
             | ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::S3tcDxt1NoAlpha)
             | ClientFormatAny::CompressedFormat(CompressedFormat::RgtcFormatU)
             | ClientFormatAny::CompressedFormat(CompressedFormat::RgtcFormatI) => 8,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            ClientFormatAny::CompressedFormat(
+                CompressedFormat::Etc2Rgb8
+                | CompressedFormat::Etc2Rgb8PunchthroughAlpha1
+                | CompressedFormat::EacR11Unsigned
+                | CompressedFormat::EacR11Signed,
+            )
+            | ClientFormatAny::CompressedSrgbFormat(
+                CompressedSrgbFormat::Etc2Rgb8 | CompressedSrgbFormat::Etc2Rgb8PunchthroughAlpha1,
+            ) => 8,
 
             // 16 bytes per 4x4 block
             ClientFormatAny::CompressedFormat(CompressedFormat::S3tcDxt3Alpha)
@@ -1334,11 +1454,18 @@ impl ClientFormatAny {
             | ClientFormatAny::CompressedFormat(CompressedFormat::BptcUnsignedFloat3)
             | ClientFormatAny::CompressedFormat(CompressedFormat::RgtcFormatUU)
             | ClientFormatAny::CompressedFormat(CompressedFormat::RgtcFormatII) => 16,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            ClientFormatAny::CompressedFormat(
+                CompressedFormat::Etc2Rgba8Eac
+                | CompressedFormat::EacRg11Unsigned
+                | CompressedFormat::EacRg11Signed,
+            )
+            | ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::Etc2Rgba8Eac) => 16,
         };
 
-        // the S3TC, RGTC and BPTC formats only exist for two-dimensional images and their arrays;
-        // the blocks at the right and top edges of an image whose size isn't a multiple of 4 are
-        // partial, but take the room of a whole block
+        // the S3TC, RGTC, BPTC, ETC2 and EAC formats only exist for two-dimensional images and
+        // their arrays; the blocks at the right and top edges of an image whose size isn't a
+        // multiple of 4 are partial, but take the room of a whole block
         let height = height?;
         if depth.is_some() {
             return None;
@@ -1358,6 +1485,25 @@ impl ClientFormatAny {
             | ClientFormatAny::CompressedFormat(CompressedFormat::RgtcFormatI) => 1,
             ClientFormatAny::CompressedFormat(CompressedFormat::RgtcFormatUU)
             | ClientFormatAny::CompressedFormat(CompressedFormat::RgtcFormatII) => 2,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            ClientFormatAny::CompressedFormat(
+                CompressedFormat::EacR11Unsigned | CompressedFormat::EacR11Signed,
+            ) => 1,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            ClientFormatAny::CompressedFormat(
+                CompressedFormat::EacRg11Unsigned | CompressedFormat::EacRg11Signed,
+            ) => 2,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            ClientFormatAny::CompressedFormat(CompressedFormat::Etc2Rgb8)
+            | ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::Etc2Rgb8) => 3,
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            ClientFormatAny::CompressedFormat(
+                CompressedFormat::Etc2Rgb8PunchthroughAlpha1 | CompressedFormat::Etc2Rgba8Eac,
+            )
+            | ClientFormatAny::CompressedSrgbFormat(
+                CompressedSrgbFormat::Etc2Rgb8PunchthroughAlpha1
+                | CompressedSrgbFormat::Etc2Rgba8Eac,
+            ) => 4,
             ClientFormatAny::CompressedFormat(CompressedFormat::S3tcDxt1NoAlpha)
             | ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::S3tcDxt1NoAlpha)
             | ClientFormatAny::CompressedFormat(CompressedFormat::BptcSignedFloat3)
@@ -1423,6 +1569,48 @@ impl ClientFormatAny {
             )),
             gl::COMPRESSED_SIGNED_RG_RGTC2 => Some(ClientFormatAny::CompressedFormat(
                 CompressedFormat::RgtcFormatII,
+            )),
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            gl::COMPRESSED_RGB8_ETC2 => Some(ClientFormatAny::CompressedFormat(
+                CompressedFormat::Etc2Rgb8,
+            )),
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            gl::COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2 => Some(
+                ClientFormatAny::CompressedFormat(CompressedFormat::Etc2Rgb8PunchthroughAlpha1),
+            ),
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            gl::COMPRESSED_RGBA8_ETC2_EAC => Some(ClientFormatAny::CompressedFormat(
+                CompressedFormat::Etc2Rgba8Eac,
+            )),
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            gl::COMPRESSED_R11_EAC => Some(ClientFormatAny::CompressedFormat(
+                CompressedFormat::EacR11Unsigned,
+            )),
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            gl::COMPRESSED_SIGNED_R11_EAC => Some(ClientFormatAny::CompressedFormat(
+                CompressedFormat::EacR11Signed,
+            )),
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            gl::COMPRESSED_RG11_EAC => Some(ClientFormatAny::CompressedFormat(
+                CompressedFormat::EacRg11Unsigned,
+            )),
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            gl::COMPRESSED_SIGNED_RG11_EAC => Some(ClientFormatAny::CompressedFormat(
+                CompressedFormat::EacRg11Signed,
+            )),
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            gl::COMPRESSED_SRGB8_ETC2 => Some(ClientFormatAny::CompressedSrgbFormat(
+                CompressedSrgbFormat::Etc2Rgb8,
+            )),
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            gl::COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2 => Some(
+                ClientFormatAny::CompressedSrgbFormat(
+                    CompressedSrgbFormat::Etc2Rgb8PunchthroughAlpha1,
+                ),
+            ),
+            #[cfg(any(safegl_gl43, safegl_gles30))]
+            gl::COMPRESSED_SRGB8_ALPHA8_ETC2_EAC => Some(ClientFormatAny::CompressedSrgbFormat(
+                CompressedSrgbFormat::Etc2Rgba8Eac,
             )),
             _ => None,
         }
@@ -2143,8 +2331,9 @@ pub fn client_format_to_glenum(
 
         TextureFormatRequest::AnyDepth
         | TextureFormatRequest::Specific(TextureFormat::DepthFormat(_)) => {
+            // depth textures are given floats
             if client != ClientFormatAny::ClientFormat(ClientFormat::F32) {
-                panic!("Only ClientFormatAny::ClientFormat(ClientFormat::F32) can be used to upload on a depth texture");
+                return Err(FormatNotSupportedError);
             }
 
             Ok((gl::DEPTH_COMPONENT, gl::FLOAT))
@@ -2153,28 +2342,34 @@ pub fn client_format_to_glenum(
         TextureFormatRequest::AnyStencil
         | TextureFormatRequest::Specific(TextureFormat::StencilFormat(_)) => match client {
             ClientFormatAny::ClientFormat(ClientFormat::U8) => {
-                Ok((gl::RED_INTEGER, gl::UNSIGNED_BYTE))
+                Ok((gl::STENCIL_INDEX, gl::UNSIGNED_BYTE))
             }
-            ClientFormatAny::ClientFormat(ClientFormat::I8) => Ok((gl::RED_INTEGER, gl::BYTE)),
+            ClientFormatAny::ClientFormat(ClientFormat::I8) => Ok((gl::STENCIL_INDEX, gl::BYTE)),
             ClientFormatAny::ClientFormat(ClientFormat::U16) => {
-                Ok((gl::RED_INTEGER, gl::UNSIGNED_SHORT))
+                Ok((gl::STENCIL_INDEX, gl::UNSIGNED_SHORT))
             }
-            ClientFormatAny::ClientFormat(ClientFormat::I16) => Ok((gl::RED_INTEGER, gl::SHORT)),
+            ClientFormatAny::ClientFormat(ClientFormat::I16) => Ok((gl::STENCIL_INDEX, gl::SHORT)),
             ClientFormatAny::ClientFormat(ClientFormat::U32) => {
-                Ok((gl::RED_INTEGER, gl::UNSIGNED_INT))
+                Ok((gl::STENCIL_INDEX, gl::UNSIGNED_INT))
             }
-            ClientFormatAny::ClientFormat(ClientFormat::I32) => Ok((gl::RED_INTEGER, gl::INT)),
+            ClientFormatAny::ClientFormat(ClientFormat::I32) => Ok((gl::STENCIL_INDEX, gl::INT)),
             ClientFormatAny::ClientFormat(ClientFormat::F16) => {
-                Ok((gl::RED_INTEGER, gl::HALF_FLOAT))
+                Ok((gl::STENCIL_INDEX, gl::HALF_FLOAT))
             }
-            ClientFormatAny::ClientFormat(ClientFormat::F32) => Ok((gl::RED_INTEGER, gl::FLOAT)),
-            _ => panic!("Can't upload to a stencil texture with more than one channel"),
+            ClientFormatAny::ClientFormat(ClientFormat::F32) => Ok((gl::STENCIL_INDEX, gl::FLOAT)),
+            // stencil indices have a single channel
+            _ => Err(FormatNotSupportedError),
         },
 
+        // depth-stencil textures are given `u32`s that pack a 24-bit normalized depth above an 8-bit
+        // stencil index
         TextureFormatRequest::AnyDepthStencil
-        | TextureFormatRequest::Specific(TextureFormat::DepthStencilFormat(_)) => {
-            unimplemented!();
-        }
+        | TextureFormatRequest::Specific(TextureFormat::DepthStencilFormat(_)) => match client {
+            ClientFormatAny::ClientFormat(ClientFormat::U32) => {
+                Ok((gl::DEPTH_STENCIL, gl::UNSIGNED_INT_24_8))
+            }
+            _ => Err(FormatNotSupportedError),
+        },
     };
 
     if inverted && context.get_opengl_version().0 != Api::Gl {

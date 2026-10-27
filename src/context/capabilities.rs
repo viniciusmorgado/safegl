@@ -1,3 +1,4 @@
+use crate::context::limits::{self, Limits};
 use crate::context::ExtensionsList;
 use crate::version::is_webgl;
 use crate::version::Api;
@@ -20,6 +21,7 @@ use crate::CapabilitiesSource;
 ///
 /// Contrary to the state, these values never change.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct Capabilities {
     /// List of versions of GLSL that are supported by the compiler.
     ///
@@ -48,8 +50,16 @@ pub struct Capabilities {
     /// True if out-of-bound access on the GPU side can't result in crashes.
     pub robustness: bool,
 
-    /// True if it is possible for the OpenGL context to be lost.
-    pub can_lose_context: bool,
+    /// What the context does when the GPU is reset (`GL_RESET_NOTIFICATION_STRATEGY`):
+    /// `LoseContextOnReset` means that the context can be lost.
+    pub reset_notification: ResetNotificationStrategy,
+
+    /// True if the context was created without error checking (`GL_CONTEXT_FLAG_NO_ERROR_BIT`,
+    /// OpenGL 4.6 or `GL_KHR_no_error`): OpenGL errors are undefined behavior instead of being
+    /// reported, and `glGetError` returns no error.
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    pub no_error: bool,
 
     /// What happens when you change the current OpenGL context.
     pub release_behavior: ReleaseBehavior,
@@ -79,9 +89,10 @@ pub struct Capabilities {
     /// `glActiveTexture` must be between `GL_TEXTURE0` and `GL_TEXTURE0` + this value - 1.
     pub max_combined_texture_image_units: gl::types::GLint,
 
-    /// Maximum value for `GL_TEXTURE_MAX_ANISOTROPY_EXT​`.
+    /// Maximum value of the anisotropy of samplers (`GL_MAX_TEXTURE_MAX_ANISOTROPY`).
     ///
-    /// `None` if the extension is not supported by the hardware.
+    /// `None` without OpenGL 4.6, `GL_ARB_texture_filter_anisotropic` or
+    /// `GL_EXT_texture_filter_anisotropic`.
     pub max_texture_max_anisotropy: Option<gl::types::GLfloat>,
 
     /// Maximum size of a texture (i.e. GL_MAX_TEXTURE_SIZE)
@@ -156,6 +167,16 @@ pub struct Capabilities {
     /// Maximum stride of the vertices of a buffer. `None` if the backend doesn't give it, which
     /// it does from OpenGL 4.4 and OpenGL ES 3.1.
     pub max_vertex_attrib_stride: Option<gl::types::GLint>,
+
+    /// The other limits of the implementation.
+    pub limits: Limits,
+
+    /// The SPIR-V extensions that the SPIR-V modules of programs can use
+    /// (`GL_SPIR_V_EXTENSIONS`), from OpenGL 4.6 or `GL_ARB_spirv_extensions`; empty without
+    /// them.
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    pub spirv_extensions: Vec<String>,
 }
 
 /// Information about an internal format.
@@ -163,6 +184,35 @@ pub struct Capabilities {
 pub struct FormatInfos {
     /// Possible values for multisampling. `None` if unknown.
     pub multisamples: Option<Vec<gl::types::GLint>>,
+}
+
+/// What a context does when the GPU is reset (`GL_RESET_NOTIFICATION_STRATEGY`), which a context
+/// is created with.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ResetNotificationStrategy {
+    /// The context isn't told about resets and isn't lost by them (`GL_NO_RESET_NOTIFICATION`).
+    /// This is the strategy of contexts created without robustness.
+    NoResetNotification,
+
+    /// The context is lost when the GPU is reset (`GL_LOSE_CONTEXT_ON_RESET`):
+    /// `Context::is_context_lost` tells it, and the context must be created again.
+    LoseContextOnReset,
+}
+
+/// How a GPU reset that lost the context involved it, from `glGetGraphicsResetStatus`.
+#[cfg(any(safegl_gl45, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_gles32))))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum GraphicsResetStatus {
+    /// The commands of this context caused the reset (`GL_GUILTY_CONTEXT_RESET`).
+    Guilty,
+
+    /// Another context caused the reset (`GL_INNOCENT_CONTEXT_RESET`).
+    Innocent,
+
+    /// The cause is unknown (`GL_UNKNOWN_CONTEXT_RESET`), or the backend told that the context
+    /// was lost without a reset status, as WebGL and window systems do.
+    Unknown,
 }
 
 /// Defines what happens when you change the current context.
@@ -177,7 +227,8 @@ pub enum ReleaseBehavior {
 
 /// Loads the capabilities.
 ///
-/// *Safety*: the OpenGL context corresponding to `gl` must be current in the thread.
+/// *Safety*: the OpenGL context corresponding to `gl` must be current in the thread, and `extra`
+/// must be loaded from it.
 ///
 /// ## Panic
 ///
@@ -186,6 +237,7 @@ pub enum ReleaseBehavior {
 ///
 pub unsafe fn get_capabilities(
     gl: &glow::Context,
+    extra: &gl::Extra,
     version: &Version,
     extensions: &ExtensionsList,
 ) -> Capabilities {
@@ -233,27 +285,32 @@ pub unsafe fn get_capabilities(
             false
         },
 
-        can_lose_context: if version >= &Version(Api::Gl, 4, 5)
+        reset_notification: if version >= &Version(Api::Gl, 4, 5)
+            || version >= &Version(Api::GlEs, 3, 2)
             || extensions.gl_khr_robustness
             || extensions.gl_arb_robustness
             || extensions.gl_ext_robustness
         {
             let val = gl.get_parameter_i32(glow::RESET_NOTIFICATION_STRATEGY);
 
+            // AMD drivers return 0x31BE, which isn't an OpenGL value, and Adreno 430/506
+            // drivers return `GL_NO_ERROR`: any value other than `GL_LOSE_CONTEXT_ON_RESET` means
+            // that the context isn't lost
             match val as gl::types::GLenum {
-                gl::LOSE_CONTEXT_ON_RESET => true,
-                gl::NO_RESET_NOTIFICATION => false,
-
-                // WORK-AROUND: AMD drivers erroneously return this value, which doesn't even
-                //              correspond to any GLenum in the specs. We work around this bug
-                //              by interpreting it as `false`.
-                0x31BE => false,
-
-                // WORK-AROUND: Adreno 430/506 drivers return NO_ERROR.
-                gl::NO_ERROR => false,
-
-                _ => unreachable!(),
+                gl::LOSE_CONTEXT_ON_RESET => ResetNotificationStrategy::LoseContextOnReset,
+                _ => ResetNotificationStrategy::NoResetNotification,
             }
+        } else {
+            ResetNotificationStrategy::NoResetNotification
+        },
+
+        #[cfg(safegl_gl46)]
+        no_error: if version >= &Version(Api::Gl, 4, 6) || extensions.gl_khr_no_error {
+            // OpenGL ES has `GL_CONTEXT_FLAGS` from version 3.2
+            (version.0 == Api::Gl || version >= &Version(Api::GlEs, 3, 2))
+                && (gl.get_parameter_i32(glow::CONTEXT_FLAGS) as gl::types::GLenum
+                    & glow::CONTEXT_FLAG_NO_ERROR_BIT)
+                    != 0
         } else {
             false
         },
@@ -378,10 +435,14 @@ pub unsafe fn get_capabilities(
             val
         },
 
-        max_texture_max_anisotropy: if !extensions.gl_ext_texture_filter_anisotropic {
-            None
-        } else {
+        // core in OpenGL 4.6, with the same values as the extensions
+        max_texture_max_anisotropy: if version >= &Version(Api::Gl, 4, 6)
+            || extensions.gl_arb_texture_filter_anisotropic
+            || extensions.gl_ext_texture_filter_anisotropic
+        {
             Some(gl.get_parameter_f32(glow::MAX_TEXTURE_MAX_ANISOTROPY_EXT))
+        } else {
+            None
         },
 
         max_texture_size: gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE),
@@ -543,6 +604,20 @@ pub unsafe fn get_capabilities(
             Some(gl.get_parameter_i32(glow::MAX_VERTEX_ATTRIB_STRIDE))
         } else {
             None
+        },
+
+        limits: limits::get_limits(gl, extra, version, extensions),
+
+        #[cfg(safegl_gl46)]
+        spirv_extensions: if version >= &Version(Api::Gl, 4, 6)
+            || (version.0 == Api::Gl && extensions.gl_arb_spirv_extensions)
+        {
+            let count = gl.get_parameter_i32(gl::NUM_SPIR_V_EXTENSIONS).max(0) as u32;
+            (0..count)
+                .map(|index| gl.get_parameter_indexed_string(gl::SPIR_V_EXTENSIONS, index))
+                .collect()
+        } else {
+            Vec::new()
         },
 
         renderer,

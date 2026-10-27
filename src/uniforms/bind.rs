@@ -15,6 +15,8 @@ use fnv::FnvHasher;
 
 use crate::BufferExt;
 use crate::BufferSliceExt;
+use std::borrow::Cow;
+
 use crate::DrawError;
 use crate::ProgramExt;
 use crate::RawUniformValue;
@@ -41,17 +43,33 @@ use crate::program;
 /// They are collected before SafeGL starts to issue OpenGL commands, so that the implementations
 /// of `Uniforms` and `AsUniformValue` can use SafeGL.
 pub(crate) struct CollectedUniforms<'a> {
-    values: smallvec::SmallVec<[(&'a str, UniformValue<'a>); 16]>,
+    values: smallvec::SmallVec<[(Cow<'a, str>, UniformValue<'a>); 16]>,
 }
 
 impl<'a> CollectedUniforms<'a> {
-    /// Collects the values of `uniforms`.
+    /// Collects the values of `uniforms`. The elements of arrays are collected under the names
+    /// of the elements, `name[i]`.
     pub fn new<U>(uniforms: &'a U) -> CollectedUniforms<'a>
     where
         U: Uniforms,
     {
+        fn collect<'a>(
+            values: &mut smallvec::SmallVec<[(Cow<'a, str>, UniformValue<'a>); 16]>,
+            name: Cow<'a, str>,
+            value: UniformValue<'a>,
+        ) {
+            if let UniformValue::Array(array) = value {
+                for index in 0..array.len() {
+                    let element = Cow::Owned(format!("{name}[{index}]"));
+                    collect(values, element, array.element(index));
+                }
+            } else {
+                values.push((name, value));
+            }
+        }
+
         let mut values = smallvec::SmallVec::new();
-        uniforms.visit_values(|name, value| values.push((name, value)));
+        uniforms.visit_values(|name, value| collect(&mut values, Cow::Borrowed(name), value));
         CollectedUniforms { values }
     }
 
@@ -68,16 +86,34 @@ impl<'a> CollectedUniforms<'a> {
     where
         P: ProgramExt,
     {
-        let mut texture_bind_points = Bitsfield::new();
-        let mut uniform_buffer_bind_points = Bitsfield::new();
-        #[cfg(any(safegl_gl42, safegl_gles31))]
-        let mut shared_storage_buffer_bind_points = Bitsfield::new();
-        let mut image_unit_bind_points = Bitsfield::new();
-        // image uniforms that aren't set use unit 0, so SafeGL doesn't give it to other images;
-        // OpenGL ES uses the units of the shader instead
-        if ctxt.version.0 != crate::version::Api::GlEs {
-            image_unit_bind_points.set_used(0);
-        }
+        let mut points = BindPoints::new(ctxt);
+        let _subroutines = self.bind_values(ctxt, program, &mut points, fences)?;
+        #[cfg(safegl_desktop)]
+        bind_subroutine_uniforms(ctxt, program, &_subroutines)?;
+        Ok(())
+    }
+
+    /// Binds the uniforms to the program, which must be current, with the bind points of
+    /// `points`, which the programs of a pipeline share, and checks that every uniform of the
+    /// program has a value. Returns the subroutine uniforms to set, which the program must be
+    /// active for when they are set: see `bind_subroutine_uniforms`.
+    pub fn bind_values<'p, P>(
+        &'p self,
+        ctxt: &mut CommandContext<'_>,
+        program: &'p P,
+        points: &mut BindPoints,
+        fences: &mut FenceInserters<'a>,
+    ) -> Result<SubroutineBindings<'p>, DrawError>
+    where
+        P: ProgramExt,
+    {
+        let BindPoints {
+            texture: texture_bind_points,
+            uniform_buffer: uniform_buffer_bind_points,
+            #[cfg(any(safegl_gl42, safegl_gles31))]
+                storage_buffer: shared_storage_buffer_bind_points,
+            image_unit: image_unit_bind_points,
+        } = points;
 
         // Subroutine uniforms must be bound all at once, so we collect them first and process them at the end.
         // The vec contains the uniform we want to set and the value we want to set it to.
@@ -93,7 +129,8 @@ impl<'a> CollectedUniforms<'a> {
             smallvec::SmallVec::new();
         let mut bound_blocks: smallvec::SmallVec<[&str; 8]> = smallvec::SmallVec::new();
 
-        for &(name, value) in self.values.iter() {
+        for (name, value) in self.values.iter() {
+            let (name, value) = (&**name, *value);
             if let Some(uniform) = program.get_uniform(name) {
                 // members of blocks are reflected with the location -1
                 if uniform.location == -1 {
@@ -111,17 +148,68 @@ impl<'a> CollectedUniforms<'a> {
 
                 // shadow samplers return undefined values without a depth comparison, and
                 // other samplers with one
-                if let UniformValue::Texture(_, sampler) = value {
+                // the textures of bindless handles are the ones that the resident textures of
+                // the context made resident
+                #[cfg(safegl_desktop)]
+                if let UniformValue::TextureHandle(handle) = value {
+                    let resident = ctxt
+                        .resident_texture_handles
+                        .iter()
+                        .find(|resident| resident.handle == handle.value());
+                    let Some(resident) = resident else {
+                        return Err(DrawError::ContextMismatch {
+                            object: format!("uniform `{}`", name),
+                        });
+                    };
+                    if !resident.sampler_types.contains(&uniform.ty) {
+                        return Err(DrawError::UniformTypeMismatch {
+                            name: name.to_owned(),
+                            expected: uniform.ty,
+                        });
+                    }
+                    if resident.compares != crate::uniforms::is_shadow_sampler(uniform.ty) {
+                        return Err(DrawError::DepthComparisonMismatch {
+                            name: name.to_owned(),
+                        });
+                    }
+                }
+                if let UniformValue::Texture(texture, sampler) = value {
                     let compares = sampler.is_some_and(|s| s.depth_texture_comparison.is_some());
                     if compares != crate::uniforms::is_shadow_sampler(uniform.ty) {
                         return Err(DrawError::DepthComparisonMismatch {
                             name: name.to_owned(),
                         });
                     }
+                    #[cfg(any(safegl_desktop, safegl_gles32))]
+                    if sampler
+                        .and_then(|s| s.border_color)
+                        .is_some_and(|color| !color.fits(texture))
+                    {
+                        return Err(DrawError::BorderColorMismatch {
+                            name: name.to_owned(),
+                        });
+                    }
+                    #[cfg(safegl_desktop)]
+                    if let (crate::texture::Dimensions::TextureRectangle { .. }, Some(sampler)) =
+                        (texture.dimensions(), sampler)
+                    {
+                        if !is_rectangle_sampler(&sampler) {
+                            return Err(DrawError::RectangleTextureSampler {
+                                name: name.to_owned(),
+                            });
+                        }
+                    }
+                    let _ = texture;
                 }
 
                 given_locations.push(uniform.location);
                 if let UniformValue::Keep = value {
+                    // keeping the value of an array keeps all its elements
+                    if !name.ends_with(']') {
+                        let elements = (1..)
+                            .map_while(|index| program.get_uniform(&format!("{name}[{index}]")));
+                        given_locations.extend(elements.map(|element| element.location));
+                    }
                     continue;
                 }
 
@@ -130,8 +218,8 @@ impl<'a> CollectedUniforms<'a> {
                     &value,
                     program,
                     uniform,
-                    &mut texture_bind_points,
-                    &mut image_unit_bind_points,
+                    texture_bind_points,
+                    image_unit_bind_points,
                     name,
                 )?;
             } else if let Some(block) = program.get_uniform_blocks().get(name) {
@@ -140,7 +228,7 @@ impl<'a> CollectedUniforms<'a> {
                     &value,
                     block,
                     program,
-                    &mut uniform_buffer_bind_points,
+                    uniform_buffer_bind_points,
                     name,
                 )?;
                 bound_blocks.push(name);
@@ -154,7 +242,7 @@ impl<'a> CollectedUniforms<'a> {
                     ctxt,
                     &value,
                     program,
-                    &mut shared_storage_buffer_bind_points,
+                    shared_storage_buffer_bind_points,
                     name,
                 )? {
                     bound_blocks.push(name);
@@ -185,13 +273,52 @@ impl<'a> CollectedUniforms<'a> {
 
         check_missing_uniforms(program, &given_locations, &bound_blocks)?;
 
-        // Process all subroutine uniforms in one batch.
         #[cfg(safegl_desktop)]
-        bind_subroutine_uniforms(ctxt, program, &subroutine_bindings)?;
-
-        Ok(())
+        return Ok(subroutine_bindings);
+        #[cfg(not(safegl_desktop))]
+        Ok(std::marker::PhantomData)
     }
 }
+
+/// The bind points of textures, buffers and images that the uniforms of a draw command use,
+/// which the programs of a pipeline share.
+pub(crate) struct BindPoints {
+    texture: Bitsfield,
+    uniform_buffer: Bitsfield,
+    #[cfg(any(safegl_gl42, safegl_gles31))]
+    storage_buffer: Bitsfield,
+    image_unit: Bitsfield,
+}
+
+impl BindPoints {
+    /// The bind points of a draw command, all free.
+    pub fn new(ctxt: &CommandContext<'_>) -> BindPoints {
+        let mut image_unit = Bitsfield::new();
+        // image uniforms that aren't set use unit 0, so SafeGL doesn't give it to other images;
+        // OpenGL ES uses the units of the shader instead
+        if ctxt.version.0 != crate::version::Api::GlEs {
+            image_unit.set_used(0);
+        }
+        BindPoints {
+            texture: Bitsfield::new(),
+            uniform_buffer: Bitsfield::new(),
+            #[cfg(any(safegl_gl42, safegl_gles31))]
+            storage_buffer: Bitsfield::new(),
+            image_unit,
+        }
+    }
+}
+
+/// The values of the subroutine uniforms of a program, by stage.
+#[cfg(safegl_desktop)]
+pub(crate) type SubroutineBindings<'p> = HashMap<
+    program::ShaderStage,
+    Vec<(&'p program::SubroutineUniform, &'p str)>,
+    BuildHasherDefault<FnvHasher>,
+>;
+/// Programs have no subroutine uniforms without desktop OpenGL.
+#[cfg(not(safegl_desktop))]
+pub(crate) type SubroutineBindings<'p> = std::marker::PhantomData<&'p ()>;
 
 /// Checks that the samplers, images and blocks of the program were given a value, and that its
 /// other uniforms have one.
@@ -231,29 +358,35 @@ where
         });
     }
 
-    let blocks = program.get_uniform_blocks().keys();
+    // the blocks of programs linked from SPIR-V have several names, a block is bound through
+    // any of them
+    let maps = [program.get_uniform_blocks()];
     #[cfg(any(safegl_gl42, safegl_gles31))]
-    let blocks = blocks
-        .chain(program.get_shader_storage_blocks().keys())
-        .chain(program.get_atomic_counters().keys());
-    for name in blocks {
-        if !bound_blocks.contains(&name.as_str()) {
-            return Err(DrawError::UniformBindingMissing { name: name.clone() });
+    let maps = [
+        maps[0],
+        program.get_shader_storage_blocks(),
+        program.get_atomic_counters(),
+    ];
+    for blocks in maps {
+        for (name, block) in blocks {
+            let bound = bound_blocks
+                .iter()
+                .any(|bound| blocks.get(*bound).is_some_and(|b| b.id == block.id));
+            if !bound {
+                return Err(DrawError::UniformBindingMissing { name: name.clone() });
+            }
         }
     }
 
     Ok(())
 }
 
+/// Sets the subroutine uniforms of a program, which must be active for their stages.
 #[cfg(safegl_desktop)]
-fn bind_subroutine_uniforms<P>(
+pub(crate) fn bind_subroutine_uniforms<P>(
     ctxt: &mut context::CommandContext<'_>,
     program: &P,
-    subroutine_bindings: &HashMap<
-        program::ShaderStage,
-        Vec<(&program::SubroutineUniform, &str)>,
-        BuildHasherDefault<FnvHasher>,
-    >,
+    subroutine_bindings: &SubroutineBindings<'_>,
 ) -> Result<(), DrawError>
 where
     P: ProgramExt,
@@ -577,6 +710,8 @@ where
         UniformValue::Texture(texture, _) => Some(TextureExt::get_context(texture)),
         #[cfg(any(safegl_desktop, safegl_gles32))]
         UniformValue::BufferTexture(ref texture) => Some(TextureExt::get_context(texture)),
+        #[cfg(any(safegl_gl42, safegl_gles32))]
+        UniformValue::BufferImage(ref texture, _) => Some(TextureExt::get_context(texture)),
         #[cfg(any(safegl_gl42, safegl_gles31))]
         UniformValue::Image(texture, _) => Some(TextureExt::get_context(texture)),
         _ => None,
@@ -597,6 +732,28 @@ where
         UniformValue::Subroutine(_, _) => Err(DrawError::SubroutineUniformToValue {
             name: name.to_owned(),
         }),
+        #[cfg(safegl_desktop)]
+        UniformValue::TextureHandle(handle) => {
+            // shader writes made through image units must be done before the texture is sampled
+            let latest_shader_write = ctxt
+                .resident_texture_handles
+                .iter()
+                .find(|resident| resident.handle == handle.value())
+                .map(|resident| resident.latest_shader_write.clone());
+            if let Some(latest_shader_write) = latest_shader_write {
+                crate::texture::prepare_for_access(
+                    &latest_shader_write,
+                    ctxt,
+                    crate::TextureAccess::TextureFetch,
+                );
+            }
+            program.set_uniform(
+                ctxt,
+                location,
+                &RawUniformValue::TextureHandle(handle.value()),
+            );
+            Ok(())
+        }
         UniformValue::Bool(val) => {
             // Booleans get passed as integers.
             program.set_uniform(ctxt, location, &RawUniformValue::SignedInt(val as i32));
@@ -828,7 +985,35 @@ where
             image_unit_bind_points,
             name,
         ),
+        #[cfg(any(safegl_gl42, safegl_gles32))]
+        UniformValue::BufferImage(texture, unit) => bind_image_uniform(
+            ctxt,
+            &texture,
+            unit,
+            uniform,
+            program,
+            image_unit_bind_points,
+            name,
+        ),
+        // `CollectedUniforms` gives arrays element by element
+        UniformValue::Array(_) => unreachable!(),
     }
+}
+
+/// Returns true if the sampler can sample rectangle textures, which can only be clamped and have
+/// no mipmaps.
+#[cfg(safegl_desktop)]
+fn is_rectangle_sampler(sampler: &SamplerBehavior) -> bool {
+    use crate::uniforms::SamplerWrapFunction as W;
+
+    let (s, t, r) = sampler.wrap_function;
+    [s, t, r]
+        .iter()
+        .all(|wrap| matches!(wrap, W::Clamp | W::BorderClamp))
+        && matches!(
+            sampler.minify_filter,
+            MinifySamplerFilter::Nearest | MinifySamplerFilter::Linear
+        )
 }
 
 fn bind_texture_uniform<P, T>(
@@ -846,7 +1031,14 @@ where
     texture.prepare_for_access(ctxt, crate::TextureAccess::TextureFetch);
 
     // integer textures can only be sampled without filtering: with linear filters they are
-    // incomplete and read as zero
+    // incomplete and read as zero. Depth-stencil textures in stencil mode have the linear
+    // filters of depth textures, so they always get a sampler.
+    let sampler = if sampler.is_none() && texture.is_integer() && !texture.has_integer_filters()
+    {
+        Some(SamplerBehavior::default())
+    } else {
+        sampler
+    };
     let sampler = sampler.map(|mut sampler| {
         if texture.is_integer() {
             sampler.magnify_filter = MagnifySamplerFilter::Nearest;

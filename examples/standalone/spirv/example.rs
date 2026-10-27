@@ -1,5 +1,5 @@
 use safegl::index::PrimitiveType;
-use safegl::program::{ProgramCreationInput, SpirvEntryPoint, SpirvProgram};
+use safegl::program::{SpirvEntryPoint, SpirvProgram};
 use safegl::Surface;
 use glutin::context::Version;
 use glutin::display::GetGlDisplay;
@@ -85,15 +85,9 @@ pub fn main() {
         safegl::IndexBuffer::new(&display, PrimitiveType::TrianglesList, &[0u8, 1, 2]).unwrap();
 
     // loading SPIR-V module that contains fragment and vertex shader entry points both called "main"
-    let spirv = SpirvEntryPoint {
-        binary: include_bytes!("shader.spv"),
-        entry_point: "main",
-    };
-    let program = safegl::Program::new(
-        &display,
-        ProgramCreationInput::SpirV(SpirvProgram::from_vs_and_fs(spirv, spirv)),
-    )
-    .unwrap();
+    let spirv = SpirvEntryPoint::new(include_bytes!("shader.spv"), "main");
+    let program =
+        safegl::Program::new(&display, SpirvProgram::from_vs_and_fs(spirv, spirv)).unwrap();
 
     // drawing once
 

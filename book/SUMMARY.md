@@ -18,3 +18,4 @@
 - [Normal mapping](tuto-14-wall.md)
 - [Performance](perf-intro.md)
 - [Synchronization](perf-sync.md)
+- [OpenGL 4.6 coverage](opengl-4.6.md)

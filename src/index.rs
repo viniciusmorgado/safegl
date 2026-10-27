@@ -38,23 +38,28 @@ use crate::CapabilitiesSource;
 use crate::ToGlEnum;
 
 use std::mem;
+#[cfg(safegl_desktop)]
+use std::ops::Range;
 
 use crate::buffer::BufferAnySlice;
 
 pub use self::buffer::CreationError as BufferCreationError;
 pub use self::buffer::{IndexBuffer, IndexBufferAny, IndexBufferSlice};
-#[cfg(safegl_gl43)]
-#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+#[cfg(any(safegl_desktop, safegl_gles31))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
 pub use self::multidraw::{DrawCommandIndices, DrawCommandsIndicesBuffer};
-#[cfg(safegl_gl43)]
-#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+#[cfg(any(safegl_desktop, safegl_gles31))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
 pub use self::multidraw::{DrawCommandNoIndices, DrawCommandsNoIndicesBuffer};
+#[cfg(any(safegl_desktop, safegl_gles31))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
+pub use self::multidraw::DrawCommandLayout;
 #[cfg(safegl_gl46)]
 #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
 pub use self::multidraw::DrawCount;
 
 mod buffer;
-#[cfg(safegl_gl43)]
+#[cfg(any(safegl_desktop, safegl_gles31))]
 mod multidraw;
 
 /// Describes a source of indices used for drawing.
@@ -71,11 +76,14 @@ pub enum IndicesSource<'a> {
     },
 
     /// Use a multidraw indirect buffer without indices.
-    #[cfg(safegl_gl43)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
     MultidrawArray {
-        /// The buffer.
+        /// The buffer of the commands.
         buffer: BufferAnySlice<'a>,
+        /// The offset in bytes of the command in each element of the buffer, whose size is the
+        /// stride of the commands.
+        command_offset: usize,
         /// Type of primitives contained in the vertex source.
         primitives: PrimitiveType,
         /// The buffer that the GPU reads the number of commands to draw from, if any.
@@ -85,11 +93,14 @@ pub enum IndicesSource<'a> {
     },
 
     /// Use a multidraw indirect buffer with indices.
-    #[cfg(safegl_gl43)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
     MultidrawElement {
         /// The buffer of the commands.
         commands: BufferAnySlice<'a>,
+        /// The offset in bytes of the command in each element of the buffer, whose size is the
+        /// stride of the commands.
+        command_offset: usize,
         /// The buffer of the indices.
         indices: BufferAnySlice<'a>,
         /// Type of indices in the buffer.
@@ -108,6 +119,48 @@ pub enum IndicesSource<'a> {
         /// Type of primitives contained in the vertex source.
         primitives: PrimitiveType,
     },
+
+    /// Draw the vertices that a transform feedback object captured for a vertex stream
+    /// (`glDrawTransformFeedbackStream`). Built with `CapturedVertices::indices`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    TransformFeedback {
+        /// The captured vertices.
+        captured: &'a crate::vertex::CapturedVertices,
+        /// The vertex stream.
+        stream: u32,
+        /// Type of primitives contained in the vertex source.
+        primitives: PrimitiveType,
+    },
+
+    /// Draw several ranges of the vertices of the vertices source with one call
+    /// (`glMultiDrawArrays`). Built with [`NoIndicesRanges`].
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    NoIndicesRanges {
+        /// Type of primitives contained in the vertex source.
+        primitives: PrimitiveType,
+        /// The ranges of vertices.
+        ranges: &'a [Range<usize>],
+    },
+
+    /// Draw several ranges of the indices of an index buffer with one call, each with a value
+    /// added to its indices (`glMultiDrawElementsBaseVertex`). Built with
+    /// `IndexBuffer::ranges`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    IndexBufferRanges {
+        /// The buffer.
+        buffer: BufferAnySlice<'a>,
+        /// Type of indices in the buffer.
+        data_type: IndexType,
+        /// Type of primitives contained in the vertex source.
+        primitives: PrimitiveType,
+        /// The ranges of indices.
+        ranges: &'a [Range<usize>],
+        /// The value added to the indices of each range, or `None` for 0.
+        base_vertices: Option<&'a [i32]>,
+    },
 }
 
 impl<'a> IndicesSource<'a> {
@@ -116,11 +169,17 @@ impl<'a> IndicesSource<'a> {
     pub fn get_primitives_type(&self) -> PrimitiveType {
         *match self {
             IndicesSource::IndexBuffer { primitives, .. } => primitives,
-            #[cfg(safegl_gl43)]
+            #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawArray { primitives, .. } => primitives,
-            #[cfg(safegl_gl43)]
+            #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawElement { primitives, .. } => primitives,
             IndicesSource::NoIndices { primitives } => primitives,
+            #[cfg(safegl_desktop)]
+            IndicesSource::NoIndicesRanges { primitives, .. } => primitives,
+            #[cfg(safegl_desktop)]
+            IndicesSource::TransformFeedback { primitives, .. } => primitives,
+            #[cfg(safegl_desktop)]
+            IndicesSource::IndexBufferRanges { primitives, .. } => primitives,
         }
     }
 }
@@ -296,6 +355,25 @@ impl ToGlEnum for PrimitiveType {
 /// vertices are in the vertices sources.
 #[derive(Copy, Clone, Debug)]
 pub struct NoIndices(pub PrimitiveType);
+
+/// Marker that draws several ranges of the vertices of the vertices source with one call
+/// (`glMultiDrawArrays`), on desktop OpenGL. The ranges must be in the vertices source, and the
+/// draw has no instances.
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+#[derive(Copy, Clone, Debug)]
+pub struct NoIndicesRanges<'a>(pub PrimitiveType, pub &'a [Range<usize>]);
+
+#[cfg(safegl_desktop)]
+impl<'a> From<NoIndicesRanges<'a>> for IndicesSource<'a> {
+    #[inline]
+    fn from(marker: NoIndicesRanges<'a>) -> IndicesSource<'a> {
+        IndicesSource::NoIndicesRanges {
+            primitives: marker.0,
+            ranges: marker.1,
+        }
+    }
+}
 
 impl<'a> From<NoIndices> for IndicesSource<'a> {
     #[inline]

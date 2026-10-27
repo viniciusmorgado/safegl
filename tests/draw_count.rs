@@ -259,7 +259,11 @@ fn indexed_commands() {
 #[test]
 fn a_compute_shader_writes_the_number_of_commands() {
     let display = support::build_display();
-    if support::is_gles(&display) || !ComputeShader::is_supported(&display) {
+    // a driver below OpenGL 4.3 can have compute shaders without GLSL 4.30
+    if support::is_gles(&display)
+        || !ComputeShader::is_supported(&display)
+        || !support::glsl_supported(&display, 430, 310)
+    {
         return;
     }
     let vertices = vertices(&display);

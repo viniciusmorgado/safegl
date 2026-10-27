@@ -195,6 +195,22 @@ impl<'t, T: 't> Sampler<'t, T> {
         self
     }
 
+    /// Sets the lowest and the highest level of detail that the sampler uses. See
+    /// `LevelOfDetail`.
+    pub fn lod_range(mut self, min: f32, max: f32) -> Sampler<'t, T> {
+        self.1.level_of_detail.min = min;
+        self.1.level_of_detail.max = max;
+        self
+    }
+
+    /// Sets the bias added to the level of detail. See `LevelOfDetail::bias`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    pub fn lod_bias(mut self, bias: f32) -> Sampler<'t, T> {
+        self.1.level_of_detail.bias = bias;
+        self
+    }
+
     /// Sets the color returned outside the texture with `SamplerWrapFunction::BorderClamp`,
     /// which is often white for shadow maps.
     #[cfg(any(safegl_desktop, safegl_gles32))]
@@ -203,22 +219,96 @@ impl<'t, T: 't> Sampler<'t, T> {
         self.1.border_color = Some(color.into());
         self
     }
+
+    /// Sets the border color of a signed integer texture. See `border_color`.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    pub fn border_color_int(mut self, color: [i32; 4]) -> Sampler<'t, T> {
+        self.1.border_color = Some(color.into());
+        self
+    }
+
+    /// Sets the border color of an unsigned integer or stencil texture. See `border_color`.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    pub fn border_color_uint(mut self, color: [u32; 4]) -> Sampler<'t, T> {
+        self.1.border_color = Some(color.into());
+        self
+    }
 }
 
 /// The color that a sampler returns outside the texture with `SamplerWrapFunction::BorderClamp`.
+///
+/// A border color of floats is for float, normalized, depth and sRGB textures; the border color
+/// of an integer texture is made of integers of the same signedness, and that of a stencil
+/// texture of unsigned integers. Sampling a texture with a border color of another kind returns
+/// `DrawError::BorderColorMismatch`.
 ///
 /// The components are stored as bits, so that `SamplerBehavior` can be hashed and compared.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 #[cfg(any(safegl_desktop, safegl_gles32))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
-pub struct BorderColor([u32; 4]);
+pub struct BorderColor {
+    bits: [u32; 4],
+    kind: BorderColorKind,
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[cfg(any(safegl_desktop, safegl_gles32))]
+enum BorderColorKind {
+    Float,
+    Int,
+    UnsignedInt,
+}
+
+/// The components of a `BorderColor`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg(any(safegl_desktop, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+pub enum BorderColorValue {
+    /// Floats, for float, normalized, depth and sRGB textures.
+    Float([f32; 4]),
+    /// Signed integers, for signed integer textures.
+    Int([i32; 4]),
+    /// Unsigned integers, for unsigned integer and stencil textures.
+    UnsignedInt([u32; 4]),
+}
 
 #[cfg(any(safegl_desktop, safegl_gles32))]
 impl BorderColor {
-    /// Returns the red, green, blue and alpha components.
+    /// Returns the red, green, blue and alpha components, converted to floats if they are
+    /// integers.
     #[inline]
     pub fn to_f32(self) -> [f32; 4] {
-        self.0.map(f32::from_bits)
+        match self.value() {
+            BorderColorValue::Float(color) => color,
+            BorderColorValue::Int(color) => color.map(|c| c as f32),
+            BorderColorValue::UnsignedInt(color) => color.map(|c| c as f32),
+        }
+    }
+
+    /// Returns the red, green, blue and alpha components.
+    #[inline]
+    pub fn value(self) -> BorderColorValue {
+        match self.kind {
+            BorderColorKind::Float => BorderColorValue::Float(self.bits.map(f32::from_bits)),
+            BorderColorKind::Int => BorderColorValue::Int(self.bits.map(|c| c as i32)),
+            BorderColorKind::UnsignedInt => BorderColorValue::UnsignedInt(self.bits),
+        }
+    }
+
+    /// Returns true if the border color can be used with `texture`, whose components are of the
+    /// same kind.
+    pub(crate) fn fits(self, texture: &crate::texture::TextureAny) -> bool {
+        use crate::texture::TextureKind;
+
+        let kind = match texture.kind() {
+            TextureKind::Integral => BorderColorKind::Int,
+            TextureKind::Unsigned | TextureKind::Stencil => BorderColorKind::UnsignedInt,
+            TextureKind::DepthStencil if texture.samples_stencil() => BorderColorKind::UnsignedInt,
+            _ => BorderColorKind::Float,
+        };
+        self.kind == kind
     }
 }
 
@@ -226,7 +316,32 @@ impl BorderColor {
 impl From<[f32; 4]> for BorderColor {
     #[inline]
     fn from(color: [f32; 4]) -> BorderColor {
-        BorderColor(color.map(f32::to_bits))
+        BorderColor {
+            bits: color.map(f32::to_bits),
+            kind: BorderColorKind::Float,
+        }
+    }
+}
+
+#[cfg(any(safegl_desktop, safegl_gles32))]
+impl From<[i32; 4]> for BorderColor {
+    #[inline]
+    fn from(color: [i32; 4]) -> BorderColor {
+        BorderColor {
+            bits: color.map(|c| c as u32),
+            kind: BorderColorKind::Int,
+        }
+    }
+}
+
+#[cfg(any(safegl_desktop, safegl_gles32))]
+impl From<[u32; 4]> for BorderColor {
+    #[inline]
+    fn from(color: [u32; 4]) -> BorderColor {
+        BorderColor {
+            bits: color,
+            kind: BorderColorKind::UnsignedInt,
+        }
     }
 }
 
@@ -248,7 +363,6 @@ impl<'t, T: 't> Clone for Sampler<'t, T> {
 /// A texture used as a uniform without a sampler (`uniform! { tex: &texture }`) keeps its own
 /// parameters instead, which repeat the texture and filter it linearly, or with the nearest
 /// filters for integer, depth and stencil textures.
-// TODO: GL_TEXTURE_MIN_LOD, GL_TEXTURE_MAX_LOD, GL_TEXTURE_LOD_BIAS
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct SamplerBehavior {
     /// Functions to use for the X, Y, and Z coordinates.
@@ -283,6 +397,65 @@ pub struct SamplerBehavior {
     #[cfg(any(safegl_desktop, safegl_gles32))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     pub border_color: Option<BorderColor>,
+
+    /// The levels of detail that the sampler can use, and the bias added to the level it
+    /// computes. Default value is every level and no bias.
+    pub level_of_detail: LevelOfDetail,
+}
+
+/// The levels of detail of a sampler (`GL_TEXTURE_MIN_LOD`, `GL_TEXTURE_MAX_LOD` and
+/// `GL_TEXTURE_LOD_BIAS`).
+///
+/// The level of detail is the mipmap level that sampling reads, in fractions of levels relative
+/// to the base level of the texture. It is clamped to `min..=max` after the bias is added.
+#[derive(Debug, Clone, Copy)]
+pub struct LevelOfDetail {
+    /// The lowest level of detail, `-1000.0` by default.
+    pub min: f32,
+    /// The highest level of detail, `1000.0` by default.
+    pub max: f32,
+    /// The bias added to the level of detail that the GPU computes, `0.0` by default. Positive
+    /// values sample smaller levels, which blurs; negative ones sharpen. It is clamped to
+    /// `Limits::max_texture_lod_bias`. Shaders can add their own bias on every API.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    pub bias: f32,
+}
+
+impl LevelOfDetail {
+    fn bits(&self) -> [u32; 3] {
+        #[cfg(safegl_desktop)]
+        let bias = self.bias;
+        #[cfg(not(safegl_desktop))]
+        let bias = 0.0f32;
+        [self.min.to_bits(), self.max.to_bits(), bias.to_bits()]
+    }
+}
+
+impl Default for LevelOfDetail {
+    fn default() -> LevelOfDetail {
+        LevelOfDetail {
+            min: -1000.0,
+            max: 1000.0,
+            #[cfg(safegl_desktop)]
+            bias: 0.0,
+        }
+    }
+}
+
+// compared bit by bit, so that `SamplerBehavior` can be hashed and compared
+impl PartialEq for LevelOfDetail {
+    fn eq(&self, other: &LevelOfDetail) -> bool {
+        self.bits() == other.bits()
+    }
+}
+
+impl Eq for LevelOfDetail {}
+
+impl std::hash::Hash for LevelOfDetail {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.bits().hash(state);
+    }
 }
 
 impl Default for SamplerBehavior {
@@ -300,6 +473,7 @@ impl Default for SamplerBehavior {
             max_anisotropy: 1,
             #[cfg(any(safegl_desktop, safegl_gles32))]
             border_color: None,
+            level_of_detail: Default::default(),
         }
     }
 }

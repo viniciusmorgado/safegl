@@ -8,7 +8,7 @@ use crate::backend::Facade;
 use crate::buffer::{Buffer, BufferCreationError, BufferMode, BufferType};
 #[cfg(safegl_gl46)]
 use crate::buffer::BufferAnySlice;
-use crate::buffer::{BufferMutSlice, BufferSlice};
+use crate::buffer::{AnyBitPattern, BufferMutSlice, BufferSlice};
 use crate::index::{Index, IndexBuffer, IndicesSource, PrimitiveType};
 
 /// The number of commands that a multidraw draws, which the GPU reads from a `u32` of a buffer
@@ -103,9 +103,53 @@ implement_any_bit_pattern!(
     base_instance
 );
 
-/// A buffer containing a list of draw commands.
-pub struct DrawCommandsNoIndicesBuffer {
-    buffer: Buffer<[DrawCommandNoIndices]>,
+mod sealed {
+    pub trait Command {}
+    impl Command for super::DrawCommandNoIndices {}
+    impl Command for super::DrawCommandIndices {}
+}
+
+/// A type that a buffer of draw commands holds: a `DrawCommandNoIndices` or a
+/// `DrawCommandIndices` at an offset in it, among other values. The GPU reads the commands with
+/// the size of the type as stride.
+///
+/// Implement it with [`implement_draw_command!`](crate::implement_draw_command), which checks
+/// the type and the offset of the command.
+///
+/// # Safety
+///
+/// `Self` must contain a value of type `Command` at the offset `OFFSET` in bytes, and its size
+/// and `OFFSET` must be multiples of 4.
+pub unsafe trait DrawCommandLayout: Copy + AnyBitPattern + 'static {
+    /// The type of the command: `DrawCommandNoIndices` or `DrawCommandIndices`.
+    type Command: sealed::Command;
+    /// The offset in bytes of the command in the type.
+    const OFFSET: usize;
+}
+
+unsafe impl DrawCommandLayout for DrawCommandNoIndices {
+    type Command = DrawCommandNoIndices;
+    const OFFSET: usize = 0;
+}
+
+unsafe impl DrawCommandLayout for DrawCommandIndices {
+    type Command = DrawCommandIndices;
+    const OFFSET: usize = 0;
+}
+
+/// A buffer of draw commands, or of values of type `C` that contain one (see
+/// [`DrawCommandLayout`]).
+///
+/// Drawing one of its commands with `command` needs OpenGL 4.0 or OpenGL ES 3.1, and drawing
+/// all of them with one call needs OpenGL 4.3, `GL_ARB_multi_draw_indirect` or
+/// `GL_EXT_multi_draw_indirect` (`DrawError::MultidrawNotSupported` otherwise), except when the
+/// buffer has a single command. The GPU reads the commands when it draws, so SafeGL can't check
+/// them: their vertices, indices and instances must be in the buffers of the draw.
+pub struct DrawCommandsNoIndicesBuffer<C = DrawCommandNoIndices>
+where
+    C: DrawCommandLayout<Command = DrawCommandNoIndices>,
+{
+    buffer: Buffer<[C]>,
 }
 
 impl DrawCommandsNoIndicesBuffer {
@@ -188,13 +232,49 @@ impl DrawCommandsNoIndicesBuffer {
         )?;
         Ok(DrawCommandsNoIndicesBuffer { buffer: buf })
     }
+}
 
-    /// Builds an indices source from this buffer and a primitives type. This indices source can
-    /// be passed to the `draw()` function.
+impl<C> DrawCommandsNoIndicesBuffer<C>
+where
+    C: DrawCommandLayout<Command = DrawCommandNoIndices>,
+{
+    /// Uses a buffer of values that contain draw commands, at the offset of their
+    /// [`DrawCommandLayout`], as a buffer of draw commands.
+    #[inline]
+    pub fn from_buffer(buffer: Buffer<[C]>) -> DrawCommandsNoIndicesBuffer<C> {
+        DrawCommandsNoIndicesBuffer { buffer }
+    }
+
+    /// Returns the buffer of the commands.
+    #[inline]
+    pub fn into_buffer(self) -> Buffer<[C]> {
+        self.buffer
+    }
+
+    /// Builds an indices source that draws the command at `index`
+    /// (`glDrawArraysIndirect`), or returns `None` if the buffer has no command at `index`.
+    #[inline]
+    pub fn command(&self, index: usize, primitives: PrimitiveType) -> Option<IndicesSource<'_>> {
+        let command = self.buffer.slice(index..index + 1)?;
+        Some(IndicesSource::MultidrawArray {
+            buffer: command.as_slice_any(),
+            command_offset: C::OFFSET,
+            primitives,
+            #[cfg(safegl_gl46)]
+            draw_count: None,
+        })
+    }
+
+    /// Builds an indices source that draws all the commands of the buffer with one call
+    /// (`glMultiDrawArraysIndirect`). This indices source can be passed to the `draw()`
+    /// function.
+    #[cfg(safegl_gl43)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
     #[inline]
     pub fn with_primitive_type(&self, primitives: PrimitiveType) -> IndicesSource<'_> {
         IndicesSource::MultidrawArray {
             buffer: self.buffer.as_slice_any(),
+            command_offset: C::OFFSET,
             primitives,
             #[cfg(safegl_gl46)]
             draw_count: None,
@@ -215,6 +295,7 @@ impl DrawCommandsNoIndicesBuffer {
     ) -> IndicesSource<'a> {
         IndicesSource::MultidrawArray {
             buffer: self.buffer.as_slice_any(),
+            command_offset: C::OFFSET,
             primitives,
             draw_count: Some(DrawCount {
                 buffer: draw_count.as_slice_any(),
@@ -224,41 +305,63 @@ impl DrawCommandsNoIndicesBuffer {
     }
 }
 
-impl Deref for DrawCommandsNoIndicesBuffer {
-    type Target = Buffer<[DrawCommandNoIndices]>;
+impl<C> Deref for DrawCommandsNoIndicesBuffer<C>
+where
+    C: DrawCommandLayout<Command = DrawCommandNoIndices>,
+{
+    type Target = Buffer<[C]>;
 
     #[inline]
-    fn deref(&self) -> &Buffer<[DrawCommandNoIndices]> {
+    fn deref(&self) -> &Buffer<[C]> {
         &self.buffer
     }
 }
 
-impl DerefMut for DrawCommandsNoIndicesBuffer {
+impl<C> DerefMut for DrawCommandsNoIndicesBuffer<C>
+where
+    C: DrawCommandLayout<Command = DrawCommandNoIndices>,
+{
     #[inline]
-    fn deref_mut(&mut self) -> &mut Buffer<[DrawCommandNoIndices]> {
+    fn deref_mut(&mut self) -> &mut Buffer<[C]> {
         &mut self.buffer
     }
 }
 
-impl<'a> From<&'a DrawCommandsNoIndicesBuffer> for BufferSlice<'a, [DrawCommandNoIndices]> {
+impl<'a, C> From<&'a DrawCommandsNoIndicesBuffer<C>> for BufferSlice<'a, [C]>
+where
+    C: DrawCommandLayout<Command = DrawCommandNoIndices>,
+{
     #[inline]
-    fn from(b: &'a DrawCommandsNoIndicesBuffer) -> BufferSlice<'a, [DrawCommandNoIndices]> {
-        let b: &Buffer<[DrawCommandNoIndices]> = &*b;
+    fn from(b: &'a DrawCommandsNoIndicesBuffer<C>) -> BufferSlice<'a, [C]> {
+        let b: &Buffer<[C]> = &*b;
         b.as_slice()
     }
 }
 
-impl<'a> From<&'a mut DrawCommandsNoIndicesBuffer> for BufferMutSlice<'a, [DrawCommandNoIndices]> {
+impl<'a, C> From<&'a mut DrawCommandsNoIndicesBuffer<C>> for BufferMutSlice<'a, [C]>
+where
+    C: DrawCommandLayout<Command = DrawCommandNoIndices>,
+{
     #[inline]
-    fn from(b: &'a mut DrawCommandsNoIndicesBuffer) -> BufferMutSlice<'a, [DrawCommandNoIndices]> {
-        let b: &mut Buffer<[DrawCommandNoIndices]> = &mut *b;
+    fn from(b: &'a mut DrawCommandsNoIndicesBuffer<C>) -> BufferMutSlice<'a, [C]> {
+        let b: &mut Buffer<[C]> = &mut *b;
         b.as_mut_slice()
     }
 }
 
-/// A buffer containing a list of draw commands.
-pub struct DrawCommandsIndicesBuffer {
-    buffer: Buffer<[DrawCommandIndices]>,
+/// A buffer of draw commands, or of values of type `C` that contain one (see
+/// [`DrawCommandLayout`]).
+///
+/// Drawing one of its commands with `command` needs OpenGL 4.0 or OpenGL ES 3.1, and drawing
+/// all of them with one call needs OpenGL 4.3, `GL_ARB_multi_draw_indirect` or
+/// `GL_EXT_multi_draw_indirect` (`DrawError::MultidrawNotSupported` otherwise), except when the
+/// buffer has a single command. The GPU reads the commands when it draws, so SafeGL can't check
+/// them: their vertices, indices and instances must be in the buffers of the draw.
+pub struct DrawCommandsIndicesBuffer<C = DrawCommandIndices>
+where
+    C: DrawCommandLayout<Command = DrawCommandIndices>,
+{
+    buffer: Buffer<[C]>,
 }
 
 impl DrawCommandsIndicesBuffer {
@@ -341,9 +444,54 @@ impl DrawCommandsIndicesBuffer {
         )?;
         Ok(DrawCommandsIndicesBuffer { buffer: buf })
     }
+}
 
-    /// Builds an indices source from this buffer and a primitives type. This indices source can
-    /// be passed to the `draw()` function.
+impl<C> DrawCommandsIndicesBuffer<C>
+where
+    C: DrawCommandLayout<Command = DrawCommandIndices>,
+{
+    /// Uses a buffer of values that contain draw commands, at the offset of their
+    /// [`DrawCommandLayout`], as a buffer of draw commands.
+    #[inline]
+    pub fn from_buffer(buffer: Buffer<[C]>) -> DrawCommandsIndicesBuffer<C> {
+        DrawCommandsIndicesBuffer { buffer }
+    }
+
+    /// Returns the buffer of the commands.
+    #[inline]
+    pub fn into_buffer(self) -> Buffer<[C]> {
+        self.buffer
+    }
+
+    /// Builds an indices source that draws the command at `index` with the indices of
+    /// `index_buffer` (`glDrawElementsIndirect`), or returns `None` if the buffer has no command
+    /// at `index`.
+    #[inline]
+    pub fn command_with_index_buffer<'a, T>(
+        &'a self,
+        index: usize,
+        index_buffer: &'a IndexBuffer<T>,
+    ) -> Option<IndicesSource<'a>>
+    where
+        T: Index,
+    {
+        let command = self.buffer.slice(index..index + 1)?;
+        Some(IndicesSource::MultidrawElement {
+            commands: command.as_slice_any(),
+            command_offset: C::OFFSET,
+            indices: index_buffer.as_slice_any(),
+            data_type: index_buffer.get_indices_type(),
+            primitives: index_buffer.get_primitives_type(),
+            #[cfg(safegl_gl46)]
+            draw_count: None,
+        })
+    }
+
+    /// Builds an indices source that draws all the commands of the buffer with one call
+    /// (`glMultiDrawElementsIndirect`), with the indices of `index_buffer`. This indices source
+    /// can be passed to the `draw()` function.
+    #[cfg(safegl_gl43)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
     #[inline]
     pub fn with_index_buffer<'a, T>(&'a self, index_buffer: &'a IndexBuffer<T>) -> IndicesSource<'a>
     where
@@ -351,6 +499,7 @@ impl DrawCommandsIndicesBuffer {
     {
         IndicesSource::MultidrawElement {
             commands: self.buffer.as_slice_any(),
+            command_offset: C::OFFSET,
             indices: index_buffer.as_slice_any(),
             data_type: index_buffer.get_indices_type(),
             primitives: index_buffer.get_primitives_type(),
@@ -376,6 +525,7 @@ impl DrawCommandsIndicesBuffer {
     {
         IndicesSource::MultidrawElement {
             commands: self.buffer.as_slice_any(),
+            command_offset: C::OFFSET,
             indices: index_buffer.as_slice_any(),
             data_type: index_buffer.get_indices_type(),
             primitives: index_buffer.get_primitives_type(),
@@ -387,34 +537,46 @@ impl DrawCommandsIndicesBuffer {
     }
 }
 
-impl Deref for DrawCommandsIndicesBuffer {
-    type Target = Buffer<[DrawCommandIndices]>;
+impl<C> Deref for DrawCommandsIndicesBuffer<C>
+where
+    C: DrawCommandLayout<Command = DrawCommandIndices>,
+{
+    type Target = Buffer<[C]>;
 
     #[inline]
-    fn deref(&self) -> &Buffer<[DrawCommandIndices]> {
+    fn deref(&self) -> &Buffer<[C]> {
         &self.buffer
     }
 }
 
-impl DerefMut for DrawCommandsIndicesBuffer {
+impl<C> DerefMut for DrawCommandsIndicesBuffer<C>
+where
+    C: DrawCommandLayout<Command = DrawCommandIndices>,
+{
     #[inline]
-    fn deref_mut(&mut self) -> &mut Buffer<[DrawCommandIndices]> {
+    fn deref_mut(&mut self) -> &mut Buffer<[C]> {
         &mut self.buffer
     }
 }
 
-impl<'a> From<&'a DrawCommandsIndicesBuffer> for BufferSlice<'a, [DrawCommandIndices]> {
+impl<'a, C> From<&'a DrawCommandsIndicesBuffer<C>> for BufferSlice<'a, [C]>
+where
+    C: DrawCommandLayout<Command = DrawCommandIndices>,
+{
     #[inline]
-    fn from(b: &'a DrawCommandsIndicesBuffer) -> BufferSlice<'a, [DrawCommandIndices]> {
-        let b: &Buffer<[DrawCommandIndices]> = &*b;
+    fn from(b: &'a DrawCommandsIndicesBuffer<C>) -> BufferSlice<'a, [C]> {
+        let b: &Buffer<[C]> = &*b;
         b.as_slice()
     }
 }
 
-impl<'a> From<&'a mut DrawCommandsIndicesBuffer> for BufferMutSlice<'a, [DrawCommandIndices]> {
+impl<'a, C> From<&'a mut DrawCommandsIndicesBuffer<C>> for BufferMutSlice<'a, [C]>
+where
+    C: DrawCommandLayout<Command = DrawCommandIndices>,
+{
     #[inline]
-    fn from(b: &'a mut DrawCommandsIndicesBuffer) -> BufferMutSlice<'a, [DrawCommandIndices]> {
-        let b: &mut Buffer<[DrawCommandIndices]> = &mut *b;
+    fn from(b: &'a mut DrawCommandsIndicesBuffer<C>) -> BufferMutSlice<'a, [C]> {
+        let b: &mut Buffer<[C]> = &mut *b;
         b.as_mut_slice()
     }
 }

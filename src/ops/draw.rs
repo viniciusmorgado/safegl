@@ -1,5 +1,8 @@
 use std::ptr;
 
+#[cfg(safegl_desktop)]
+use smallvec::SmallVec;
+
 use glow::HasContext;
 
 use crate::BufferExt;
@@ -12,15 +15,16 @@ use crate::uniforms::CollectedUniforms;
 
 use crate::context::Context;
 use crate::ContextExt;
-use crate::TransformFeedbackSessionExt;
+use crate::TransformFeedbackExt;
 
 use crate::fbo::{self, FramebufferTarget};
 
 use crate::index::{self, IndicesSource};
+use crate::program::DrawProgram;
 use crate::uniforms::Uniforms;
-use crate::vertex::{MultiVerticesSource, TransformFeedbackSession, VerticesSource};
+use crate::vertex::{InstanceRate, MultiVerticesSource, TransformFeedback, VerticesSource};
 use crate::vertex_array_object::VertexAttributesSystem;
-use crate::{Program, ToGlEnum};
+use crate::ToGlEnum;
 
 use crate::draw_parameters::DrawParameters;
 
@@ -34,7 +38,7 @@ pub fn draw<'a, U, V>(
     framebuffer: FramebufferTarget<'_>,
     vertex_buffers: V,
     indices: IndicesSource<'_>,
-    program: &Program,
+    program: DrawProgram<'_>,
     uniforms: &U,
     draw_parameters: &DrawParameters<'_>,
     dimensions: (u32, u32),
@@ -47,7 +51,7 @@ where
     // has started
     let mut fences = crate::buffer::FenceInserters::new();
 
-    let vertices_per_patch = check_stages(context, program, indices.get_primitives_type())?;
+    let vertices_per_patch = check_stages(context, &program, indices.get_primitives_type())?;
 
     // the base instance given in the draw parameters
     let supports_base_instance = is_base_instance_supported(context);
@@ -72,28 +76,39 @@ where
     let mut ctxt = context.make_current();
 
     // OpenGL objects can only be used with the context that created them
-    check_contexts(&ctxt, program, &indices, draw_parameters)?;
+    check_contexts(&ctxt, &program, &indices, draw_parameters)?;
     #[cfg(safegl_gl46)]
     check_draw_count(&ctxt, &indices)?;
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    check_indirect(&ctxt, &indices, draw_parameters)?;
 
     // handling vertices source
     let (vertices_count, instances_count, base_vertex, base_instance) = {
         let index_buffer = match indices {
             IndicesSource::IndexBuffer { buffer, .. } => Some(buffer),
-            #[cfg(safegl_gl43)]
+            #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawArray { .. } => None,
-            #[cfg(safegl_gl43)]
+            #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawElement { indices, .. } => Some(indices),
             IndicesSource::NoIndices { .. } => None,
+            #[cfg(safegl_desktop)]
+            IndicesSource::TransformFeedback { .. } => None,
+            #[cfg(safegl_desktop)]
+            IndicesSource::NoIndicesRanges { .. } => None,
+            #[cfg(safegl_desktop)]
+            IndicesSource::IndexBufferRanges { buffer, .. } => Some(buffer),
         };
 
         // determining whether we can use the `base_vertex` variants for drawing
         let use_base_vertex = match indices {
-            #[cfg(safegl_gl43)]
+            #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawArray { .. } => false,
-            #[cfg(safegl_gl43)]
+            #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawElement { .. } => false,
             IndicesSource::NoIndices { .. } => true,
+            // the base vertex is added to the first vertex of each range
+            #[cfg(safegl_desktop)]
+            IndicesSource::NoIndicesRanges { .. } => true,
             _ => {
                 ctxt.version.0 == Api::Gl
                     || ctxt.version >= &Version(Api::GlEs, 3, 2)
@@ -104,17 +119,22 @@ where
         // the commands of multidraws have their own base instance
         let use_base_instance = supports_base_instance
             && match indices {
-                #[cfg(safegl_gl43)]
+                #[cfg(any(safegl_desktop, safegl_gles31))]
                 IndicesSource::MultidrawArray { .. } | IndicesSource::MultidrawElement { .. } => {
                     false
                 }
+                // drawing ranges and captured vertices has no base instance
+                #[cfg(safegl_desktop)]
+                IndicesSource::NoIndicesRanges { .. }
+                | IndicesSource::IndexBufferRanges { .. }
+                | IndicesSource::TransformFeedback { .. } => false,
                 _ => true,
             };
 
         // object that is used to build the bindings
         let mut binder = VertexAttributesSystem::start(
             &mut ctxt,
-            program,
+            program.vertex(),
             index_buffer,
             use_base_vertex,
             use_base_instance,
@@ -130,7 +150,7 @@ where
             // Integrating the two matches wouldn't improve the code either.
             #[allow(clippy::single_match)]
             match src {
-                VerticesSource::VertexBuffer(buffer, format, per_instance) => {
+                VerticesSource::VertexBuffer(buffer, format, rate) => {
                     if !binder_context_owns(&buffer, context) {
                         return Err(DrawError::ContextMismatch {
                             object: "vertex buffer".to_owned(),
@@ -141,13 +161,20 @@ where
                         fences.push(fence);
                     }
 
-                    binder = binder.add(&buffer, format, if per_instance { Some(1) } else { None });
+                    let divisor = match rate {
+                        InstanceRate::PerVertex => None,
+                        InstanceRate::PerInstance(divisor) => Some(divisor.get()),
+                    };
+                    binder = binder.add(&buffer, format, divisor);
+                }
+                VerticesSource::Constant(ref constant) => {
+                    binder = binder.add_constant(constant);
                 }
                 _ => {}
             }
 
             match src {
-                VerticesSource::VertexBuffer(ref buffer, _, false) => {
+                VerticesSource::VertexBuffer(ref buffer, _, InstanceRate::PerVertex) => {
                     if let Some(curr) = vertices_count {
                         if curr != buffer.get_elements_count() {
                             vertices_mismatch = true;
@@ -156,13 +183,17 @@ where
                         vertices_count = Some(buffer.get_elements_count());
                     }
                 }
-                VerticesSource::VertexBuffer(ref buffer, _, true) => {
+                VerticesSource::VertexBuffer(ref buffer, _, InstanceRate::PerInstance(divisor)) => {
+                    // each element provides the attributes of `divisor` instances
+                    let instances = buffer
+                        .get_elements_count()
+                        .saturating_mul(divisor.get() as usize);
                     if let Some(curr) = instances_count {
-                        if curr != buffer.get_elements_count() {
+                        if curr != instances {
                             return Err(DrawError::InstancesCountMismatch);
                         }
                     } else {
-                        instances_count = Some(buffer.get_elements_count());
+                        instances_count = Some(instances);
                     }
                 }
                 VerticesSource::Marker { len, per_instance } if !per_instance => {
@@ -207,32 +238,43 @@ where
             fbo::FramebuffersContainer::get_framebuffer_for_drawing(&mut ctxt, framebuffer);
         unsafe { fbo::bind_framebuffer(&mut ctxt, fbo_id, true, false) };
     };
+    draw_parameters::validate_dual_source_blending(&mut ctxt, draw_parameters, |ctxt| {
+        fbo::draw_buffers_count(ctxt, framebuffer)
+    })?;
 
-    // transform feedback can't stay active while the program changes, unless the draw command
-    // continues the session
+    // transform feedback can't record while the program changes: the capture is paused, unless
+    // the draw continues it
     if !draw_parameters
         .transform_feedback
-        .is_some_and(|session| session.is_active(&ctxt))
+        .is_some_and(|transform_feedback| transform_feedback.is_recording(&ctxt))
     {
-        TransformFeedbackSession::unbind(&mut ctxt);
+        TransformFeedback::pause(&mut ctxt);
     }
 
     // binding the program and uniforms
-    program.use_program(&mut ctxt);
-    uniforms.bind(&mut ctxt, program, &mut fences)?;
+    bind_programs(&mut ctxt, &program, &uniforms, &mut fences)?;
 
     // sync-ing draw_parameters
     unsafe {
+        let index_type = match indices {
+            IndicesSource::IndexBuffer { data_type, .. } => Some(data_type),
+            #[cfg(any(safegl_desktop, safegl_gles31))]
+            IndicesSource::MultidrawElement { data_type, .. } => Some(data_type),
+            #[cfg(safegl_desktop)]
+            IndicesSource::IndexBufferRanges { data_type, .. } => Some(data_type),
+            _ => None,
+        };
         draw_parameters::sync(
             &mut ctxt,
             draw_parameters,
             dimensions,
             indices.get_primitives_type(),
+            index_type,
         )?;
         sync_vertices_per_patch(&mut ctxt, vertices_per_patch);
 
         if let Some(ref tf) = draw_parameters.transform_feedback {
-            tf.bind(&mut ctxt, indices.get_primitives_type());
+            tf.bind(&mut ctxt, indices.get_primitives_type())?;
         }
     }
 
@@ -353,15 +395,18 @@ where
                 }
             }
 
-            #[cfg(safegl_gl43)]
+            #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawArray {
                 ref buffer,
+                command_offset,
                 primitives,
                 #[cfg(safegl_gl46)]
                 draw_count,
             } => {
+                let offset = buffer.get_offset_bytes() + command_offset;
                 let ptr: *const u8 = ptr::null_mut();
-                let ptr = unsafe { ptr.add(buffer.get_offset_bytes()) };
+                let ptr = unsafe { ptr.add(offset) };
+                let stride = buffer.get_elements_size() as gl::types::GLsizei;
 
                 debug_assert_eq!(base_vertex, 0); // enforced earlier in this function
 
@@ -382,7 +427,7 @@ where
                                 ptr as *const _,
                                 offset,
                                 max,
-                                0,
+                                stride,
                             );
                         } else {
                             ctxt.extra.MultiDrawArraysIndirectCountARB(
@@ -390,45 +435,52 @@ where
                                 ptr as *const _,
                                 offset,
                                 max,
-                                0,
+                                stride,
                             );
                         }
                     });
                     #[cfg(not(safegl_gl46))]
                     let counted: Option<()> = None;
 
-                    // OpenGL ES only has `GL_EXT_multi_draw_indirect`
+                    // a single command doesn't need multidraw; OpenGL ES only has
+                    // `GL_EXT_multi_draw_indirect`
                     if counted.is_some() {
                         // drawn with the number of commands of the buffer
+                    } else if count == 1 {
+                        ctxt.glow
+                            .draw_arrays_indirect_offset(primitives.to_glenum(), offset as i32);
                     } else if ctxt.version.0 == Api::GlEs {
                         ctxt.extra.MultiDrawArraysIndirectEXT(
                             primitives.to_glenum(),
                             ptr as *const _,
                             count,
-                            0,
+                            stride,
                         );
                     } else {
                         ctxt.extra.MultiDrawArraysIndirect(
                             primitives.to_glenum(),
                             ptr as *const _,
                             count,
-                            0,
+                            stride,
                         );
                     }
                 }
             }
 
-            #[cfg(safegl_gl43)]
+            #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawElement {
                 ref commands,
+                command_offset,
                 ref indices,
                 data_type,
                 primitives,
                 #[cfg(safegl_gl46)]
                 draw_count,
             } => {
+                let cmd_offset = commands.get_offset_bytes() + command_offset;
                 let cmd_ptr: *const u8 = ptr::null_mut();
-                let cmd_ptr = unsafe { cmd_ptr.add(commands.get_offset_bytes()) };
+                let cmd_ptr = unsafe { cmd_ptr.add(cmd_offset) };
+                let stride = commands.get_elements_size() as gl::types::GLsizei;
 
                 if let Some(fence) = commands.add_fence() {
                     fences.push(fence);
@@ -453,7 +505,7 @@ where
                                 cmd_ptr as *const _,
                                 offset,
                                 max,
-                                0,
+                                stride,
                             );
                         } else {
                             ctxt.extra.MultiDrawElementsIndirectCountARB(
@@ -462,23 +514,30 @@ where
                                 cmd_ptr as *const _,
                                 offset,
                                 max,
-                                0,
+                                stride,
                             );
                         }
                     });
                     #[cfg(not(safegl_gl46))]
                     let counted: Option<()> = None;
 
-                    // OpenGL ES only has `GL_EXT_multi_draw_indirect`
+                    // a single command doesn't need multidraw; OpenGL ES only has
+                    // `GL_EXT_multi_draw_indirect`
                     if counted.is_some() {
                         // drawn with the number of commands of the buffer
+                    } else if count == 1 {
+                        ctxt.glow.draw_elements_indirect_offset(
+                            primitives.to_glenum(),
+                            data_type.to_glenum(),
+                            cmd_offset as i32,
+                        );
                     } else if ctxt.version.0 == Api::GlEs {
                         ctxt.extra.MultiDrawElementsIndirectEXT(
                             primitives.to_glenum(),
                             data_type.to_glenum(),
                             cmd_ptr as *const _,
                             count,
-                            0,
+                            stride,
                         );
                     } else {
                         ctxt.extra.MultiDrawElementsIndirect(
@@ -486,9 +545,136 @@ where
                             data_type.to_glenum(),
                             cmd_ptr as *const _,
                             count,
-                            0,
+                            stride,
                         );
                     }
+                }
+            }
+
+            #[cfg(safegl_desktop)]
+            IndicesSource::TransformFeedback {
+                captured,
+                stream,
+                primitives,
+            } => {
+                let (stream, primitives) = (*stream, *primitives);
+                // the GPU draws as many vertices as the capture wrote, at most the size of its
+                // largest buffer, which the vertex sources must cover
+                match vertices_count {
+                    Some(count) if count >= captured.capacity() => (),
+                    Some(_) => return Err(DrawError::CapturedVerticesOutOfBounds),
+                    None => return Err(DrawError::VerticesSourcesLengthMismatch),
+                }
+                if ctxt.version.0 != Api::Gl {
+                    return Err(DrawError::CapturedVerticesDrawNotSupported);
+                }
+                if (stream as gl::types::GLint)
+                    >= ctxt.capabilities.limits.max_vertex_streams.unwrap_or(1)
+                {
+                    return Err(DrawError::CapturedVerticesDrawNotSupported);
+                }
+                let instanced = instances_count.is_some_and(|instances| instances != 1);
+                if instanced
+                    && !(ctxt.version >= &Version(Api::Gl, 4, 2)
+                        || ctxt.extensions.gl_arb_transform_feedback_instanced)
+                {
+                    return Err(DrawError::CapturedVerticesDrawNotSupported);
+                }
+
+                if let Some(object) = captured.object(&ctxt)? {
+                    let name = object.0.get();
+                    unsafe {
+                        match (stream, instances_count) {
+                            (0, Some(instances)) if instanced => ctxt
+                                .extra
+                                .DrawTransformFeedbackInstanced(
+                                    primitives.to_glenum(),
+                                    name,
+                                    instances as gl::types::GLsizei,
+                                ),
+                            (_, Some(instances)) if instanced => ctxt
+                                .extra
+                                .DrawTransformFeedbackStreamInstanced(
+                                    primitives.to_glenum(),
+                                    name,
+                                    stream,
+                                    instances as gl::types::GLsizei,
+                                ),
+                            (0, _) => ctxt
+                                .extra
+                                .DrawTransformFeedback(primitives.to_glenum(), name),
+                            (_, _) => ctxt.extra.DrawTransformFeedbackStream(
+                                primitives.to_glenum(),
+                                name,
+                                stream,
+                            ),
+                        }
+                    }
+                }
+            }
+
+            #[cfg(safegl_desktop)]
+            IndicesSource::NoIndicesRanges { primitives, ranges } => {
+                let vertices_count = match vertices_count {
+                    Some(c) => c,
+                    None => return Err(DrawError::VerticesSourcesLengthMismatch),
+                };
+                check_ranges(&ctxt, ranges, vertices_count, instances_count)?;
+
+                let firsts: SmallVec<[gl::types::GLint; 8]> = ranges
+                    .iter()
+                    .map(|range| range.start as gl::types::GLint + base_vertex)
+                    .collect();
+                let counts: SmallVec<[gl::types::GLsizei; 8]> = ranges
+                    .iter()
+                    .map(|range| (range.end - range.start) as gl::types::GLsizei)
+                    .collect();
+                unsafe {
+                    ctxt.extra.MultiDrawArrays(
+                        primitives.to_glenum(),
+                        firsts.as_ptr(),
+                        counts.as_ptr(),
+                        ranges.len() as gl::types::GLsizei,
+                    );
+                }
+            }
+
+            #[cfg(safegl_desktop)]
+            IndicesSource::IndexBufferRanges {
+                ref buffer,
+                data_type,
+                primitives,
+                ranges,
+                base_vertices,
+            } => {
+                check_ranges(&ctxt, ranges, buffer.get_elements_count(), instances_count)?;
+
+                if let Some(fence) = buffer.add_fence() {
+                    fences.push(fence);
+                }
+
+                let offsets: SmallVec<[*const std::os::raw::c_void; 8]> = ranges
+                    .iter()
+                    .map(|range| {
+                        (buffer.get_offset_bytes() + range.start * data_type.get_size()) as *const _
+                    })
+                    .collect();
+                let counts: SmallVec<[gl::types::GLsizei; 8]> = ranges
+                    .iter()
+                    .map(|range| (range.end - range.start) as gl::types::GLsizei)
+                    .collect();
+                let base_vertices: SmallVec<[gl::types::GLint; 8]> = (0..ranges.len())
+                    .map(|i| base_vertices.map_or(0, |bases| bases[i]) + base_vertex)
+                    .collect();
+                unsafe {
+                    ctxt.extra.MultiDrawElementsBaseVertex(
+                        primitives.to_glenum(),
+                        counts.as_ptr(),
+                        data_type.to_glenum(),
+                        offsets.as_ptr(),
+                        ranges.len() as gl::types::GLsizei,
+                        base_vertices.as_ptr(),
+                    );
                 }
             }
 
@@ -558,6 +744,67 @@ fn draw_count<'a>(indices: &IndicesSource<'a>) -> Option<index::DrawCount<'a>> {
     }
 }
 
+/// Checks that the backend can draw ranges of vertices or indices with one call, which only
+/// desktop OpenGL has, that the ranges are in the `len` vertices or indices, and that the draw
+/// has no instances.
+#[cfg(safegl_desktop)]
+fn check_ranges(
+    ctxt: &context::CommandContext<'_>,
+    ranges: &[std::ops::Range<usize>],
+    len: usize,
+    instances_count: Option<usize>,
+) -> Result<(), DrawError> {
+    if ctxt.version.0 != Api::Gl {
+        return Err(DrawError::DrawRangesNotSupported);
+    }
+    if instances_count.is_some_and(|instances| instances != 1) {
+        return Err(DrawError::InstancedDrawRangesNotSupported);
+    }
+    if ranges
+        .iter()
+        .any(|range| range.start > range.end || range.end > len)
+    {
+        return Err(DrawError::DrawRangeOutOfBounds);
+    }
+    Ok(())
+}
+
+/// Checks that the backend can draw the commands of an indirect draw: one command needs OpenGL
+/// 4.0 or OpenGL ES 3.1, and several ones multidraw (OpenGL 4.3, `GL_ARB_multi_draw_indirect` or
+/// `GL_EXT_multi_draw_indirect`). OpenGL ES doesn't draw indirectly while transform feedback
+/// records.
+#[cfg(any(safegl_desktop, safegl_gles31))]
+fn check_indirect(
+    ctxt: &context::CommandContext<'_>,
+    indices: &IndicesSource<'_>,
+    draw_parameters: &DrawParameters<'_>,
+) -> Result<(), DrawError> {
+    let (commands, counted) = match *indices {
+        IndicesSource::MultidrawArray { ref buffer, .. } => (buffer.get_elements_count(), false),
+        IndicesSource::MultidrawElement { ref commands, .. } => {
+            (commands.get_elements_count(), false)
+        }
+        _ => return Ok(()),
+    };
+    #[cfg(safegl_gl46)]
+    let counted = counted || draw_count(indices).is_some();
+
+    if !(ctxt.version.0 == Api::Gl || ctxt.version >= &Version(Api::GlEs, 3, 1)) {
+        return Err(DrawError::IndirectDrawsNotSupported);
+    }
+    if (commands != 1 || counted)
+        && !(ctxt.version >= &Version(Api::Gl, 4, 3)
+            || (ctxt.version.0 == Api::Gl && ctxt.extensions.gl_arb_multi_draw_indirect)
+            || (ctxt.version.0 == Api::GlEs && ctxt.extensions.gl_ext_multi_draw_indirect))
+    {
+        return Err(DrawError::MultidrawNotSupported);
+    }
+    if ctxt.version.0 == Api::GlEs && draw_parameters.transform_feedback.is_some() {
+        return Err(DrawError::IndirectDrawWithTransformFeedback);
+    }
+    Ok(())
+}
+
 /// Checks that the backend can read the number of commands of a multidraw from a buffer
 /// (OpenGL 4.6 or `GL_ARB_indirect_parameters`), and that the buffer is of the context.
 #[cfg(safegl_gl46)]
@@ -610,14 +857,53 @@ fn is_base_instance_supported(context: &Context) -> bool {
     }
 }
 
+/// Binds the program of a draw command and the values of its uniforms.
+///
+/// The programs of a pipeline get their uniforms one after the other, with bind points that
+/// they share, then the pipeline is bound and their subroutine uniforms set, which binding a
+/// program or a pipeline resets.
+fn bind_programs<'a>(
+    ctxt: &mut context::CommandContext<'_>,
+    program: &DrawProgram<'_>,
+    uniforms: &CollectedUniforms<'a>,
+    fences: &mut crate::buffer::FenceInserters<'a>,
+) -> Result<(), DrawError> {
+    match *program {
+        DrawProgram::Program(program) => {
+            program.use_program(ctxt);
+            uniforms.bind(ctxt, program, fences)
+        }
+        #[cfg(any(safegl_gl41, safegl_gles31))]
+        DrawProgram::Pipeline(_) => {
+            let mut points = crate::uniforms::BindPoints::new(ctxt);
+            let mut subroutines = Vec::new();
+            for &stage in program.programs() {
+                stage.raw().use_program(ctxt);
+                subroutines.push(uniforms.bind_values(ctxt, stage, &mut points, fences)?);
+            }
+            program.use_programs(ctxt);
+            #[cfg(safegl_desktop)]
+            for (&stage, subroutines) in program.programs().iter().zip(&subroutines) {
+                stage.raw().flush_subroutine_uniforms();
+                crate::uniforms::bind_subroutine_uniforms(ctxt, stage, subroutines)?;
+            }
+            #[cfg(not(safegl_desktop))]
+            let _ = subroutines;
+            Ok(())
+        }
+    }
+}
+
 /// Checks that the primitives fit the tessellation and geometry stages of the program, and
 /// returns the vertices per patch of patches.
 #[cfg(any(safegl_desktop, safegl_gles32))]
 fn check_stages(
     context: &Context,
-    program: &Program,
+    program: &DrawProgram<'_>,
     primitives: index::PrimitiveType,
 ) -> Result<Option<u16>, DrawError> {
+    check_complete(program)?;
+
     let vertices_per_patch = match primitives {
         index::PrimitiveType::Patches { vertices_per_patch } => {
             if let Some(max) = context.capabilities().max_patch_vertices {
@@ -671,10 +957,30 @@ fn check_stages(
 #[cfg(not(any(safegl_desktop, safegl_gles32)))]
 fn check_stages(
     _: &Context,
-    _: &Program,
+    program: &DrawProgram<'_>,
     _: index::PrimitiveType,
 ) -> Result<Option<u16>, DrawError> {
+    check_complete(program)?;
     Ok(None)
+}
+
+/// Checks that a separable program drawn on its own has a vertex and a fragment shader.
+#[cfg(any(safegl_gl41, safegl_gles31))]
+fn check_complete(program: &DrawProgram<'_>) -> Result<(), DrawError> {
+    if let DrawProgram::Program(program) = program {
+        let stages = program.separable_stages();
+        let both = gl::VERTEX_SHADER_BIT | gl::FRAGMENT_SHADER_BIT;
+        if stages != 0 && stages & both != both {
+            return Err(DrawError::IncompleteProgram);
+        }
+    }
+    Ok(())
+}
+
+/// Without program pipelines, programs aren't separable.
+#[cfg(not(any(safegl_gl41, safegl_gles31)))]
+fn check_complete(_: &DrawProgram<'_>) -> Result<(), DrawError> {
+    Ok(())
 }
 
 unsafe fn sync_vertices_per_patch(
@@ -704,7 +1010,7 @@ fn binder_context_owns(buffer: &crate::buffer::BufferAnySlice<'_>, context: &Con
 /// current context.
 fn check_contexts(
     ctxt: &context::CommandContext<'_>,
-    program: &Program,
+    program: &DrawProgram<'_>,
     indices: &IndicesSource<'_>,
     draw_parameters: &DrawParameters<'_>,
 ) -> Result<(), DrawError> {
@@ -714,7 +1020,11 @@ fn check_contexts(
         })
     };
 
-    if !ctxt.owns(program.get_context()) {
+    if program
+        .programs()
+        .iter()
+        .any(|program| !ctxt.owns(program.get_context()))
+    {
         return mismatch("program");
     }
 
@@ -724,13 +1034,19 @@ fn check_contexts(
                 return mismatch("index buffer");
             }
         }
-        #[cfg(safegl_gl43)]
+        #[cfg(safegl_desktop)]
+        IndicesSource::IndexBufferRanges { ref buffer, .. } => {
+            if !ctxt.owns(buffer.get_context()) {
+                return mismatch("index buffer");
+            }
+        }
+        #[cfg(any(safegl_desktop, safegl_gles31))]
         IndicesSource::MultidrawArray { ref buffer, .. } => {
             if !ctxt.owns(buffer.get_context()) {
                 return mismatch("draw commands buffer");
             }
         }
-        #[cfg(safegl_gl43)]
+        #[cfg(any(safegl_desktop, safegl_gles31))]
         IndicesSource::MultidrawElement {
             ref commands,
             ref indices,
@@ -744,13 +1060,21 @@ fn check_contexts(
             }
         }
         IndicesSource::NoIndices { .. } => (),
+        #[cfg(safegl_desktop)]
+        IndicesSource::NoIndicesRanges { .. } => (),
+        #[cfg(safegl_desktop)]
+        IndicesSource::TransformFeedback { captured, .. } => {
+            if !ctxt.owns(captured.get_context()) {
+                return mismatch("captured vertices");
+            }
+        }
     }
 
-    if let Some(session) = draw_parameters.transform_feedback {
-        if !ctxt.owns(session.get_context()) {
-            return mismatch("transform feedback session");
+    if let Some(transform_feedback) = draw_parameters.transform_feedback {
+        if !ctxt.owns(transform_feedback.get_context()) {
+            return mismatch("transform feedback object");
         }
-        if session.get_program_id() != program.get_id() {
+        if transform_feedback.get_program_id() != program.last_vertex_stage().get_id() {
             return Err(DrawError::TransformFeedbackProgramMismatch);
         }
 

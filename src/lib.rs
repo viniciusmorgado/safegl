@@ -90,7 +90,18 @@ result to the user.
    or one or several references to vertex buffers wrapped inside a `PerInstance` struct. See the
    `vertex` module for more infos.
  - **Memory barriers**: Calling `glMemoryBarrier` is automatically handled by SafeGL, however you
-   still need to call `memoryBarrier()` in your GLSL code in some situations.
+   still need to call `memoryBarrier()` in your GLSL code in some situations. SafeGL records the
+   buffers that shaders may write (storage buffers and atomic counters) and the textures they
+   write through image units, and before the next access to one of them calls the barrier of
+   that access: `VERTEX_ATTRIB_ARRAY` for vertex buffers, `ELEMENT_ARRAY` for index buffers,
+   `UNIFORM` for uniform blocks, `TEXTURE_FETCH` for sampled textures and buffer textures,
+   `SHADER_IMAGE_ACCESS` for image units, `COMMAND` for indirect draws, draw counts and
+   dispatches, `PIXEL_BUFFER` for pixel buffers, `TEXTURE_UPDATE` for texture uploads, downloads,
+   clears, copies and mipmap generation, `BUFFER_UPDATE` for buffer uploads, reads, clears,
+   copies and mappings, `FRAMEBUFFER` for textures drawn to or read through framebuffers,
+   `TRANSFORM_FEEDBACK` for transform feedback buffers, `ATOMIC_COUNTER` and `SHADER_STORAGE` for
+   their buffers, `QUERY_BUFFER` for query results written to buffers, and
+   `CLIENT_MAPPED_BUFFER` for persistent mappings, which then wait for the barrier.
  - **Programs**: See the `program` module.
  - **Query objects**: The corresponding structs are in the `draw_parameters` module. They are
    passed as draw parameters.
@@ -136,10 +147,28 @@ include!(concat!(env!("OUT_DIR"), "/levels.rs"));
 pub use crate::backend::glutin::glutin;
 #[cfg(feature = "simple_window_builder")]
 pub use crate::backend::winit;
-pub use crate::context::{Capabilities, ExtensionsList};
+#[cfg(any(safegl_gl45, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_gles32))))]
+pub use crate::context::GraphicsResetStatus;
+pub use crate::context::{
+    Capabilities, ExtensionsList, Limits, ProvokingVertexConvention, QueryCounterBits,
+    ReleaseBehavior, ResetNotificationStrategy, StageLimits,
+};
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+pub use crate::context::{FormatInfo, FormatInfoNotSupportedError, FormatSupport, FormatTarget};
 #[cfg(any(safegl_desktop, safegl_gles32))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
 pub use crate::draw_parameters::OutputState;
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+pub use crate::draw_parameters::LogicOp;
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+pub use crate::draw_parameters::PointCoordOrigin;
+#[cfg(safegl_gl41)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+pub use crate::draw_parameters::ViewportState;
 #[cfg(safegl_desktop)]
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub use crate::draw_parameters::PolygonMode;
@@ -147,7 +176,7 @@ pub use crate::draw_parameters::PolygonMode;
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub use crate::draw_parameters::Smooth;
 pub use crate::draw_parameters::{
-    BackfaceCullingMode, Blend, BlendingFunction, LinearBlendingFactor,
+    BackfaceCullingMode, Blend, BlendingFunction, FrontFace, LinearBlendingFactor,
 };
 pub use crate::draw_parameters::{Depth, DepthTest, DrawParameters, StencilOperation, StencilTest};
 pub use crate::index::IndexBuffer;
@@ -156,7 +185,7 @@ pub use crate::program::ProgramCreationError::{
     CompilationError, LinkingError, ShaderTypeNotSupported,
 };
 pub use crate::program::{Program, ProgramCreationError};
-pub use crate::sync::{LinearSyncFence, SyncFence};
+pub use crate::sync::{LinearSyncFence, SyncFence, SyncWaitResult};
 pub use crate::texture::Texture2d;
 pub use crate::version::{get_supported_glsl_version, Api, Version};
 pub use crate::vertex::{Vertex, VertexBuffer, VertexFormat};
@@ -417,16 +446,13 @@ trait QueryExt {
 
     fn end_time_elapsed_query(ctxt: &mut CommandContext<'_>);
 
-    fn end_primitives_generated_query(ctxt: &mut CommandContext<'_>);
-
-    fn end_transform_feedback_primitives_written_query(ctxt: &mut CommandContext<'_>);
-
     #[cfg(safegl_desktop)]
     fn begin_conditional_render(
         &self,
         ctxt: &mut CommandContext<'_>,
         wait: bool,
         per_region: bool,
+        inverted: bool,
     ) -> Result<(), DrawError>;
 
     fn end_conditional_render(ctxt: &mut CommandContext<'_>);
@@ -461,6 +487,12 @@ trait TextureExt {
     fn is_integer(&self) -> bool {
         false
     }
+
+    /// Returns true if the filters of the texture itself, used without a sampler, can sample it
+    /// when it is integer.
+    fn has_integer_filters(&self) -> bool {
+        true
+    }
 }
 
 /// Ways a texture could possibly be accessed after being written to in a shader via an image unit
@@ -471,8 +503,9 @@ enum TextureAccess {
     ImageUnit { will_write: bool },
     /// Texture being used as a framebuffer object
     Framebuffer,
-    /// Texture being cleared or copied with `glClearTexImage` or `glCopyImageSubData`
-    #[cfg(any(safegl_gl43, safegl_gles32))]
+    /// Texture whose images are written, read, cleared, copied or generated by OpenGL commands
+    /// (`glTexSubImage*`, `glGetTexImage`, `glClearTexImage`, `glCopyImageSubData`,
+    /// `glGenerateMipmap`)
     Update,
 }
 
@@ -496,31 +529,28 @@ trait TextureMipmapExt {
     fn download_compressed_data(&self) -> Option<(image_format::ClientFormatAny, Vec<u8>)>;
 }
 
-/// Internal trait for transform feedback sessions.
-trait TransformFeedbackSessionExt {
-    /// Returns the context of the buffer of the session.
+/// Internal trait for transform feedback objects.
+trait TransformFeedbackExt {
+    /// Returns the context of the object.
     fn get_context(&self) -> &Rc<Context>;
 
-    /// Returns the program whose outputs the session captures.
+    /// Returns the program whose outputs the object captures.
     fn get_program_id(&self) -> glow::Program;
 
-    /// Returns true if transform feedback is active and captures into the buffer of the session,
-    /// so that a draw command continues it.
-    fn is_active(&self, _: &CommandContext<'_>) -> bool;
+    /// Returns true if the object captures and isn't paused, so that a draw continues it.
+    fn is_recording(&self, _: &CommandContext<'_>) -> bool;
 
-    /// Updates the state of OpenGL to make the transform feedback session current, continuing
-    /// it if it is already active.
+    /// Begins the capture of the object, or resumes it, after pausing the one that records.
     ///
     /// The second parameter must be the primitive type of the input vertex data.
-    fn bind(&self, _: &mut CommandContext<'_>, _: index::PrimitiveType);
+    fn bind(&self, _: &mut CommandContext<'_>, _: index::PrimitiveType) -> Result<(), DrawError>;
 
-    /// Ensures that transform feedback is disabled.
-    fn unbind(_: &mut CommandContext<'_>);
+    /// Pauses the capture that records, if one does: the program can't change while it records.
+    fn pause(_: &mut CommandContext<'_>);
 
-    /// Ensures that a buffer isn't used by transform feedback.
+    /// Ensures that a buffer isn't written by transform feedback.
     fn ensure_buffer_out_of_transform_feedback(_: &mut CommandContext<'_>, _: glow::Buffer);
 }
-
 
 /// A raw value of a uniform. "Raw" means that it's passed directly with `glUniform`. Textures
 /// for example are just passed as integers.
@@ -603,6 +633,10 @@ pub enum RawUniformValue {
     Int64Vec4([gl::types::GLint64; 4]),
     #[cfg(safegl_desktop)]
     UnsignedInt64(gl::types::GLuint64),
+    /// A bindless texture handle, for a `sampler*` uniform declared with
+    /// `layout(bindless_sampler)`.
+    #[cfg(safegl_desktop)]
+    TextureHandle(gl::types::GLuint64),
     #[cfg(safegl_desktop)]
     UnsignedInt64Vec2([gl::types::GLuint64; 2]),
     #[cfg(safegl_desktop)]
@@ -771,8 +805,12 @@ impl ToGlEnum for BlitMask {
 ///
 /// ## Step 4: Transform feedback (optional)
 ///
-/// TODO:
-/// TODO: talk about `transform_feedback_primitives_written_query` as well
+/// If `transform_feedback` is set, the vertices that leave the vertex processing, by vertex
+/// stream for geometry shaders, are captured in the buffers of a `vertex::TransformFeedback`,
+/// after those of the previous draws with it. The queries of
+/// `transform_feedback_primitives_written_queries` count the primitives that it writes, which
+/// stop once a buffer of their stream is full, and `vertex::CapturedVertices` draws them again
+/// without reading their number back.
 ///
 /// ## Step 5: Vertex post-processing
 ///
@@ -822,7 +860,7 @@ impl ToGlEnum for BlitMask {
 /// width would be big enough for the point to be visible. However this standard behavior is not
 /// respected by nVidia drivers, which show the points anyway.
 ///
-/// If a query has been specified through `primitives_generated_query`, then its value is updated.
+/// If a query has been specified through `primitives_generated_queries`, then its value is updated.
 ///
 /// ## Step 7: Face culling (triangles only)
 ///
@@ -858,8 +896,8 @@ impl ToGlEnum for BlitMask {
 ///
 /// If the target framebuffer has multisampling enabled, then each pixel of the target image is
 /// in turn split into four subpixels. The output of the fragment shader is copied and written into
-/// each subpixel. If `multisampling` in the draw parameters is `true` (its default value), only
-/// subpixels that belong to the triangle are written.
+/// each subpixel. If `multisample.enabled` in the draw parameters is `true` (its default value),
+/// only subpixels that belong to the triangle are written.
 ///
 /// If a query has been specified through `samples_passed_query`, then its value is updated.
 ///
@@ -1050,11 +1088,11 @@ pub trait Surface {
     /// documentation for example how to use it.
     ///
     /// See above for what happens exactly on the GPU when you draw.
-    fn draw<'a, 'b, V, I, U>(
+    fn draw<'a, 'b, 'p, V, I, U>(
         &mut self,
         _: V,
         _: I,
-        program: &Program,
+        program: impl Into<crate::program::DrawProgram<'p>>,
         uniforms: &U,
         draw_parameters: &DrawParameters<'_>,
     ) -> Result<(), DrawError>
@@ -1103,6 +1141,45 @@ pub trait Surface {
         filter: uniforms::MagnifySamplerFilter,
     ) -> Result<(), BlitError> {
         self.blit_buffers_from_multioutput_framebuffer(
+            source,
+            source_rect,
+            target_rect,
+            filter,
+            BlitMask::color(),
+        )
+    }
+
+    /// Copies a rectangle of pixels from layer 0 of a layered framebuffer to this surface.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    #[inline]
+    fn blit_from_layered_framebuffer(
+        &self,
+        source: &framebuffer::LayeredFrameBuffer<'_>,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+    ) -> Result<(), BlitError> {
+        self.blit_buffers_from_layered_framebuffer(
+            source,
+            source_rect,
+            target_rect,
+            filter,
+            BlitMask::color(),
+        )
+    }
+
+    /// Copies a rectangle of pixels from a color buffer of the default framebuffer to this
+    /// surface.
+    #[inline]
+    fn blit_from_default_framebuffer(
+        &self,
+        source: &framebuffer::DefaultFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+    ) -> Result<(), BlitError> {
+        self.blit_buffers_from_default_framebuffer(
             source,
             source_rect,
             target_rect,
@@ -1166,6 +1243,40 @@ pub trait Surface {
     fn blit_buffers_from_external_framebuffer(
         &self,
         source: &framebuffer::ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        let _ = (source, source_rect, target_rect, filter, mask);
+        Err(BlitError::UnsupportedSource)
+    }
+
+    /// Blits from a color buffer of the default framebuffer.
+    ///
+    /// Every surface of SafeGL implements it; the default implementation, for other surfaces,
+    /// returns `BlitError::UnsupportedSource`.
+    fn blit_buffers_from_default_framebuffer(
+        &self,
+        source: &framebuffer::DefaultFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        let _ = (source, source_rect, target_rect, filter, mask);
+        Err(BlitError::UnsupportedSource)
+    }
+
+    /// Blits from layer 0 of a layered framebuffer.
+    ///
+    /// Every surface of SafeGL implements it; the default implementation, for other surfaces,
+    /// returns `BlitError::UnsupportedSource`.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    fn blit_buffers_from_layered_framebuffer(
+        &self,
+        source: &framebuffer::LayeredFrameBuffer<'_>,
         source_rect: &Rect,
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,
@@ -1261,7 +1372,10 @@ trait FboAttachments {
 }
 
 /// Error that can happen while blitting.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum BlitError {
     /// The source belongs to another context than the target. OpenGL objects can only be used
     /// with the context that created them.
@@ -1294,6 +1408,9 @@ pub enum BlitError {
 
     /// OpenGL ES can't blit a buffer to itself.
     SameSourceAndTarget,
+
+    /// The source has no color buffer to copy, like an empty framebuffer.
+    NoColorBuffer,
 }
 
 impl fmt::Display for BlitError {
@@ -1320,6 +1437,7 @@ impl fmt::Display for BlitError {
                 "Integer color buffers can only be blitted with the `Nearest` filter"
             }
             BlitError::SameSourceAndTarget => "OpenGL ES can't blit a buffer to itself",
+            BlitError::NoColorBuffer => "The source has no color buffer to copy",
         };
         fmt.write_str(desc)
     }
@@ -1328,7 +1446,10 @@ impl fmt::Display for BlitError {
 impl Error for BlitError {}
 
 /// Error that can happen while drawing.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum DrawError {
     /// A depth function has been requested but no depth buffer is available.
     NoDepthBuffer,
@@ -1345,6 +1466,80 @@ pub enum DrawError {
     /// Note that it is perfectly valid to have an attribute in the vertex format that is
     /// not used by the program.
     AttributeMissing,
+
+    /// A separable program (`program::SeparableProgram`) drawn without a pipeline doesn't have
+    /// both a vertex and a fragment shader.
+    IncompleteProgram,
+
+    /// A constant attribute (`vertex::ConstantAttribute`) is also provided by a vertex buffer, or
+    /// given two constant values, or two members of a vertex format have the same location.
+    AttributeProvidedTwice,
+
+    /// Attributes that share a location with `layout(component = N)` aren't given together.
+    ///
+    /// They read the components of the same attribute array, so a vertex format gives them with
+    /// members of the same vertex buffer, with the same type, placed in the vertex like the
+    /// components that they read: the member of the attribute at component `N` follows the start
+    /// of the location by `N` components. Constant values give them with values of the same
+    /// kind.
+    AttributeComponentsMismatch,
+
+    /// The transform feedback object of the draw lacks buffers of its program: give them all
+    /// with `TransformFeedback::with_buffer`.
+    TransformFeedbackBuffersMissing,
+
+    /// The transform feedback object captures another type of primitives (points, lines or
+    /// triangles) than the draw: a capture keeps the type of its first draw.
+    TransformFeedbackPrimitivesMismatch,
+
+    /// The context was rebuilt since the vertices were captured, and the capture went away with
+    /// the previous context.
+    CapturedVerticesLost,
+
+    /// The vertex sources of a draw of captured vertices have fewer vertices than the largest
+    /// buffer of the capture.
+    CapturedVerticesOutOfBounds,
+
+    /// Drawing captured vertices needs desktop OpenGL, a vertex stream below
+    /// `Limits::max_vertex_streams`, and OpenGL 4.2 or `GL_ARB_transform_feedback_instanced` for
+    /// several instances.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    CapturedVerticesDrawNotSupported,
+
+    /// Drawing ranges of vertices or indices with one call (`index::NoIndicesRanges`,
+    /// `IndexBuffer::ranges`) needs desktop OpenGL.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    DrawRangesNotSupported,
+
+    /// A range of vertices or indices drawn with one call is outside the vertices source or the
+    /// index buffer.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    DrawRangeOutOfBounds,
+
+    /// Ranges of vertices or indices drawn with one call can't have several instances.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    InstancedDrawRangesNotSupported,
+
+    /// Indirect draws aren't supported by the backend: they need OpenGL 4.0 or OpenGL ES 3.1.
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
+    IndirectDrawsNotSupported,
+
+    /// Drawing several commands of a buffer with one call isn't supported by the backend: it
+    /// needs OpenGL 4.3, `GL_ARB_multi_draw_indirect` or `GL_EXT_multi_draw_indirect`. Draw the
+    /// commands one by one with `command` instead.
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
+    MultidrawNotSupported,
+
+    /// OpenGL ES doesn't draw indirectly while transform feedback records.
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
+    IndirectDrawWithTransformFeedback,
 
     /// The viewport's dimensions are not supported by the backend.
     ViewportTooLarge,
@@ -1486,8 +1681,11 @@ pub enum DrawError {
     /// One of the blending parameters is not supported by the backend.
     BlendingParameterNotSupported,
 
-    /// Restarting indices (multiple objects per draw call) is not supported by the backend.
-    FixedIndexRestartingNotSupported,
+    /// Restarting primitives at a chosen index (`PrimitiveRestart::Index`) isn't supported by
+    /// the backend: OpenGL ES only restarts them at the largest index value.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    PrimitiveRestartIndexNotSupported,
 
     /// Changing the clip volume definition (origin and depth mode) is not supported by the backend.
     #[cfg(safegl_gl45)]
@@ -1527,12 +1725,92 @@ pub enum DrawError {
     #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     ConditionalRenderingNotSupported,
 
-    /// Per-sample shading (`DrawParameters::sample_shading`) isn't supported by the backend.
+    /// Inverted conditional rendering (`ConditionalRendering::inverted`) isn't supported by the
+    /// backend: it needs OpenGL 4.5 or `GL_ARB_conditional_render_inverted`.
+    #[cfg(safegl_gl45)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
+    ConditionalRenderingInvertedNotSupported,
+
+    /// Turning the alpha to one after alpha to coverage (`MultisampleState::alpha_to_one`) isn't
+    /// supported by the backend: only desktop OpenGL has it.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    AlphaToOneNotSupported,
+
+    /// The border color of the sampler of a texture uniform isn't of the kind of the texture:
+    /// floats for float, normalized and depth textures, integers of the same signedness for
+    /// integer textures. See `uniforms::BorderColor`.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    BorderColorMismatch {
+        /// Name of the uniform.
+        name: String,
+    },
+
+    /// A rectangle texture is sampled with a sampler that repeats or mirrors it, or that
+    /// filters it with mipmaps, which rectangle textures don't have: they can only be clamped
+    /// (`SamplerWrapFunction::Clamp` or `BorderClamp`) and filtered with `Nearest` or `Linear`.
+    /// `sampled()` on rectangle textures starts from such a sampler.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    RectangleTextureSampler {
+        /// Name of the uniform.
+        name: String,
+    },
+
+    /// Viewport arrays (`DrawParameters::viewports`) aren't supported by the backend.
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    ViewportArrayNotSupported,
+
+    /// `DrawParameters::viewports` was given together with `viewport`, `scissor` or a
+    /// `Depth::range` other than `(0.0, 1.0)`.
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    ViewportArrayConflict,
+
+    /// `DrawParameters::viewports` has more entries than `Limits::max_viewports`.
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    ViewportIndexOutOfBounds,
+
+    /// A viewport of `DrawParameters::viewports` has a negative size or a position that isn't
+    /// finite.
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    InvalidViewport,
+
+    /// `DrawParameters::point_coord_origin` is `LowerLeft` while drawing into an OpenGL ES
+    /// context, where it is always `UpperLeft`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    PointCoordOriginNotSupported,
+
+    /// Logic operations (`DrawParameters::logic_op`) aren't supported by the backend: only
+    /// desktop OpenGL has them.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    LogicOpNotSupported,
+
+    /// `DrawParameters::logic_op` was given together with blending, which OpenGL would ignore.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    LogicOpWithBlending,
+
+    /// Blending with the second color output of the fragment shader (the `*SourceOne*`
+    /// factors of `LinearBlendingFactor`) isn't supported by the backend.
+    DualSourceBlendingNotSupported,
+
+    /// The draw blends with the second color output of the fragment shader into more color
+    /// buffers than `Limits::max_dual_source_draw_buffers`.
+    DualSourceBlendingTooManyDrawBuffers,
+
+    /// Per-sample shading (`MultisampleState::sample_shading`) isn't supported by the backend.
     #[cfg(any(safegl_desktop, safegl_gles32))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     SampleShadingNotSupported,
 
-    /// Masking samples (`DrawParameters::sample_mask`) isn't supported by the backend.
+    /// Masking samples (`MultisampleState::sample_mask`) isn't supported by the backend.
     #[cfg(any(safegl_desktop, safegl_gles31))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
     SampleMaskNotSupported,
@@ -1579,7 +1857,7 @@ pub enum DrawError {
         maximum: (u32, u32, u32),
     },
 
-    /// The transform feedback session was built for another program than the one drawn with: it
+    /// The transform feedback object was built for another program than the one drawn with: it
     /// would capture the outputs of that program with the layout of the other.
     TransformFeedbackProgramMismatch,
 
@@ -1658,6 +1936,36 @@ impl fmt::Display for DrawError {
                 "A stencil test or operation has been requested but no stencil buffer is available",
             AttributeTypeMismatch =>
                 "The type of a vertex attribute in the vertices source doesn't match what the program requires",
+            #[cfg(any(safegl_desktop, safegl_gles31))]
+            IndirectDrawsNotSupported => "Indirect draws are not supported by the backend",
+            #[cfg(any(safegl_desktop, safegl_gles31))]
+            MultidrawNotSupported =>
+                "Drawing several commands with one call is not supported by the backend",
+            #[cfg(any(safegl_desktop, safegl_gles31))]
+            IndirectDrawWithTransformFeedback =>
+                "OpenGL ES doesn't draw indirectly while transform feedback records",
+            #[cfg(safegl_desktop)]
+            DrawRangesNotSupported => "Drawing ranges with one call is not supported by the backend",
+            #[cfg(safegl_desktop)]
+            DrawRangeOutOfBounds => "A drawn range is outside the vertices or the indices",
+            #[cfg(safegl_desktop)]
+            InstancedDrawRangesNotSupported => "Drawn ranges can't have several instances",
+            TransformFeedbackBuffersMissing =>
+                "The transform feedback object lacks buffers of its program",
+            TransformFeedbackPrimitivesMismatch =>
+                "The transform feedback object captures another type of primitives",
+            CapturedVerticesLost => "The captured vertices were lost with a previous context",
+            CapturedVerticesOutOfBounds =>
+                "The vertex sources have fewer vertices than the capture can hold",
+            #[cfg(safegl_desktop)]
+            CapturedVerticesDrawNotSupported =>
+                "Drawing these captured vertices is not supported by the backend",
+            AttributeProvidedTwice =>
+                "An attribute has a constant value and is provided by another vertex source too",
+            IncompleteProgram =>
+                "A separable program drawn alone lacks a vertex or a fragment shader",
+            AttributeComponentsMismatch =>
+                "Attributes that share a location aren't given together by a vertex source",
             AttributeMissing =>
                 "One of the attributes required by the program is missing from the vertex format",
             ViewportTooLarge =>
@@ -1723,8 +2031,9 @@ impl fmt::Display for DrawError {
                 "The depth clamp mode is not supported by the backend",
             BlendingParameterNotSupported =>
                 "One the blending parameters is not supported by the backend",
-            FixedIndexRestartingNotSupported =>
-                "Restarting indices (multiple objects per draw call) is not supported by the backend",
+            #[cfg(safegl_desktop)]
+            PrimitiveRestartIndexNotSupported =>
+                "Restarting primitives at a chosen index is not supported by the backend",
             #[cfg(safegl_gl45)]
             ClipControlNotSupported =>
                 "Changing the clip volume definition (origin and depth mode) is not supported by the backend",
@@ -1748,6 +2057,37 @@ impl fmt::Display for DrawError {
             #[cfg(safegl_desktop)]
             ConditionalRenderingNotSupported =>
                 "Conditional rendering is not supported by the backend",
+            #[cfg(safegl_gl45)]
+            ConditionalRenderingInvertedNotSupported =>
+                "Inverted conditional rendering is not supported by the backend",
+            #[cfg(safegl_desktop)]
+            AlphaToOneNotSupported => "Turning the alpha to one is not supported by the backend",
+            DualSourceBlendingNotSupported =>
+                "Dual-source blending is not supported by the backend",
+            DualSourceBlendingTooManyDrawBuffers =>
+                "Dual-source blending is used with too many draw buffers",
+            #[cfg(any(safegl_desktop, safegl_gles32))]
+            BorderColorMismatch { .. } =>
+                "The border color of a sampler isn't of the kind of its texture",
+            #[cfg(safegl_desktop)]
+            RectangleTextureSampler { .. } =>
+                "A rectangle texture is sampled with a wrap function or a filter it doesn't have",
+            #[cfg(safegl_gl41)]
+            ViewportArrayNotSupported => "Viewport arrays are not supported by the backend",
+            #[cfg(safegl_gl41)]
+            ViewportArrayConflict =>
+                "Viewport arrays can't be used with a viewport, a scissor box or a depth range",
+            #[cfg(safegl_gl41)]
+            ViewportIndexOutOfBounds => "There are more viewports than the backend supports",
+            #[cfg(safegl_gl41)]
+            InvalidViewport => "A viewport has a negative size or a position that isn't finite",
+            #[cfg(safegl_desktop)]
+            PointCoordOriginNotSupported =>
+                "The lower left origin of point coordinates is not supported by the backend",
+            #[cfg(safegl_desktop)]
+            LogicOpNotSupported => "Logic operations are not supported by the backend",
+            #[cfg(safegl_desktop)]
+            LogicOpWithBlending => "A logic operation can't be used together with blending",
             #[cfg(any(safegl_desktop, safegl_gles32))]
             SampleShadingNotSupported =>
                 "Per-sample shading is not supported by the backend",
@@ -1772,7 +2112,7 @@ impl fmt::Display for DrawError {
             WorkGroupCountTooLarge { .. } =>
                 "A compute shader was executed with more work groups than the backend supports",
             TransformFeedbackProgramMismatch =>
-                "The transform feedback session was built for another program",
+                "The transform feedback object was built for another program",
             TransformFeedbackDrawNotSupported =>
                 "Transform feedback only captures draws of lists without indices on this context",
             UniformMissing { .. } =>
@@ -1891,6 +2231,20 @@ impl Frame {
         }
     }
 
+    /// Returns the position of each sample inside the pixels, from `[0.0, 0.0]` (the lower left
+    /// corner) to `[1.0, 1.0]`, as the GPU places them (`glGetMultisamplefv(GL_SAMPLE_POSITION)`).
+    /// The list is empty if the framebuffer isn't multisampled.
+    ///
+    /// Needs OpenGL ES 3.1 on OpenGL ES.
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
+    pub fn sample_positions(
+        &self,
+    ) -> Result<Vec<[f32; 2]>, framebuffer::SamplePositionsNotSupportedError> {
+        let mut ctxt = self.context.make_current();
+        fbo::sample_positions(&mut ctxt, self.get_attachments())
+    }
+
     /// Like `invalidate`, but only inside `rect` (`glInvalidateSubFramebuffer`).
     #[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))))]
@@ -1992,11 +2346,11 @@ impl Surface for Frame {
         self.context.capabilities().stencil_bits
     }
 
-    fn draw<'a, 'b, V, I, U>(
+    fn draw<'a, 'b, 'p, V, I, U>(
         &mut self,
         vertex_buffer: V,
         index_buffer: I,
-        program: &Program,
+        program: impl Into<crate::program::DrawProgram<'p>>,
         uniforms: &U,
         draw_parameters: &DrawParameters<'_>,
     ) -> Result<(), DrawError>
@@ -2029,7 +2383,7 @@ impl Surface for Frame {
             fbo::FramebufferTarget::Raw(None),
             vertex_buffer,
             index_buffer.into(),
-            program,
+            program.into(),
             uniforms,
             draw_parameters,
             self.dimensions,
@@ -2113,6 +2467,48 @@ impl Surface for Frame {
     fn blit_buffers_from_external_framebuffer(
         &self,
         source: &framebuffer::ExternalFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
+
+    fn blit_buffers_from_default_framebuffer(
+        &self,
+        source: &framebuffer::DefaultFramebuffer,
+        source_rect: &Rect,
+        target_rect: &BlitTarget,
+        filter: uniforms::MagnifySamplerFilter,
+        mask: BlitMask,
+    ) -> Result<(), BlitError> {
+        ops::blit(
+            &self.context,
+            source.get_fbo_context(),
+            source.get_attachments(),
+            self.get_attachments(),
+            mask.to_glenum(),
+            source_rect,
+            target_rect,
+            filter.to_glenum(),
+        )
+    }
+
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    fn blit_buffers_from_layered_framebuffer(
+        &self,
+        source: &framebuffer::LayeredFrameBuffer<'_>,
         source_rect: &Rect,
         target_rect: &BlitTarget,
         filter: uniforms::MagnifySamplerFilter,

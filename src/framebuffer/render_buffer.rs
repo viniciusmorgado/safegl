@@ -28,14 +28,23 @@ use crate::backend::Facade;
 use crate::context::{CommandContext, Context};
 use crate::fbo::FramebuffersContainer;
 use crate::gl;
+use crate::CapabilitiesSource;
 use crate::ContextExt;
 use crate::GlObject;
 
 /// Error while creating a render buffer.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CreationError {
     /// The requested format is not supported.
     FormatNotSupported,
+
+    /// The width or the height is above `Limits::max_renderbuffer_size`.
+    DimensionsNotSupported,
+
+    /// The number of samples is above `Limits::max_samples`, or above the largest number of
+    /// samples of the format.
+    SamplesNotSupported,
 }
 
 impl fmt::Display for CreationError {
@@ -43,6 +52,8 @@ impl fmt::Display for CreationError {
         use self::CreationError::*;
         let desc = match *self {
             FormatNotSupported => "The requested format is not supported",
+            DimensionsNotSupported => "The dimensions of the render buffer are too large",
+            SamplesNotSupported => "The number of samples isn't supported for this format",
         };
         fmt.write_str(desc)
     }
@@ -74,17 +85,15 @@ impl RenderBuffer {
     where
         F: Facade,
     {
-        let format = image_format::TextureFormatRequest::Specific(
-            image_format::TextureFormat::UncompressedFloat(format),
-        );
-        let format = image_format::format_request_to_glenum(
-            &facade.get_context(),
-            format,
-            image_format::RequestType::Renderbuffer,
-        )?;
-
         Ok(RenderBuffer {
-            buffer: RenderBufferAny::new(facade, format, TextureKind::Float, width, height, None),
+            buffer: RenderBufferAny::new(
+                facade,
+                image_format::TextureFormat::UncompressedFloat(format),
+                TextureKind::Float,
+                width,
+                height,
+                None,
+            )?,
         })
     }
     /// Builds a new render buffer with multisampling.
@@ -98,24 +107,15 @@ impl RenderBuffer {
     where
         F: Facade,
     {
-        let format = image_format::TextureFormatRequest::Specific(
-            image_format::TextureFormat::UncompressedFloat(format),
-        );
-        let format = image_format::format_request_to_glenum(
-            &facade.get_context(),
-            format,
-            image_format::RequestType::Renderbuffer,
-        )?;
-
         Ok(RenderBuffer {
             buffer: RenderBufferAny::new(
                 facade,
-                format,
+                image_format::TextureFormat::UncompressedFloat(format),
                 TextureKind::Float,
                 width,
                 height,
                 Some(samples),
-            ),
+            )?,
         })
     }
 }
@@ -170,17 +170,15 @@ impl DepthRenderBuffer {
     where
         F: Facade,
     {
-        let format = image_format::TextureFormatRequest::Specific(
-            image_format::TextureFormat::DepthFormat(format),
-        );
-        let format = image_format::format_request_to_glenum(
-            &facade.get_context(),
-            format,
-            image_format::RequestType::Renderbuffer,
-        )?;
-
         Ok(DepthRenderBuffer {
-            buffer: RenderBufferAny::new(facade, format, TextureKind::Depth, width, height, None),
+            buffer: RenderBufferAny::new(
+                facade,
+                image_format::TextureFormat::DepthFormat(format),
+                TextureKind::Depth,
+                width,
+                height,
+                None,
+            )?,
         })
     }
     /// Builds a new render buffer with multisampling.
@@ -194,24 +192,15 @@ impl DepthRenderBuffer {
     where
         F: Facade,
     {
-        let format = image_format::TextureFormatRequest::Specific(
-            image_format::TextureFormat::DepthFormat(format),
-        );
-        let format = image_format::format_request_to_glenum(
-            &facade.get_context(),
-            format,
-            image_format::RequestType::Renderbuffer,
-        )?;
-
         Ok(DepthRenderBuffer {
             buffer: RenderBufferAny::new(
                 facade,
-                format,
+                image_format::TextureFormat::DepthFormat(format),
                 TextureKind::Depth,
                 width,
                 height,
                 Some(samples),
-            ),
+            )?,
         })
     }
 }
@@ -265,17 +254,15 @@ impl StencilRenderBuffer {
     where
         F: Facade,
     {
-        let format = image_format::TextureFormatRequest::Specific(
-            image_format::TextureFormat::StencilFormat(format),
-        );
-        let format = image_format::format_request_to_glenum(
-            &facade.get_context(),
-            format,
-            image_format::RequestType::Renderbuffer,
-        )?;
-
         Ok(StencilRenderBuffer {
-            buffer: RenderBufferAny::new(facade, format, TextureKind::Stencil, width, height, None),
+            buffer: RenderBufferAny::new(
+                facade,
+                image_format::TextureFormat::StencilFormat(format),
+                TextureKind::Stencil,
+                width,
+                height,
+                None,
+            )?,
         })
     }
     /// Builds a new render buffer with multisampling.
@@ -289,24 +276,15 @@ impl StencilRenderBuffer {
     where
         F: Facade,
     {
-        let format = image_format::TextureFormatRequest::Specific(
-            image_format::TextureFormat::StencilFormat(format),
-        );
-        let format = image_format::format_request_to_glenum(
-            &facade.get_context(),
-            format,
-            image_format::RequestType::Renderbuffer,
-        )?;
-
         Ok(StencilRenderBuffer {
             buffer: RenderBufferAny::new(
                 facade,
-                format,
+                image_format::TextureFormat::StencilFormat(format),
                 TextureKind::Stencil,
                 width,
                 height,
                 Some(samples),
-            ),
+            )?,
         })
     }
 }
@@ -361,24 +339,15 @@ impl DepthStencilRenderBuffer {
     where
         F: Facade,
     {
-        let format = image_format::TextureFormatRequest::Specific(
-            image_format::TextureFormat::DepthStencilFormat(format),
-        );
-        let format = image_format::format_request_to_glenum(
-            &facade.get_context(),
-            format,
-            image_format::RequestType::Renderbuffer,
-        )?;
-
         Ok(DepthStencilRenderBuffer {
             buffer: RenderBufferAny::new(
                 facade,
-                format,
+                image_format::TextureFormat::DepthStencilFormat(format),
                 TextureKind::DepthStencil,
                 width,
                 height,
                 None,
-            ),
+            )?,
         })
     }
     /// Builds a new render buffer with multisampling.
@@ -392,24 +361,15 @@ impl DepthStencilRenderBuffer {
     where
         F: Facade,
     {
-        let format = image_format::TextureFormatRequest::Specific(
-            image_format::TextureFormat::DepthStencilFormat(format),
-        );
-        let format = image_format::format_request_to_glenum(
-            &facade.get_context(),
-            format,
-            image_format::RequestType::Renderbuffer,
-        )?;
-
         Ok(DepthStencilRenderBuffer {
             buffer: RenderBufferAny::new(
                 facade,
-                format,
+                image_format::TextureFormat::DepthStencilFormat(format),
                 TextureKind::DepthStencil,
                 width,
                 height,
                 Some(samples),
-            ),
+            )?,
         })
     }
 }
@@ -460,19 +420,48 @@ impl RenderBufferAny {
     /// Builds a new render buffer.
     fn new<F: ?Sized>(
         facade: &F,
-        format: gl::types::GLenum,
+        texture_format: image_format::TextureFormat,
         kind: TextureKind,
         width: u32,
         height: u32,
         samples: Option<u32>,
-    ) -> RenderBufferAny
+    ) -> Result<RenderBufferAny, CreationError>
     where
         F: Facade,
     {
+        let context = facade.get_context();
+        let format = image_format::format_request_to_glenum(
+            context,
+            image_format::TextureFormatRequest::Specific(texture_format),
+            image_format::RequestType::Renderbuffer,
+        )?;
+
+        let capabilities = context.get_capabilities();
+        let max_size = capabilities.limits.max_renderbuffer_size.max(0) as u32;
+        if width > max_size || height > max_size {
+            return Err(CreationError::DimensionsNotSupported);
+        }
+
+        if let Some(samples) = samples {
+            if samples > capabilities.limits.max_samples.max(0) as u32 {
+                return Err(CreationError::SamplesNotSupported);
+            }
+
+            // the backend refuses more samples than the format has, when it lists them
+            let format_samples = capabilities
+                .internal_formats_renderbuffers
+                .get(&texture_format)
+                .and_then(|infos| infos.multisamples.as_ref());
+            if let Some(format_samples) = format_samples {
+                let max = format_samples.iter().copied().max().unwrap_or(0).max(0) as u32;
+                if samples > max {
+                    return Err(CreationError::SamplesNotSupported);
+                }
+            }
+        }
+
         unsafe {
-            // TODO: check that dimensions don't exceed GL_MAX_RENDERBUFFER_SIZE
-            // FIXME: gles2 only supports very few formats
-            let mut ctxt = facade.get_context().make_current();
+            let mut ctxt = context.make_current();
 
             let id = ctxt
                 .glow
@@ -498,14 +487,14 @@ impl RenderBufferAny {
                 );
             }
 
-            RenderBufferAny {
-                context: facade.get_context().clone(),
+            Ok(RenderBufferAny {
+                context: context.clone(),
                 id,
                 width,
                 height,
                 samples,
                 kind,
-            }
+            })
         }
     }
 
@@ -574,6 +563,18 @@ impl Drop for RenderBufferAny {
 
             ctxt.glow.delete_renderbuffer(self.id);
         }
+    }
+}
+
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl crate::debug::sealed::Labeled for RenderBufferAny {
+    fn labeled_object(
+        &self,
+    ) -> (&crate::context::Context, crate::debug::sealed::LabeledObject) {
+        (
+            &self.context,
+            crate::debug::sealed::LabeledObject::Object(crate::gl::RENDERBUFFER, self.id.0.get()),
+        )
     }
 }
 

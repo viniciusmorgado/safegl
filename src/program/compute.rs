@@ -62,11 +62,23 @@ impl ComputeShader {
         let shader = build_shader(facade, gl::COMPUTE_SHADER, src)?;
 
         Ok(ComputeShader {
-            raw: RawProgram::from_shaders(facade, &[shader], false, false, false, None, None)?,
+            raw: RawProgram::from_shaders(
+                facade,
+                &[shader],
+                false,
+                false,
+                false,
+                None,
+                None,
+                Default::default(),
+                None,
+                None,
+            )?,
         })
     }
 
-    /// Builds a new compute shader from SPIR-V module.
+    /// Builds a new compute shader from SPIR-V module. See `SpirvEntryPoint` for the names of
+    /// the resources of the shader.
     #[cfg(safegl_gl46)]
     #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
     #[inline]
@@ -79,10 +91,21 @@ impl ComputeShader {
     {
         let _lock = COMPILER_GLOBAL_LOCK.lock();
 
-        let shader = build_spirv_shader(facade, gl::COMPUTE_SHADER, spirv)?;
+        let (shader, module) = build_spirv_shader(facade, gl::COMPUTE_SHADER, spirv)?;
 
         Ok(ComputeShader {
-            raw: RawProgram::from_shaders(facade, &[shader], false, false, false, None, None)?,
+            raw: RawProgram::from_shaders(
+                facade,
+                &[shader],
+                false,
+                false,
+                false,
+                None,
+                None,
+                Default::default(),
+                Some(&[module]),
+                None,
+            )?,
         })
     }
 
@@ -102,6 +125,14 @@ impl ComputeShader {
         Ok(ComputeShader {
             raw: RawProgram::from_binary(facade, data)?,
         })
+    }
+
+    /// Returns the size of the local work groups of the compute shader, from its
+    /// `layout(local_size_x = ..., local_size_y = ..., local_size_z = ...) in;` declaration
+    /// (`GL_COMPUTE_WORK_GROUP_SIZE`).
+    #[inline]
+    pub fn work_group_size(&self) -> [u32; 3] {
+        self.raw.compute_work_group_size()
     }
 
     /// Executes the compute shader.
@@ -231,6 +262,18 @@ impl fmt::Debug for ComputeShader {
     #[inline]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(formatter, "{:?}", self.raw)
+    }
+}
+
+#[cfg(any(safegl_gl43, safegl_gles32))]
+impl crate::debug::sealed::Labeled for ComputeShader {
+    fn labeled_object(
+        &self,
+    ) -> (&crate::context::Context, crate::debug::sealed::LabeledObject) {
+        (
+            ProgramExt::get_context(self),
+            crate::debug::sealed::LabeledObject::Object(crate::gl::PROGRAM, self.get_id().0.get()),
+        )
     }
 }
 

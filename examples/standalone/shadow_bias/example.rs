@@ -85,6 +85,7 @@ fn program(display: &Display<WindowSurface>, vertex: &str, fragment: &str) -> Pr
             transform_feedback_varyings: None,
             outputs_srgb: false,
             uses_point_size: false,
+            locations: Default::default(),
         },
     )
     .unwrap()

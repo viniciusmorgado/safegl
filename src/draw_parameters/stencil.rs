@@ -236,7 +236,41 @@ impl ToGlEnum for StencilOperation {
     }
 }
 
-pub fn sync_stencil(ctxt: &mut context::CommandContext<'_>, params: &Stencil) {
+impl Stencil {
+    /// Returns the settings with the clockwise and counter-clockwise ones exchanged.
+    fn swap_windings(&self) -> Stencil {
+        Stencil {
+            test_clockwise: self.test_counter_clockwise,
+            reference_value_clockwise: self.reference_value_counter_clockwise,
+            write_mask_clockwise: self.write_mask_counter_clockwise,
+            fail_operation_clockwise: self.fail_operation_counter_clockwise,
+            pass_depth_fail_operation_clockwise: self.pass_depth_fail_operation_counter_clockwise,
+            depth_pass_operation_clockwise: self.depth_pass_operation_counter_clockwise,
+            test_counter_clockwise: self.test_clockwise,
+            reference_value_counter_clockwise: self.reference_value_clockwise,
+            write_mask_counter_clockwise: self.write_mask_clockwise,
+            fail_operation_counter_clockwise: self.fail_operation_clockwise,
+            pass_depth_fail_operation_counter_clockwise: self.pass_depth_fail_operation_clockwise,
+            depth_pass_operation_counter_clockwise: self.depth_pass_operation_clockwise,
+        }
+    }
+}
+
+pub fn sync_stencil(
+    ctxt: &mut context::CommandContext<'_>,
+    params: &Stencil,
+    front_face: super::FrontFace,
+) {
+    // the settings are named by the winding of the faces, while OpenGL names them front and
+    // back: the code below sends the clockwise ones to the back faces
+    let swapped;
+    let params = if front_face == super::FrontFace::Clockwise {
+        swapped = params.swap_windings();
+        &swapped
+    } else {
+        params
+    };
+
     // checks if stencil operations can be disabled
     if !params.requires_stencil_buffer() {
         if ctxt.state.enabled_stencil_test {

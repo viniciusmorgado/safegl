@@ -22,10 +22,11 @@ use safegl::winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use safegl::winit::window::{Window, WindowId};
 
 use std::env;
+use std::io::Write;
 use std::num::NonZeroU32;
 use std::ops::Deref;
 use std::rc::Rc;
-use std::sync::{mpsc::Sender, Once, RwLock};
+use std::sync::{mpsc::Sender, Mutex, Once, RwLock};
 use std::thread;
 
 // The code below here down to `build_display` is a workaround due to a lack of a test initialization hook
@@ -40,9 +41,9 @@ use safegl::winit::platform::x11::EventLoopBuilderExtX11;
 #[derive(Debug)]
 enum DisplayRequest {
     /// A hidden window, with a context and a surface for it.
-    Display(Sender<(Window, NotCurrentContext, Surface<WindowSurface>)>),
+    Display(Sender<Result<(Window, NotCurrentContext, Surface<WindowSurface>), String>>),
     /// A hidden window, with a surface and the configuration of the contexts that can use it.
-    Window(Sender<(Window, glutin::config::Config, Surface<WindowSurface>)>),
+    Window(Sender<Result<(Window, glutin::config::Config, Surface<WindowSurface>), String>>),
 }
 
 struct Tests {}
@@ -58,26 +59,53 @@ impl ApplicationHandler<DisplayRequest> for Tests {
     ) {
     }
 
+    // a failure is sent to the test that made the request: a panic would end the event loop,
+    // and with it every test that comes after
     fn user_event(&mut self, event_loop: &ActiveEventLoop, request: DisplayRequest) {
-        let (window, gl_config, surface) = create_window(event_loop);
+        let window = create_window(event_loop);
         match request {
             DisplayRequest::Display(sender) => {
-                let raw_window_handle = window.window_handle().unwrap().as_raw();
-                let context = create_context(&gl_config, raw_window_handle, None, parse_version())
-                    .expect("failed to create context");
-                sender.send((window, context, surface)).unwrap();
+                let display = window.and_then(|(window, gl_config, surface)| {
+                    let raw_window_handle = window.window_handle().unwrap().as_raw();
+                    let context =
+                        create_context(&gl_config, raw_window_handle, None, parse_version())
+                            .ok_or("failed to create a context")?;
+                    Ok((window, context, surface))
+                });
+                // the test may have ended already
+                let _ = sender.send(display);
             }
             DisplayRequest::Window(sender) => {
-                sender.send((window, gl_config, surface)).unwrap();
+                let _ = sender.send(window);
             }
         }
     }
 }
 
+/// Sends `request` to the event loop and waits for its answer, panicking with the error that
+/// the event loop gave.
+fn request<T>(request: impl FnOnce(Sender<Result<T, String>>) -> DisplayRequest) -> T {
+    let stopped = || -> ! {
+        let reason = EVENT_LOOP_STOPPED.lock().unwrap().clone();
+        panic!("the event loop of the tests has stopped: {reason:?}")
+    };
+    let (sender, receiver) = std::sync::mpsc::channel();
+    if event_loop_proxy().send_event(request(sender)).is_err() {
+        stopped();
+    }
+    match receiver.recv() {
+        Ok(result) => result.unwrap_or_else(|error| panic!("{error}")),
+        Err(_) => stopped(),
+    }
+}
+
+/// Why the event loop of the tests stopped, if it did.
+static EVENT_LOOP_STOPPED: Mutex<Option<String>> = Mutex::new(None);
+
 /// Creates a hidden window, its surface, and the configuration of the contexts that can use it.
 fn create_window(
     event_loop: &ActiveEventLoop,
-) -> (Window, glutin::config::Config, Surface<WindowSurface>) {
+) -> Result<(Window, glutin::config::Config, Surface<WindowSurface>), String> {
     {
         let window_attributes = Window::default_attributes().with_visible(false);
         let config_template_builder = ConfigTemplateBuilder::new();
@@ -88,8 +116,8 @@ fn create_window(
                 // Just use the first configuration since we don't have any special preferences here
                 configs.next().unwrap()
             })
-            .unwrap();
-        let window = window.unwrap();
+            .map_err(|error| format!("failed to create a window: {error}"))?;
+        let window = window.ok_or("failed to create a window")?;
         let raw_window_handle = window.window_handle().unwrap().as_raw();
 
         let attrs = SurfaceAttributesBuilder::<WindowSurface>::new().build(
@@ -102,10 +130,10 @@ fn create_window(
             gl_config
                 .display()
                 .create_window_surface(&gl_config, &attrs)
-                .unwrap()
+                .map_err(|error| format!("failed to create a window surface: {error}"))?
         };
 
-        (window, gl_config, surface)
+        Ok((window, gl_config, surface))
     }
 }
 
@@ -119,6 +147,9 @@ fn create_context(
 ) -> Option<NotCurrentContext> {
     apis.into_iter().find_map(|version| {
         let mut context_attributes = safegl::backend::glutin::context_attributes_builder(version);
+        if let Some(robustness) = parse_robustness() {
+            context_attributes = context_attributes.with_robustness(robustness);
+        }
         if let Some(shared) = shared {
             context_attributes = context_attributes.with_sharing(shared);
         }
@@ -177,8 +208,27 @@ fn event_loop_proxy() -> EventLoopProxy<DisplayRequest> {
 
                 sender.send(event_loop.create_proxy()).unwrap();
 
-                let mut app = Tests {};
-                event_loop.run_app(&mut app).unwrap();
+                // the event loop thread inherits the output capture of the test that started it,
+                // which hides its panics: the reason it stops is written to the standard error
+                // directly and given to the tests that come after
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let mut app = Tests {};
+                    event_loop.run_app(&mut app)
+                }));
+                let reason = match result {
+                    Ok(Ok(())) => "it exited".to_owned(),
+                    Ok(Err(error)) => format!("{error}"),
+                    Err(payload) => payload
+                        .downcast_ref::<String>()
+                        .cloned()
+                        .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+                        .unwrap_or_else(|| "it panicked".to_owned()),
+                };
+                let _ = writeln!(
+                    std::io::stderr().lock(),
+                    "the event loop of the tests stopped: {reason}"
+                );
+                *EVENT_LOOP_STOPPED.lock().unwrap() = Some(reason);
             })
             .unwrap();
 
@@ -190,15 +240,8 @@ fn event_loop_proxy() -> EventLoopProxy<DisplayRequest> {
 
 /// Builds a display for tests, with the given debug callback.
 pub fn build_display_with_debug(debug: safegl::debug::DebugCallbackBehavior) -> WindowDisplay {
-    let (sender, receiver) = std::sync::mpsc::channel();
-
-    // Request event loop create display building pieces and send them back
-    event_loop_proxy()
-        .send_event(DisplayRequest::Display(sender))
-        .unwrap();
-
-    // Block until required display building pieces are received
-    let (window, not_current_gl_context, surface) = receiver.recv().unwrap();
+    // the event loop creates the window and the context
+    let (window, not_current_gl_context, surface) = request(DisplayRequest::Display);
 
     // Now use our surface to make our context current and finally create our display
     let current_context = not_current_gl_context.make_current(&surface).unwrap();
@@ -217,11 +260,7 @@ pub fn build_display_with_debug(debug: safegl::debug::DebugCallbackBehavior) -> 
 pub fn try_build_display_with(
     attributes: glutin::context::ContextAttributesBuilder,
 ) -> Option<Result<WindowDisplay, safegl::IncompatibleOpenGl>> {
-    let (sender, receiver) = std::sync::mpsc::channel();
-    event_loop_proxy()
-        .send_event(DisplayRequest::Window(sender))
-        .unwrap();
-    let (window, gl_config, surface) = receiver.recv().unwrap();
+    let (window, gl_config, surface) = request(DisplayRequest::Window);
 
     let raw_window_handle = window.window_handle().unwrap().as_raw();
     let context = unsafe {
@@ -276,11 +315,7 @@ pub fn try_rebuild_display(
     display: &mut WindowDisplay,
     apis: Vec<glutin::context::ContextApi>,
 ) -> Option<Result<(), safegl::IncompatibleOpenGl>> {
-    let (sender, receiver) = std::sync::mpsc::channel();
-    event_loop_proxy()
-        .send_event(DisplayRequest::Window(sender))
-        .unwrap();
-    let (window, gl_config, surface) = receiver.recv().unwrap();
+    let (window, gl_config, surface) = request(DisplayRequest::Window);
 
     let raw_window_handle = window.window_handle().unwrap().as_raw();
     let context = create_context(
@@ -307,6 +342,34 @@ fn parse_display_api() -> glutin_winit::ApiPreference {
         Ok("glx") | Ok("wgl") | Err(_) => glutin_winit::ApiPreference::FallbackEgl,
         Ok(other) => panic!("SAFEGL_GL_DISPLAY must be `egl`, `glx` or `wgl`, not `{other}`"),
     }
+}
+
+/// The context APIs that the tests request, in order: the one of `SAFEGL_GL_VERSION` (such as
+/// `OpenGL 4.0` or `OpenGL ES 3.2`), or else those of the selected levels.
+pub fn context_apis() -> Vec<glutin::context::ContextApi> {
+    parse_version()
+}
+
+/// The robustness of the contexts of the tests: `SAFEGL_ROBUSTNESS=robust` for robust buffer
+/// access, `lose` for robust buffer access with contexts lost on GPU resets, and `no_error` for
+/// contexts without error checking. A context that the driver can't create this way fails.
+fn parse_robustness() -> Option<glutin::context::Robustness> {
+    use glutin::context::Robustness;
+
+    match env::var("SAFEGL_ROBUSTNESS").as_deref() {
+        Ok("robust") => Some(Robustness::RobustNoResetNotification),
+        Ok("lose") => Some(Robustness::RobustLoseContextOnReset),
+        Ok("no_error") => Some(Robustness::NoError),
+        Ok(other) => panic!("SAFEGL_ROBUSTNESS must be `robust`, `lose` or `no_error`, not `{other}`"),
+        Err(_) => None,
+    }
+}
+
+/// Returns true if the contexts of the tests check errors: they don't with
+/// `SAFEGL_ROBUSTNESS=no_error`, where an invalid OpenGL call is undefined behavior, so the tests
+/// that make one on purpose can't run.
+pub fn contexts_check_errors() -> bool {
+    !matches!(parse_robustness(), Some(glutin::context::Robustness::NoError))
 }
 
 fn parse_version() -> Vec<glutin::context::ContextApi> {

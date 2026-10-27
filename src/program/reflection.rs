@@ -88,6 +88,10 @@ pub enum BlockLayout {
 
         /// Number of elements in the array.
         length: usize,
+
+        /// Distance in bytes between the starts of two elements: 16 for the `float`s of a
+        /// `std140` block, 4 in a `std430` one. 0 if unknown, for arrays of a single struct.
+        stride: usize,
     },
 
     /// An array whose size isn't known at compile-time. Can only be used as the last element of
@@ -105,6 +109,9 @@ pub enum BlockLayout {
     DynamicSizedArray {
         /// Type of data of each element.
         content: Box<BlockLayout>,
+
+        /// Distance in bytes between the starts of two elements. 0 if unknown.
+        stride: usize,
     },
 }
 
@@ -112,6 +119,7 @@ pub enum BlockLayout {
 ///
 /// Internal struct. Not public.
 #[derive(Debug, Copy, Clone)]
+#[non_exhaustive]
 pub struct Attribute {
     /// The index of the uniform.
     ///
@@ -123,6 +131,11 @@ pub struct Attribute {
 
     /// Number of elements of the attribute.
     pub size: usize,
+
+    /// The first component of the location that the attribute reads, declared with
+    /// `layout(component = N)`; 0 for the others. Attributes that share a location read its
+    /// components from the same attribute array, in 32-bit units.
+    pub component: u32,
 }
 
 /// Describes the layout of a buffer that can receive transform feedback output.
@@ -392,17 +405,294 @@ pub unsafe fn reflect_attributes(
             continue;
         };
 
+        let component = attribute_component(ctxt, program, &attr_name);
         attributes.insert(
             attr_name,
             Attribute {
                 location,
                 ty,
                 size: data_size as usize,
+                component,
             },
         );
     }
 
     attributes
+}
+
+/// Returns the component that an attribute starts at, `layout(component = N)` of OpenGL 4.4 or
+/// `GL_ARB_enhanced_layouts`; 0 without them, and on OpenGL ES, which doesn't have it.
+unsafe fn attribute_component(
+    ctxt: &CommandContext<'_>,
+    program: glow::Program,
+    name: &str,
+) -> u32 {
+    if !(ctxt.version >= &Version(Api::Gl, 4, 4)
+        || (ctxt.version.0 == Api::Gl
+            && ctxt.extensions.gl_arb_enhanced_layouts
+            && ctxt.extensions.gl_arb_program_interface_query))
+    {
+        return 0;
+    }
+    let Ok(name) = std::ffi::CString::new(name) else {
+        return 0;
+    };
+    let index = ctxt.extra.GetProgramResourceIndex(
+        program.raw_name(),
+        gl::PROGRAM_INPUT,
+        name.as_ptr(),
+    );
+    if index == gl::INVALID_INDEX {
+        return 0;
+    }
+    let mut component = 0;
+    ctxt.extra.GetProgramResourceiv(
+        program.raw_name(),
+        gl::PROGRAM_INPUT,
+        index,
+        1,
+        &gl::LOCATION_COMPONENT,
+        1,
+        ptr::null_mut(),
+        &mut component,
+    );
+    component.clamp(0, 3) as u32
+}
+
+/// What reflection gives about a program linked from SPIR-V modules.
+#[cfg(safegl_gl46)]
+pub struct SpirvReflection {
+    pub uniforms: HashMap<String, Uniform, BuildHasherDefault<FnvHasher>>,
+    pub atomic_counters: HashMap<String, UniformBlock, BuildHasherDefault<FnvHasher>>,
+    pub locations: UniformLocations,
+    pub attributes: HashMap<String, Attribute, BuildHasherDefault<FnvHasher>>,
+    pub uniform_blocks: HashMap<String, UniformBlock, BuildHasherDefault<FnvHasher>>,
+    pub ssbos: HashMap<String, UniformBlock, BuildHasherDefault<FnvHasher>>,
+    /// The locations and indices of the fragment outputs.
+    pub outputs: HashMap<String, (u32, u32), BuildHasherDefault<FnvHasher>>,
+}
+
+/// Reflects a program linked from SPIR-V `modules`, whose entry points were checked.
+///
+/// OpenGL gives the locations, bindings and types of the resources through the program
+/// interface queries, but drivers can leave out their names. The names and the layouts of the
+/// blocks come from the modules, and every resource is named after its location or binding too:
+/// see `SpirvEntryPoint`.
+#[cfg(safegl_gl46)]
+pub unsafe fn reflect_spirv(
+    ctxt: &mut CommandContext<'_>,
+    program: glow::Program,
+    modules: &[crate::program::spirv::Module],
+) -> SpirvReflection {
+    use crate::program::spirv::ExecutionModel;
+
+    let count = |interface| {
+        let mut count: gl::types::GLint = 0;
+        ctxt.extra.GetProgramInterfaceiv(
+            program.raw_name(),
+            interface,
+            gl::ACTIVE_RESOURCES,
+            &mut count,
+        );
+        count.max(0) as gl::types::GLuint
+    };
+    let properties = |interface, index, properties: &[gl::types::GLenum]| {
+        let mut output = vec![0; properties.len()];
+        ctxt.extra.GetProgramResourceiv(
+            program.raw_name(),
+            interface,
+            index,
+            properties.len() as gl::types::GLsizei,
+            properties.as_ptr(),
+            output.len() as gl::types::GLsizei,
+            ptr::null_mut(),
+            output.as_mut_ptr(),
+        );
+        output
+    };
+
+    let mut reflection = SpirvReflection {
+        uniforms: HashMap::with_hasher(Default::default()),
+        atomic_counters: HashMap::with_hasher(Default::default()),
+        locations: UniformLocations::default(),
+        attributes: HashMap::with_hasher(Default::default()),
+        uniform_blocks: HashMap::with_hasher(Default::default()),
+        ssbos: HashMap::with_hasher(Default::default()),
+        outputs: HashMap::with_hasher(Default::default()),
+    };
+
+    // uniforms and atomic counters
+    let names: HashMap<u32, String> = modules.iter().flat_map(|m| m.uniform_names()).collect();
+    let counters: Vec<_> = modules.iter().flat_map(|m| m.atomic_counters()).collect();
+    let mut uniforms = Vec::new();
+    for index in 0..count(gl::UNIFORM) {
+        let [ty, array_size, location, block, counter_buffer, offset] = properties(
+            gl::UNIFORM,
+            index,
+            &[
+                gl::TYPE,
+                gl::ARRAY_SIZE,
+                gl::LOCATION,
+                gl::BLOCK_INDEX,
+                gl::ATOMIC_COUNTER_BUFFER_INDEX,
+                gl::OFFSET,
+            ],
+        )[..] else {
+            unreachable!()
+        };
+        if block != -1 {
+            continue;
+        }
+        if counter_buffer != -1 {
+            let binding = properties(
+                gl::ATOMIC_COUNTER_BUFFER,
+                counter_buffer as gl::types::GLuint,
+                &[gl::BUFFER_BINDING],
+            )[0];
+            let counter = UniformBlock {
+                id: counter_buffer,
+                initial_binding: binding,
+                size: 4,
+                layout: BlockLayout::BasicType {
+                    ty: UniformType::UnsignedInt,
+                    offset_in_buffer: 0,
+                },
+            };
+            let name = counters
+                .iter()
+                .find(|c| c.0 as i32 == binding && c.1 as i32 == offset)
+                .and_then(|c| c.2.clone());
+            if let Some(name) = name {
+                reflection.atomic_counters.insert(name, counter.clone());
+            }
+            reflection
+                .atomic_counters
+                .insert(format!("binding={binding}"), counter);
+            continue;
+        }
+        // samplers and images without a location keep the binding of the module
+        if location < 0 {
+            continue;
+        }
+        uniforms.push((ty as gl::types::GLenum, array_size.max(1), location));
+    }
+    for (data_type, size, location) in uniforms {
+        let ty = glenum_to_uniform_type(data_type);
+        let name = names.get(&(location as u32)).map(|name| match size {
+            1 => name.as_str(),
+            _ => name.strip_suffix("[0]").unwrap_or(name),
+        });
+        for i in 0..size {
+            let gl_location = glow::NativeUniformLocation((location + i) as u32);
+            let binding = image_binding(ctxt, program, data_type, Some(&gl_location));
+            let uniform = Uniform {
+                location: reflection.locations.register(Some(gl_location)),
+                ty,
+                size: None,
+                binding,
+            };
+            let mut insert = |name: String| reflection.uniforms.insert(name, uniform);
+            insert(format!("location={}", location + i));
+            if size > 1 {
+                insert(format!("location={location}[{i}]"));
+                if let Some(name) = name {
+                    insert(format!("{name}[{i}]"));
+                }
+            }
+            if let (0, Some(name)) = (i, name) {
+                insert(name.to_owned());
+            }
+        }
+    }
+
+    // attributes
+    let inputs: HashMap<(u32, u32), String> = modules
+        .iter()
+        .filter(|m| m.is_stage(ExecutionModel::Vertex))
+        .flat_map(|m| m.input_names())
+        .collect();
+    for index in 0..count(gl::PROGRAM_INPUT) {
+        let [ty, array_size, location, component] = properties(
+            gl::PROGRAM_INPUT,
+            index,
+            &[
+                gl::TYPE,
+                gl::ARRAY_SIZE,
+                gl::LOCATION,
+                gl::LOCATION_COMPONENT,
+            ],
+        )[..] else {
+            unreachable!()
+        };
+        // built-in inputs have no location
+        let (Some(ty), true) = (glenum_to_attribute_type(ty as gl::types::GLenum), location >= 0)
+        else {
+            continue;
+        };
+        let component = component.clamp(0, 3) as u32;
+        let attribute = Attribute {
+            location,
+            ty,
+            size: array_size.max(1) as usize,
+            component,
+        };
+        let alias = match component {
+            0 => format!("location={location}"),
+            _ => format!("location={location},component={component}"),
+        };
+        reflection.attributes.insert(alias, attribute);
+        if let Some(name) = inputs.get(&(location as u32, component)) {
+            reflection.attributes.insert(name.clone(), attribute);
+        }
+    }
+
+    // blocks
+    for (interface, storage, blocks) in [
+        (gl::UNIFORM_BLOCK, false, &mut reflection.uniform_blocks),
+        (gl::SHADER_STORAGE_BLOCK, true, &mut reflection.ssbos),
+    ] {
+        let declared: Vec<_> = modules.iter().flat_map(|m| m.blocks(storage)).collect();
+        for index in 0..count(interface) {
+            let [binding, size] =
+                properties(interface, index, &[gl::BUFFER_BINDING, gl::BUFFER_DATA_SIZE])[..]
+            else {
+                unreachable!()
+            };
+            let module_block = declared.iter().find(|b| b.binding as i32 == binding);
+            let block = UniformBlock {
+                id: index as i32,
+                initial_binding: binding,
+                size: size.max(0) as usize,
+                layout: module_block.map_or(
+                    BlockLayout::Struct {
+                        members: Vec::new(),
+                    },
+                    |b| b.layout.clone(),
+                ),
+            };
+            if let Some(name) = module_block.and_then(|b| b.name.clone()) {
+                blocks.insert(name, block.clone());
+            }
+            blocks.insert(format!("binding={binding}"), block);
+        }
+    }
+
+    // fragment outputs
+    let fragment = modules
+        .iter()
+        .filter(|m| m.is_stage(ExecutionModel::Fragment));
+    for (name, location, index) in fragment.flat_map(|m| m.output_locations()) {
+        let alias = match index {
+            0 => format!("location={location}"),
+            _ => format!("location={location},index={index}"),
+        };
+        reflection.outputs.insert(alias, (location, index));
+        if let Some(name) = name {
+            reflection.outputs.insert(name, (location, index));
+        }
+    }
+
+    reflection
 }
 
 pub unsafe fn reflect_uniform_blocks(
@@ -476,10 +766,15 @@ pub unsafe fn reflect_uniform_blocks(
             ctxt.glow
                 .get_active_uniforms_parameter(program, &members_indices, glow::UNIFORM_TYPE);
 
-        // getting the array sizes of the members
+        // getting the array sizes and strides of the members
         let member_size =
             ctxt.glow
                 .get_active_uniforms_parameter(program, &members_indices, glow::UNIFORM_SIZE);
+        let member_stride = ctxt.glow.get_active_uniforms_parameter(
+            program,
+            &members_indices,
+            glow::UNIFORM_ARRAY_STRIDE,
+        );
 
         // getting the length of the names of the members
         let member_name_len = ctxt.glow.get_active_uniforms_parameter(
@@ -520,15 +815,17 @@ pub unsafe fn reflect_uniform_blocks(
 
         // now computing the list of members
         let block_name = name.clone();
-        let members = member_names.enumerate().map(|(index, member_name)| {
-            (
-                strip_block_prefix(&block_name, member_name),
-                member_offsets[index] as usize,
-                glenum_to_uniform_type(member_types[index] as gl::types::GLenum),
-                member_size[index] as usize,
-                None,
-            )
-        });
+        let members = member_names
+            .enumerate()
+            .map(|(index, member_name)| LayoutElement {
+                name: strip_block_prefix(&block_name, member_name),
+                offset: member_offsets[index] as usize,
+                ty: glenum_to_uniform_type(member_types[index] as gl::types::GLenum),
+                array_size: member_size[index] as usize,
+                array_stride: member_stride[index].max(0) as usize,
+                top_level_array_size: None,
+                top_level_array_stride: None,
+            });
 
         // finally inserting into the blocks list
         blocks.insert(
@@ -549,6 +846,19 @@ pub unsafe fn reflect_transform_feedback(
     ctxt: &mut CommandContext<'_>,
     program: glow::Program,
 ) -> Vec<TransformFeedbackBuffer> {
+    // with enhanced layouts, the program interface gives the buffers, offsets and strides of the
+    // varyings, including those of the `xfb_buffer`, `xfb_offset` and `xfb_stride` qualifiers;
+    // the NVIDIA driver only lists the buffers of these qualifiers there, and the varyings given
+    // when linking are reflected below
+    if ctxt.version >= &Version(Api::Gl, 4, 4)
+        || (ctxt.extensions.gl_arb_enhanced_layouts
+            && ctxt.extensions.gl_arb_program_interface_query)
+    {
+        if let Some(buffers) = reflect_transform_feedback_interface(ctxt, program) {
+            return buffers;
+        }
+    }
+
     // querying the number of varying
     let num_varyings = ctxt
         .glow
@@ -581,7 +891,7 @@ pub unsafe fn reflect_transform_feedback(
             .expect("glGetTransformFeedbackVarying failed");
 
         if buffer_mode == TransformFeedbackMode::Interleaved {
-            if result.len() == 0 {
+            if result.is_empty() {
                 result.push(TransformFeedbackBuffer {
                     id: 0,
                     elements: vec![],
@@ -589,16 +899,35 @@ pub unsafe fn reflect_transform_feedback(
                 });
             }
 
+            // the special names of interleaved varyings (OpenGL 4.0): `gl_NextBuffer` starts the
+            // next buffer, and `gl_SkipComponents1` to `4` leave floats unwritten
+            if name == "gl_NextBuffer" {
+                let id = result.len() as i32;
+                result.push(TransformFeedbackBuffer {
+                    id,
+                    elements: vec![],
+                    stride: 0,
+                });
+                continue;
+            }
+            if let Some(count) = name
+                .strip_prefix("gl_SkipComponents")
+                .and_then(|count| count.parse::<usize>().ok())
+            {
+                result.last_mut().unwrap().stride += count * 4;
+                continue;
+            }
+
             let ty = glenum_to_attribute_type(ty as gl::types::GLenum)
                 .expect("transform feedback varyings have standard types");
 
-            let prev_size = result[0].stride;
-            result[0].stride += size as usize * ty.get_size_bytes();
-            result[0].elements.push(TransformFeedbackVarying {
-                // TODO: handle arrays
+            let buffer = result.last_mut().unwrap();
+            let offset = buffer.stride;
+            buffer.stride += size as usize * ty.get_size_bytes();
+            buffer.elements.push(TransformFeedbackVarying {
                 name,
                 size: size as usize * ty.get_size_bytes(),
-                offset: prev_size,
+                offset,
                 ty,
             });
         } else if buffer_mode == TransformFeedbackMode::Separate {
@@ -683,6 +1012,111 @@ pub unsafe fn reflect_tess_eval_output_type(
 }
 
 /// Returns the list of shader storage blocks of a program.
+/// Reflects the buffers of transform feedback and their varyings through the program interface
+/// (OpenGL 4.4, or `GL_ARB_enhanced_layouts` with `GL_ARB_program_interface_query`), or returns
+/// `None` if the interface has varyings but no buffers.
+unsafe fn reflect_transform_feedback_interface(
+    ctxt: &mut CommandContext<'_>,
+    program: glow::Program,
+) -> Option<Vec<TransformFeedbackBuffer>> {
+    let count = |interface| {
+        let mut count: gl::types::GLint = 0;
+        ctxt.extra.GetProgramInterfaceiv(
+            program.raw_name(),
+            interface,
+            gl::ACTIVE_RESOURCES,
+            &mut count,
+        );
+        count.max(0) as gl::types::GLuint
+    };
+    let properties = |interface, index, properties: &[gl::types::GLenum]| {
+        let mut output: [gl::types::GLint; 5] = [0; 5];
+        ctxt.extra.GetProgramResourceiv(
+            program.raw_name(),
+            interface,
+            index,
+            properties.len() as gl::types::GLsizei,
+            properties.as_ptr(),
+            properties.len() as gl::types::GLsizei,
+            ptr::null_mut(),
+            output.as_mut_ptr(),
+        );
+        output
+    };
+
+    let varyings = count(gl::TRANSFORM_FEEDBACK_VARYING);
+    let buffers = count(gl::TRANSFORM_FEEDBACK_BUFFER);
+    if buffers == 0 && varyings != 0 {
+        return None;
+    }
+
+    let mut buffers: Vec<TransformFeedbackBuffer> = (0..buffers)
+        .map(|index| {
+            let [binding, stride, ..] = properties(
+                gl::TRANSFORM_FEEDBACK_BUFFER,
+                index,
+                &[gl::BUFFER_BINDING, gl::TRANSFORM_FEEDBACK_BUFFER_STRIDE],
+            );
+            TransformFeedbackBuffer {
+                id: binding,
+                elements: Vec::new(),
+                stride: stride as usize,
+            }
+        })
+        .collect();
+
+    for index in 0..varyings {
+        let [name_length, ty, array_size, offset, buffer] = properties(
+            gl::TRANSFORM_FEEDBACK_VARYING,
+            index,
+            &[
+                gl::NAME_LENGTH,
+                gl::TYPE,
+                gl::ARRAY_SIZE,
+                gl::OFFSET,
+                gl::TRANSFORM_FEEDBACK_BUFFER_INDEX,
+            ],
+        );
+
+        let name = {
+            let mut name: Vec<u8> = vec![0; name_length.max(1) as usize];
+            let mut length = 0;
+            ctxt.extra.GetProgramResourceName(
+                program.raw_name(),
+                gl::TRANSFORM_FEEDBACK_VARYING,
+                index,
+                name.len() as gl::types::GLsizei,
+                &mut length,
+                name.as_mut_ptr() as *mut _,
+            );
+            name.truncate(length.max(0) as usize);
+            String::from_utf8(name).unwrap()
+        };
+
+        // `gl_NextBuffer` and `gl_SkipComponents1` to `4` only move the varyings that follow
+        if name == "gl_NextBuffer" || name.starts_with("gl_SkipComponents") || buffer < 0 {
+            continue;
+        }
+        let ty = glenum_to_attribute_type(ty as gl::types::GLenum)
+            .expect("transform feedback varyings have standard types");
+        let size = array_size.max(1) as usize * ty.get_size_bytes();
+        if let Some(buffer) = buffers.get_mut(buffer as usize) {
+            buffer.elements.push(TransformFeedbackVarying {
+                name,
+                offset: offset as usize,
+                size,
+                ty,
+            });
+        }
+    }
+
+    for buffer in &mut buffers {
+        buffer.elements.sort_by_key(|element| element.offset);
+    }
+    buffers.sort_by_key(|buffer| buffer.id);
+    Some(buffers)
+}
+
 pub unsafe fn reflect_shader_storage_blocks(
     ctxt: &mut CommandContext<'_>,
     program: glow::Program,
@@ -777,13 +1211,21 @@ pub unsafe fn reflect_shader_storage_blocks(
         // iterator over variables
         let block_name = name.clone();
         let members = active_variables.into_iter().map(|variable| {
-            let (ty, array_size, offset, _array_stride, name_len, top_level_array_size) = {
-                let mut output: [gl::types::GLint; 6] = [0; 6];
+            let (
+                ty,
+                array_size,
+                offset,
+                array_stride,
+                name_len,
+                top_level_array_size,
+                top_level_array_stride,
+            ) = {
+                let mut output: [gl::types::GLint; 7] = [0; 7];
                 ctxt.extra.GetProgramResourceiv(
                     program.raw_name(),
                     gl::BUFFER_VARIABLE,
                     variable as gl::types::GLuint,
-                    6,
+                    7,
                     [
                         gl::TYPE,
                         gl::ARRAY_SIZE,
@@ -791,9 +1233,10 @@ pub unsafe fn reflect_shader_storage_blocks(
                         gl::ARRAY_STRIDE,
                         gl::NAME_LENGTH,
                         gl::TOP_LEVEL_ARRAY_SIZE,
+                        gl::TOP_LEVEL_ARRAY_STRIDE,
                     ]
                     .as_ptr(),
-                    6,
+                    7,
                     ptr::null_mut(),
                     output.as_mut_ptr() as *mut _,
                 );
@@ -801,9 +1244,10 @@ pub unsafe fn reflect_shader_storage_blocks(
                     glenum_to_uniform_type(output[0] as gl::types::GLenum),
                     output[1] as usize,
                     output[2] as usize,
-                    output[3] as usize,
+                    output[3].max(0) as usize,
                     output[4] as usize,
                     output[5] as usize,
+                    output[6].max(0) as usize,
                 )
             };
 
@@ -823,13 +1267,15 @@ pub unsafe fn reflect_shader_storage_blocks(
                 String::from_utf8(name_tmp).unwrap()
             };
 
-            (
-                strip_block_prefix(&block_name, name),
+            LayoutElement {
+                name: strip_block_prefix(&block_name, name),
                 offset,
                 ty,
                 array_size,
-                Some(top_level_array_size),
-            )
+                array_stride,
+                top_level_array_size: Some(top_level_array_size),
+                top_level_array_stride: Some(top_level_array_stride),
+            }
         });
 
         // finally inserting into the blocks list
@@ -861,11 +1307,32 @@ fn strip_block_prefix(block_name: &str, member: String) -> String {
     }
 }
 
+/// A member of a block, as OpenGL's introspection API lists it.
+pub(crate) struct LayoutElement {
+    /// The name, like `lights[1].color` or `values[0]`.
+    pub name: String,
+    /// The offset in bytes from the start of the block.
+    pub offset: usize,
+    /// The type of the member, or of the elements of an array.
+    pub ty: UniformType,
+    /// The number of elements of an array of basic types, 1 otherwise, 0 for a runtime-sized one.
+    pub array_size: usize,
+    /// The distance in bytes between the elements of an array of basic types.
+    pub array_stride: usize,
+    /// The number of elements of the outermost array of a storage block member, `None` if
+    /// unknown, 0 for a runtime-sized one.
+    pub top_level_array_size: Option<usize>,
+    /// The distance in bytes between the elements of the outermost array of a storage block
+    /// member, `None` if unknown.
+    pub top_level_array_stride: Option<usize>,
+}
+
 /// Takes a list of elements produced by OpenGL's introspection API and turns them into
 /// a `BlockLayout` object.
 ///
-/// The iterator must produce a list of `(name, offset, ty, array_size, top_level_array_size)`.
-/// The `top_level_array_size` can be `None` if unknown.
+/// The strides of the arrays of basic types are the ones that OpenGL gives. The strides of the
+/// arrays of structs are the top-level strides of storage blocks, or the distance between their
+/// elements 0 and 1, which uniform blocks list. Arrays of a single struct have a stride of 0.
 ///
 /// # Panic
 ///
@@ -873,99 +1340,115 @@ fn strip_block_prefix(block_name: &str, member: String) -> String {
 ///
 fn introspection_output_to_layout<I>(elements: I) -> BlockLayout
 where
-    I: Iterator<Item = (String, usize, UniformType, usize, Option<usize>)>,
+    I: Iterator<Item = LayoutElement>,
 {
+    /// Splits `component` into its name and its array index, if any.
+    fn split_index(component: &str) -> (&str, Option<usize>) {
+        if component.ends_with(']') {
+            let open_bracket_pos = component.rfind('[').unwrap();
+            let index = component[open_bracket_pos + 1..component.len() - 1]
+                .parse()
+                .unwrap();
+            (&component[..open_bracket_pos], Some(index))
+        } else {
+            (component, None)
+        }
+    }
+
     // `output` must be a BlockLayout::Struct, otherwise this function will panic
+    #[allow(clippy::too_many_arguments)]
     fn process(
         output: &mut BlockLayout,
+        path: &str,
         name: &str,
-        offset: usize,
-        ty: UniformType,
-        array_size: usize,
-        top_level_array_size: Option<usize>,
+        element: &LayoutElement,
+        top_level: bool,
+        struct_offsets: &HashMap<String, [Option<usize>; 2]>,
     ) {
         let mut components = name.splitn(2, '.');
         let current_component = components.next().unwrap();
         let name_rest = components.next();
+        let (current_name, array) = split_index(current_component);
+        let member_path = if path.is_empty() {
+            current_name.to_owned()
+        } else {
+            format!("{path}.{current_name}")
+        };
 
         // finding the appropriate place in `output` to write the element
         let member = if let BlockLayout::Struct { ref mut members } = output {
-            // splitting the name and array size
-            let (current_component, array) = if current_component.ends_with(']') {
-                let open_bracket_pos = current_component.rfind('[').unwrap();
-                let array = current_component[open_bracket_pos + 1..current_component.len() - 1]
-                    .parse()
-                    .unwrap();
-                (&current_component[..open_bracket_pos], Some(array))
-            } else {
-                (current_component, None)
-            };
-
-            // because of a bug in Rust's borrow checker, we have to loop twice instead of just
-            // call `if let Some() { } else { }`
-            let existing = members.iter_mut().any(|m| m.0 == current_component);
-            if existing {
-                let member = &mut members
-                    .iter_mut()
-                    .find(|m| m.0 == current_component)
-                    .unwrap()
-                    .1;
-
-                if let Some(array) = array {
-                    match member {
-                        BlockLayout::Array {
-                            ref mut content,
-                            ref mut length,
-                        } => {
-                            if *length <= array {
-                                *length = array + 1;
-                            }
-                            &mut **content
+            let existing = members.iter().position(|m| m.0 == current_name);
+            match (existing, array) {
+                (Some(position), Some(array)) => match &mut members[position].1 {
+                    BlockLayout::Array {
+                        ref mut content,
+                        ref mut length,
+                        ..
+                    } => {
+                        if *length <= array {
+                            *length = array + 1;
                         }
-                        BlockLayout::DynamicSizedArray { ref mut content } => &mut **content,
-                        _ => unreachable!(),
+                        &mut **content
                     }
-                } else {
-                    member
-                }
-            } else {
-                // member doesn't exist yet in the output, adding it
-                if let Some(array) = array {
-                    if top_level_array_size == Some(0) {
-                        members.push((
-                            current_component.to_owned(),
-                            BlockLayout::DynamicSizedArray {
-                                content: Box::new(BlockLayout::Struct {
-                                    members: Vec::new(),
-                                }),
-                            },
-                        ));
+                    BlockLayout::DynamicSizedArray {
+                        ref mut content, ..
+                    } => &mut **content,
+                    _ => unreachable!(),
+                },
+                (Some(position), None) => &mut members[position].1,
+                (None, Some(array)) => {
+                    let content = Box::new(BlockLayout::Struct {
+                        members: Vec::new(),
+                    });
+                    // the elements of an array of basic types are listed together with their
+                    // stride; arrays of structs are listed member by member
+                    let stride = if name_rest.is_none() {
+                        element.array_stride
+                    } else if let (true, Some(stride)) = (top_level, element.top_level_array_stride)
+                    {
+                        stride
                     } else {
-                        members.push((
-                            current_component.to_owned(),
-                            BlockLayout::Array {
-                                content: Box::new(BlockLayout::Struct {
-                                    members: Vec::new(),
-                                }),
-                                length: if name_rest.is_some() {
-                                    array
-                                } else {
-                                    array_size
-                                },
-                            },
-                        ));
-                    }
-
+                        match struct_offsets.get(&member_path) {
+                            Some([Some(first), Some(second)]) => second - first,
+                            _ => 0,
+                        }
+                    };
+                    let size = if top_level {
+                        element.top_level_array_size
+                    } else {
+                        None
+                    };
+                    let runtime_sized =
+                        size == Some(0) || (name_rest.is_none() && element.array_size == 0);
+                    let layout = if runtime_sized {
+                        BlockLayout::DynamicSizedArray { content, stride }
+                    } else {
+                        // storage blocks only list the element 0 of their top-level arrays
+                        let length = match (name_rest, size) {
+                            (Some(_), Some(size)) => size.max(array + 1),
+                            (Some(_), None) => array + 1,
+                            (None, _) => element.array_size,
+                        };
+                        BlockLayout::Array {
+                            content,
+                            length,
+                            stride,
+                        }
+                    };
+                    members.push((current_name.to_owned(), layout));
                     match &mut members.last_mut().unwrap().1 {
                         BlockLayout::Array {
                             ref mut content, ..
                         } => &mut **content,
-                        BlockLayout::DynamicSizedArray { ref mut content } => &mut **content,
+                        BlockLayout::DynamicSizedArray {
+                            ref mut content, ..
+                        } => &mut **content,
                         _ => unreachable!(),
                     }
-                } else {
+                }
+                (None, None) => {
                     members.push((
-                        current_component.to_owned(),
+                        current_name.to_owned(),
                         BlockLayout::Struct {
                             members: Vec::new(),
                         },
@@ -979,15 +1462,20 @@ where
 
         // now adding either the other elements or the final element itself
         if let Some(name_rest) = name_rest {
-            process(member, name_rest, offset, ty, array_size, None);
+            let path = match array {
+                // the content of an array is described by its element 0
+                Some(_) => format!("{member_path}[0]"),
+                None => member_path,
+            };
+            process(member, &path, name_rest, element, false, struct_offsets);
         } else {
             // don't write over the offset in buffer
             match *member {
-                BlockLayout::BasicType { ty: ty_ex, .. } if ty_ex == ty => (),
+                BlockLayout::BasicType { ty: ty_ex, .. } if ty_ex == element.ty => (),
                 _ => {
                     *member = BlockLayout::BasicType {
-                        offset_in_buffer: offset,
-                        ty,
+                        offset_in_buffer: element.offset,
+                        ty: element.ty,
                     };
                 }
             }
@@ -999,20 +1487,40 @@ where
     // drivers list the variables in any order, alphabetical for some of them: sorting them by
     // offset gives the members in the order of their declaration
     let mut elements: Vec<_> = elements.collect();
-    elements.sort_by_key(|element| element.1);
+    elements.sort_by_key(|element| element.offset);
+
+    // the smallest offsets of the members of the elements 0 and 1 of the arrays of structs, keyed
+    // by the path of the array with the indices of the arrays around it set to 0
+    let mut struct_offsets: HashMap<String, [Option<usize>; 2]> = HashMap::new();
+    for element in &elements {
+        let mut path = String::new();
+        let mut components = element.name.split('.').peekable();
+        while let Some(component) = components.next() {
+            let (name, index) = split_index(component);
+            if !path.is_empty() {
+                path.push('.');
+            }
+            path.push_str(name);
+            if let (Some(index), true) = (index, components.peek().is_some()) {
+                if index < 2 {
+                    let offsets = struct_offsets.entry(path.clone()).or_default();
+                    let offset = &mut offsets[index];
+                    *offset = Some(offset.map_or(element.offset, |o| o.min(element.offset)));
+                }
+                if index != 0 {
+                    // the arrays inside this element are described by element 0
+                    break;
+                }
+                path.push_str("[0]");
+            }
+        }
+    }
 
     let mut layout = BlockLayout::Struct {
         members: Vec::new(),
     };
-    for (name, offset, ty, array_size, top_level_array_size) in elements {
-        process(
-            &mut layout,
-            &name,
-            offset,
-            ty,
-            array_size,
-            top_level_array_size,
-        );
+    for element in &elements {
+        process(&mut layout, "", &element.name, element, true, &struct_offsets);
     }
     layout
 }
@@ -1328,11 +1836,13 @@ pub unsafe fn reflect_subroutine_data(
     _: bool,
     _: bool,
     _: bool,
+    _: Option<gl::types::GLbitfield>,
 ) -> SubroutineData {
     Default::default()
 }
 
-/// Returns the data associated with a programs subroutines.
+/// Returns the data associated with a programs subroutines. `separable` has the stages of a
+/// separable program, which can have a single shader.
 #[cfg(safegl_desktop)]
 pub unsafe fn reflect_subroutine_data(
     ctxt: &mut CommandContext<'_>,
@@ -1340,24 +1850,42 @@ pub unsafe fn reflect_subroutine_data(
     has_geometry_shader: bool,
     has_tessellation_control_shader: bool,
     has_tessellation_evaluation_shader: bool,
+    separable: Option<gl::types::GLbitfield>,
 ) -> SubroutineData {
     if !program::is_subroutine_supported(ctxt) {
         return Default::default();
     }
 
-    // Compute shader programs are not handled: #1718
-    let shader_count = ctxt
-        .glow
-        .get_program_parameter_i32(program, glow::ATTACHED_SHADERS);
-    if shader_count < 2 {
-        return Default::default();
-    }
-
-    let shader_stages = get_shader_stages(
-        has_geometry_shader,
-        has_tessellation_control_shader,
-        has_tessellation_evaluation_shader,
-    );
+    let shader_stages = match separable {
+        Some(bits) => [
+            (gl::VERTEX_SHADER_BIT, ShaderStage::Vertex),
+            (gl::FRAGMENT_SHADER_BIT, ShaderStage::Fragment),
+            (
+                gl::TESS_EVALUATION_SHADER_BIT,
+                ShaderStage::TessellationEvaluation,
+            ),
+            (gl::TESS_CONTROL_SHADER_BIT, ShaderStage::TessellationControl),
+            (gl::GEOMETRY_SHADER_BIT, ShaderStage::Geometry),
+        ]
+        .into_iter()
+        .filter(|&(bit, _)| bits & bit != 0)
+        .map(|(_, stage)| stage)
+        .collect(),
+        None => {
+            // Compute shader programs are not handled: #1718
+            let shader_count = ctxt
+                .glow
+                .get_program_parameter_i32(program, glow::ATTACHED_SHADERS);
+            if shader_count < 2 {
+                return Default::default();
+            }
+            get_shader_stages(
+                has_geometry_shader,
+                has_tessellation_control_shader,
+                has_tessellation_evaluation_shader,
+            )
+        }
+    };
     let mut subroutine_uniforms = HashMap::with_hasher(Default::default());
     let mut location_counts = HashMap::with_hasher(Default::default());
     for stage in shader_stages.iter() {
@@ -1468,34 +1996,119 @@ pub unsafe fn reflect_subroutine_data(
 
 #[cfg(test)]
 mod tests {
-    use super::{introspection_output_to_layout, BlockLayout, UniformType};
+    use super::{introspection_output_to_layout, BlockLayout, LayoutElement, UniformType};
+
+    /// A member of a uniform block, which lists every element of its arrays.
+    fn uniform(
+        name: &str,
+        offset: usize,
+        ty: UniformType,
+        size: usize,
+        stride: usize,
+    ) -> LayoutElement {
+        LayoutElement {
+            name: name.to_owned(),
+            offset,
+            ty,
+            array_size: size,
+            array_stride: stride,
+            top_level_array_size: None,
+            top_level_array_stride: None,
+        }
+    }
+
+    fn basic(ty: UniformType, offset_in_buffer: usize) -> BlockLayout {
+        BlockLayout::BasicType {
+            ty,
+            offset_in_buffer,
+        }
+    }
 
     #[test]
     fn members_in_declaration_order() {
         // the order of NVIDIA's driver
         let elements = vec![
-            ("dir".to_owned(), 8, UniformType::FloatVec2, 1, None),
-            ("pos".to_owned(), 0, UniformType::FloatVec2, 1, None),
-            ("speed".to_owned(), 16, UniformType::Float, 1, None),
+            uniform("dir", 8, UniformType::FloatVec2, 1, 0),
+            uniform("pos", 0, UniformType::FloatVec2, 1, 0),
+            uniform("speed", 16, UniformType::Float, 1, 0),
         ];
-        let member = |name: &str, ty, offset_in_buffer| {
-            (
-                name.to_owned(),
-                BlockLayout::BasicType {
-                    ty,
-                    offset_in_buffer,
-                },
-            )
-        };
 
         assert_eq!(
             introspection_output_to_layout(elements.into_iter()),
             BlockLayout::Struct {
                 members: vec![
-                    member("pos", UniformType::FloatVec2, 0),
-                    member("dir", UniformType::FloatVec2, 8),
-                    member("speed", UniformType::Float, 16),
+                    ("pos".to_owned(), basic(UniformType::FloatVec2, 0)),
+                    ("dir".to_owned(), basic(UniformType::FloatVec2, 8)),
+                    ("speed".to_owned(), basic(UniformType::Float, 16)),
                 ],
+            }
+        );
+    }
+
+    #[test]
+    fn array_strides() {
+        // `float values[4]` and `Light lights[2]` of a `std140` block
+        let elements = vec![
+            uniform("values[0]", 0, UniformType::Float, 4, 16),
+            uniform("lights[0].position", 64, UniformType::FloatVec3, 1, 0),
+            uniform("lights[0].intensity", 76, UniformType::Float, 1, 0),
+            uniform("lights[1].position", 80, UniformType::FloatVec3, 1, 0),
+            uniform("lights[1].intensity", 92, UniformType::Float, 1, 0),
+        ];
+        assert_eq!(
+            introspection_output_to_layout(elements.into_iter()),
+            BlockLayout::Struct {
+                members: vec![
+                    (
+                        "values".to_owned(),
+                        BlockLayout::Array {
+                            content: Box::new(basic(UniformType::Float, 0)),
+                            length: 4,
+                            stride: 16,
+                        }
+                    ),
+                    (
+                        "lights".to_owned(),
+                        BlockLayout::Array {
+                            content: Box::new(BlockLayout::Struct {
+                                members: vec![
+                                    ("position".to_owned(), basic(UniformType::FloatVec3, 64)),
+                                    ("intensity".to_owned(), basic(UniformType::Float, 76)),
+                                ],
+                            }),
+                            length: 2,
+                            stride: 16,
+                        }
+                    ),
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn storage_block_array_strides() {
+        // `Item items[];` of a `std430` storage block, which only lists the element 0
+        let elements = vec![LayoutElement {
+            name: "items[0].value".to_owned(),
+            offset: 0,
+            ty: UniformType::FloatVec2,
+            array_size: 1,
+            array_stride: 0,
+            top_level_array_size: Some(0),
+            top_level_array_stride: Some(24),
+        }];
+        assert_eq!(
+            introspection_output_to_layout(elements.into_iter()),
+            BlockLayout::Struct {
+                members: vec![(
+                    "items".to_owned(),
+                    BlockLayout::DynamicSizedArray {
+                        content: Box::new(BlockLayout::Struct {
+                            members: vec![("value".to_owned(), basic(UniformType::FloatVec2, 0))],
+                        }),
+                        stride: 24,
+                    }
+                )],
             }
         );
     }
