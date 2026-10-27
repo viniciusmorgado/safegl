@@ -730,7 +730,10 @@ impl<'a> ValidatedAttachments<'a> {
 }
 
 /// An error that can happen while validating attachments.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ValidationError {
     /// You requested an empty framebuffer object, but they are not supported.
     EmptyFramebufferObjectsNotSupported,

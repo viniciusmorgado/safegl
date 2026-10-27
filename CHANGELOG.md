@@ -248,6 +248,7 @@ Breaking changes:
   `enabled` (formerly `multisampling`), `alpha_to_coverage`, `sample_shading` and `sample_mask`:
   write `multisample: MultisampleState { alpha_to_coverage: true, ..Default::default() }`.
   `DrawError` has an `AlphaToOneNotSupported` variant at the desktop levels.
+- `framebuffer::ValidationError` is `#[non_exhaustive]` too.
 - `DrawError` is `#[non_exhaustive]`: matches on it need a wildcard arm. It has the new variants
   `LogicOpNotSupported`, `LogicOpWithBlending` and `PointCoordOriginNotSupported` at the desktop
   levels, and `DualSourceBlendingNotSupported` and `DualSourceBlendingTooManyDrawBuffers`.
