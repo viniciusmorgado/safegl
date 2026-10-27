@@ -180,6 +180,7 @@ extra_functions! {
     fn GetTextureSubImage(texture: GLuint, level: GLint, xoffset: GLint, yoffset: GLint, zoffset: GLint, width: GLsizei, height: GLsizei, depth: GLsizei, format: GLenum, type_: GLenum, bufSize: GLsizei, pixels: *mut c_void) -> ();
     fn GetnCompressedTexImage(target: GLenum, lod: GLint, bufSize: GLsizei, pixels: *mut c_void) -> ();
     fn GetnCompressedTexImageARB(target: GLenum, lod: GLint, bufSize: GLsizei, img: *mut c_void) -> ();
+    fn GetnTexImageARB(target: GLenum, level: GLint, format: GLenum, type_: GLenum, bufSize: GLsizei, img: *mut c_void) -> ();
     fn GetFragDataIndex(program: GLuint, name: *const GLchar) -> GLint;
     fn GetFragDataIndexEXT(program: GLuint, name: *const GLchar) -> GLint;
     fn GetGraphicsResetStatus() -> GLenum;

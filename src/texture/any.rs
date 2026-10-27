@@ -2855,3 +2855,84 @@ pub(crate) fn prepare_for_access(
         }
     }
 }
+
+/// Size of a mipmap as `glClearTexSubImage` and `glCopyImageSubData` address it: the layers of
+/// array textures and the faces of cubemaps count along the last used dimension.
+pub(crate) fn image_extent(mipmap: &TextureAnyMipmap<'_>) -> (u32, u32, u32) {
+    let width = mipmap.get_width();
+    let height = mipmap.get_height().unwrap_or(1);
+    match mipmap.get_texture().dimensions() {
+        Dimensions::Texture1dArray { array_size, .. } => (width, array_size, 1),
+        Dimensions::Texture2dArray { array_size, .. }
+        | Dimensions::Texture2dMultisampleArray { array_size, .. } => (width, height, array_size),
+        Dimensions::Texture3d { .. } => (width, height, mipmap.get_depth().unwrap_or(1)),
+        Dimensions::Cubemap { .. } => (width, height, 6),
+        Dimensions::CubemapArray { array_size, .. } => (width, height, array_size * 6),
+        _ => (width, height, 1),
+    }
+}
+
+/// Whether the box at `offset` of `size` fits in `extent`.
+pub(crate) fn fits(
+    offset: (u32, u32, u32),
+    size: (u32, u32, u32),
+    extent: (u32, u32, u32),
+) -> bool {
+    let fits = |offset: u32, size: u32, extent: u32| {
+        offset.checked_add(size).is_some_and(|end| end <= extent)
+    };
+    fits(offset.0, size.0, extent.0)
+        && fits(offset.1, size.1, extent.1)
+        && fits(offset.2, size.2, extent.2)
+}
+
+
+impl<'a> TextureAnyMipmap<'a> {
+    /// Reads the whole level of a 2D or rectangle texture: with `glGetTexImage` on desktop
+    /// OpenGL, which reads every format, and through a framebuffer otherwise.
+    pub(crate) fn read_2d<T, P>(&self) -> Result<T, ReadError>
+    where
+        T: Texture2dDataSink<P>,
+        P: PixelValue,
+    {
+        let (width, height) = (self.get_width(), self.get_height().unwrap_or(1));
+        #[cfg(safegl_desktop)]
+        if self.texture.context.get_opengl_version().0 == Api::Gl {
+            let data = self.read_level::<P>()?;
+            return Ok(T::from_raw(Cow::Owned(data), width, height));
+        }
+        let rect = Rect {
+            left: 0,
+            bottom: 0,
+            width,
+            height,
+        };
+        self.first_layer().into_image(None).unwrap().raw_read(&rect)
+    }
+
+    /// Reads the whole level of a 2D or rectangle texture into a pixel buffer, like `read_2d`.
+    pub(crate) fn read_2d_to_pixel_buffer<P>(&self) -> Result<PixelBuffer<P>, ReadError>
+    where
+        P: PixelValue,
+    {
+        let (width, height) = (self.get_width(), self.get_height().unwrap_or(1));
+        let texels = width as usize * height as usize;
+        let buffer = PixelBuffer::new_empty(&self.texture.context, texels);
+        #[cfg(safegl_desktop)]
+        if self.texture.context.get_opengl_version().0 == Api::Gl {
+            self.read_level_to_pixel_buffer(&buffer)?;
+            return Ok(buffer);
+        }
+        let rect = Rect {
+            left: 0,
+            bottom: 0,
+            width,
+            height,
+        };
+        self.first_layer()
+            .into_image(None)
+            .unwrap()
+            .raw_read_to_pixel_buffer(&rect, &buffer)?;
+        Ok(buffer)
+    }
+}

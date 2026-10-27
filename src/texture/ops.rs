@@ -19,7 +19,8 @@ use crate::gl;
 use crate::handles::RawName;
 #[cfg(safegl_gl44)]
 use crate::image_format::{ClientFormat, TextureFormat, TextureFormatRequest};
-use crate::texture::{Dimensions, TextureAnyMipmap};
+use crate::texture::any::{fits, image_extent};
+use crate::texture::TextureAnyMipmap;
 #[cfg(safegl_gl44)]
 use crate::texture::{PixelValue, TextureAny, TextureKind};
 use crate::version::{Api, Version};
@@ -130,36 +131,6 @@ impl fmt::Display for TextureBarrierNotSupportedError {
 
 #[cfg(safegl_gl45)]
 impl Error for TextureBarrierNotSupportedError {}
-
-/// Size of a mipmap as `glClearTexSubImage` and `glCopyImageSubData` address it: the layers of
-/// array textures and the faces of cubemaps count along the last used dimension.
-pub(crate) fn image_extent(mipmap: &TextureAnyMipmap<'_>) -> (u32, u32, u32) {
-    let width = mipmap.get_width();
-    let height = mipmap.get_height().unwrap_or(1);
-    match mipmap.get_texture().dimensions() {
-        Dimensions::Texture1dArray { array_size, .. } => (width, array_size, 1),
-        Dimensions::Texture2dArray { array_size, .. }
-        | Dimensions::Texture2dMultisampleArray { array_size, .. } => (width, height, array_size),
-        Dimensions::Texture3d { .. } => (width, height, mipmap.get_depth().unwrap_or(1)),
-        Dimensions::Cubemap { .. } => (width, height, 6),
-        Dimensions::CubemapArray { array_size, .. } => (width, height, array_size * 6),
-        _ => (width, height, 1),
-    }
-}
-
-/// Whether the box at `offset` of `size` fits in `extent`.
-pub(crate) fn fits(
-    offset: (u32, u32, u32),
-    size: (u32, u32, u32),
-    extent: (u32, u32, u32),
-) -> bool {
-    let fits = |offset: u32, size: u32, extent: u32| {
-        offset.checked_add(size).is_some_and(|end| end <= extent)
-    };
-    fits(offset.0, size.0, extent.0)
-        && fits(offset.1, size.1, extent.1)
-        && fits(offset.2, size.2, extent.2)
-}
 
 #[cfg(safegl_gl44)]
 fn is_compressed_request(format: TextureFormatRequest) -> bool {

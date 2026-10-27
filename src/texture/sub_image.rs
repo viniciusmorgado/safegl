@@ -1,6 +1,5 @@
 //! Reads of boxes of texture levels (`glGetTextureSubImage`, OpenGL 4.5).
 
-use std::borrow::Cow;
 
 use glow::HasContext;
 
@@ -10,8 +9,8 @@ use crate::gl;
 use crate::handles::RawName;
 use crate::image_format::{self, ClientFormatAny};
 use crate::ops::ReadError;
-use crate::texture::ops::{fits, image_extent};
-use crate::texture::{PixelValue, Texture3dDataSink, TextureAnyMipmap};
+use crate::texture::any::{fits, image_extent};
+use crate::texture::{PixelValue, TextureAnyMipmap};
 use crate::version::{Api, Version};
 use crate::{BufferExt, ContextExt, GlObject, TextureExt};
 
@@ -92,20 +91,6 @@ impl<'a> TextureAnyMipmap<'a> {
             );
         }
         Ok(data)
-    }
-
-    /// Reads the whole level into a `Texture3dDataSink`, such as `Vec<Vec<Vec<P>>>`: the slices
-    /// of a 3D texture, the layers of an array texture or the faces of a cube map. See
-    /// `read_box`.
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
-    pub fn read_volume<P, T>(&self) -> Result<T, ReadError>
-    where
-        P: PixelValue,
-        T: Texture3dDataSink<P>,
-    {
-        let (width, height, depth) = image_extent(self);
-        let data = self.read_box::<P>((0, 0, 0), (width, height, depth))?;
-        Ok(T::from_raw(Cow::Owned(data), width, height, depth))
     }
 
     /// Reads the compressed blocks of a box of this mipmap level of a compressed texture

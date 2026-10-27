@@ -198,6 +198,8 @@ mod get_format;
 #[cfg(any(safegl_gl43, safegl_gles32))]
 mod ops;
 mod parameters;
+#[cfg(safegl_desktop)]
+mod level_read;
 #[cfg(safegl_gl45)]
 mod sub_image;
 #[cfg(safegl_gl43)]
