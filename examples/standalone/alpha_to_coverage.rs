@@ -539,7 +539,7 @@ impl ApplicationContext for Application {
         for (variant, instances) in self.ferns.variants.iter().zip(&self.ferns.instances) {
             scene
                 .draw(
-                    (&self.ferns.vertices, instances.per_instance().unwrap()),
+                    (&self.ferns.vertices, instances.per_instance()),
                     self.ferns.indices.slice(variant.clone()).unwrap(),
                     &self.fern_program,
                     &uniforms,

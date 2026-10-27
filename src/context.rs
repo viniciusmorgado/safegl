@@ -193,10 +193,7 @@ pub(crate) unsafe fn set_patch_vertices(
     extensions: &ExtensionsList,
     value: gl::types::GLint,
 ) {
-    if version >= &Version(Api::Gl, 4, 0)
-        || version >= &Version(Api::GlEs, 3, 2)
-        || extensions.gl_arb_tessellation_shader
-    {
+    if version.0 == Api::Gl || version >= &Version(Api::GlEs, 3, 2) {
         gl.0.patch_parameter_i32(glow::PATCH_VERTICES, value);
     } else if extensions.gl_oes_tessellation_shader {
         gl.1.PatchParameteriOES(gl::PATCH_VERTICES, value);
@@ -846,12 +843,18 @@ impl Context {
     pub fn insert_debug_marker(&self, marker: &str) -> Result<(), ()> {
         let ctxt = self.make_current();
 
-        if ctxt.extensions.gl_gremedy_string_marker {
-            let marker = marker.as_bytes();
+        // `glDebugMessageInsert` is core in OpenGL 4.3 and OpenGL ES 3.2
+        if ctxt.version >= &Version(Api::Gl, 4, 3)
+            || ctxt.version >= &Version(Api::GlEs, 3, 2)
+            || (ctxt.version.0 == Api::Gl && ctxt.extensions.gl_khr_debug)
+        {
             unsafe {
-                ctxt.extra.StringMarkerGREMEDY(
-                    marker.len() as gl::types::GLsizei,
-                    marker.as_ptr() as *const _,
+                ctxt.glow.debug_message_insert(
+                    glow::DEBUG_SOURCE_APPLICATION,
+                    glow::DEBUG_TYPE_MARKER,
+                    0,
+                    glow::DEBUG_SEVERITY_NOTIFICATION,
+                    marker,
                 )
             };
             Ok(())
@@ -1185,7 +1188,8 @@ fn printall_debug_callback(
 /// is reported.
 /// Sets up the state that SafeGL expects in a new OpenGL context.
 unsafe fn init_state(ctxt: &CommandContext<'_>) {
-    if ctxt.version.0 == Api::Gl && ctxt.extensions.gl_arb_seamless_cube_map {
+    // core in OpenGL 3.2, and always enabled on OpenGL ES
+    if ctxt.version.0 == Api::Gl {
         ctxt.glow.enable(glow::TEXTURE_CUBE_MAP_SEAMLESS);
     }
 }

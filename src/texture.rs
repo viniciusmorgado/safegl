@@ -148,10 +148,10 @@ pub use self::ops::{
 };
 pub use self::pixel::PixelValue;
 pub use self::ty_support::is_cubemap_arrays_supported;
-pub use self::ty_support::{is_cubemaps_supported, is_texture_2d_multisample_array_supported};
-pub use self::ty_support::{is_texture_1d_array_supported, is_texture_3d_supported};
-pub use self::ty_support::{is_texture_1d_supported, is_texture_2d_supported};
-pub use self::ty_support::{is_texture_2d_array_supported, is_texture_2d_multisample_supported};
+pub use self::ty_support::is_texture_2d_multisample_array_supported;
+pub use self::ty_support::is_texture_1d_array_supported;
+pub use self::ty_support::is_texture_1d_supported;
+pub use self::ty_support::is_texture_2d_multisample_supported;
 pub use crate::image_format::{ClientFormat, TextureFormat};
 pub use crate::image_format::{CompressedFormat, DepthFormat, DepthStencilFormat, StencilFormat};
 pub use crate::image_format::{CompressedSrgbFormat, SrgbFormat};

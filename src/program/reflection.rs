@@ -1157,11 +1157,8 @@ fn glenum_to_attribute_type(value: gl::types::GLenum) -> Option<AttributeType> {
         gl::INT_VEC4 => AttributeType::I32I32I32I32,
         gl::UNSIGNED_INT => AttributeType::U32,
         gl::UNSIGNED_INT_VEC2 => AttributeType::U32U32,
-        //gl::UNSIGNED_INT_VEC2_EXT => AttributeType::U32U32,
         gl::UNSIGNED_INT_VEC3 => AttributeType::U32U32U32,
-        //gl::UNSIGNED_INT_VEC3_EXT => AttributeType::U32U32U32,
         gl::UNSIGNED_INT_VEC4 => AttributeType::U32U32U32U32,
-        //gl::UNSIGNED_INT_VEC4_EXT => AttributeType::U32U32U32U32,
         gl::FLOAT_MAT2 => AttributeType::F32x2x2,
         gl::FLOAT_MAT3 => AttributeType::F32x3x3,
         gl::FLOAT_MAT4 => AttributeType::F32x4x4,
@@ -1203,10 +1200,10 @@ fn glenum_to_attribute_type(value: gl::types::GLenum) -> Option<AttributeType> {
 #[inline]
 fn glenum_to_transform_feedback_mode(value: gl::types::GLenum) -> TransformFeedbackMode {
     match value {
-        gl::INTERLEAVED_ATTRIBS/* | gl::INTERLEAVED_ATTRIBS_EXT*/ => {
+        gl::INTERLEAVED_ATTRIBS => {
             TransformFeedbackMode::Interleaved
         },
-        gl::SEPARATE_ATTRIBS/* | gl::SEPARATE_ATTRIBS_EXT*/ => {
+        gl::SEPARATE_ATTRIBS => {
             TransformFeedbackMode::Separate
         },
         v => panic!("Unknown value returned by OpenGL varying mode: {}", v)

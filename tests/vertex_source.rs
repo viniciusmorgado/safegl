@@ -652,10 +652,7 @@ fn instancing() {
         .unwrap()
     };
 
-    let buffer2 = match buffer2.per_instance() {
-        Ok(b) => b,
-        Err(e) => panic!("{:?}", e),
-    };
+    let buffer2 = buffer2.per_instance();
 
     let index_buffer =
         safegl::IndexBuffer::new(&display, PrimitiveType::TriangleStrip, &[0u16, 1, 2, 3]).unwrap();
@@ -779,10 +776,7 @@ fn per_instance_length_mismatch() {
         .unwrap()
     };
 
-    let buffer2 = match buffer2.per_instance() {
-        Ok(b) => b,
-        Err(e) => panic!("{:?}", e),
-    };
+    let buffer2 = buffer2.per_instance();
 
     let buffer3 = {
         #[derive(Copy, Clone)]
@@ -809,10 +803,7 @@ fn per_instance_length_mismatch() {
         .unwrap()
     };
 
-    let buffer3 = match buffer3.per_instance() {
-        Ok(b) => b,
-        Err(e) => panic!("{:?}", e),
-    };
+    let buffer3 = buffer3.per_instance();
 
     let index_buffer =
         safegl::IndexBuffer::new(&display, PrimitiveType::TriangleStrip, &[0u16, 1, 2, 3]).unwrap();

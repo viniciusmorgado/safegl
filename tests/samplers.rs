@@ -74,7 +74,6 @@ fn magnify_nearest_filtering() {
         .draw(&vb, &ib, &program, &uniforms, &Default::default())
     {
         Ok(_) => (),
-        Err(safegl::DrawError::SamplersNotSupported) => return,
         Err(e) => panic!("{:?}", e),
     };
 

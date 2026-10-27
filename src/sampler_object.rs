@@ -52,7 +52,7 @@ impl SamplerObject {
                 ctxt.glow.sampler_parameter_i32(
                     sampler,
                     glow::TEXTURE_COMPARE_MODE,
-                    gl::COMPARE_R_TO_TEXTURE as gl::types::GLint,
+                    gl::COMPARE_REF_TO_TEXTURE as gl::types::GLint,
                 );
                 ctxt.glow.sampler_parameter_i32(
                     sampler,

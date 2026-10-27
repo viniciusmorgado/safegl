@@ -427,7 +427,6 @@ fn get_transform_feedback_varyings() {
 
     let program = match safegl::Program::new(&display, source) {
         Ok(p) => p,
-        Err(safegl::program::ProgramCreationError::TransformFeedbackNotSupported) => return,
         Err(e) => panic!("{:?}", e),
     };
 

@@ -93,10 +93,7 @@ fn timestamp_query() {
 fn sync() {
     let display = support::build_display();
 
-    let fence = safegl::SyncFence::new(&display);
-    if let Ok(fence) = fence {
-        fence.wait();
-    }
+    safegl::SyncFence::new(&display).wait();
 
     display.assert_no_error(None);
 }

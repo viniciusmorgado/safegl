@@ -50,10 +50,7 @@ Some restrictions apply when you use framebuffers:
    For example you can't create a texture with 4x multisampling, another texture with 2x
    multisampling, and draw on them simultaneously.
 
- - On old hardware all the framebuffer attachments must have the same dimensions (on more recent
-   hardware the intersection between all the attachments is taken if all attachments don't have
-   the same dimensions). You can use the `is_dimensions_mismatch_supported` function to check
-   what the hardware supports.
+ - The attachments can have different dimensions: the intersection of all of them is drawn to.
 
  - You will get undefined results if you try to sample to a texture mipmap attached to the
    framebuffer that you are using. This is not enforced by safegl as it depends on your shader's
@@ -107,7 +104,6 @@ pub use self::external_fb::ExternalFramebuffer;
 pub use self::render_buffer::CreationError as RenderBufferCreationError;
 pub use self::render_buffer::{DepthRenderBuffer, RenderBuffer, RenderBufferAny};
 pub use self::render_buffer::{DepthStencilRenderBuffer, StencilRenderBuffer};
-pub use crate::fbo::is_dimensions_mismatch_supported;
 pub use crate::fbo::ValidationError;
 use crate::uniforms::MagnifySamplerFilter;
 

@@ -11,10 +11,6 @@ use std::rc::Rc;
 
 use std::thread;
 
-/// Error that happens when sync functionalities are not supported.
-#[derive(Copy, Clone, Debug)]
-pub struct SyncNotSupportedError;
-
 /// Provides a way to wait for a server-side operation to be finished.
 ///
 /// Creating a `SyncFence` injects an element in the commands queue of the backend.
@@ -26,7 +22,7 @@ pub struct SyncNotSupportedError;
 /// # use glutin::surface::{ResizeableSurface, SurfaceTypeTrait};
 /// # fn example<T>(display: safegl::Display<T>) where T: SurfaceTypeTrait + ResizeableSurface {
 /// # fn do_something<T>(_: &T) {}
-/// let fence = safegl::SyncFence::new(&display).unwrap();
+/// let fence = safegl::SyncFence::new(&display);
 /// do_something(&display);
 /// fence.wait();   // blocks until the previous operations have finished
 /// # }
@@ -39,17 +35,16 @@ pub struct SyncFence {
 impl SyncFence {
     /// Builds a new `SyncFence` that is injected in the server.
     #[inline]
-    pub fn new<F: ?Sized>(facade: &F) -> Result<SyncFence, SyncNotSupportedError>
+    pub fn new<F: ?Sized>(facade: &F) -> SyncFence
     where
         F: Facade,
     {
         let mut ctxt = facade.get_context().make_current();
-        unsafe { new_linear_sync_fence(&mut ctxt) }.map(|fence| {
-            match fence.into_sync_fence(facade) {
-                Ok(fence) => fence,
-                Err(_) => unreachable!("the fence was created by the context of the facade"),
-            }
-        })
+        let fence = unsafe { new_linear_sync_fence(&mut ctxt) };
+        match fence.into_sync_fence(facade) {
+            Ok(fence) => fence,
+            Err(_) => unreachable!("the fence was created by the context of the facade"),
+        }
     }
 
     /// Returns true if the operations before the fence have finished on the server, without
@@ -147,18 +142,16 @@ impl Drop for LinearSyncFence {
     }
 }
 
-pub unsafe fn new_linear_sync_fence(
-    ctxt: &mut CommandContext<'_>,
-) -> Result<LinearSyncFence, SyncNotSupportedError> {
+pub unsafe fn new_linear_sync_fence(ctxt: &mut CommandContext<'_>) -> LinearSyncFence {
     // sync objects are core in OpenGL 3.2 and OpenGL ES 3.0
-    Ok(LinearSyncFence {
+    LinearSyncFence {
         context: ctxt.context as *const Context as usize,
         id: Some(
             ctxt.glow
                 .fence_sync(glow::SYNC_GPU_COMMANDS_COMPLETE, 0)
                 .expect("glFenceSync failed"),
         ),
-    })
+    }
 }
 
 /// Waits for this fence and destroys it, from within the commands context.

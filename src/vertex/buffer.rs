@@ -99,13 +99,13 @@ where
     /// The attributes are still passed to the vertex shader, but each entry is passed
     /// for each different instance.
     #[inline]
-    pub fn per_instance(&'b self) -> Result<PerInstance<'b>, InstancingNotSupported> {
+    pub fn per_instance(&'b self) -> PerInstance<'b> {
         // instancing is core in OpenGL 3.3 and OpenGL ES 3.0
         let slice = self
             .buffer
             .as_slice_any()
             .with_elements_size(self.elements_size);
-        Ok(PerInstance(slice, self.bindings))
+        PerInstance(slice, self.bindings)
     }
 }
 
@@ -385,13 +385,13 @@ where
     /// geometry for each element in this buffer. The attributes are still passed to the
     /// vertex shader, but each entry is passed for each different instance.
     #[inline]
-    pub fn per_instance(&self) -> Result<PerInstance<'_>, InstancingNotSupported> {
+    pub fn per_instance(&self) -> PerInstance<'_> {
         // instancing is core in OpenGL 3.3 and OpenGL ES 3.0
         let slice = self
             .buffer
             .as_slice_any()
             .with_elements_size(self.elements_size);
-        Ok(PerInstance(slice, self.bindings))
+        PerInstance(slice, self.bindings)
     }
 }
 
@@ -601,9 +601,9 @@ impl VertexBufferAny {
     /// geometry for each element in this buffer. The attributes are still passed to the
     /// vertex shader, but each entry is passed for each different instance.
     #[inline]
-    pub fn per_instance(&self) -> Result<PerInstance<'_>, InstancingNotSupported> {
+    pub fn per_instance(&self) -> PerInstance<'_> {
         // instancing is core in OpenGL 3.3 and OpenGL ES 3.0
-        Ok(PerInstance(self.buffer.as_slice_any(), self.bindings))
+        PerInstance(self.buffer.as_slice_any(), self.bindings)
     }
 }
 
@@ -650,7 +650,3 @@ impl<'a> From<&'a VertexBufferAny> for VerticesSource<'a> {
         VerticesSource::VertexBuffer(this.buffer.as_slice_any(), this.bindings, false)
     }
 }
-
-/// Instancing is not supported by the backend.
-#[derive(Debug, Copy, Clone)]
-pub struct InstancingNotSupported;

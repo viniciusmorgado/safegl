@@ -88,9 +88,8 @@ impl UniformsStorage {
         macro_rules! uniform_f64(
             ($ctxt:expr, $uniform:ident, $($params:expr),+) => (
                 unsafe {
-                    if $ctxt.version >= &crate::version::Version(crate::version::Api::Gl, 4, 0)
-                        || $ctxt.extensions.gl_arb_gpu_shader_fp64
-                    {
+                    // core in OpenGL 4.0, and not part of OpenGL ES
+                    if $ctxt.version.0 == crate::version::Api::Gl {
                         $ctxt.extra.$uniform($($params),+)
                     } else {
                         panic!("Double precision floats are not supported on this system.")

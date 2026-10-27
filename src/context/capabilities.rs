@@ -204,10 +204,8 @@ pub unsafe fn get_capabilities(
 
         robustness: if version >= &Version(Api::Gl, 4, 5)
             || version >= &Version(Api::GlEs, 3, 2)
-            || (version >= &Version(Api::Gl, 3, 0) && extensions.gl_arb_robustness)
+            || (version.0 == Api::Gl && extensions.gl_arb_robustness)
         {
-            // TODO: there seems to be no way to query `GL_CONTEXT_FLAGS` before OpenGL 3.0, even
-            //       if `GL_ARB_robustness` is there
             let val = gl.get_parameter_i32(glow::CONTEXT_FLAGS) as gl::types::GLenum;
             (val & glow::CONTEXT_FLAG_ROBUST_ACCESS_BIT) != 0
         } else if extensions.gl_khr_robustness || extensions.gl_ext_robustness {
@@ -253,47 +251,31 @@ pub unsafe fn get_capabilities(
             ReleaseBehavior::Flush
         },
 
-        stereo: {
-            if version >= &Version(Api::Gl, 1, 0) {
-                gl.get_parameter_bool(glow::STEREO)
-            } else {
-                false
-            }
-        },
+        // OpenGL ES has no stereo rendering
+        stereo: version.0 == Api::Gl && gl.get_parameter_bool(glow::STEREO),
 
         srgb: {
-            // `glGetFramebufferAttachmentParameteriv` incorrectly returns GL_INVALID_ENUM on some
-            // drivers, so we prefer using `glGetIntegerv` if possible.
-            if version >= &Version(Api::Gl, 3, 0) && !extensions.gl_ext_framebuffer_srgb {
-                let fb = gl.get_parameter_i32(glow::DRAW_FRAMEBUFFER_BINDING);
-                let attachment = if fb == 0 {
-                    gl::FRONT_LEFT
-                } else {
-                    gl::COLOR_ATTACHMENT0
-                };
-                let value = gl.get_framebuffer_attachment_parameter_i32(
-                    glow::FRAMEBUFFER,
-                    attachment,
-                    glow::FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING,
-                );
-                value as gl::types::GLenum == gl::SRGB
-            } else if extensions.gl_ext_framebuffer_srgb {
-                gl.get_parameter_bool(gl::FRAMEBUFFER_SRGB_CAPABLE_EXT)
-            } else {
-                false
-            }
+            // the default framebuffer names its color buffers by side on desktop OpenGL
+            let fb = gl.get_parameter_i32(glow::DRAW_FRAMEBUFFER_BINDING);
+            let attachment = match (fb, version.0) {
+                (0, Api::Gl) => gl::FRONT_LEFT,
+                (0, Api::GlEs) => gl::BACK,
+                _ => gl::COLOR_ATTACHMENT0,
+            };
+            let value = gl.get_framebuffer_attachment_parameter_i32(
+                glow::FRAMEBUFFER,
+                attachment,
+                glow::FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING,
+            );
+            value as gl::types::GLenum == gl::SRGB
         },
 
         depth_bits: {
             let value;
 
-            // `glGetFramebufferAttachmentParameteriv` incorrectly returns GL_INVALID_ENUM on some
-            // drivers, so we prefer using `glGetIntegerv` if possible.
-            //
-            // Also note that `gl_arb_es2_compatibility` may provide `GL_DEPTH_BITS` but os/x
-            // doesn't even though it provides this extension. I'm not sure whether this is a bug
-            // with OS/X or just the extension actually not providing it.
-            if version >= &Version(Api::Gl, 3, 0) && !extensions.gl_arb_compatibility {
+            // `GL_DEPTH_BITS` is removed from the core profile of desktop OpenGL, which queries
+            // the attachment instead
+            if version.0 == Api::Gl {
                 let fb = gl.get_parameter_i32(glow::DRAW_FRAMEBUFFER_BINDING);
                 let attachment = if fb == 0 {
                     gl::DEPTH
@@ -328,13 +310,9 @@ pub unsafe fn get_capabilities(
         stencil_bits: {
             let value;
 
-            // `glGetFramebufferAttachmentParameteriv` incorrectly returns GL_INVALID_ENUM on some
-            // drivers, so we prefer using `glGetIntegerv` if possible.
-            //
-            // Also note that `gl_arb_es2_compatibility` may provide `GL_STENCIL_BITS` but os/x
-            // doesn't even though it provides this extension. I'm not sure whether this is a bug
-            // with OS/X or just the extension actually not providing it.
-            if version >= &Version(Api::Gl, 3, 0) && !extensions.gl_arb_compatibility {
+            // `GL_STENCIL_BITS` is removed from the core profile of desktop OpenGL, which queries
+            // the attachment instead
+            if version.0 == Api::Gl {
                 let fb = gl.get_parameter_i32(glow::DRAW_FRAMEBUFFER_BINDING);
                 let attachment = if fb == 0 {
                     gl::STENCIL
@@ -396,9 +374,9 @@ pub unsafe fn get_capabilities(
         max_cube_map_texture_size: gl.get_parameter_i32(glow::MAX_CUBE_MAP_TEXTURE_SIZE),
 
         max_texture_buffer_size: {
-            if version >= &Version(Api::Gl, 3, 0)
-                || extensions.gl_arb_texture_buffer_object
-                || extensions.gl_ext_texture_buffer_object
+            // core in OpenGL 3.1 and OpenGL ES 3.2
+            if version.0 == Api::Gl
+                || version >= &Version(Api::GlEs, 3, 2)
                 || extensions.gl_oes_texture_buffer
                 || extensions.gl_ext_texture_buffer
             {
@@ -414,22 +392,11 @@ pub unsafe fn get_capabilities(
             (val[0], val[1])
         },
 
-        max_draw_buffers: {
-            if version >= &Version(Api::Gl, 2, 0)
-                || version >= &Version(Api::GlEs, 3, 0)
-                || extensions.gl_ati_draw_buffers
-                || extensions.gl_arb_draw_buffers
-            {
-                gl.get_parameter_i32(glow::MAX_DRAW_BUFFERS)
-            } else {
-                1
-            }
-        },
+        max_draw_buffers: gl.get_parameter_i32(glow::MAX_DRAW_BUFFERS),
 
         // tessellation is core in OpenGL 4.0 and OpenGL ES 3.2
-        max_patch_vertices: if version >= &Version(Api::Gl, 4, 0)
+        max_patch_vertices: if version.0 == Api::Gl
             || version >= &Version(Api::GlEs, 3, 2)
-            || extensions.gl_arb_tessellation_shader
             || extensions.gl_ext_tessellation_shader
             || extensions.gl_oes_tessellation_shader
         {
@@ -458,41 +425,17 @@ pub unsafe fn get_capabilities(
             }
         },
 
-        max_indexed_transform_feedback_buffer: {
-            if version >= &Version(Api::Gl, 4, 0) || extensions.gl_arb_transform_feedback3 {
-                gl.get_parameter_i32(glow::MAX_TRANSFORM_FEEDBACK_BUFFERS)
-            } else if version >= &Version(Api::Gl, 3, 0)
-                || version >= &Version(Api::GlEs, 3, 0)
-                || extensions.gl_ext_transform_feedback
-            {
-                // OpenGL ES binds one buffer per separate attribute
-                gl.get_parameter_i32(gl::MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS_EXT)
-            } else {
-                0
-            }
+        max_indexed_transform_feedback_buffer: match version.0 {
+            Api::Gl => gl.get_parameter_i32(glow::MAX_TRANSFORM_FEEDBACK_BUFFERS),
+            // OpenGL ES binds one buffer per separate attribute
+            Api::GlEs => gl.get_parameter_i32(glow::MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS),
         },
 
-        max_indexed_uniform_buffer: {
-            if version >= &Version(Api::Gl, 3, 1)
-                || version >= &Version(Api::GlEs, 3, 0)
-                || extensions.gl_arb_uniform_buffer_object
-            {
-                gl.get_parameter_i32(glow::MAX_UNIFORM_BUFFER_BINDINGS)
-            } else {
-                0
-            }
-        },
+        max_indexed_uniform_buffer: gl.get_parameter_i32(glow::MAX_UNIFORM_BUFFER_BINDINGS),
 
-        uniform_buffer_offset_alignment: {
-            if version >= &Version(Api::Gl, 3, 1)
-                || version >= &Version(Api::GlEs, 3, 0)
-                || extensions.gl_arb_uniform_buffer_object
-            {
-                gl.get_parameter_i32(glow::UNIFORM_BUFFER_OFFSET_ALIGNMENT).max(1) as usize
-            } else {
-                1
-            }
-        },
+        uniform_buffer_offset_alignment: gl
+            .get_parameter_i32(glow::UNIFORM_BUFFER_OFFSET_ALIGNMENT)
+            .max(1) as usize,
 
         shader_storage_buffer_offset_alignment: {
             if version >= &Version(Api::Gl, 4, 3)
@@ -517,21 +460,7 @@ pub unsafe fn get_capabilities(
             (0, 0, 0)
         },
 
-        max_color_attachments: {
-            if version >= &Version(Api::Gl, 3, 0)
-                || version >= &Version(Api::GlEs, 3, 0)
-                || extensions.gl_arb_framebuffer_object
-                || extensions.gl_ext_framebuffer_object
-                || extensions.gl_nv_fbo_color_attachments
-            {
-                gl.get_parameter_i32(glow::MAX_COLOR_ATTACHMENTS)
-            } else if version >= &Version(Api::GlEs, 2, 0) {
-                1
-            } else {
-                // SafeGL doesn't allow creating contexts that don't support FBOs
-                unreachable!()
-            }
-        },
+        max_color_attachments: gl.get_parameter_i32(glow::MAX_COLOR_ATTACHMENTS),
 
         max_framebuffer_width: {
             if version >= &Version(Api::Gl, 4, 3)
@@ -608,7 +537,8 @@ pub unsafe fn get_supported_glsl(
 
     let mut result = Vec::with_capacity(8);
 
-    if version >= &Version(Api::GlEs, 2, 0)
+    // GLSL ES 1.00 is accepted by OpenGL 4.1 through `GL_ARB_ES2_compatibility`
+    if version.0 == Api::GlEs
         || version >= &Version(Api::Gl, 4, 1)
         || extensions.gl_arb_es2_compatibility
     {
@@ -633,31 +563,19 @@ pub unsafe fn get_supported_glsl(
         result.push(Version(Api::GlEs, 3, 2));
     }
 
-    if version >= &Version(Api::Gl, 2, 0) && version <= &Version(Api::Gl, 3, 0)
-        || extensions.gl_arb_compatibility
-    {
-        result.push(Version(Api::Gl, 1, 1));
-    }
-
-    if version >= &Version(Api::Gl, 2, 1) && version <= &Version(Api::Gl, 3, 0)
-        || extensions.gl_arb_compatibility
-    {
-        result.push(Version(Api::Gl, 1, 2));
-    }
-
-    if version == &Version(Api::Gl, 3, 0) || extensions.gl_arb_compatibility {
-        result.push(Version(Api::Gl, 1, 3));
-    }
-
-    if version >= &Version(Api::Gl, 3, 1) {
-        result.push(Version(Api::Gl, 1, 4));
-    }
-
-    if version >= &Version(Api::Gl, 3, 2) {
-        result.push(Version(Api::Gl, 1, 5));
-    }
-
-    for &(major, minor) in &[(3, 3), (4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5)] {
+    // the core profile accepts GLSL 1.40 and above, but not GLSL 1.10 to 1.30
+    for &(major, minor) in &[
+        (1, 4),
+        (1, 5),
+        (3, 3),
+        (4, 0),
+        (4, 1),
+        (4, 2),
+        (4, 3),
+        (4, 4),
+        (4, 5),
+        (4, 6),
+    ] {
         if version >= &Version(Api::Gl, major, minor) {
             result.push(Version(Api::Gl, major, minor));
         }

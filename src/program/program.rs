@@ -488,10 +488,7 @@ impl ProgramExt for Program {
             }
         }
 
-        if (ctxt.version.0 == Api::Gl
-            || ctxt.extensions.gl_arb_framebuffer_srgb
-            || ctxt.extensions.gl_ext_framebuffer_srgb
-            || ctxt.extensions.gl_ext_srgb_write_control)
+        if (ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_srgb_write_control)
             && ctxt.state.enabled_framebuffer_srgb == self.outputs_srgb
         {
             ctxt.state.enabled_framebuffer_srgb = !self.outputs_srgb;

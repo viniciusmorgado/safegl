@@ -59,92 +59,51 @@ pub fn get_gl_version(gl: &glow::Context) -> Version {
 }
 
 /// Given an API version, this function returns the GLSL version that the implementation is
-/// required to support.
+/// required to support, which has the same number from OpenGL 3.3 and OpenGL ES 3.0.
 ///
 /// # Panic
 ///
-/// Panics if the version is invalid or is not supposed to support a GLSL version.
+/// Panics if the version is below OpenGL 4.0 or OpenGL ES 3.0, which SafeGL doesn't support.
 pub fn get_supported_glsl_version(gl_version: &Version) -> Version {
-    match gl_version.0 {
-        Api::Gl => {
-            // since OpenGL 3.3: glsl versions match gl version, just return a copy
-            if *gl_version >= Version(gl_version.0, 3, 3) {
-                return *gl_version;
-            }
-
-            // match to detect invalid versions
-            match *gl_version {
-                Version(a, 2, 0) => Version(a, 1, 1),
-                Version(a, 2, 1) => Version(a, 1, 2),
-                Version(a, 3, 0) => Version(a, 1, 3),
-                Version(a, 3, 1) => Version(a, 1, 4),
-                Version(a, 3, 2) => Version(a, 1, 5),
-                _ => panic!("no corresponding glsl version exists"),
-            }
-        }
-        Api::GlEs => {
-            // since OpenGL ES 3.0: glsl versions match gl version, just return a copy
-            if *gl_version >= Version(gl_version.0, 3, 0) {
-                return *gl_version;
-            }
-
-            // only other valid GLES version is 2.0
-            if *gl_version == Version(gl_version.0, 2, 0) {
-                Version(Api::GlEs, 1, 0)
-            } else {
-                panic!("no corresponding glsl version exists")
-            }
-        }
-    }
+    let minimum = match gl_version.0 {
+        Api::Gl => Version(Api::Gl, 4, 0),
+        Api::GlEs => Version(Api::GlEs, 3, 0),
+    };
+    assert!(
+        *gl_version >= minimum,
+        "SafeGL doesn't support {:?} {}.{}",
+        gl_version.0,
+        gl_version.1,
+        gl_version.2
+    );
+    *gl_version
 }
 
 #[cfg(test)]
 mod tests {
     use super::{get_supported_glsl_version, Api, Version};
 
-    macro_rules! assert_versions {
-        ( $api:path, $gl_major:expr, $gl_minor:expr => $glsl_major:expr, $glsl_minor:expr) => {
-            assert_eq!(
-                get_supported_glsl_version(&Version($api, $gl_major, $gl_minor)),
-                Version($api, $glsl_major, $glsl_minor)
-            );
-        };
-    }
-
     #[test]
-    fn valid_gl_versions() {
-        // irregular versions
-        assert_versions!(Api::Gl, 2, 0 => 1, 1);
-        assert_versions!(Api::Gl, 2, 1 => 1, 2);
-        assert_versions!(Api::Gl, 3, 0 => 1, 3);
-        assert_versions!(Api::Gl, 3, 1 => 1, 4);
-        assert_versions!(Api::Gl, 3, 2 => 1, 5);
-
-        // test a few regular versions
-        assert_versions!(Api::Gl, 3, 3 => 3, 3);
-        assert_versions!(Api::Gl, 4, 0 => 4, 0);
-        assert_versions!(Api::Gl, 4, 5 => 4, 5);
-    }
-
-    #[test]
-    fn valid_gles_versions() {
-        // only irregular version
-        assert_versions!(Api::GlEs, 2, 0 => 1, 0);
-
-        // some regular versions
-        assert_versions!(Api::GlEs, 3, 0 => 3, 0);
-        assert_versions!(Api::GlEs, 3, 1 => 3, 1);
+    fn glsl_versions_match_the_api_versions() {
+        for version in [
+            Version(Api::Gl, 4, 0),
+            Version(Api::Gl, 4, 6),
+            Version(Api::GlEs, 3, 0),
+            Version(Api::GlEs, 3, 2),
+        ] {
+            assert_eq!(get_supported_glsl_version(&version), version);
+        }
     }
 
     #[test]
     #[should_panic]
-    fn invalid_gl_version() {
-        get_supported_glsl_version(&Version(Api::Gl, 1, 0));
+    fn unsupported_gl_version() {
+        get_supported_glsl_version(&Version(Api::Gl, 3, 3));
     }
 
     #[test]
     #[should_panic]
-    fn invalid_gles_version() {
-        get_supported_glsl_version(&Version(Api::GlEs, 1, 0));
+    fn unsupported_gles_version() {
+        get_supported_glsl_version(&Version(Api::GlEs, 2, 0));
     }
 }

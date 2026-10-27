@@ -77,17 +77,7 @@ use crate::version::Api;
 use crate::version::Version;
 
 /// Returns true if the backend supports attachments with varying dimensions.
-///
-/// If this function returns `true` and you pass attachments with different dimensions, the
-/// intersection between all the attachments will be used. If this function returns `false`, you'll
-/// get an error instead.
-pub fn is_dimensions_mismatch_supported<C: ?Sized>(_context: &C) -> bool
-where
-    C: CapabilitiesSource,
-{
-    // core since OpenGL 3.0 and OpenGL ES 2.0, which are below the minimum supported versions
-    true
-}
+
 
 /// Represents the attachments to use for an OpenGL framebuffer.
 #[derive(Clone)]

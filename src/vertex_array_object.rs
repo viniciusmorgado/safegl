@@ -317,9 +317,6 @@ impl VertexArrayObject {
                     }
                 };
 
-                // Unfortunately internal API used by GLES implementation on Vita
-                // assumes all attributes as float4, so we should skip this check for it.
-                #[cfg(not(target_os = "vita"))]
                 if ty.get_num_components() != attribute.ty.get_num_components()
                     || attribute.size != 1
                 {
@@ -517,8 +514,6 @@ fn vertex_binding_type_to_gl(
         AttributeType::F64x4x4 => (gl::DOUBLE, 4, 4),
         AttributeType::I2I10I10I10Reversed => (gl::INT_2_10_10_10_REV, 4, 1),
         AttributeType::U2U10U10U10Reversed => (gl::UNSIGNED_INT_2_10_10_10_REV, 4, 1),
-        AttributeType::I10I10I10I2 => (gl::INT_10_10_10_2_OES, 4, 1),
-        AttributeType::U10U10U10U2 => (gl::UNSIGNED_INT_10_10_10_2_OES, 4, 1),
         AttributeType::F10F11F11UnsignedIntReversed => (gl::UNSIGNED_INT_10F_11F_11F_REV, 3, 1),
         AttributeType::FixedFloatI16U16 => (gl::FIXED, 1, 1),
     }

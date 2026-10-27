@@ -64,7 +64,8 @@ pub fn is_subroutine_supported<C: ?Sized>(ctxt: &C) -> bool
 where
     C: CapabilitiesSource,
 {
-    ctxt.get_version().0 == Api::Gl || ctxt.get_extensions().gl_arb_shader_subroutine
+    // core in OpenGL 4.0, and not part of OpenGL ES
+    ctxt.get_version().0 == Api::Gl
 }
 
 // Some shader compilers have race-condition issues, so we lock this mutex
@@ -134,14 +135,6 @@ pub enum ProgramCreationError {
     /// The OpenGL implementation doesn't provide a compiler.
     CompilationNotSupported,
 
-    /// You have requested transform feedback varyings, but transform feedback is not supported
-    /// by the backend.
-    TransformFeedbackNotSupported,
-
-    /// You have requested point size setting from the shader, but it's not
-    /// supported by the backend.
-    PointSizeNotSupported,
-
     /// The SafeGL-specific binary header was not found or is corrupt.
     BinaryHeaderError,
 
@@ -168,8 +161,6 @@ impl fmt::Display for ProgramCreationError {
                 "One of the request shader type is not supported by the backend"
             }
             CompilationNotSupported => "The backend doesn't support shaders compilation",
-            TransformFeedbackNotSupported => "Transform feedback is not supported by the backend.",
-            PointSizeNotSupported => "Point size is not supported by the backend.",
             BinaryHeaderError => "The SafeGL-specific binary header was not found or is corrupt.",
             BinaryNotSupported => "Program binaries are not supported by the backend.",
         };

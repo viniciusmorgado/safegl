@@ -80,7 +80,6 @@ fn transform_feedback() {
 
     let program = match safegl::Program::new(&display, source) {
         Ok(p) => p,
-        Err(safegl::program::ProgramCreationError::TransformFeedbackNotSupported) => return,
         Err(e) => panic!("{:?}", e),
     };
 
@@ -164,7 +163,6 @@ fn capturing_program(display: &safegl::Display<safegl::glutin::surface::WindowSu
     };
     match safegl::Program::new(display, source) {
         Ok(p) => Some(p),
-        Err(safegl::program::ProgramCreationError::TransformFeedbackNotSupported) => None,
         Err(e) => panic!("{:?}", e),
     }
 }

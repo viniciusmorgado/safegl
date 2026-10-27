@@ -126,6 +126,23 @@ Breaking changes:
 - SafeGL uses desktop contexts as forward-compatible ones, which have no wide lines: a
   `line_width` above 1 pixel returns the new `DrawError::LineWidthNotSupported` on desktop
   OpenGL, and so does a width that isn't positive everywhere. OpenGL ES still draws wider lines.
+- The code and APIs of OpenGL versions below 4.0 and of OpenGL ES 2 are removed:
+  - `texture::{is_texture_2d_supported, is_texture_3d_supported, is_texture_2d_array_supported,
+    is_cubemaps_supported}`, `framebuffer::is_dimensions_mismatch_supported` and
+    `vertex::is_transform_feedback_supported`, which always returned `true`, and
+    `TransformFeedbackSessionCreationError::NotSupported`;
+  - `SyncFence::new` returns the fence and `per_instance()` the `PerInstance` directly, without
+    `SyncNotSupportedError` and `InstancingNotSupported`, which never happened;
+  - `DrawError::SamplersNotSupported`, `DrawError::TransformFeedbackNotSupported`,
+    `ProgramCreationError::TransformFeedbackNotSupported` and `PointSizeNotSupported`, which
+    nothing returned;
+  - `AttributeType::I10I10I10I2` and `U10U10U10U2`, which only existed on OpenGL ES 2;
+  - the `ExtensionsList` fields of 84 extensions that are core in every supported version, or
+    only existed for OpenGL ES 2 and the compatibility profile;
+  - GLSL 1.10 to 1.30, which the core profile doesn't accept, from the supported versions.
+
+  `Context::insert_debug_marker` uses `glDebugMessageInsert` (OpenGL 4.3, OpenGL ES 3.2 or
+  `GL_KHR_debug`) instead of `GL_GREMEDY_string_marker`.
 
 Additions:
 
@@ -260,6 +277,10 @@ Fixes:
   `GL_EXT_tessellation_shader` too: only `GL_OES_tessellation_shader` was checked.
 - Multi-draw indirect draws use the `...EXT` entry points of `GL_EXT_multi_draw_indirect` on
   OpenGL ES, instead of the desktop ones that the driver doesn't have.
+- GLSL 4.60 is among the supported GLSL versions on OpenGL 4.6, so `program!` can choose it.
+- `Capabilities::max_texture_buffer_size` is given on OpenGL ES 3.2, where buffer textures are
+  core, and the sRGB encoding of the default framebuffer is read from its attachment on every
+  context, instead of `GL_FRAMEBUFFER_SRGB_CAPABLE_EXT`, which the core profile doesn't have.
 
 ## [0.2.0]
 

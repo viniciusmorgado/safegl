@@ -121,7 +121,7 @@ impl ApplicationContext for Application {
             .draw(
                 (
                     &self.vertex_buffer,
-                    self.per_instance.per_instance().unwrap(),
+                    self.per_instance.per_instance(),
                 ),
                 &indices,
                 &self.program,

@@ -558,13 +558,6 @@ where
 {
     let location = uniform.location;
 
-    // The spec only states that a negative location is an error.
-    // This fact is abused by some implementations (e.g. vitaGL)
-    // which actually use negative values for uniform locations.
-    #[cfg(target_os = "vita")]
-    assert!(location != -1);
-
-    #[cfg(not(target_os = "vita"))]
     assert!(location >= 0);
 
     // textures can only be used with the context that created them

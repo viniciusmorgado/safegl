@@ -1390,17 +1390,11 @@ pub enum DrawError {
     /// The geometry shader of the program takes another kind of primitives than the ones drawn.
     GeometryShaderInputMismatch,
 
-    /// Trying to use a sampler, but they are not supported by the backend.
-    SamplersNotSupported,
-
     /// When you use instancing, all vertices sources must have the same size.
     InstancesCountMismatch,
 
     /// If you don't use indices, then all vertices sources must have the same size.
     VerticesSourcesLengthMismatch,
-
-    /// You requested not to draw primitives, but this is not supported by the backend.
-    TransformFeedbackNotSupported,
 
     /// See the documentation of the `draw_parameters` module for infos.
     WrongQueryOperation,
@@ -1600,14 +1594,10 @@ impl fmt::Display for DrawError {
                 "Drawing patches with a program that has no tessellation evaluation shader",
             GeometryShaderInputMismatch =>
                 "The geometry shader of the program takes another kind of primitives than the ones drawn",
-            SamplersNotSupported => "
-                Trying to use a sampler, but they are not supported by the backend",
             InstancesCountMismatch =>
                 "When you use instancing, all vertices sources must have the same size",
             VerticesSourcesLengthMismatch =>
                 "If you don't use indices, then all vertices sources must have the same size",
-            TransformFeedbackNotSupported =>
-                "Requested not to draw primitives, but this is not supported by the backend",
             WrongQueryOperation =>
                 "Wrong query operation",
             SmoothingNotSupported =>

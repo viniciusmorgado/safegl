@@ -129,10 +129,6 @@ pub enum AttributeType {
     ///
     /// Corresponds to `GL_UNSIGNED_INT_2_10_10_10_REV`.
     U2U10U10U10Reversed,
-    /// Corresponds to `GL_INT_10_10_10_2`.
-    I10I10I10I2,
-    /// Corresponds to `GL_UNSIGNED_INT_10_10_10_2`.
-    U10U10U10U2,
     /// Three floating points values turned into unsigned integers./
     ///
     /// Corresponds to `GL_UNSIGNED_INT_10F_11F_11F_REV`.
@@ -245,10 +241,6 @@ impl AttributeType {
 
             &AttributeType::I2I10I10I10Reversed | &AttributeType::U2U10U10U10Reversed => true,
 
-            &AttributeType::I10I10I10I2 | &AttributeType::U10U10U10U2 => {
-                caps.get_extensions().gl_oes_vertex_type_10_10_10_2
-            }
-
             // core in OpenGL 4.4, and not part of OpenGL ES
             &AttributeType::F10F11F11UnsignedIntReversed => {
                 caps.get_version() >= &Version(Api::Gl, 4, 4)
@@ -333,8 +325,6 @@ impl AttributeType {
             AttributeType::F64x4x4 => 16 * mem::size_of::<f64>(),
             AttributeType::I2I10I10I10Reversed => 4,
             AttributeType::U2U10U10U10Reversed => 4,
-            AttributeType::I10I10I10I2 => 4,
-            AttributeType::U10U10U10U2 => 4,
             AttributeType::F10F11F11UnsignedIntReversed => 4,
             AttributeType::FixedFloatI16U16 => 4,
         }
@@ -416,8 +406,6 @@ impl AttributeType {
             AttributeType::F64x4x4 => 16,
             AttributeType::I2I10I10I10Reversed => 4,
             AttributeType::U2U10U10U10Reversed => 4,
-            AttributeType::I10I10I10I2 => 4,
-            AttributeType::U10U10U10U2 => 4,
             AttributeType::F10F11F11UnsignedIntReversed => 3,
             AttributeType::FixedFloatI16U16 => 1,
         }
