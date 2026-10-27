@@ -200,6 +200,11 @@ Breaking changes:
 
 Additions:
 
+- Buffers and their slices can be filled with a value on the GPU (`glClearBufferSubData`,
+  `gl43`): `clear(value)` on `Buffer`, `BufferSlice` and `BufferMutSlice`, whose content is the
+  new `buffer::ClearValue`, writes its bits: integers of 8, 16 and 32 bits, `f32`, and arrays of
+  2 or 4 of them or of 3 of the 32-bit ones. It needs OpenGL 4.3 or `GL_ARB_clear_buffer_object`,
+  or returns `buffer::ClearBufferError::NotSupported`.
 - Multidraws can read their number of commands from a buffer, which a compute shader can write
   (`glMultiDraw*IndirectCount`, `gl46`): `DrawCommandsNoIndicesBuffer::with_draw_count` and
   `DrawCommandsIndicesBuffer::with_index_buffer_and_draw_count` take a `BufferSlice<u32>` and a

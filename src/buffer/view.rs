@@ -20,6 +20,8 @@ use std::rc::Rc;
 
 use crate::buffer::alloc::Alloc;
 use crate::buffer::alloc::CopyError;
+#[cfg(safegl_gl43)]
+use crate::buffer::{ClearBufferError, ClearContent};
 use crate::buffer::alloc::Mapping;
 use crate::buffer::alloc::ReadError;
 use crate::buffer::alloc::ReadMapping;
@@ -858,6 +860,71 @@ where
     #[inline]
     fn from(b: &'a mut Buffer<T>) -> BufferSlice<'a, T> {
         b.as_slice()
+    }
+}
+
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+impl<T: ?Sized> Buffer<T>
+where
+    T: ClearContent,
+{
+    /// Fills the buffer with copies of `value`, bit for bit, on the GPU
+    /// (`glClearBufferSubData`).
+    ///
+    /// Needs OpenGL 4.3 or `GL_ARB_clear_buffer_object`, otherwise returns
+    /// `ClearBufferError::NotSupported`.
+    #[inline]
+    pub fn clear(&self, value: T::Value) -> Result<(), ClearBufferError> {
+        self.as_slice().clear(value)
+    }
+}
+
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+impl<'a, T: ?Sized> BufferSlice<'a, T>
+where
+    T: ClearContent + 'a,
+{
+    /// Fills the slice with copies of `value`, bit for bit, on the GPU
+    /// (`glClearBufferSubData`).
+    ///
+    /// Needs OpenGL 4.3 or `GL_ARB_clear_buffer_object`, otherwise returns
+    /// `ClearBufferError::NotSupported`.
+    pub fn clear(&self, value: T::Value) -> Result<(), ClearBufferError> {
+        self.alloc
+            .clear(self.bytes_start..self.bytes_end, &value)?;
+
+        if let Some(inserter) = self.add_fence() {
+            let mut ctxt = self.alloc.get_context().make_current();
+            inserter.insert(&mut ctxt);
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+impl<'a, T: ?Sized> BufferMutSlice<'a, T>
+where
+    T: ClearContent + 'a,
+{
+    /// Fills the slice with copies of `value`, bit for bit, on the GPU
+    /// (`glClearBufferSubData`).
+    ///
+    /// Needs OpenGL 4.3 or `GL_ARB_clear_buffer_object`, otherwise returns
+    /// `ClearBufferError::NotSupported`.
+    pub fn clear(&self, value: T::Value) -> Result<(), ClearBufferError> {
+        self.alloc
+            .clear(self.bytes_start..self.bytes_end, &value)?;
+
+        if let Some(inserter) = self.add_fence() {
+            let mut ctxt = self.alloc.get_context().make_current();
+            inserter.insert(&mut ctxt);
+        }
+
+        Ok(())
     }
 }
 

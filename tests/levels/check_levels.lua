@@ -29,6 +29,9 @@ local cases = {
         safegl::DrawParameters { base_instance: 1, ..Default::default() }
     }
   ]] },
+  { "gl43_has_buffer_clears", { "gl43" }, nil, [[
+    pub fn f(b: &safegl::buffer::Buffer<[u32]>) { let _ = b.clear(0); }
+  ]] },
   { "gl43_has_compute_shaders", { "gl43" }, nil, [[
     pub use safegl::program::ComputeShader;
   ]] },
@@ -79,6 +82,9 @@ local cases = {
     pub fn f() -> safegl::DrawParameters<'static> {
         safegl::DrawParameters { base_instance: 1, ..Default::default() }
     }
+  ]] },
+  { "gl42_has_no_buffer_clears", { "gl42" }, "no method named `clear`", [[
+    pub fn f(b: &safegl::buffer::Buffer<[u32]>) { let _ = b.clear(0); }
   ]] },
   { "gl41_has_no_compute_shaders", { "gl41" }, "ComputeShader", [[
     pub use safegl::program::ComputeShader;

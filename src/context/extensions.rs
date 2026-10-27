@@ -55,6 +55,7 @@ extensions! {
     "GL_ARB_compute_shader" => gl_arb_compute_shader,
     "GL_ARB_copy_image" => gl_arb_copy_image,
     "GL_ARB_debug_output" => gl_arb_debug_output,
+    "GL_ARB_clear_buffer_object" => gl_arb_clear_buffer_object,
     "GL_ARB_direct_state_access" => gl_arb_direct_state_access,
     "GL_ARB_ES2_compatibility" => gl_arb_es2_compatibility,
     "GL_ARB_ES3_compatibility" => gl_arb_es3_compatibility,

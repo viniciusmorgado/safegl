@@ -78,6 +78,9 @@
 pub use self::alloc::is_buffer_read_supported;
 pub(crate) use self::alloc::restore_bindings;
 pub use self::alloc::{CopyError, Mapping, ReadError, ReadMapping, WriteMapping};
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+pub use self::clear::{ClearBufferError, ClearContent, ClearValue};
 pub use self::fences::Inserter;
 
 /// The fences to insert after a draw or compute command, kept inline so that commands that use
@@ -109,6 +112,8 @@ use std::mem;
 use std::slice;
 
 mod alloc;
+#[cfg(safegl_gl43)]
+mod clear;
 mod fences;
 mod view;
 

@@ -1037,6 +1037,64 @@ impl Alloc {
         }
     }
 
+    /// Fills the bytes of `range` with copies of `value` (`glClearBufferSubData`).
+    ///
+    /// With persistent-mapped buffers you must create a sync fence *after* this operation.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the range is out of the buffer.
+    #[cfg(safegl_gl43)]
+    pub fn clear<V>(
+        &self,
+        range: Range<usize>,
+        value: &V,
+    ) -> Result<(), crate::buffer::ClearBufferError>
+    where
+        V: crate::buffer::ClearValue,
+    {
+        // the ranges come from slices, which are always inside their buffer
+        assert!(range.start <= range.end && range.end <= self.size);
+
+        let mut ctxt = self.context.make_current();
+        if !(ctxt.version >= &Version(Api::Gl, 4, 3) || ctxt.extensions.gl_arb_clear_buffer_object)
+        {
+            return Err(crate::buffer::ClearBufferError::NotSupported);
+        }
+        if range.is_empty() {
+            return Ok(());
+        }
+
+        // shader writes must be done before, and the buffer must be out of transform feedback
+        self.barrier_for_buffer_update(&mut ctxt);
+        self.assert_unmapped(&mut ctxt);
+        self.assert_not_transform_feedback(&mut ctxt);
+
+        let (internal_format, format, ty) = V::clear_format();
+        let offset = range.start as gl::types::GLintptr;
+        let size = (range.end - range.start) as gl::types::GLsizeiptr;
+        let data = value as *const V as *const raw::c_void;
+        unsafe {
+            if ctxt.version >= &Version(Api::Gl, 4, 5) || ctxt.extensions.gl_arb_direct_state_access {
+                ctxt.extra.ClearNamedBufferSubData(
+                    self.id.raw_name(),
+                    internal_format,
+                    offset,
+                    size,
+                    format,
+                    ty,
+                    data,
+                );
+            } else {
+                let bind = bind_buffer(&mut ctxt, Some(self.id), self.ty);
+                ctxt.extra
+                    .ClearBufferSubData(bind, internal_format, offset, size, format, ty, data);
+            }
+        }
+
+        Ok(())
+    }
+
     /// Copies data from this buffer to another one.
     ///
     /// With persistent-mapped buffers you must create a sync fence *after* this operation.
