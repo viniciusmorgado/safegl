@@ -273,9 +273,12 @@ pub unsafe fn get_capabilities(
 
         forward_compatible,
 
+        // desktop OpenGL reports robust access in the context flags, with the extensions too;
+        // OpenGL ES below 3.2 has its own query
         robustness: if version >= &Version(Api::Gl, 4, 5)
             || version >= &Version(Api::GlEs, 3, 2)
-            || (version.0 == Api::Gl && extensions.gl_arb_robustness)
+            || (version.0 == Api::Gl
+                && (extensions.gl_arb_robustness || extensions.gl_khr_robustness))
         {
             let val = gl.get_parameter_i32(glow::CONTEXT_FLAGS) as gl::types::GLenum;
             (val & glow::CONTEXT_FLAG_ROBUST_ACCESS_BIT) != 0
