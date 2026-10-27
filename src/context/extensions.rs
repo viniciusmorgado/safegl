@@ -30,7 +30,11 @@ macro_rules! extensions {
                 )+
             };
 
+            let hidden = hidden_extensions();
             for extension in strings.iter() {
+                if hidden.iter().any(|name| name == extension) {
+                    continue;
+                }
                 match &extension[..] {
                     $(
                         $string => extensions.$field = true,
@@ -42,6 +46,18 @@ macro_rules! extensions {
             extensions
         }
     }
+}
+
+/// The extensions that the context must treat as missing, from the space-separated names of
+/// `SAFEGL_DISABLE_EXTENSIONS`, so that tests run the paths of drivers without them on drivers
+/// that can't hide them (Mesa can't disable some extensions). Only debug builds read it.
+fn hidden_extensions() -> Vec<String> {
+    if !cfg!(debug_assertions) {
+        return Vec::new();
+    }
+    std::env::var("SAFEGL_DISABLE_EXTENSIONS")
+        .map(|names| names.split_whitespace().map(str::to_owned).collect())
+        .unwrap_or_default()
 }
 
 extensions! {
