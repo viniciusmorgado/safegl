@@ -390,3 +390,32 @@ fn subroutines_of_every_stage() {
 
     display.assert_no_error(None);
 }
+
+#[test]
+fn pipeline_after_foreign_state_changes() {
+    use glow::HasContext;
+    use safegl::GlObject;
+
+    let display = support::build_display();
+    let Some(header) = header(&display) else {
+        return;
+    };
+    let vertex = vertex_program(&display, header);
+    let fragment = fragment_program(&display, header);
+    let pipeline = ProgramPipeline::new(&display, &[&vertex, &fragment]).unwrap();
+    let red = unicolor(&display, (255, 0, 0, 255));
+    let green = unicolor(&display, (0, 255, 0, 255));
+    let uniforms = uniform! { shift: &green, tex: &red, tint: [1.0f32; 4] };
+    assert_eq!(draw(&display, &pipeline, &uniforms).unwrap(), (255, 255, 0, 255));
+
+    // another library uses a program, which wins over the bound pipeline
+    unsafe {
+        display.exec_in_context(|| {
+            display.glow_context().use_program(Some(fragment.get_id()));
+        });
+    }
+    display.restore_state();
+    assert_eq!(draw(&display, &pipeline, &uniforms).unwrap(), (255, 255, 0, 255));
+
+    display.assert_no_error(None);
+}
