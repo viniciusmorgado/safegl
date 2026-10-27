@@ -93,7 +93,6 @@ path = "examples/standalone/blitting.rs"
 [[example]]
 name = "compute_image"
 path = "examples/standalone/compute_image.rs"
-required-features = ["gl46"]
 
 [[example]]
 name = "deferred"
@@ -114,7 +113,6 @@ path = "examples/standalone/fxaa.rs"
 [[example]]
 name = "gpgpu"
 path = "examples/standalone/gpgpu.rs"
-required-features = ["gl46"]
 
 [[example]]
 name = "headless"
@@ -151,7 +149,6 @@ path = "examples/standalone/picking.rs"
 [[example]]
 name = "programmable_blending"
 path = "examples/standalone/programmable_blending.rs"
-required-features = ["gl46"]
 
 [[example]]
 name = "screenshot-asynchronous"
@@ -164,7 +161,6 @@ path = "examples/standalone/screenshot.rs"
 [[example]]
 name = "shadow_bias"
 path = "examples/standalone/shadow_bias.rs"
-required-features = ["gl46"]
 
 [[example]]
 name = "shadow_mapping"
@@ -193,7 +189,6 @@ path = "examples/standalone/triangle.rs"
 [[example]]
 name = "weighted_oit"
 path = "examples/standalone/weighted_oit.rs"
-required-features = ["gl46"]
 
 [[example]]
 name = "tutorial-01"
@@ -250,7 +245,6 @@ path = "examples/standalone/tutorial-14.rs"
 [[example]]
 name = "spirv"
 path = "examples/standalone/spirv/main.rs"
-required-features = ["gl46"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { version = "0.2", optional = true }
