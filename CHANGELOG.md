@@ -398,6 +398,11 @@ Additions:
   `MultisampleState::alpha_to_one` writes an alpha of 1 into the samples (`desktop`,
   `GL_SAMPLE_ALPHA_TO_ONE`; drawing with it into an OpenGL ES context returns
   `DrawError::AlphaToOneNotSupported`).
+- `DrawParameters::logic_op` replaces the colors written into normalized and integer color buffers
+  with a bitwise operation between them and the colors already there (`desktop`, `glLogicOp`,
+  `LogicOp`). Since OpenGL disables blending on those buffers, a logic operation with blending
+  returns `DrawError::LogicOpWithBlending`, and one drawn into an OpenGL ES context
+  `DrawError::LogicOpNotSupported`.
 
 Fixes:
 

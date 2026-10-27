@@ -44,6 +44,13 @@ impl Blend {
     }
 }
 
+impl Blend {
+    /// Whether drawing with it enables `GL_BLEND`.
+    pub(crate) fn is_enabled(&self) -> bool {
+        BlendState::new(*self).enabled
+    }
+}
+
 impl Default for Blend {
     fn default() -> Blend {
         Blend {

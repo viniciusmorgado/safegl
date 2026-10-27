@@ -159,6 +159,9 @@ pub use crate::context::{
 pub use crate::draw_parameters::OutputState;
 #[cfg(safegl_desktop)]
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+pub use crate::draw_parameters::LogicOp;
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub use crate::draw_parameters::PolygonMode;
 #[cfg(safegl_desktop)]
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
@@ -1619,6 +1622,17 @@ pub enum DrawError {
     #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     AlphaToOneNotSupported,
 
+    /// Logic operations (`DrawParameters::logic_op`) aren't supported by the backend: only
+    /// desktop OpenGL has them.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    LogicOpNotSupported,
+
+    /// `DrawParameters::logic_op` was given together with blending, which OpenGL would ignore.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    LogicOpWithBlending,
+
     /// Per-sample shading (`MultisampleState::sample_shading`) isn't supported by the backend.
     #[cfg(any(safegl_desktop, safegl_gles32))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
@@ -1872,6 +1886,10 @@ impl fmt::Display for DrawError {
                 "Inverted conditional rendering is not supported by the backend",
             #[cfg(safegl_desktop)]
             AlphaToOneNotSupported => "Turning the alpha to one is not supported by the backend",
+            #[cfg(safegl_desktop)]
+            LogicOpNotSupported => "Logic operations are not supported by the backend",
+            #[cfg(safegl_desktop)]
+            LogicOpWithBlending => "A logic operation can't be used together with blending",
             #[cfg(any(safegl_desktop, safegl_gles32))]
             SampleShadingNotSupported =>
                 "Per-sample shading is not supported by the backend",

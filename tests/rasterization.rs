@@ -182,3 +182,170 @@ fn stencil_by_winding() {
 
     display.assert_no_error(None);
 }
+
+/// Draws a fullscreen triangle of the color `color` into `surface`, with `logic_op`.
+#[cfg(safegl_desktop)]
+fn draw_with_logic_op<S: Surface>(
+    display: &Display,
+    surface: &mut S,
+    integer: bool,
+    color: [u32; 4],
+    parameters: &DrawParameters<'_>,
+) -> Result<(), safegl::DrawError> {
+    let fragment = if integer {
+        "#version 330 core\nuniform uvec4 color;\nout uvec4 f_color;\nvoid main() { f_color = color; }"
+    } else {
+        "#version 330 core\nuniform vec4 color;\nout vec4 f_color;\nvoid main() { f_color = color; }"
+    };
+    let program = Program::from_source(
+        display,
+        "#version 330 core\nin vec2 position;\nvoid main() { gl_Position = vec4(position, 0.0, 1.0); }",
+        fragment,
+        None,
+    )
+    .unwrap();
+    let triangle = fullscreen_triangle(display, false);
+    let indices = NoIndices(PrimitiveType::TrianglesList);
+    if integer {
+        surface.draw(&triangle, indices, &program, &uniform! { color: color }, parameters)
+    } else {
+        let color = color.map(|c| c as f32 / 255.0);
+        surface.draw(&triangle, indices, &program, &uniform! { color: color }, parameters)
+    }
+}
+
+#[cfg(safegl_desktop)]
+#[test]
+fn logic_ops_on_normalized_targets() {
+    use safegl::LogicOp;
+
+    let display = support::build_display();
+    let target = Texture2d::empty(&display, 4, 4).unwrap();
+    let draw = |logic_op| {
+        target
+            .as_surface()
+            .clear_color(0x0F as f32 / 255.0, 0xF0 as f32 / 255.0, 0x33 as f32 / 255.0, 1.0);
+        let parameters = DrawParameters {
+            logic_op,
+            ..Default::default()
+        };
+        let result = draw_with_logic_op(
+            &display,
+            &mut target.as_surface(),
+            false,
+            [0xFF, 0xFF, 0x55, 0xFF],
+            &parameters,
+        );
+        result.map(|()| {
+            let data: Vec<Vec<(u8, u8, u8, u8)>> = target.read().unwrap();
+            data[0][0]
+        })
+    };
+
+    match draw(Some(LogicOp::Xor)) {
+        Err(safegl::DrawError::LogicOpNotSupported) => {
+            assert!(support::is_gles(&display));
+            return;
+        }
+        result => assert_eq!(result.unwrap(), (0xF0, 0x0F, 0x66, 0x00)),
+    }
+    assert_eq!(draw(Some(LogicOp::And)).unwrap(), (0x0F, 0xF0, 0x11, 0xFF));
+    assert_eq!(draw(Some(LogicOp::Noop)).unwrap(), (0x0F, 0xF0, 0x33, 0xFF));
+    assert_eq!(draw(Some(LogicOp::Invert)).unwrap(), (0xF0, 0x0F, 0xCC, 0x00));
+    assert_eq!(draw(Some(LogicOp::Clear)).unwrap(), (0, 0, 0, 0));
+    // without a logic operation, the color is written again
+    assert_eq!(draw(None).unwrap(), (0xFF, 0xFF, 0x55, 0xFF));
+
+    display.assert_no_error(None);
+}
+
+#[cfg(safegl_desktop)]
+#[test]
+fn logic_ops_on_integer_targets() {
+    use safegl::texture::UnsignedTexture2d;
+    use safegl::uniforms::{MagnifySamplerFilter, MinifySamplerFilter};
+    use safegl::LogicOp;
+
+    let display = support::build_display();
+    if support::is_gles(&display) {
+        return;
+    }
+    let texels = vec![vec![(0x0Fu8, 0xF0u8, 0x33u8, 0x01u8); 4]; 4];
+    let target = UnsignedTexture2d::new(&display, texels).unwrap();
+    draw_with_logic_op(
+        &display,
+        &mut SimpleFrameBuffer::new(&display, &target).unwrap(),
+        true,
+        [0xFF, 0x0F, 0x55, 0x03],
+        &DrawParameters {
+            logic_op: Some(LogicOp::Or),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    // the integers are copied into a normalized texture to be read
+    let program = Program::from_source(
+        &display,
+        "#version 330 core\nin vec2 position;\nvoid main() { gl_Position = vec4(position, 0.0, 1.0); }",
+        "#version 330 core\nuniform usampler2D tex;\nout vec4 f_color;\n\
+         void main() { f_color = vec4(texelFetch(tex, ivec2(0), 0)) / 255.0; }",
+        None,
+    )
+    .unwrap();
+    let copy = Texture2d::empty(&display, 4, 4).unwrap();
+    let sampled = target
+        .sampled()
+        .magnify_filter(MagnifySamplerFilter::Nearest)
+        .minify_filter(MinifySamplerFilter::Nearest);
+    copy.as_surface()
+        .draw(
+            &fullscreen_triangle(&display, false),
+            NoIndices(PrimitiveType::TrianglesList),
+            &program,
+            &uniform! { tex: sampled },
+            &Default::default(),
+        )
+        .unwrap();
+    let data: Vec<Vec<(u8, u8, u8, u8)>> = copy.read().unwrap();
+    assert_eq!(data[0][0], (0xFF, 0xFF, 0x77, 0x03));
+
+    display.assert_no_error(None);
+}
+
+/// OpenGL ignores blending on the buffers that a logic operation writes.
+#[cfg(safegl_desktop)]
+#[test]
+fn logic_ops_refuse_blending() {
+    use safegl::{LogicOp, OutputState};
+
+    let display = support::build_display();
+    if support::is_gles(&display) {
+        return;
+    }
+    let target = Texture2d::empty(&display, 4, 4).unwrap();
+    let outputs = [OutputState {
+        blend: safegl::Blend::alpha_blending(),
+        ..Default::default()
+    }];
+    let refused = [
+        DrawParameters {
+            logic_op: Some(LogicOp::Xor),
+            blend: safegl::Blend::alpha_blending(),
+            ..Default::default()
+        },
+        DrawParameters {
+            logic_op: Some(LogicOp::Xor),
+            outputs: &outputs,
+            ..Default::default()
+        },
+    ];
+    for parameters in &refused {
+        assert!(matches!(
+            draw_with_logic_op(&display, &mut target.as_surface(), false, [0; 4], parameters),
+            Err(safegl::DrawError::LogicOpWithBlending)
+        ));
+    }
+
+    display.assert_no_error(None);
+}

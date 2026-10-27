@@ -133,6 +133,31 @@ local cases = {
   { "webgl_has_framebuffer_invalidation", { "webgl" }, nil, [[
     pub use safegl::framebuffer::InvalidateAttachments;
   ]], WASM },
+  { "webgl_has_front_faces_and_sample_coverage", { "webgl" }, nil, [[
+    use safegl::draw_parameters::{MultisampleState, SampleCoverage};
+    pub fn f() -> safegl::DrawParameters<'static> {
+        safegl::DrawParameters {
+            front_face: safegl::FrontFace::Clockwise,
+            multisample: MultisampleState {
+                sample_coverage: Some(SampleCoverage { value: 0.5, invert: false }),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+  ]], WASM },
+  { "gl40_has_logic_ops_and_alpha_to_one", { "gl40" }, nil, [[
+    pub fn f() -> safegl::DrawParameters<'static> {
+        safegl::DrawParameters {
+            logic_op: Some(safegl::LogicOp::Xor),
+            multisample: safegl::draw_parameters::MultisampleState {
+                alpha_to_one: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+  ]] },
   { "both_chains_have_both_apis", { "gl46", "gles32" }, nil, [[
     pub use safegl::draw_parameters::PolygonMode;
     pub use safegl::texture::Texture1d;
@@ -260,6 +285,16 @@ local cases = {
   { "gles31_has_no_polygon_mode_field", { "gles31" }, "no field named `polygon_mode`", [[
     pub fn f() -> safegl::DrawParameters<'static> {
         safegl::DrawParameters { polygon_mode: Default::default(), ..Default::default() }
+    }
+  ]] },
+  { "gles32_has_no_logic_ops", { "gles32" }, "no field named `logic_op`", [[
+    pub fn f() -> safegl::DrawParameters<'static> {
+        safegl::DrawParameters { logic_op: None, ..Default::default() }
+    }
+  ]] },
+  { "gles32_has_no_alpha_to_one", { "gles32" }, "no field named `alpha_to_one`", [[
+    pub fn f() -> safegl::draw_parameters::MultisampleState {
+        safegl::draw_parameters::MultisampleState { alpha_to_one: true, ..Default::default() }
     }
   ]] },
   { "gles32_has_no_1d_textures", { "gles32" }, "Texture1d", [[

@@ -223,6 +223,71 @@ impl ToGlEnum for PolygonMode {
     }
 }
 
+/// A bitwise operation between the color that a fragment writes (`s`) and the color already in
+/// the target (`d`). See `DrawParameters::logic_op`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg(safegl_desktop)]
+#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+pub enum LogicOp {
+    /// `0`
+    Clear,
+    /// `s & d`
+    And,
+    /// `s & !d`
+    AndReverse,
+    /// `s`, what is written without a logic operation.
+    Copy,
+    /// `!s & d`
+    AndInverted,
+    /// `d`: nothing is written.
+    Noop,
+    /// `s ^ d`
+    Xor,
+    /// `s | d`
+    Or,
+    /// `!(s | d)`
+    Nor,
+    /// `!(s ^ d)`
+    Equiv,
+    /// `!d`
+    Invert,
+    /// `s | !d`
+    OrReverse,
+    /// `!s`
+    CopyInverted,
+    /// `!s | d`
+    OrInverted,
+    /// `!(s & d)`
+    Nand,
+    /// All the bits set.
+    Set,
+}
+
+#[cfg(safegl_desktop)]
+impl ToGlEnum for LogicOp {
+    #[inline]
+    fn to_glenum(&self) -> gl::types::GLenum {
+        match *self {
+            LogicOp::Clear => gl::CLEAR,
+            LogicOp::And => gl::AND,
+            LogicOp::AndReverse => gl::AND_REVERSE,
+            LogicOp::Copy => gl::COPY,
+            LogicOp::AndInverted => gl::AND_INVERTED,
+            LogicOp::Noop => gl::NOOP,
+            LogicOp::Xor => gl::XOR,
+            LogicOp::Or => gl::OR,
+            LogicOp::Nor => gl::NOR,
+            LogicOp::Equiv => gl::EQUIV,
+            LogicOp::Invert => gl::INVERT,
+            LogicOp::OrReverse => gl::OR_REVERSE,
+            LogicOp::CopyInverted => gl::COPY_INVERTED,
+            LogicOp::OrInverted => gl::OR_INVERTED,
+            LogicOp::Nand => gl::NAND,
+            LogicOp::Set => gl::SET,
+        }
+    }
+}
+
 /// Specifies a hint for the smoothing.
 ///
 /// Note that this is just a hint and the driver may disregard it.
@@ -325,6 +390,21 @@ pub struct DrawParameters<'a> {
     #[cfg(any(safegl_desktop, safegl_gles32))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     pub outputs: &'a [OutputState],
+
+    /// A bitwise operation that replaces the color written into the color buffers
+    /// (`glLogicOp`). Default value is `None`, which writes the colors as they are.
+    ///
+    /// It applies to the normalized and integer color buffers. Floating-point buffers, and sRGB
+    /// buffers when sRGB conversion is enabled, are written as if it were `None`. The color mask
+    /// still applies.
+    ///
+    /// OpenGL disables blending on the buffers that the operation applies to, so a logic
+    /// operation with any blending in `blend` or `outputs` returns
+    /// `DrawError::LogicOpWithBlending`. OpenGL ES has no logic operations: drawing into an
+    /// OpenGL ES context with one returns `DrawError::LogicOpNotSupported`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    pub logic_op: Option<LogicOp>,
 
     /// Width in pixels of the lines to draw when drawing lines.
     ///
@@ -921,6 +1001,8 @@ impl<'a> Default for DrawParameters<'a> {
             color_mask: (true, true, true, true),
             #[cfg(any(safegl_desktop, safegl_gles32))]
             outputs: &[],
+            #[cfg(safegl_desktop)]
+            logic_op: None,
             line_width: None,
             #[cfg(safegl_desktop)]
             point_size: None,
@@ -1007,6 +1089,8 @@ pub fn sync(
     );
     #[cfg(not(any(safegl_desktop, safegl_gles32)))]
     let (blends, masks) = (std::iter::empty(), std::iter::empty());
+    #[cfg(safegl_desktop)]
+    sync_logic_op(ctxt, draw_parameters)?;
     blend::sync_blending(ctxt, draw_parameters.blend, blends)?;
     sync_color_mask(ctxt, draw_parameters.color_mask, masks);
     sync_line_width(ctxt, draw_parameters.line_width)?;
@@ -1091,6 +1175,38 @@ fn validate_outputs(
         return Err(DrawError::PerOutputStateNotSupported);
     }
 
+    Ok(())
+}
+
+/// Sets the logic operation, after checking that the draw doesn't blend.
+#[cfg(safegl_desktop)]
+fn sync_logic_op(
+    ctxt: &mut context::CommandContext<'_>,
+    draw_parameters: &DrawParameters<'_>,
+) -> Result<(), DrawError> {
+    let logic_op = draw_parameters.logic_op;
+    if let Some(logic_op) = logic_op {
+        if ctxt.version.0 != Api::Gl {
+            return Err(DrawError::LogicOpNotSupported);
+        }
+        let blends = draw_parameters.blend.is_enabled()
+            || draw_parameters
+                .outputs
+                .iter()
+                .any(|output| output.blend.is_enabled());
+        if blends {
+            return Err(DrawError::LogicOpWithBlending);
+        }
+        let logic_op = logic_op.to_glenum();
+        if ctxt.state.logic_op != logic_op {
+            unsafe { ctxt.extra.LogicOp(logic_op) };
+            ctxt.state.logic_op = logic_op;
+        }
+    }
+    if ctxt.version.0 == Api::Gl && ctxt.state.enabled_color_logic_op != logic_op.is_some() {
+        ctxt.state.enabled_color_logic_op = logic_op.is_some();
+        set_flag_enabled(ctxt, gl::COLOR_LOGIC_OP, logic_op.is_some());
+    }
     Ok(())
 }
 

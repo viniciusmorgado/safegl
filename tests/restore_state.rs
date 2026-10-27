@@ -174,7 +174,8 @@ fn indexed_draws_across_frames() {
     display.assert_no_error(None);
 }
 
-/// The winding of the front faces and the sample coverage go back to what SafeGL set.
+/// The winding of the front faces, the sample coverage and the logic operation go back to what
+/// SafeGL set.
 #[test]
 fn rasterization_state_after_foreign_changes() {
     let display = support::build_display();
@@ -203,6 +204,7 @@ fn rasterization_state_after_foreign_changes() {
             gl.disable(glow::SAMPLE_COVERAGE);
             if !support::is_gles(&display) {
                 gl.enable(glow::SAMPLE_ALPHA_TO_ONE);
+                gl.enable(glow::COLOR_LOGIC_OP);
             }
         });
     }
@@ -216,8 +218,9 @@ fn rasterization_state_after_foreign_changes() {
             gl.get_parameter_f32(glow::SAMPLE_COVERAGE_VALUE),
             gl.get_parameter_i32(glow::SAMPLE_COVERAGE_INVERT) != 0,
             !support::is_gles(&display) && gl.is_enabled(glow::SAMPLE_ALPHA_TO_ONE),
+            !support::is_gles(&display) && gl.is_enabled(glow::COLOR_LOGIC_OP),
         )
     };
-    assert_eq!(state, (glow::CCW, true, 0.25, true, false));
+    assert_eq!(state, (glow::CCW, true, 0.25, true, false, false));
     display.assert_no_error(None);
 }

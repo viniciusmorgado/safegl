@@ -45,6 +45,9 @@ pub struct GlState {
     /// Whether GL_MULTISAMPLE is enabled
     pub enabled_multisample: bool,
 
+    /// Whether GL_COLOR_LOGIC_OP is enabled
+    pub enabled_color_logic_op: bool,
+
     /// Whether GL_POLYGON_OFFSET_FILL is enabled
     pub enabled_polygon_offset_fill: bool,
 
@@ -291,6 +294,9 @@ pub struct GlState {
     /// The latest value passed to `glFrontFace`.
     pub front_face: gl::types::GLenum,
 
+    /// The latest value passed to `glLogicOp`.
+    pub logic_op: gl::types::GLenum,
+
     /// The latest value passed to `glPolygonMode`.
     pub polygon_mode: gl::types::GLenum,
 
@@ -492,6 +498,7 @@ impl Default for GlState {
             enabled_dither: false,
             enabled_framebuffer_srgb: false,
             enabled_multisample: true,
+            enabled_color_logic_op: false,
             enabled_polygon_offset_fill: false,
             enabled_polygon_offset_line: false,
             enabled_polygon_offset_point: false,
@@ -563,6 +570,7 @@ impl Default for GlState {
             point_size: 1.0,
             cull_face: gl::BACK,
             front_face: gl::CCW,
+            logic_op: gl::COPY,
             polygon_mode: gl::FILL,
             smooth: (gl::DONT_CARE, gl::DONT_CARE),
             provoking_vertex: gl::LAST_VERTEX_CONVENTION,

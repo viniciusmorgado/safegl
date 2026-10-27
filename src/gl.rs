@@ -141,6 +141,8 @@ macro_rules! extra_functions {
 extra_functions! {
     fn BeginConditionalRender(id: GLuint, mode: GLenum) -> ();
     fn BeginConditionalRenderNV(id: GLuint, mode: GLenum) -> ();
+    fn BindFragDataLocationIndexed(program: GLuint, colorNumber: GLuint, index: GLuint, name: *const GLchar) -> ();
+    fn BindFragDataLocationIndexedEXT(program: GLuint, colorNumber: GLuint, index: GLuint, name: *const GLchar) -> ();
     fn ClampColor(target: GLenum, clamp: GLenum) -> ();
     fn ClientWaitSync(sync: GLsync, flags: GLbitfield, timeout: GLuint64) -> GLenum;
     fn ClearTexImage(texture: GLuint, level: GLint, format: GLenum, type_: GLenum, data: *const c_void) -> ();
@@ -172,10 +174,13 @@ extra_functions! {
     fn GetDebugMessageLog(count: GLuint, bufSize: GLsizei, sources: *mut GLenum, types: *mut GLenum, ids: *mut GLuint, severities: *mut GLenum, lengths: *mut GLsizei, messageLog: *mut GLchar) -> GLuint;
     fn GetDebugMessageLogKHR(count: GLuint, bufSize: GLsizei, sources: *mut GLenum, types: *mut GLenum, ids: *mut GLuint, severities: *mut GLenum, lengths: *mut GLsizei, messageLog: *mut GLchar) -> GLuint;
     fn GetCompressedTexImage(target: GLenum, level: GLint, img: *mut c_void) -> ();
+    fn GetFragDataIndex(program: GLuint, name: *const GLchar) -> GLint;
+    fn GetFragDataIndexEXT(program: GLuint, name: *const GLchar) -> GLint;
     fn GetGraphicsResetStatus() -> GLenum;
     fn GetGraphicsResetStatusARB() -> GLenum;
     fn GetGraphicsResetStatusEXT() -> GLenum;
     fn GetGraphicsResetStatusKHR() -> GLenum;
+    fn GetMultisamplefv(pname: GLenum, index: GLuint, val: *mut GLfloat) -> ();
     fn GetObjectLabel(identifier: GLenum, name: GLuint, bufSize: GLsizei, length: *mut GLsizei, label: *mut GLchar) -> ();
     fn GetObjectLabelKHR(identifier: GLenum, name: GLuint, bufSize: GLsizei, length: *mut GLsizei, label: *mut GLchar) -> ();
     fn GetObjectPtrLabel(ptr: *const c_void, bufSize: GLsizei, length: *mut GLsizei, label: *mut GLchar) -> ();
@@ -194,6 +199,7 @@ extra_functions! {
     fn InsertEventMarkerEXT(length: GLsizei, marker: *const GLchar) -> ();
     fn InvalidateBufferData(buffer: GLuint) -> ();
     fn InvalidateBufferSubData(buffer: GLuint, offset: GLintptr, length: GLsizeiptr) -> ();
+    fn LogicOp(opcode: GLenum) -> ();
     fn BeginQueryIndexed(target: GLenum, index: GLuint, id: GLuint) -> ();
     fn EndQueryIndexed(target: GLenum, index: GLuint) -> ();
     fn ClearBufferSubData(target: GLenum, internalformat: GLenum, offset: GLintptr, size: GLsizeiptr, format: GLenum, type_: GLenum, data: *const c_void) -> ();
@@ -212,6 +218,8 @@ extra_functions! {
     fn MultiDrawArraysIndirectCountARB(mode: GLenum, indirect: *const c_void, drawcount: GLintptr, maxdrawcount: GLsizei, stride: GLsizei) -> ();
     fn MultiDrawElementsIndirectCountARB(mode: GLenum, type_: GLenum, indirect: *const c_void, drawcount: GLintptr, maxdrawcount: GLsizei, stride: GLsizei) -> ();
     fn PointSize(size: GLfloat) -> ();
+    fn PointParameterf(pname: GLenum, param: GLfloat) -> ();
+    fn PointParameteri(pname: GLenum, param: GLint) -> ();
     fn PolygonOffsetClamp(factor: GLfloat, units: GLfloat, clamp: GLfloat) -> ();
     fn PolygonOffsetClampEXT(factor: GLfloat, units: GLfloat, clamp: GLfloat) -> ();
     fn PatchParameteriEXT(pname: GLenum, value: GLint) -> ();

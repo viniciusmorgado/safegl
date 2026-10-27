@@ -75,6 +75,7 @@ unsafe fn restore_capabilities(ctxt: &mut CommandContext<'_>) {
     if desktop {
         set(ctxt, gl::MULTISAMPLE, state.enabled_multisample);
         set(ctxt, gl::SAMPLE_ALPHA_TO_ONE, state.enabled_sample_alpha_to_one);
+        set(ctxt, gl::COLOR_LOGIC_OP, state.enabled_color_logic_op);
         set(
             ctxt,
             gl::POLYGON_OFFSET_LINE,
@@ -275,6 +276,7 @@ unsafe fn restore_fixed_function(ctxt: &mut CommandContext<'_>) {
 
     if desktop {
         ctxt.extra.PointSize(state.point_size);
+        ctxt.extra.LogicOp(state.logic_op);
         ctxt.glow
             .polygon_mode(gl::FRONT_AND_BACK, state.polygon_mode);
         ctxt.glow.hint(gl::LINE_SMOOTH_HINT, state.smooth.0);
