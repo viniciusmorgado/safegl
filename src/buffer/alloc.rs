@@ -7,7 +7,7 @@ use crate::version::Version;
 use crate::CapabilitiesSource;
 use crate::ContextExt;
 use crate::GlObject;
-use crate::TransformFeedbackSessionExt;
+use crate::TransformFeedbackExt;
 use glow::HasContext;
 use std::cell::Cell;
 use std::error::Error;
@@ -17,7 +17,7 @@ use std::rc::Rc;
 use std::{fmt, mem, ptr};
 
 use crate::buffer::{AnyBitPattern, BufferCreationError, BufferMode, BufferType, Content};
-use crate::vertex::TransformFeedbackSession;
+use crate::vertex::TransformFeedback;
 use crate::vertex_array_object::VertexAttributesSystem;
 
 use crate::version::{is_webgl, Api};
@@ -210,7 +210,7 @@ impl Alloc {
     /// Ensures that the buffer isn't used by the transform feedback process.
     #[inline]
     fn assert_not_transform_feedback(&self, ctxt: &mut CommandContext<'_>) {
-        TransformFeedbackSession::ensure_buffer_out_of_transform_feedback(ctxt, self.id);
+        TransformFeedback::ensure_buffer_out_of_transform_feedback(ctxt, self.id);
     }
 
     /// Calls `glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT)` if necessary.
@@ -469,7 +469,7 @@ impl Alloc {
         self.latest_shader_write.set(ctxt.state.next_draw_call_id); // TODO: put this somewhere else
     }
 
-    /// Binds the buffer to `GL_TRANSFORM_FEEDBACK_BUFFER` regardless of the current transform
+    /// Binds the buffer to an index of `GL_TRANSFORM_FEEDBACK_BUFFER` of the bound transform
     /// feedback object, and calls `glMemoryBarrier(GL_TRANSFORM_FEEDBACK_BARRIER_BIT)` if
     /// necessary.
     #[inline]
@@ -486,7 +486,20 @@ impl Alloc {
             }
             ctxt.state.latest_memory_barrier_transform_feedback = ctxt.state.next_draw_call_id;
         }
-        self.indexed_bind(ctxt, BufferType::TransformFeedbackBuffer, index, range);
+        self.assert_unmapped(ctxt);
+
+        // the indexed bindings belong to the bound transform feedback object, so they aren't
+        // cached with the other indexed bindings of the context
+        unsafe {
+            ctxt.glow.bind_buffer_range(
+                glow::TRANSFORM_FEEDBACK_BUFFER,
+                index,
+                Some(self.id),
+                range.start as i32,
+                (range.end - range.start) as i32,
+            );
+        }
+        ctxt.state.transform_feedback_buffer_binding = Some(self.id);
     }
 
     /// Calls `glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT)` if necessary, before a buffer

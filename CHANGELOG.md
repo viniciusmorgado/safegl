@@ -235,6 +235,14 @@ Breaking changes:
   are replaced by `primitives_generated_queries` and
   `transform_feedback_primitives_written_queries`, slices of queries of different vertex streams:
   write `&[&query]` instead of `Some(&query)`.
+- `vertex::TransformFeedbackSession` is replaced by `vertex::TransformFeedback`, a transform
+  feedback object built with `TransformFeedback::new(facade, program)` and given the buffers of
+  the program with `with_buffer(buffer)`; `TransformFeedbackSessionCreationError` becomes
+  `TransformFeedbackCreationError`. A draw without the object pauses its capture instead of ending
+  it. `IndicesSource` has a `TransformFeedback` variant at the desktop levels, and `DrawError` has
+  `TransformFeedbackBuffersMissing`, `TransformFeedbackPrimitivesMismatch`,
+  `CapturedVerticesLost`, `CapturedVerticesOutOfBounds` and `CapturedVerticesDrawNotSupported`
+  variants.
 
 Additions:
 
@@ -365,6 +373,14 @@ Additions:
 - `PrimitivesGeneratedQuery::with_stream` and `TransformFeedbackPrimitivesWrittenQuery::with_stream`
   (`desktop`) count the primitives of a vertex stream of geometry shaders, and a draw can count
   several streams at once. A compute dispatch with statistics leaves these queries active.
+- Transform feedback objects (`vertex::TransformFeedback`) capture into all the buffers of a
+  program: separate buffers, the buffers that `gl_NextBuffer` separates, and the vertex streams of
+  geometry shaders. Several objects capture in turn, each pausing and resuming where it was, and
+  a capture survives draws and dispatches without it. `finish` returns the `CapturedVertices`,
+  which draw again without reading their number back (`desktop`, `glDrawTransformFeedback*`,
+  instanced at OpenGL 4.2 or with `GL_ARB_transform_feedback_instanced`): `indices(primitives)`
+  for stream 0 and `stream_indices(stream, primitives)` for the others. Transform feedback
+  objects are created again after `Display::rebuild`, which loses the captures.
 
 Fixes:
 

@@ -282,7 +282,8 @@ fn indirect_draws_with_transform_feedback_on_opengl_es() {
     implement_any_bit_pattern!(Captured, captured);
     let mut output: VertexBuffer<Captured> = VertexBuffer::empty(&display, 12).unwrap();
     let session =
-        safegl::vertex::TransformFeedbackSession::new(&display, &program, &mut output).unwrap();
+        safegl::vertex::TransformFeedback::new(&display, &program)
+            .and_then(|transform_feedback| transform_feedback.with_buffer(&mut output)).unwrap();
 
     let vertices = thirds(&display);
     let target = support::build_renderable_texture(&display);

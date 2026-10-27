@@ -38,14 +38,14 @@ fn too_long(text: &str, limit: Option<gl::types::GLint>) -> bool {
 #[must_use = "the debug group is popped as soon as it is dropped"]
 pub struct DebugGroup<'a> {
     context: &'a Context,
-    /// The `debug_group_generation` of the context when the group was pushed.
+    /// The `generation` of the context when the group was pushed.
     generation: u64,
 }
 
 impl Drop for DebugGroup<'_> {
     fn drop(&mut self) {
         // a group pushed before the context was rebuilt went away with the previous context
-        if self.context.debug_group_generation.get() != self.generation {
+        if self.context.generation.get() != self.generation {
             return;
         }
         let depth = self.context.debug_group_depth.get();
@@ -95,7 +95,7 @@ impl Context {
 
         Ok(DebugGroup {
             context: self,
-            generation: self.debug_group_generation.get(),
+            generation: self.generation.get(),
         })
     }
 

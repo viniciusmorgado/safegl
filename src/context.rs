@@ -49,6 +49,7 @@ pub use self::debug_output::DebugGroup;
 pub(crate) use self::debug_output::{object_label, set_object_label};
 pub use self::limits::{Limits, ProvokingVertexConvention, QueryCounterBits, StageLimits};
 pub use self::state::GlState;
+pub(crate) use self::state::RecordingTransformFeedback;
 
 mod capabilities;
 mod extensions;
@@ -114,9 +115,9 @@ pub struct Context {
     /// The number of debug groups pushed by `push_debug_group` and not popped yet.
     debug_group_depth: Cell<u32>,
 
-    /// Incremented when the OpenGL context changes, which loses the debug groups: the
-    /// `DebugGroup`s of the previous context don't pop the groups of the new one.
-    debug_group_generation: Cell<u64>,
+    /// Incremented when the OpenGL context changes, which loses the debug groups and the objects
+    /// that contexts don't share, such as transform feedback objects.
+    generation: Cell<u64>,
 
     /// Whether or not errors triggered by ARB_debug_output (and similar extensions) should be
     /// reported to the user when `DebugCallbackBehavior::DebugMessageOnError` is used. This must
@@ -223,6 +224,13 @@ pub(crate) unsafe fn set_patch_vertices(
 }
 
 impl Context {
+    /// Returns the number of times that the OpenGL context changed (`rebuild`): the objects
+    /// that contexts don't share, created in a previous generation, are gone.
+    #[inline]
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation.get()
+    }
+
     /// Marks the start of a `Frame`. Returns false if another one is in progress.
     pub(crate) fn begin_frame(&self) -> bool {
         !self.frame_in_progress.replace(true)
@@ -339,7 +347,7 @@ impl Context {
             debug_output_errors_only: errors_only,
             debug_output_log: log,
             debug_group_depth: Cell::new(0),
-            debug_group_generation: Cell::new(0),
+            generation: Cell::new(0),
             report_debug_output_errors,
             backend: RefCell::new(Box::new(backend)),
             check_current_context,
@@ -445,8 +453,7 @@ impl Context {
 
         *self.state.borrow_mut() = Default::default();
         self.debug_group_depth.set(0);
-        self.debug_group_generation
-            .set(self.debug_group_generation.get() + 1);
+        self.generation.set(self.generation.get() + 1);
 
         // the debug output and the other state are set up again in the new context
         if self.debug_callback.borrow().is_some() || self.debug_output_log {

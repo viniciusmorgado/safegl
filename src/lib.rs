@@ -511,29 +511,26 @@ trait TextureMipmapExt {
     fn download_compressed_data(&self) -> Option<(image_format::ClientFormatAny, Vec<u8>)>;
 }
 
-/// Internal trait for transform feedback sessions.
-trait TransformFeedbackSessionExt {
-    /// Returns the context of the buffer of the session.
+/// Internal trait for transform feedback objects.
+trait TransformFeedbackExt {
+    /// Returns the context of the object.
     fn get_context(&self) -> &Rc<Context>;
 
-    /// Returns the program whose outputs the session captures.
+    /// Returns the program whose outputs the object captures.
     fn get_program_id(&self) -> glow::Program;
 
-    /// Returns true if transform feedback is active and captures into the buffer of the session,
-    /// so that a draw command continues it.
-    fn is_active(&self, _: &CommandContext<'_>) -> bool;
+    /// Returns true if the object captures and isn't paused, so that a draw continues it.
+    fn is_recording(&self, _: &CommandContext<'_>) -> bool;
 
-    /// Updates the state of OpenGL to make the transform feedback session current, continuing
-    /// it if it is already active.
+    /// Begins the capture of the object, or resumes it, after pausing the one that records.
     ///
     /// The second parameter must be the primitive type of the input vertex data.
-    fn bind(&self, _: &mut CommandContext<'_>, _: index::PrimitiveType);
+    fn bind(&self, _: &mut CommandContext<'_>, _: index::PrimitiveType) -> Result<(), DrawError>;
 
-    /// Ensures that transform feedback is disabled.
-    fn unbind(_: &mut CommandContext<'_>);
+    /// Pauses the capture that records, if one does: the program can't change while it records.
+    fn pause(_: &mut CommandContext<'_>);
 
-    /// Ensures that a buffer isn't used by transform feedback.
-
+    /// Ensures that a buffer isn't written by transform feedback.
     fn ensure_buffer_out_of_transform_feedback(_: &mut CommandContext<'_>, _: glow::Buffer);
 }
 
@@ -786,8 +783,12 @@ impl ToGlEnum for BlitMask {
 ///
 /// ## Step 4: Transform feedback (optional)
 ///
-/// TODO:
-/// TODO: talk about `transform_feedback_primitives_written_query` as well
+/// If `transform_feedback` is set, the vertices that leave the vertex processing, by vertex
+/// stream for geometry shaders, are captured in the buffers of a `vertex::TransformFeedback`,
+/// after those of the previous draws with it. The queries of
+/// `transform_feedback_primitives_written_queries` count the primitives that it writes, which
+/// stop once a buffer of their stream is full, and `vertex::CapturedVertices` draws them again
+/// without reading their number back.
 ///
 /// ## Step 5: Vertex post-processing
 ///
@@ -1365,6 +1366,29 @@ pub enum DrawError {
     /// given two constant values.
     AttributeProvidedTwice,
 
+    /// The transform feedback object of the draw lacks buffers of its program: give them all
+    /// with `TransformFeedback::with_buffer`.
+    TransformFeedbackBuffersMissing,
+
+    /// The transform feedback object captures another type of primitives (points, lines or
+    /// triangles) than the draw: a capture keeps the type of its first draw.
+    TransformFeedbackPrimitivesMismatch,
+
+    /// The context was rebuilt since the vertices were captured, and the capture went away with
+    /// the previous context.
+    CapturedVerticesLost,
+
+    /// The vertex sources of a draw of captured vertices have fewer vertices than the largest
+    /// buffer of the capture.
+    CapturedVerticesOutOfBounds,
+
+    /// Drawing captured vertices needs desktop OpenGL, a vertex stream below
+    /// `Limits::max_vertex_streams`, and OpenGL 4.2 or `GL_ARB_transform_feedback_instanced` for
+    /// several instances.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    CapturedVerticesDrawNotSupported,
+
     /// Drawing ranges of vertices or indices with one call (`index::NoIndicesRanges`,
     /// `IndexBuffer::ranges`) needs desktop OpenGL.
     #[cfg(safegl_desktop)]
@@ -1641,7 +1665,7 @@ pub enum DrawError {
         maximum: (u32, u32, u32),
     },
 
-    /// The transform feedback session was built for another program than the one drawn with: it
+    /// The transform feedback object was built for another program than the one drawn with: it
     /// would capture the outputs of that program with the layout of the other.
     TransformFeedbackProgramMismatch,
 
@@ -1734,6 +1758,16 @@ impl fmt::Display for DrawError {
             DrawRangeOutOfBounds => "A drawn range is outside the vertices or the indices",
             #[cfg(safegl_desktop)]
             InstancedDrawRangesNotSupported => "Drawn ranges can't have several instances",
+            TransformFeedbackBuffersMissing =>
+                "The transform feedback object lacks buffers of its program",
+            TransformFeedbackPrimitivesMismatch =>
+                "The transform feedback object captures another type of primitives",
+            CapturedVerticesLost => "The captured vertices were lost with a previous context",
+            CapturedVerticesOutOfBounds =>
+                "The vertex sources have fewer vertices than the capture can hold",
+            #[cfg(safegl_desktop)]
+            CapturedVerticesDrawNotSupported =>
+                "Drawing these captured vertices is not supported by the backend",
             AttributeProvidedTwice =>
                 "An attribute has a constant value and is provided by another vertex source too",
             AttributeMissing =>
@@ -1854,7 +1888,7 @@ impl fmt::Display for DrawError {
             WorkGroupCountTooLarge { .. } =>
                 "A compute shader was executed with more work groups than the backend supports",
             TransformFeedbackProgramMismatch =>
-                "The transform feedback session was built for another program",
+                "The transform feedback object was built for another program",
             TransformFeedbackDrawNotSupported =>
                 "Transform feedback only captures draws of lists without indices on this context",
             UniformMissing { .. } =>

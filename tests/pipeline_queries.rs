@@ -220,7 +220,8 @@ fn captures_overflow(display: &Display, capacity: usize, query: &TransformFeedba
     let mut captured: VertexBuffer<Captured> = VertexBuffer::empty(display, capacity).unwrap();
     let texture = safegl::Texture2d::empty(display, 8, 8).unwrap();
     let session =
-        safegl::vertex::TransformFeedbackSession::new(display, &program, &mut captured).unwrap();
+        safegl::vertex::TransformFeedback::new(display, &program)
+            .and_then(|transform_feedback| transform_feedback.with_buffer(&mut captured)).unwrap();
     let parameters = DrawParameters {
         transform_feedback: Some(&session),
         transform_feedback_overflow_query: Some(query),

@@ -80,7 +80,7 @@ use glow::HasContext;
 
 use crate::index::PrimitiveType;
 
-use crate::vertex::TransformFeedbackSession;
+use crate::vertex::TransformFeedback;
 use crate::DrawError;
 use crate::GlObject;
 use crate::QueryExt;
@@ -501,8 +501,10 @@ pub struct DrawParameters<'a> {
     #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     pub condition: Option<ConditionalRendering<'a>>,
 
-    /// If set, then the generated primitives will be written back to a buffer.
-    pub transform_feedback: Option<&'a TransformFeedbackSession<'a>>,
+    /// If set, the generated primitives are captured in the buffers of the transform feedback
+    /// object, after those that it captured before. Without it, the capture of the object that
+    /// recorded during the previous draw is paused.
+    pub transform_feedback: Option<&'a TransformFeedback<'a>>,
 
     /// If set, then the generated primitives will be smoothed.
     ///

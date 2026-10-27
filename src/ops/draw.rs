@@ -15,13 +15,13 @@ use crate::uniforms::CollectedUniforms;
 
 use crate::context::Context;
 use crate::ContextExt;
-use crate::TransformFeedbackSessionExt;
+use crate::TransformFeedbackExt;
 
 use crate::fbo::{self, FramebufferTarget};
 
 use crate::index::{self, IndicesSource};
 use crate::uniforms::Uniforms;
-use crate::vertex::{InstanceRate, MultiVerticesSource, TransformFeedbackSession, VerticesSource};
+use crate::vertex::{InstanceRate, MultiVerticesSource, TransformFeedback, VerticesSource};
 use crate::vertex_array_object::VertexAttributesSystem;
 use crate::{Program, ToGlEnum};
 
@@ -91,6 +91,8 @@ where
             IndicesSource::MultidrawElement { indices, .. } => Some(indices),
             IndicesSource::NoIndices { .. } => None,
             #[cfg(safegl_desktop)]
+            IndicesSource::TransformFeedback { .. } => None,
+            #[cfg(safegl_desktop)]
             IndicesSource::NoIndicesRanges { .. } => None,
             #[cfg(safegl_desktop)]
             IndicesSource::IndexBufferRanges { buffer, .. } => Some(buffer),
@@ -120,11 +122,11 @@ where
                 IndicesSource::MultidrawArray { .. } | IndicesSource::MultidrawElement { .. } => {
                     false
                 }
-                // drawing ranges has no base instance
+                // drawing ranges and captured vertices has no base instance
                 #[cfg(safegl_desktop)]
-                IndicesSource::NoIndicesRanges { .. } | IndicesSource::IndexBufferRanges { .. } => {
-                    false
-                }
+                IndicesSource::NoIndicesRanges { .. }
+                | IndicesSource::IndexBufferRanges { .. }
+                | IndicesSource::TransformFeedback { .. } => false,
                 _ => true,
             };
 
@@ -236,13 +238,13 @@ where
         unsafe { fbo::bind_framebuffer(&mut ctxt, fbo_id, true, false) };
     };
 
-    // transform feedback can't stay active while the program changes, unless the draw command
-    // continues the session
+    // transform feedback can't record while the program changes: the capture is paused, unless
+    // the draw continues it
     if !draw_parameters
         .transform_feedback
-        .is_some_and(|session| session.is_active(&ctxt))
+        .is_some_and(|transform_feedback| transform_feedback.is_recording(&ctxt))
     {
-        TransformFeedbackSession::unbind(&mut ctxt);
+        TransformFeedback::pause(&mut ctxt);
     }
 
     // binding the program and uniforms
@@ -269,7 +271,7 @@ where
         sync_vertices_per_patch(&mut ctxt, vertices_per_patch);
 
         if let Some(ref tf) = draw_parameters.transform_feedback {
-            tf.bind(&mut ctxt, indices.get_primitives_type());
+            tf.bind(&mut ctxt, indices.get_primitives_type())?;
         }
     }
 
@@ -542,6 +544,68 @@ where
                             count,
                             stride,
                         );
+                    }
+                }
+            }
+
+            #[cfg(safegl_desktop)]
+            IndicesSource::TransformFeedback {
+                captured,
+                stream,
+                primitives,
+            } => {
+                let (stream, primitives) = (*stream, *primitives);
+                // the GPU draws as many vertices as the capture wrote, at most the size of its
+                // largest buffer, which the vertex sources must cover
+                match vertices_count {
+                    Some(count) if count >= captured.capacity() => (),
+                    Some(_) => return Err(DrawError::CapturedVerticesOutOfBounds),
+                    None => return Err(DrawError::VerticesSourcesLengthMismatch),
+                }
+                if ctxt.version.0 != Api::Gl {
+                    return Err(DrawError::CapturedVerticesDrawNotSupported);
+                }
+                if (stream as gl::types::GLint)
+                    >= ctxt.capabilities.limits.max_vertex_streams.unwrap_or(1)
+                {
+                    return Err(DrawError::CapturedVerticesDrawNotSupported);
+                }
+                let instanced = instances_count.is_some_and(|instances| instances != 1);
+                if instanced
+                    && !(ctxt.version >= &Version(Api::Gl, 4, 2)
+                        || ctxt.extensions.gl_arb_transform_feedback_instanced)
+                {
+                    return Err(DrawError::CapturedVerticesDrawNotSupported);
+                }
+
+                if let Some(object) = captured.object(&ctxt)? {
+                    let name = object.0.get();
+                    unsafe {
+                        match (stream, instances_count) {
+                            (0, Some(instances)) if instanced => ctxt
+                                .extra
+                                .DrawTransformFeedbackInstanced(
+                                    primitives.to_glenum(),
+                                    name,
+                                    instances as gl::types::GLsizei,
+                                ),
+                            (_, Some(instances)) if instanced => ctxt
+                                .extra
+                                .DrawTransformFeedbackStreamInstanced(
+                                    primitives.to_glenum(),
+                                    name,
+                                    stream,
+                                    instances as gl::types::GLsizei,
+                                ),
+                            (0, _) => ctxt
+                                .extra
+                                .DrawTransformFeedback(primitives.to_glenum(), name),
+                            (_, _) => ctxt.extra.DrawTransformFeedbackStream(
+                                primitives.to_glenum(),
+                                name,
+                                stream,
+                            ),
+                        }
                     }
                 }
             }
@@ -932,13 +996,19 @@ fn check_contexts(
         IndicesSource::NoIndices { .. } => (),
         #[cfg(safegl_desktop)]
         IndicesSource::NoIndicesRanges { .. } => (),
+        #[cfg(safegl_desktop)]
+        IndicesSource::TransformFeedback { captured, .. } => {
+            if !ctxt.owns(captured.get_context()) {
+                return mismatch("captured vertices");
+            }
+        }
     }
 
-    if let Some(session) = draw_parameters.transform_feedback {
-        if !ctxt.owns(session.get_context()) {
-            return mismatch("transform feedback session");
+    if let Some(transform_feedback) = draw_parameters.transform_feedback {
+        if !ctxt.owns(transform_feedback.get_context()) {
+            return mismatch("transform feedback object");
         }
-        if session.get_program_id() != program.get_id() {
+        if transform_feedback.get_program_id() != program.get_id() {
             return Err(DrawError::TransformFeedbackProgramMismatch);
         }
 

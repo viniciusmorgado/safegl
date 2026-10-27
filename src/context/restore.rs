@@ -132,6 +132,10 @@ unsafe fn restore_capabilities(ctxt: &mut CommandContext<'_>) {
         );
     }
 
+    // the bound transform feedback object, which is container state of the context
+    ctxt.glow
+        .bind_transform_feedback(glow::TRANSFORM_FEEDBACK, state.transform_feedback);
+
     if desktop {
         set(ctxt, gl::PRIMITIVE_RESTART, state.enabled_primitive_restart);
         ctxt.extra.PrimitiveRestartIndex(state.primitive_restart_index);

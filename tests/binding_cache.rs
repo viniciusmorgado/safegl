@@ -274,7 +274,8 @@ fn transform_feedback_generic_binding_does_not_change_indexed_binding() {
         // at indexed slot zero when starting the next capture.
         assert_eq!(buffer.read().unwrap(), initial);
         let session =
-            safegl::vertex::TransformFeedbackSession::new(&display, &program, buffer).unwrap();
+            safegl::vertex::TransformFeedback::new(&display, &program)
+            .and_then(|transform_feedback| transform_feedback.with_buffer(buffer)).unwrap();
         output
             .as_surface()
             .draw(

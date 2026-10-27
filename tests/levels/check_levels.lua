@@ -37,6 +37,14 @@ local cases = {
         safegl::index::NoIndicesRanges(safegl::index::PrimitiveType::Points, r).into()
     }
   ]] },
+  { "gl40_has_captured_draws", { "gl40" }, nil, [[
+    pub fn f(c: &safegl::vertex::CapturedVertices) -> safegl::index::IndicesSource<'_> {
+        c.stream_indices(1, safegl::index::PrimitiveType::Points)
+    }
+  ]] },
+  { "gles30_has_transform_feedback_objects", { "gles30" }, nil, [[
+    pub use safegl::vertex::{CapturedVertices, TransformFeedback};
+  ]] },
   { "gl42_has_image_units", { "gl42" }, nil, [[
     pub use safegl::uniforms::ImageUnitFormat;
   ]] },
@@ -222,6 +230,12 @@ local cases = {
   { "gles32_has_no_draw_ranges", { "gles32" }, "NoIndicesRanges", [[
     pub use safegl::index::NoIndicesRanges;
   ]] },
+  { "gles32_has_no_captured_draws", { "gles32" }, "no method named `indices`", [[
+    pub fn f(c: &safegl::vertex::CapturedVertices) { let _ = c.indices(safegl::index::PrimitiveType::Points); }
+  ]] },
+  { "gles32_has_no_stream_queries", { "gles32" }, "named `with_stream` found", [[
+    pub fn f<F: safegl::backend::Facade>(f: &F) { let _ = safegl::draw_parameters::PrimitivesGeneratedQuery::with_stream(f, 1); }
+  ]] },
   { "gles32_has_no_bgra_attributes", { "gles32" }, "Bgra8", [[
     pub use safegl::vertex::Bgra8;
   ]] },
@@ -271,6 +285,9 @@ local cases = {
     pub fn f(p: &safegl::Program) { let _ = p.get_binary(); }
   ]], WASM },
 
+  { "webgl_has_transform_feedback_objects", { "webgl" }, nil, [[
+    pub use safegl::vertex::TransformFeedback;
+  ]], WASM },
   { "webgl_has_fence_timeouts", { "webgl" }, nil, [[
     pub fn f(s: &safegl::SyncFence) -> safegl::SyncWaitResult { s.wait_timeout(std::time::Duration::ZERO) }
   ]], WASM },

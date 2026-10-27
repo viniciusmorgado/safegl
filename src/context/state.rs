@@ -345,13 +345,12 @@ pub struct GlState {
     /// Latest value passed to `glBeginConditionalRender​`.
     pub conditional_render: Option<(glow::Query, gl::types::GLenum)>,
 
-    /// If `glBeginTransformFeedback​` has been called, the current primitive types. Otherwise None.
-    // TODO: move this inside transform feedback objects
-    pub transform_feedback_enabled: Option<gl::types::GLenum>,
+    /// The bound transform feedback object, `None` for the default one.
+    pub transform_feedback: Option<glow::TransformFeedback>,
 
-    /// True if `glPauseTransformFeedback` has been called.
-    // TODO: move this inside transform feedback objects
-    pub transform_feedback_paused: bool,
+    /// The transform feedback objects whose capture began and didn't end, of which at most one
+    /// isn't paused.
+    pub transform_feedbacks: SmallVec<[RecordingTransformFeedback; 2]>,
 
     /// The latest value passed to `glPrimitiveBoundingBox`.
     pub primitive_bounding_box: (f32, f32, f32, f32, f32, f32, f32, f32),
@@ -429,6 +428,19 @@ pub struct TextureUnitState {
 
     /// Id of the sampler.
     pub sampler: Option<glow::Sampler>,
+}
+
+/// A transform feedback object whose capture began and didn't end.
+#[derive(Clone, Debug)]
+pub struct RecordingTransformFeedback {
+    /// The object.
+    pub id: glow::TransformFeedback,
+    /// The type of primitives that it captures (`glBeginTransformFeedback`).
+    pub primitives: gl::types::GLenum,
+    /// True if the capture is paused (`glPauseTransformFeedback`).
+    pub paused: bool,
+    /// The buffers that it captures into.
+    pub buffers: SmallVec<[glow::Buffer; 4]>,
 }
 
 /// State of an indexed buffer target (`glBindBufferRange`/`glBindBufferBase`).
@@ -554,8 +566,8 @@ impl Default for GlState {
             time_elapsed_query: None,
             indexed_queries: SmallVec::new(),
             conditional_render: None,
-            transform_feedback_enabled: None,
-            transform_feedback_paused: false,
+            transform_feedback: None,
+            transform_feedbacks: SmallVec::new(),
             primitive_bounding_box: (-1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0),
             polygon_offset: (0.0, 0.0),
             polygon_offset_clamp: 0.0,

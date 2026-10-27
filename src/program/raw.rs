@@ -9,9 +9,9 @@ use crate::version::Version;
 use crate::backend::Facade;
 use crate::context::Context;
 #[cfg(any(safegl_gl43, safegl_gles31))]
-use crate::vertex::TransformFeedbackSession;
+use crate::vertex::TransformFeedback;
 #[cfg(any(safegl_gl43, safegl_gles31))]
-use crate::TransformFeedbackSessionExt;
+use crate::TransformFeedbackExt;
 use crate::ContextExt;
 #[cfg(any(safegl_gl43, safegl_gles31))]
 use crate::uniforms::CollectedUniforms;
@@ -600,8 +600,8 @@ impl RawProgram {
         }
 
         AnySamplesPassedQuery::end_conditional_render(&mut ctxt);
-        // `glUseProgram` is invalid while transform feedback is active
-        TransformFeedbackSession::unbind(&mut ctxt);
+        // `glUseProgram` is invalid while transform feedback records
+        TransformFeedback::pause(&mut ctxt);
 
         let mut fences = crate::buffer::FenceInserters::new();
 
@@ -661,8 +661,8 @@ impl RawProgram {
         }
 
         AnySamplesPassedQuery::end_conditional_render(&mut ctxt);
-        // `glUseProgram` is invalid while transform feedback is active
-        TransformFeedbackSession::unbind(&mut ctxt);
+        // `glUseProgram` is invalid while transform feedback records
+        TransformFeedback::pause(&mut ctxt);
 
         buffer.prepare_and_bind_for_dispatch_indirect(&mut ctxt);
 

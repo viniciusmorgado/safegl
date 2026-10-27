@@ -120,6 +120,19 @@ pub enum IndicesSource<'a> {
         primitives: PrimitiveType,
     },
 
+    /// Draw the vertices that a transform feedback object captured for a vertex stream
+    /// (`glDrawTransformFeedbackStream`). Built with `CapturedVertices::indices`.
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    TransformFeedback {
+        /// The captured vertices.
+        captured: &'a crate::vertex::CapturedVertices,
+        /// The vertex stream.
+        stream: u32,
+        /// Type of primitives contained in the vertex source.
+        primitives: PrimitiveType,
+    },
+
     /// Draw several ranges of the vertices of the vertices source with one call
     /// (`glMultiDrawArrays`). Built with [`NoIndicesRanges`].
     #[cfg(safegl_desktop)]
@@ -163,6 +176,8 @@ impl<'a> IndicesSource<'a> {
             IndicesSource::NoIndices { primitives } => primitives,
             #[cfg(safegl_desktop)]
             IndicesSource::NoIndicesRanges { primitives, .. } => primitives,
+            #[cfg(safegl_desktop)]
+            IndicesSource::TransformFeedback { primitives, .. } => primitives,
             #[cfg(safegl_desktop)]
             IndicesSource::IndexBufferRanges { primitives, .. } => primitives,
         }

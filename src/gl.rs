@@ -223,6 +223,10 @@ extra_functions! {
     fn VertexAttribL4d(index: GLuint, x: GLdouble, y: GLdouble, z: GLdouble, w: GLdouble) -> ();
     fn MultiDrawArrays(mode: GLenum, first: *const GLint, count: *const GLsizei, drawcount: GLsizei) -> ();
     fn MultiDrawElementsBaseVertex(mode: GLenum, count: *const GLsizei, type_: GLenum, indices: *const *const c_void, drawcount: GLsizei, basevertex: *const GLint) -> ();
+    fn DrawTransformFeedback(mode: GLenum, id: GLuint) -> ();
+    fn DrawTransformFeedbackInstanced(mode: GLenum, id: GLuint, instancecount: GLsizei) -> ();
+    fn DrawTransformFeedbackStream(mode: GLenum, id: GLuint, stream: GLuint) -> ();
+    fn DrawTransformFeedbackStreamInstanced(mode: GLenum, id: GLuint, stream: GLuint, instancecount: GLsizei) -> ();
     fn PatchParameterfv(pname: GLenum, values: *const GLfloat) -> ();
     fn PrimitiveRestartIndex(index: GLuint) -> ();
     fn ProvokingVertex(mode: GLenum) -> ();
