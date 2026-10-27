@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate safegl;
 
-use safegl::Surface;
+use safegl::{Api, CapabilitiesSource, Surface, Version};
 
 mod support;
 
@@ -150,4 +150,22 @@ fn sampler_value_outlives_the_sampler() {
         value,
         safegl::uniforms::UniformValue::Texture(_, Some(_))
     ));
+}
+
+/// Anisotropic filtering is core in OpenGL 4.6, whatever the extension strings.
+#[test]
+fn anisotropy_in_core_opengl_46() {
+    let display = support::build_display();
+    let extensions = display.get_extensions();
+
+    let anisotropy = display.get_opengl_version() >= &Version(Api::Gl, 4, 6)
+        || extensions.gl_arb_texture_filter_anisotropic
+        || extensions.gl_ext_texture_filter_anisotropic;
+    let max = display.get_capabilities().max_texture_max_anisotropy;
+    assert_eq!(max.is_some(), anisotropy);
+    if let Some(max) = max {
+        assert!(max >= 2.0);
+    }
+
+    display.assert_no_error(None);
 }

@@ -79,9 +79,10 @@ pub struct Capabilities {
     /// `glActiveTexture` must be between `GL_TEXTURE0` and `GL_TEXTURE0` + this value - 1.
     pub max_combined_texture_image_units: gl::types::GLint,
 
-    /// Maximum value for `GL_TEXTURE_MAX_ANISOTROPY_EXT​`.
+    /// Maximum value of the anisotropy of samplers (`GL_MAX_TEXTURE_MAX_ANISOTROPY`).
     ///
-    /// `None` if the extension is not supported by the hardware.
+    /// `None` without OpenGL 4.6, `GL_ARB_texture_filter_anisotropic` or
+    /// `GL_EXT_texture_filter_anisotropic`.
     pub max_texture_max_anisotropy: Option<gl::types::GLfloat>,
 
     /// Maximum size of a texture (i.e. GL_MAX_TEXTURE_SIZE)
@@ -378,10 +379,14 @@ pub unsafe fn get_capabilities(
             val
         },
 
-        max_texture_max_anisotropy: if !extensions.gl_ext_texture_filter_anisotropic {
-            None
-        } else {
+        // core in OpenGL 4.6, with the same values as the extensions
+        max_texture_max_anisotropy: if version >= &Version(Api::Gl, 4, 6)
+            || extensions.gl_arb_texture_filter_anisotropic
+            || extensions.gl_ext_texture_filter_anisotropic
+        {
             Some(gl.get_parameter_f32(glow::MAX_TEXTURE_MAX_ANISOTROPY_EXT))
+        } else {
+            None
         },
 
         max_texture_size: gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE),

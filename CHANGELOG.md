@@ -383,6 +383,9 @@ Fixes:
 - Creating a `BufferTexture` without buffer texture support (OpenGL ES 3.0 and 3.1 without
   `GL_EXT_texture_buffer`) returns `TextureCreationError::NotSupported`, instead of the
   `BufferTypeNotSupported` of the buffer it starts with.
+- Anisotropic filtering works on OpenGL 4.6, where it is core, and with
+  `GL_ARB_texture_filter_anisotropic`: `Capabilities::max_texture_max_anisotropy` was `None` and
+  samplers ignored their anisotropy unless the driver listed `GL_EXT_texture_filter_anisotropic`.
 
 ## [0.2.0]
 

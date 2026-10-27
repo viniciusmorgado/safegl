@@ -116,6 +116,7 @@ extensions! {
     "GL_EXT_texture_compression_s3tc" => gl_ext_texture_compression_s3tc,
     "GL_EXT_texture_cube_map_array" => gl_ext_texture_cube_map_array,
     "GL_EXT_texture_filter_anisotropic" => gl_ext_texture_filter_anisotropic,
+    "GL_ARB_texture_filter_anisotropic" => gl_arb_texture_filter_anisotropic,
     "GL_EXT_texture_mirror_clamp_to_edge" => gl_ext_texture_mirror_clamp_to_edge,
     "GL_ARB_texture_mirror_clamp_to_edge" => gl_arb_texture_mirror_clamp_to_edge,
     "GL_EXT_texture_norm16" => gl_ext_texture_norm16,
