@@ -200,8 +200,16 @@ mod ops;
 mod parameters;
 #[cfg(safegl_desktop)]
 mod level_read;
+mod regions;
 #[cfg(safegl_gl45)]
 mod sub_image;
+
+/// Puts the row length, image height and skips of client images back to their default, for
+/// both uploads and downloads.
+pub(crate) unsafe fn reset_client_layouts(ctxt: &mut crate::context::CommandContext<'_>) {
+    regions::UNPACK.reset(ctxt);
+    regions::PACK.reset(ctxt);
+}
 #[cfg(safegl_gl43)]
 mod view;
 mod pixel;
@@ -998,6 +1006,10 @@ pub enum UploadError {
     /// The region of a compressed texture doesn't start on the blocks of its format (4 × 4
     /// texels), or doesn't end on them or on the edge of the image.
     MisalignedBlocks,
+
+    /// Uploading this way isn't supported by the backend: boxes of compressed client images
+    /// need OpenGL 4.2 or `GL_ARB_compressed_texture_pixel_storage`.
+    NotSupported,
 }
 
 impl fmt::Display for UploadError {
@@ -1025,6 +1037,9 @@ impl fmt::Display for UploadError {
             }
             UploadError::MisalignedBlocks => {
                 fmt.write_str("The region doesn't fit the blocks of the compressed texture")
+            }
+            UploadError::NotSupported => {
+                fmt.write_str("Uploading this way is not supported by the backend")
             }
         }
     }

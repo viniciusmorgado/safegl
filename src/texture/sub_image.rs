@@ -10,6 +10,7 @@ use crate::handles::RawName;
 use crate::image_format::{self, ClientFormatAny};
 use crate::ops::ReadError;
 use crate::texture::any::{fits, image_extent};
+use crate::texture::regions::PACK;
 use crate::texture::{PixelValue, TextureAnyMipmap};
 use crate::version::{Api, Version};
 use crate::{BufferExt, ContextExt, GlObject, TextureExt};
@@ -91,6 +92,61 @@ impl<'a> TextureAnyMipmap<'a> {
             );
         }
         Ok(data)
+    }
+
+    /// Reads the texels of a box of this mipmap level into the box at `dest_offset` of a client
+    /// image of `dest_size` texels (`dest`, its rows from the bottom, then its slices), converted
+    /// to `P`, without reading into a separate buffer first (`GL_PACK_ROW_LENGTH`,
+    /// `GL_PACK_IMAGE_HEIGHT` and the skips). The rest of `dest` is left as it is.
+    ///
+    /// Returns `ReadError::OutOfBounds` if a box isn't inside its image, and
+    /// `ReadError::BufferTooSmall` if `dest` doesn't have the texels of `dest_size`. See
+    /// `read_box` for the requirements and the other errors.
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
+    pub fn read_box_into<P: PixelValue>(
+        &self,
+        offset: (u32, u32, u32),
+        size: (u32, u32, u32),
+        dest: &mut [P],
+        dest_size: (u32, u32, u32),
+        dest_offset: (u32, u32, u32),
+    ) -> Result<(), ReadError> {
+        let texture = self.get_texture();
+        if !fits(offset, size, image_extent(self)) || !fits(dest_offset, size, dest_size) {
+            return Err(ReadError::OutOfBounds);
+        }
+        if dest.len() != dest_size.0 as usize * dest_size.1 as usize * dest_size.2 as usize {
+            return Err(ReadError::BufferTooSmall);
+        }
+        let (format, ty) = image_format::client_format_to_glenum(
+            TextureExt::get_context(texture),
+            ClientFormatAny::ClientFormat(P::get_format()),
+            texture.get_requested_format(),
+            false,
+        )
+        .map_err(|_| ReadError::OutputFormatNotSupported)?;
+
+        let mut ctxt = TextureExt::get_context(texture).make_current();
+        prepare(self, &mut ctxt)?;
+        unsafe {
+            PACK.set(&mut ctxt, dest_size, dest_offset);
+            ctxt.extra.GetTextureSubImage(
+                texture.get_id().raw_name(),
+                self.get_level() as i32,
+                offset.0 as i32,
+                offset.1 as i32,
+                offset.2 as i32,
+                size.0 as i32,
+                size.1 as i32,
+                size.2 as i32,
+                format,
+                ty,
+                std::mem::size_of_val(dest) as i32,
+                dest.as_mut_ptr() as *mut _,
+            );
+            PACK.reset(&mut ctxt);
+        }
+        Ok(())
     }
 
     /// Reads the compressed blocks of a box of this mipmap level of a compressed texture
