@@ -372,7 +372,9 @@ pub fn fragment_outputs(source: &str) -> Vec<FragmentOutput> {
                 }
                 None => (declarator, 1),
             };
-            if !name.is_empty() {
+            // the built-in outputs that the shader redeclares, like `gl_FragDepth`, have no
+            // location
+            if !name.is_empty() && !name.starts_with("gl_") {
                 outputs.push(FragmentOutput {
                     name: name.to_owned(),
                     location,
@@ -410,6 +412,7 @@ mod tests {
             layout(location = 2) out vec4 normal;
             out vec4 color;
             out highp vec2 velocity[2], extra;
+            layout(depth_greater) out float gl_FragDepth;
 
             void helper(out float value) { value = 1.0; }
 
