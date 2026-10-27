@@ -1468,8 +1468,17 @@ pub enum DrawError {
     AttributeMissing,
 
     /// A constant attribute (`vertex::ConstantAttribute`) is also provided by a vertex buffer, or
-    /// given two constant values.
+    /// given two constant values, or two members of a vertex format have the same location.
     AttributeProvidedTwice,
+
+    /// Attributes that share a location with `layout(component = N)` aren't given together.
+    ///
+    /// They read the components of the same attribute array, so a vertex format gives them with
+    /// members of the same vertex buffer, with the same type, placed in the vertex like the
+    /// components that they read: the member of the attribute at component `N` follows the start
+    /// of the location by `N` components. Constant values give them with values of the same
+    /// kind.
+    AttributeComponentsMismatch,
 
     /// The transform feedback object of the draw lacks buffers of its program: give them all
     /// with `TransformFeedback::with_buffer`.
@@ -1949,6 +1958,8 @@ impl fmt::Display for DrawError {
                 "Drawing these captured vertices is not supported by the backend",
             AttributeProvidedTwice =>
                 "An attribute has a constant value and is provided by another vertex source too",
+            AttributeComponentsMismatch =>
+                "Attributes that share a location aren't given together by a vertex source",
             AttributeMissing =>
                 "One of the attributes required by the program is missing from the vertex format",
             ViewportTooLarge =>
