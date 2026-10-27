@@ -2057,6 +2057,20 @@ impl Frame {
         }
     }
 
+    /// Returns the position of each sample inside the pixels, from `[0.0, 0.0]` (the lower left
+    /// corner) to `[1.0, 1.0]`, as the GPU places them (`glGetMultisamplefv(GL_SAMPLE_POSITION)`).
+    /// The list is empty if the framebuffer isn't multisampled.
+    ///
+    /// Needs OpenGL ES 3.1 on OpenGL ES.
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
+    pub fn sample_positions(
+        &self,
+    ) -> Result<Vec<[f32; 2]>, framebuffer::SamplePositionsNotSupportedError> {
+        let mut ctxt = self.context.make_current();
+        fbo::sample_positions(&mut ctxt, self.get_attachments())
+    }
+
     /// Like `invalidate`, but only inside `rect` (`glInvalidateSubFramebuffer`).
     #[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))))]

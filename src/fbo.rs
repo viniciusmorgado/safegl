@@ -1571,6 +1571,36 @@ impl GlObject for FrameBufferObject {
     }
 }
 
+/// Returns the positions of the samples inside the pixels of `framebuffer`, from 0 to 1, or
+/// nothing if it isn't multisampled (`glGetMultisamplefv(GL_SAMPLE_POSITION)`).
+#[cfg(any(safegl_desktop, safegl_gles31))]
+pub fn sample_positions(
+    ctxt: &mut CommandContext<'_>,
+    framebuffer: FramebufferTarget<'_>,
+) -> Result<Vec<[f32; 2]>, crate::framebuffer::SamplePositionsNotSupportedError> {
+    // core in OpenGL 3.2 and OpenGL ES 3.1
+    if !(ctxt.version.0 == Api::Gl || ctxt.version >= &Version(Api::GlEs, 3, 1)) {
+        return Err(crate::framebuffer::SamplePositionsNotSupportedError);
+    }
+
+    let id = FramebuffersContainer::get_framebuffer_for_drawing(ctxt, framebuffer);
+    unsafe { bind_framebuffer(ctxt, id, true, false) };
+    if unsafe { ctxt.glow.get_parameter_i32(gl::SAMPLE_BUFFERS) } == 0 {
+        return Ok(Vec::new());
+    }
+    let samples = unsafe { ctxt.glow.get_parameter_i32(gl::SAMPLES) }.max(0) as u32;
+    Ok((0..samples)
+        .map(|i| {
+            let mut position = [0.0; 2];
+            unsafe {
+                ctxt.extra
+                    .GetMultisamplefv(gl::SAMPLE_POSITION, i, position.as_mut_ptr())
+            };
+            position
+        })
+        .collect())
+}
+
 /// Returns the number of draw buffers of `framebuffer` that aren't `GL_NONE`. A framebuffer
 /// object created outside SafeGL must be bound for drawing.
 pub fn draw_buffers_count(

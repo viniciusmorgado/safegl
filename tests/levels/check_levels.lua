@@ -29,6 +29,11 @@ local cases = {
   { "gl40_has_primitive_restart_index", { "gl40" }, nil, [[
     pub const R: safegl::draw_parameters::PrimitiveRestart = safegl::draw_parameters::PrimitiveRestart::Index(7);
   ]] },
+  { "gles31_has_sample_positions", { "gles31" }, nil, [[
+    pub fn f(f: &safegl::Frame) -> Result<Vec<[f32; 2]>, safegl::framebuffer::SamplePositionsNotSupportedError> {
+        f.sample_positions()
+    }
+  ]] },
   { "gles31_has_indirect_draws", { "gles31" }, nil, [[
     pub use safegl::index::{DrawCommandLayout, DrawCommandsIndicesBuffer};
   ]] },
@@ -276,6 +281,9 @@ local cases = {
     pub fn f<F: safegl::backend::Facade>(display: &F) {
         let _ = safegl::Program::from_source(display, "", "", Some(""));
     }
+  ]] },
+  { "gles30_has_no_sample_positions", { "gles30" }, "sample_positions", [[
+    pub fn f(f: &safegl::Frame) { let _ = f.sample_positions(); }
   ]] },
   { "gles31_has_no_copy_image", { "gles31" }, "copy_image", [[
     pub use safegl::texture::copy_image;

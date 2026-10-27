@@ -408,6 +408,10 @@ Additions:
   `DrawError::PointCoordOriginNotSupported` in an OpenGL ES context), and
   `DrawParameters::point_fade_threshold` the size under which multisampled points fade
   (`GL_POINT_FADE_THRESHOLD_SIZE`).
+- `sample_positions` on `SimpleFrameBuffer`, `MultiOutputFrameBuffer`, `DefaultFramebuffer`,
+  `ExternalFramebuffer` and `Frame` returns where the GPU places the samples inside the pixels
+  (`glGetMultisamplefv(GL_SAMPLE_POSITION)`, `any(desktop, gles31)`), or nothing if the
+  framebuffer isn't multisampled.
 - `Program::get_frag_data_index` returns the index of a fragment output, 1 for the second color
   output of dual-source blending (`glGetFragDataIndex`), and `Limits::max_dual_source_draw_buffers`
   exists at every level, `Some` on OpenGL ES with `GL_EXT_blend_func_extended`.

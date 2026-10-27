@@ -600,3 +600,43 @@ fn point_fade_threshold() {
 
     display.assert_no_error(None);
 }
+
+#[cfg(any(safegl_desktop, safegl_gles31))]
+#[test]
+fn sample_positions() {
+    use safegl::texture::Texture2dMultisample;
+
+    let display = support::build_display();
+    if !safegl::texture::is_texture_2d_multisample_supported(&display) {
+        return;
+    }
+
+    let texture = Texture2dMultisample::empty(&display, 4, 4, 4).unwrap();
+    let positions = SimpleFrameBuffer::new(&display, &texture)
+        .unwrap()
+        .sample_positions()
+        .unwrap();
+    assert_eq!(positions.len(), 4);
+    for position in &positions {
+        assert!(position.iter().all(|c| (0.0..1.0).contains(c)), "{positions:?}");
+    }
+    // the samples are at different places
+    for (i, a) in positions.iter().enumerate() {
+        assert!(positions[i + 1..].iter().all(|b| a != b), "{positions:?}");
+    }
+
+    let texture = Texture2d::empty(&display, 4, 4).unwrap();
+    let positions = SimpleFrameBuffer::new(&display, &texture)
+        .unwrap()
+        .sample_positions()
+        .unwrap();
+    assert!(positions.is_empty());
+
+    let frame = display.draw();
+    for position in frame.sample_positions().unwrap() {
+        assert!(position.iter().all(|c| (0.0..=1.0).contains(c)));
+    }
+    frame.finish().unwrap();
+
+    display.assert_no_error(None);
+}
