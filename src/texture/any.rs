@@ -2539,21 +2539,21 @@ impl<'a> TextureAnyImage<'a> {
         )
     }
 
-    /// Clears the content of the texture to a specific value.
+    /// Sets every texel of the image to `data` (`glClearBuffer`), through a framebuffer.
     ///
-    /// # Panic
-    ///
-    /// Panics if `data` does not match the kind of texture. For example passing a `[i32; 4]` when
-    /// using a regular (float) texture.
-    ///
-    pub fn raw_clear_buffer<D>(&self, data: D)
+    /// `data` must match the kind of the texture: `[f32; 4]` for float and normalized textures,
+    /// `[i32; 4]` or `[u32; 4]` for integer textures, an `f32` depth for depth textures, and
+    /// `ClearBufferData::Stencil` or `DepthStencil` for stencil and depth-stencil textures.
+    /// Otherwise `ClearBufferError::KindMismatch` is returned. The scissor box, the write masks
+    /// and the sRGB conversion don't apply.
+    pub fn raw_clear_buffer<D>(&self, data: D) -> Result<(), crate::fbo::ClearBufferError>
     where
         D: Into<ClearBufferData>,
     {
         unsafe {
             let mut ctxt = self.texture.context.make_current();
             let attachment = fbo::RegularAttachment::Texture(*self);
-            fbo::FramebuffersContainer::clear_buffer(&mut ctxt, &attachment, data);
+            fbo::FramebuffersContainer::clear_buffer(&mut ctxt, &attachment, data.into())
         }
     }
 }

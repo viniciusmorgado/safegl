@@ -954,6 +954,52 @@ impl From<[u32; 4]> for ClearBufferData {
     }
 }
 
+/// An error of the clears of single attachments (`raw_clear_buffer`,
+/// `MultiOutputFrameBuffer::clear_output`).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ClearBufferError {
+    /// The value doesn't match the kind of the attachment: floats for float and normalized
+    /// attachments, integers of the same signedness for integer ones, a depth, a stencil index,
+    /// or both.
+    KindMismatch,
+    /// The attachment can't be put in a framebuffer.
+    Framebuffer(ValidationError),
+    /// The framebuffer has no output of this name.
+    OutputMissing,
+}
+
+impl fmt::Display for ClearBufferError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ClearBufferError::KindMismatch => {
+                fmt.write_str("The value doesn't match the kind of the attachment")
+            }
+            ClearBufferError::Framebuffer(error) => write!(fmt, "{error}"),
+            ClearBufferError::OutputMissing => {
+                fmt.write_str("The framebuffer has no output of this name")
+            }
+        }
+    }
+}
+
+impl Error for ClearBufferError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            ClearBufferError::Framebuffer(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<f32> for ClearBufferData {
+    /// A depth.
+    #[inline]
+    fn from(depth: f32) -> ClearBufferData {
+        ClearBufferData::Depth(depth)
+    }
+}
+
 /// Manages all the framebuffer objects.
 ///
 /// `cleanup` **must** be called when destroying the container, otherwise `Drop` will panic.
@@ -1195,78 +1241,112 @@ impl FramebuffersContainer {
         ctxt.glow.read_buffer(read_buffer); // TODO: cache
     }
 
-    /// Calls `glClearBuffer` on a framebuffer that contains the attachment.
+    /// Sets every texel of the attachment to `data` with `glClearBuffer`, through a framebuffer
+    /// that contains only the attachment, ignoring the scissor box and the write masks.
     ///
-    /// # Panic
-    ///
-    /// Panics if `data` is incompatible with the kind of attachment.
+    /// Returns an error if `data` doesn't match the kind of the attachment.
     ///
     /// # Unsafety
     ///
     /// After calling this function, you **must** make sure to call `purge_texture`
     /// and/or `purge_renderbuffer` when one of the attachment is destroyed.
-    pub unsafe fn clear_buffer<D>(
+    pub unsafe fn clear_buffer(
         ctxt: &mut CommandContext<'_>,
         attachment: &RegularAttachment<'_>,
-        data: D,
-    ) where
-        D: Into<ClearBufferData>,
-    {
-        // TODO: look for an existing framebuffer with this attachment
+        data: ClearBufferData,
+    ) -> Result<(), ClearBufferError> {
+        let kind = attachment.kind();
+        let matches = matches!(
+            (kind, data),
+            (TextureKind::Float, ClearBufferData::Float(_))
+                | (TextureKind::Integral, ClearBufferData::Integral(_))
+                | (TextureKind::Unsigned, ClearBufferData::Unsigned(_))
+                | (TextureKind::Depth, ClearBufferData::Depth(_))
+                | (TextureKind::Stencil, ClearBufferData::Stencil(_))
+                | (TextureKind::DepthStencil, ClearBufferData::DepthStencil(..))
+        );
+        if !matches {
+            return Err(ClearBufferError::KindMismatch);
+        }
 
-        let data = data.into();
-
+        // the framebuffer has the attachment where its kind goes
+        let mut colors = SmallVec::new();
+        let depth_stencil = match kind {
+            TextureKind::Depth => DepthStencilAttachments::DepthAttachment(*attachment),
+            TextureKind::Stencil => DepthStencilAttachments::StencilAttachment(*attachment),
+            TextureKind::DepthStencil => {
+                DepthStencilAttachments::DepthStencilAttachment(*attachment)
+            }
+            _ => {
+                colors.push((0, *attachment));
+                DepthStencilAttachments::None
+            }
+        };
         let fb = FramebufferAttachments::Regular(FramebufferSpecificAttachments {
-            colors: {
-                let mut v = SmallVec::new();
-                v.push((0, *attachment));
-                v
-            },
-            depth_stencil: DepthStencilAttachments::None,
+            colors,
+            depth_stencil,
         })
         .validate(ctxt)
-        .unwrap();
+        .map_err(ClearBufferError::Framebuffer)?;
         let fb = FramebuffersContainer::get_framebuffer_for_drawing(
             ctxt,
             FramebufferTarget::Attachments(&fb),
         );
-
-        // TODO: use DSA if supported
-        // TODO: what if glClearBuffer is not supported?
-
         bind_framebuffer(ctxt, fb, true, false);
 
-        // `glClearBuffer` obeys the color mask, including the per-draw-buffer masks of
-        // `DrawParameters::outputs`
+        // `glClearBuffer` obeys the masks, the scissor box, the rasterizer discard, the
+        // conditional rendering and the sRGB conversion, none of which the clear wants
         if ctxt.state.color_mask != (1, 1, 1, 1) || ctxt.state.indexed_color_mask {
             ctxt.state.color_mask = (1, 1, 1, 1);
             ctxt.state.indexed_color_mask = false;
             ctxt.glow.color_mask(true, true, true, true);
         }
+        if !ctxt.state.depth_mask {
+            ctxt.glow.depth_mask(true);
+            ctxt.state.depth_mask = true;
+        }
+        if ctxt.state.stencil_mask_front != 0xffffffff || ctxt.state.stencil_mask_back != 0xffffffff
+        {
+            ctxt.glow.stencil_mask(0xffffffff);
+            ctxt.state.stencil_mask_front = 0xffffffff;
+            ctxt.state.stencil_mask_back = 0xffffffff;
+        }
+        if ctxt.state.enabled_scissor_test {
+            ctxt.glow.disable(glow::SCISSOR_TEST);
+            ctxt.state.enabled_scissor_test = false;
+        }
+        if ctxt.state.enabled_rasterizer_discard {
+            ctxt.glow.disable(glow::RASTERIZER_DISCARD);
+            ctxt.state.enabled_rasterizer_discard = false;
+        }
+        if ctxt.state.enabled_framebuffer_srgb {
+            ctxt.glow.disable(glow::FRAMEBUFFER_SRGB);
+            ctxt.state.enabled_framebuffer_srgb = false;
+        }
+        <crate::draw_parameters::AnySamplesPassedQuery as crate::QueryExt>::end_conditional_render(
+            ctxt,
+        );
 
-        match (attachment.kind(), data) {
-            (TextureKind::Float, ClearBufferData::Float(data)) => {
-                ctxt.glow.clear_buffer_f32_slice(glow::COLOR, 0, &data);
+        match data {
+            ClearBufferData::Float(data) => ctxt.glow.clear_buffer_f32_slice(glow::COLOR, 0, &data),
+            ClearBufferData::Integral(data) => {
+                ctxt.glow.clear_buffer_i32_slice(glow::COLOR, 0, &data)
             }
-            (TextureKind::Integral, ClearBufferData::Integral(data)) => {
-                ctxt.glow.clear_buffer_i32_slice(glow::COLOR, 0, &data);
+            ClearBufferData::Unsigned(data) => {
+                ctxt.glow.clear_buffer_u32_slice(glow::COLOR, 0, &data)
             }
-            (TextureKind::Unsigned, ClearBufferData::Unsigned(data)) => {
-                ctxt.glow.clear_buffer_u32_slice(glow::COLOR, 0, &data);
+            ClearBufferData::Depth(depth) => {
+                ctxt.glow.clear_buffer_f32_slice(glow::DEPTH, 0, &[depth])
             }
-            (TextureKind::Depth, _) => {
-                unimplemented!() // TODO: can't work with the code above ^
+            ClearBufferData::Stencil(stencil) => {
+                ctxt.glow.clear_buffer_i32_slice(glow::STENCIL, 0, &[stencil])
             }
-            (TextureKind::Stencil, _) => {
-                unimplemented!() // TODO: can't work with the code above ^
-            }
-            (TextureKind::DepthStencil, _) => {
-                unimplemented!() // TODO: can't work with the code above ^
-            }
-            _ => {
-                panic!("The data passed to `clear_buffer` does not match the kind of attachment");
+            ClearBufferData::DepthStencil(depth, stencil) => {
+                ctxt.glow
+                    .clear_buffer_depth_stencil(glow::DEPTH_STENCIL, 0, depth, stencil)
             }
         }
+        Ok(())
     }
 
     /// Discards the content of some attachments of a framebuffer (`glInvalidateFramebuffer`), in

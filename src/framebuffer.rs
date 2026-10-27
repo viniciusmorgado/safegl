@@ -109,6 +109,7 @@ pub use self::render_buffer::CreationError as RenderBufferCreationError;
 pub use self::render_buffer::{DepthRenderBuffer, RenderBuffer, RenderBufferAny};
 pub use self::render_buffer::{DepthStencilRenderBuffer, StencilRenderBuffer};
 pub use crate::fbo::ValidationError;
+pub use crate::fbo::{ClearBufferData, ClearBufferError};
 use crate::uniforms::MagnifySamplerFilter;
 
 mod default_fb;
@@ -970,6 +971,28 @@ impl<'a> MultiOutputFrameBuffer<'a> {
             color_attachments: color,
             depth_stencil_attachments,
         })
+    }
+
+    /// Sets every texel of the attachment of the output `name` to `data` (`glClearBuffer`),
+    /// leaving the other attachments as they are.
+    ///
+    /// `data` must match the kind of the attachment: `[f32; 4]` for float and normalized
+    /// attachments, and `[i32; 4]` or `[u32; 4]` for integer ones, which `Surface::clear_color`
+    /// can only clear with converted floats. The scissor box, the write masks and the sRGB
+    /// conversion don't apply. Returns `ClearBufferError::OutputMissing` if no attachment has
+    /// this name.
+    pub fn clear_output<D>(&self, name: &str, data: D) -> Result<(), ClearBufferError>
+    where
+        D: Into<ClearBufferData>,
+    {
+        let attachment = self
+            .color_attachments
+            .iter()
+            .find(|(output, _)| output == name)
+            .map(|(_, attachment)| *attachment)
+            .ok_or(ClearBufferError::OutputMissing)?;
+        let mut ctxt = self.context.make_current();
+        unsafe { fbo::FramebuffersContainer::clear_buffer(&mut ctxt, &attachment, data.into()) }
     }
 
     fn build_attachments(

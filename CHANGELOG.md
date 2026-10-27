@@ -248,6 +248,14 @@ Breaking changes:
   `enabled` (formerly `multisampling`), `alpha_to_coverage`, `sample_shading` and `sample_mask`:
   write `multisample: MultisampleState { alpha_to_coverage: true, ..Default::default() }`.
   `DrawError` has an `AlphaToOneNotSupported` variant at the desktop levels.
+- `TextureAnyImage::raw_clear_buffer` returns `Result<(), framebuffer::ClearBufferError>`
+  instead of panicking when the value doesn't match the kind of the texture, and clears depth,
+  stencil and depth-stencil textures too (`ClearBufferData::{Depth, Stencil, DepthStencil}`, and
+  an `f32` for a depth), where it reached `unimplemented!()`. `framebuffer::ClearBufferData` and
+  `ClearBufferError` are exported. Clears of single attachments ignore the scissor box, the write
+  masks, the rasterizer discard, the conditional rendering and the sRGB conversion that earlier
+  draws left. `MultiOutputFrameBuffer::clear_output` clears the attachment of one output,
+  integer attachments included.
 - `texture::Dimensions` is `#[non_exhaustive]`, with a `TextureRectangle` variant for the
   rectangle textures of desktop OpenGL: `TextureRectangle`, `SrgbTextureRectangle`,
   `IntegralTextureRectangle`, `UnsignedTextureRectangle`, `DepthTextureRectangle` and
