@@ -738,7 +738,11 @@ fn image_format_classes() {
     use safegl::GlObject;
 
     let display = support::build_display();
-    if support::is_gles(&display) {
+    // the compatibility of image formats comes with images: OpenGL 4.2 or the extension
+    if support::is_gles(&display)
+        || !(support::gl_at_least(&display, 4, 2)
+            || support::extensions(&display).gl_arb_shader_image_load_store)
+    {
         return;
     }
     let texture = Texture2d::empty_with_format(
