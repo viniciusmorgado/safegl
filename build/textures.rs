@@ -1107,6 +1107,28 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         (writeln!(dest, "}}")).unwrap();
     }
 
+    // writing the `empty_with_sample_locations` function of multisample textures
+    if dimensions.is_multisample() {
+        (writeln!(dest, "
+                /// Creates an empty multisample texture with a specific format, whose samples are
+                /// at the same positions in every texel if `fixed_sample_locations` is true, as
+                /// with the other constructors, or may be placed differently in each texel
+                /// otherwise (`GL_TEXTURE_FIXED_SAMPLE_LOCATIONS`), which some implementations
+                /// use for better antialiasing.
+                ///
+                /// The attachments of a framebuffer must all have fixed sample locations or all
+                /// have variable ones, and render buffers have fixed ones; otherwise creating the
+                /// framebuffer returns `ValidationError::Incomplete`.
+                #[inline]
+                pub fn empty_with_sample_locations<F: ?Sized>(facade: &F, format: {format}, {dim_params}, fixed_sample_locations: bool) -> Result<{name}, TextureCreationError> where F: Facade {{
+                    let format = TextureFormatRequest::Specific(format.to_texture_format());
+                    any::new_texture_with_sample_locations::<_, u8>(facade, format, None, {mipmap}::NoMipmap.into(), {dim_passing}, fixed_sample_locations)
+                        .map(|t| {name}(t))
+                }}
+            ", format = relevant_format, dim_params = dimensions_parameters_input, name = name,
+               mipmap = mipmaps_option_ty, dim_passing = dimensions_parameters_passing)).unwrap();
+    }
+
     // writing the `empty_with_mipmaps` function
     if !is_compressed {
         // opening function

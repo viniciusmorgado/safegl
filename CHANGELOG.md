@@ -424,6 +424,10 @@ Additions:
   `border_color_uint`, `glSamplerParameterIiv` and `glSamplerParameterIuiv`;
   `any(desktop, gles32)`), and `BorderColor::value` with `uniforms::BorderColorValue`. A border
   color of another kind than its texture returns `DrawError::BorderColorMismatch`.
+- Multisample textures can place their samples differently in each texel
+  (`empty_with_sample_locations` with `fixed_sample_locations: false`,
+  `GL_TEXTURE_FIXED_SAMPLE_LOCATIONS`), and `TextureAny::has_fixed_sample_locations` tells how
+  they were created.
 - Textures have a swizzle, which chooses the component or the constant that sampling returns in
   each channel (`TextureAny::set_swizzle`, `texture::Swizzle`; `any(desktop, gles30)`), a mipmap
   range, which limits the levels that sampling and mipmap generation use

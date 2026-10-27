@@ -126,6 +126,9 @@ pub struct TextureAny {
 
     /// The latest `GL_DEPTH_STENCIL_TEXTURE_MODE` of the texture, `None` while unknown.
     pub(crate) depth_stencil_mode: Cell<Option<gl::types::GLenum>>,
+
+    /// Whether the samples of a multisample texture are at the same positions in every texel.
+    fixed_sample_locations: bool,
 }
 
 fn extract_dimensions(ty: Dimensions) -> (u32, Option<u32>, Option<u32>, Option<u32>, Option<u32>) {
@@ -291,6 +294,22 @@ pub fn new_texture<'a, F: ?Sized, P>(
     data: Option<(ClientFormatAny, Cow<'a, [P]>)>,
     mipmaps: MipmapsOption,
     ty: Dimensions,
+) -> Result<TextureAny, TextureCreationError>
+where
+    P: Send + Clone + 'a,
+    F: Facade,
+{
+    new_texture_with_sample_locations(facade, format, data, mipmaps, ty, true)
+}
+
+/// Builds a new texture, multisampled with fixed sample locations or not.
+pub fn new_texture_with_sample_locations<'a, F: ?Sized, P>(
+    facade: &F,
+    format: TextureFormatRequest,
+    data: Option<(ClientFormatAny, Cow<'a, [P]>)>,
+    mipmaps: MipmapsOption,
+    ty: Dimensions,
+    fixed_sample_locations: bool,
 ) -> Result<TextureAny, TextureCreationError>
 where
     P: Send + Clone + 'a,
@@ -684,7 +703,7 @@ where
                     storage_internal_format.unwrap() as gl::types::GLenum,
                     width,
                     height,
-                    true,
+                    fixed_sample_locations,
                 );
             } else if ctxt.version.0 == Api::Gl {
                 ctxt.glow.tex_image_2d_multisample(
@@ -693,7 +712,7 @@ where
                     teximg_internal_format as i32,
                     width,
                     height,
-                    true,
+                    fixed_sample_locations,
                 );
             } else {
                 unreachable!();
@@ -723,7 +742,7 @@ where
                     width,
                     height,
                     array_size.unwrap() as gl::types::GLsizei,
-                    gl::TRUE,
+                    fixed_sample_locations as u8,
                 );
             } else if storage_internal_format.is_some()
                 && ctxt.extensions.gl_oes_texture_storage_multisample_2d_array
@@ -735,7 +754,7 @@ where
                     width,
                     height,
                     array_size.unwrap() as gl::types::GLsizei,
-                    gl::TRUE,
+                    fixed_sample_locations as u8,
                 );
             } else if ctxt.version.0 == Api::Gl {
                 ctxt.extra.TexImage3DMultisample(
@@ -745,7 +764,7 @@ where
                     width,
                     height,
                     array_size.unwrap() as gl::types::GLsizei,
-                    gl::TRUE,
+                    fixed_sample_locations as u8,
                 );
             } else {
                 unreachable!();
@@ -841,6 +860,7 @@ where
         // the defaults of OpenGL, or the range set above for textures without mipmaps
         mipmap_range: Cell::new(Some((0, if texture_levels > 1 { 1000 } else { 0 }))),
         depth_stencil_mode: Cell::new(Some(gl::DEPTH_COMPONENT)),
+        fixed_sample_locations,
     })
 }
 
@@ -877,6 +897,8 @@ pub unsafe fn from_id<F: Facade + ?Sized>(
         swizzle: Cell::new(None),
         mipmap_range: Cell::new(None),
         depth_stencil_mode: Cell::new(None),
+        // the most common choice, which can't be queried below OpenGL ES 3.1
+        fixed_sample_locations: true,
     };
 
     if should_generate_mipmaps {
@@ -995,6 +1017,14 @@ impl TextureAny {
             Dimensions::Cubemap { .. } => None,
             Dimensions::CubemapArray { array_size, .. } => Some(array_size),
         }
+    }
+
+    /// Returns true if the samples of a multisample texture are at the same positions in every
+    /// texel (`GL_TEXTURE_FIXED_SAMPLE_LOCATIONS`), which is the default. Returns true for other
+    /// textures too.
+    #[inline]
+    pub fn has_fixed_sample_locations(&self) -> bool {
+        self.fixed_sample_locations
     }
 
     /// Returns the number of samples of the texture if it is a multisampling texture.

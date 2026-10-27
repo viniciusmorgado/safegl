@@ -1,5 +1,7 @@
 //! Kinds of textures and formats: compressed formats, rectangle textures, texture views, ranges
 //! of buffer textures, multisample textures and images.
+// the helpers are unused at the levels that have none of the tests that need them
+#![allow(dead_code)]
 
 #[macro_use]
 extern crate safegl;
@@ -165,6 +167,56 @@ fn etc2_srgb_textures() {
         pixel.0 < ETC2_COLOR.0 && pixel.1 < ETC2_COLOR.1,
         "{pixel:?}"
     );
+
+    display.assert_no_error(None);
+}
+
+/// Multisample textures whose samples may be placed differently in each texel.
+#[cfg(any(safegl_desktop, safegl_gles31))]
+#[test]
+fn variable_sample_locations() {
+    use safegl::framebuffer::{DepthRenderBuffer, SimpleFrameBuffer, ValidationError};
+    use safegl::glow::HasContext;
+    use safegl::texture::{DepthFormat, Texture2dMultisample, UncompressedFloatFormat};
+    use safegl::GlObject;
+
+    let display = support::build_display();
+    if !safegl::texture::is_texture_2d_multisample_supported(&display) {
+        return;
+    }
+    let texture = Texture2dMultisample::empty_with_sample_locations(
+        &display,
+        UncompressedFloatFormat::U8U8U8U8,
+        4,
+        4,
+        4,
+        false,
+    )
+    .unwrap();
+    assert!(!texture.has_fixed_sample_locations());
+    let fixed = unsafe {
+        let gl = display.glow_context();
+        gl.bind_texture(safegl::glow::TEXTURE_2D_MULTISAMPLE, Some(texture.get_id()));
+        let fixed = gl.get_tex_level_parameter_i32(
+            safegl::glow::TEXTURE_2D_MULTISAMPLE,
+            0,
+            safegl::glow::TEXTURE_FIXED_SAMPLE_LOCATIONS,
+        );
+        gl.bind_texture(safegl::glow::TEXTURE_2D_MULTISAMPLE, None);
+        fixed
+    };
+    display.restore_state();
+    assert_eq!(fixed, 0);
+
+    let mut framebuffer = SimpleFrameBuffer::new(&display, &texture).unwrap();
+    framebuffer.clear_color(1.0, 0.0, 0.0, 1.0);
+
+    // render buffers have fixed sample locations
+    let depth = DepthRenderBuffer::new_multisample(&display, DepthFormat::I24, 4, 4, 4).unwrap();
+    assert!(matches!(
+        SimpleFrameBuffer::with_depth_buffer(&display, &texture, &depth),
+        Err(ValidationError::Incomplete { .. })
+    ));
 
     display.assert_no_error(None);
 }
