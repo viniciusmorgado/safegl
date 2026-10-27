@@ -112,6 +112,7 @@ impl Program {
                         transform_feedback_varyings,
                         Some(fragment_shader),
                         locations,
+                        None,
                     )?,
                     outputs_srgb,
                     uses_point_size,
@@ -136,7 +137,6 @@ impl Program {
                 tessellation_evaluation_shader,
                 geometry_shader,
                 fragment_shader,
-                transform_feedback_varyings,
                 outputs_srgb,
                 uses_point_size,
             }) => {
@@ -166,14 +166,15 @@ impl Program {
 
                 let _lock = COMPILER_GLOBAL_LOCK.lock();
 
-                let shaders_store = {
-                    let mut shaders_store = Vec::new();
-                    for (src, ty) in shaders.into_iter() {
-                        shaders_store.push(build_spirv_shader(facade, ty.to_opengl_type(), &src)?);
-                    }
-                    shaders_store
-                };
+                let mut shaders_store = Vec::new();
+                let mut modules = Vec::new();
+                for (src, ty) in shaders.into_iter() {
+                    let (shader, module) = build_spirv_shader(facade, ty.to_opengl_type(), &src)?;
+                    shaders_store.push(shader);
+                    modules.push(module);
+                }
 
+                // the modules capture with `xfb_buffer` and `xfb_offset`
                 (
                     RawProgram::from_shaders(
                         facade,
@@ -181,9 +182,10 @@ impl Program {
                         has_geometry_shader,
                         has_tessellation_control_shader,
                         has_tessellation_evaluation_shader,
-                        transform_feedback_varyings,
+                        None,
                         None,
                         Default::default(),
+                        Some(&modules),
                     )?,
                     outputs_srgb,
                     uses_point_size,

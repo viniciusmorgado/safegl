@@ -284,14 +284,23 @@ where
         });
     }
 
-    let blocks = program.get_uniform_blocks().keys();
+    // the blocks of programs linked from SPIR-V have several names, a block is bound through
+    // any of them
+    let maps = [program.get_uniform_blocks()];
     #[cfg(any(safegl_gl42, safegl_gles31))]
-    let blocks = blocks
-        .chain(program.get_shader_storage_blocks().keys())
-        .chain(program.get_atomic_counters().keys());
-    for name in blocks {
-        if !bound_blocks.contains(&name.as_str()) {
-            return Err(DrawError::UniformBindingMissing { name: name.clone() });
+    let maps = [
+        maps[0],
+        program.get_shader_storage_blocks(),
+        program.get_atomic_counters(),
+    ];
+    for blocks in maps {
+        for (name, block) in blocks {
+            let bound = bound_blocks
+                .iter()
+                .any(|bound| blocks.get(*bound).is_some_and(|b| b.id == block.id));
+            if !bound {
+                return Err(DrawError::UniformBindingMissing { name: name.clone() });
+            }
         }
     }
 

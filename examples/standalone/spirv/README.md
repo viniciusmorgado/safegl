@@ -12,10 +12,10 @@ glslangValidator -G shader.frag -o frag.spv
 
 Then we can load them in SafeGL using:
 ```rust
-ProgramCreationInput::SpirV(SpirvProgram::from_vs_and_fs(
-    SpirvEntryPoint { data: include_bytes!("vert.spv"), entry_point: "main" },
-    SpirvEntryPoint { data: include_bytes!("frag.spv"), entry_point: "main" },
-))
+SpirvProgram::from_vs_and_fs(
+    SpirvEntryPoint::new(include_bytes!("vert.spv"), "main"),
+    SpirvEntryPoint::new(include_bytes!("frag.spv"), "main"),
+)
 ```
 
 But SPIR-V also allows having multiple entry points in the same module.
@@ -25,11 +25,8 @@ spirv-link vert.spv frag.spv -o shader.spv
 ```
 And then we load them from the same `.spv` file:
 ```rust
-let spirv = SpirvEntryPoint { data: include_bytes!("shader.spv"), entry_point: "main" };
-let program = safegl::Program::new(
-    &display,
-    ProgramCreationInput::SpirV(SpirvProgram::from_vs_and_fs(spirv, spirv)),
-).unwrap();
+let spirv = SpirvEntryPoint::new(include_bytes!("shader.spv"), "main");
+let program = safegl::Program::new(&display, SpirvProgram::from_vs_and_fs(spirv, spirv)).unwrap();
 ```
 
 Note: It's not a problem that both entry points are named `main`, since they are distinguished by their shader type:
@@ -57,8 +54,19 @@ spirv-link vert.spv frag.spv -o shader.spv
 Then we would load it like this:
 ```rust
 let data = include_bytes!("shader.spv");
-ProgramCreationInput::SpirV(SpirvProgram::from_vs_and_fs(
-    SpirvEntryPoint { data, entry_point: "main_vs" },
-    SpirvEntryPoint { data, entry_point: "main_fs" },
-))
+SpirvProgram::from_vs_and_fs(
+    SpirvEntryPoint::new(data, "main_vs"),
+    SpirvEntryPoint::new(data, "main_fs"),
+)
 ```
+
+Specialization constants (`layout(constant_id = N)`) get their values with `specialized`:
+```rust
+let fragment = SpirvEntryPoint::new(data, "main_fs")
+    .specialized(&[(0, SpecializationConstant::Float(2.0))]);
+```
+
+Drivers can leave out the names that SPIR-V modules hold, and modules compiled without debug
+information have none, so SafeGL reads the names from the modules, and also names every
+resource after its location or binding: `location=N` for uniforms, attributes and fragment
+outputs, `binding=N` for blocks. See the documentation of `SpirvEntryPoint`.

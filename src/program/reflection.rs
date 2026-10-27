@@ -459,6 +459,242 @@ unsafe fn attribute_component(
     component.clamp(0, 3) as u32
 }
 
+/// What reflection gives about a program linked from SPIR-V modules.
+#[cfg(safegl_gl46)]
+pub struct SpirvReflection {
+    pub uniforms: HashMap<String, Uniform, BuildHasherDefault<FnvHasher>>,
+    pub atomic_counters: HashMap<String, UniformBlock, BuildHasherDefault<FnvHasher>>,
+    pub locations: UniformLocations,
+    pub attributes: HashMap<String, Attribute, BuildHasherDefault<FnvHasher>>,
+    pub uniform_blocks: HashMap<String, UniformBlock, BuildHasherDefault<FnvHasher>>,
+    pub ssbos: HashMap<String, UniformBlock, BuildHasherDefault<FnvHasher>>,
+    /// The locations and indices of the fragment outputs.
+    pub outputs: HashMap<String, (u32, u32), BuildHasherDefault<FnvHasher>>,
+}
+
+/// Reflects a program linked from SPIR-V `modules`, whose entry points were checked.
+///
+/// OpenGL gives the locations, bindings and types of the resources through the program
+/// interface queries, but drivers can leave out their names. The names and the layouts of the
+/// blocks come from the modules, and every resource is named after its location or binding too:
+/// see `SpirvEntryPoint`.
+#[cfg(safegl_gl46)]
+pub unsafe fn reflect_spirv(
+    ctxt: &mut CommandContext<'_>,
+    program: glow::Program,
+    modules: &[crate::program::spirv::Module],
+) -> SpirvReflection {
+    use crate::program::spirv::ExecutionModel;
+
+    let count = |interface| {
+        let mut count: gl::types::GLint = 0;
+        ctxt.extra.GetProgramInterfaceiv(
+            program.raw_name(),
+            interface,
+            gl::ACTIVE_RESOURCES,
+            &mut count,
+        );
+        count.max(0) as gl::types::GLuint
+    };
+    let properties = |interface, index, properties: &[gl::types::GLenum]| {
+        let mut output = vec![0; properties.len()];
+        ctxt.extra.GetProgramResourceiv(
+            program.raw_name(),
+            interface,
+            index,
+            properties.len() as gl::types::GLsizei,
+            properties.as_ptr(),
+            output.len() as gl::types::GLsizei,
+            ptr::null_mut(),
+            output.as_mut_ptr(),
+        );
+        output
+    };
+
+    let mut reflection = SpirvReflection {
+        uniforms: HashMap::with_hasher(Default::default()),
+        atomic_counters: HashMap::with_hasher(Default::default()),
+        locations: UniformLocations::default(),
+        attributes: HashMap::with_hasher(Default::default()),
+        uniform_blocks: HashMap::with_hasher(Default::default()),
+        ssbos: HashMap::with_hasher(Default::default()),
+        outputs: HashMap::with_hasher(Default::default()),
+    };
+
+    // uniforms and atomic counters
+    let names: HashMap<u32, String> = modules.iter().flat_map(|m| m.uniform_names()).collect();
+    let counters: Vec<_> = modules.iter().flat_map(|m| m.atomic_counters()).collect();
+    let mut uniforms = Vec::new();
+    for index in 0..count(gl::UNIFORM) {
+        let [ty, array_size, location, block, counter_buffer, offset] = properties(
+            gl::UNIFORM,
+            index,
+            &[
+                gl::TYPE,
+                gl::ARRAY_SIZE,
+                gl::LOCATION,
+                gl::BLOCK_INDEX,
+                gl::ATOMIC_COUNTER_BUFFER_INDEX,
+                gl::OFFSET,
+            ],
+        )[..] else {
+            unreachable!()
+        };
+        if block != -1 {
+            continue;
+        }
+        if counter_buffer != -1 {
+            let binding = properties(
+                gl::ATOMIC_COUNTER_BUFFER,
+                counter_buffer as gl::types::GLuint,
+                &[gl::BUFFER_BINDING],
+            )[0];
+            let counter = UniformBlock {
+                id: counter_buffer,
+                initial_binding: binding,
+                size: 4,
+                layout: BlockLayout::BasicType {
+                    ty: UniformType::UnsignedInt,
+                    offset_in_buffer: 0,
+                },
+            };
+            let name = counters
+                .iter()
+                .find(|c| c.0 as i32 == binding && c.1 as i32 == offset)
+                .and_then(|c| c.2.clone());
+            if let Some(name) = name {
+                reflection.atomic_counters.insert(name, counter.clone());
+            }
+            reflection
+                .atomic_counters
+                .insert(format!("binding={binding}"), counter);
+            continue;
+        }
+        // samplers and images without a location keep the binding of the module
+        if location < 0 {
+            continue;
+        }
+        uniforms.push((ty as gl::types::GLenum, array_size.max(1), location));
+    }
+    for (data_type, size, location) in uniforms {
+        let ty = glenum_to_uniform_type(data_type);
+        let name = names.get(&(location as u32)).map(|name| match size {
+            1 => name.as_str(),
+            _ => name.strip_suffix("[0]").unwrap_or(name),
+        });
+        for i in 0..size {
+            let gl_location = glow::NativeUniformLocation((location + i) as u32);
+            let binding = image_binding(ctxt, program, data_type, Some(&gl_location));
+            let uniform = Uniform {
+                location: reflection.locations.register(Some(gl_location)),
+                ty,
+                size: None,
+                binding,
+            };
+            let mut insert = |name: String| reflection.uniforms.insert(name, uniform);
+            insert(format!("location={}", location + i));
+            if size > 1 {
+                insert(format!("location={location}[{i}]"));
+                if let Some(name) = name {
+                    insert(format!("{name}[{i}]"));
+                }
+            }
+            if let (0, Some(name)) = (i, name) {
+                insert(name.to_owned());
+            }
+        }
+    }
+
+    // attributes
+    let inputs: HashMap<(u32, u32), String> = modules
+        .iter()
+        .filter(|m| m.is_stage(ExecutionModel::Vertex))
+        .flat_map(|m| m.input_names())
+        .collect();
+    for index in 0..count(gl::PROGRAM_INPUT) {
+        let [ty, array_size, location, component] = properties(
+            gl::PROGRAM_INPUT,
+            index,
+            &[
+                gl::TYPE,
+                gl::ARRAY_SIZE,
+                gl::LOCATION,
+                gl::LOCATION_COMPONENT,
+            ],
+        )[..] else {
+            unreachable!()
+        };
+        // built-in inputs have no location
+        let (Some(ty), true) = (glenum_to_attribute_type(ty as gl::types::GLenum), location >= 0)
+        else {
+            continue;
+        };
+        let component = component.clamp(0, 3) as u32;
+        let attribute = Attribute {
+            location,
+            ty,
+            size: array_size.max(1) as usize,
+            component,
+        };
+        let alias = match component {
+            0 => format!("location={location}"),
+            _ => format!("location={location},component={component}"),
+        };
+        reflection.attributes.insert(alias, attribute);
+        if let Some(name) = inputs.get(&(location as u32, component)) {
+            reflection.attributes.insert(name.clone(), attribute);
+        }
+    }
+
+    // blocks
+    for (interface, storage, blocks) in [
+        (gl::UNIFORM_BLOCK, false, &mut reflection.uniform_blocks),
+        (gl::SHADER_STORAGE_BLOCK, true, &mut reflection.ssbos),
+    ] {
+        let declared: Vec<_> = modules.iter().flat_map(|m| m.blocks(storage)).collect();
+        for index in 0..count(interface) {
+            let [binding, size] =
+                properties(interface, index, &[gl::BUFFER_BINDING, gl::BUFFER_DATA_SIZE])[..]
+            else {
+                unreachable!()
+            };
+            let module_block = declared.iter().find(|b| b.binding as i32 == binding);
+            let block = UniformBlock {
+                id: index as i32,
+                initial_binding: binding,
+                size: size.max(0) as usize,
+                layout: module_block.map_or(
+                    BlockLayout::Struct {
+                        members: Vec::new(),
+                    },
+                    |b| b.layout.clone(),
+                ),
+            };
+            if let Some(name) = module_block.and_then(|b| b.name.clone()) {
+                blocks.insert(name, block.clone());
+            }
+            blocks.insert(format!("binding={binding}"), block);
+        }
+    }
+
+    // fragment outputs
+    let fragment = modules
+        .iter()
+        .filter(|m| m.is_stage(ExecutionModel::Fragment));
+    for (name, location, index) in fragment.flat_map(|m| m.output_locations()) {
+        let alias = match index {
+            0 => format!("location={location}"),
+            _ => format!("location={location},index={index}"),
+        };
+        reflection.outputs.insert(alias, (location, index));
+        if let Some(name) = name {
+            reflection.outputs.insert(name, (location, index));
+        }
+    }
+
+    reflection
+}
+
 pub unsafe fn reflect_uniform_blocks(
     ctxt: &mut CommandContext<'_>,
     program: glow::Program,

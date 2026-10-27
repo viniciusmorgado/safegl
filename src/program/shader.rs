@@ -11,12 +11,14 @@ use crate::ContextExt;
 
 use std::rc::Rc;
 #[cfg(safegl_gl46)]
-use std::{ffi, ptr};
+use std::ffi;
 
 use glow::HasContext;
 
 use crate::GlObject;
 
+#[cfg(safegl_gl46)]
+use crate::program::spirv::{ExecutionModel, Module};
 #[cfg(safegl_gl46)]
 use crate::program::SpirvEntryPoint;
 use crate::program::{ProgramCreationError, ShaderType};
@@ -98,16 +100,36 @@ where
     }
 }
 
-/// Builds an individual shader from a SPIR-V binary.
+/// Builds an individual shader from a SPIR-V binary, after checking its entry point and
+/// specialization constants. Returns it with the module, which reflection reads.
 #[cfg(safegl_gl46)]
 pub fn build_spirv_shader<F: ?Sized>(
     facade: &F,
     shader_type: gl::types::GLenum,
     spirv: &SpirvEntryPoint,
-) -> Result<Shader, ProgramCreationError>
+) -> Result<(Shader, Module), ProgramCreationError>
 where
     F: Facade,
 {
+    let invalid = ProgramCreationError::InvalidSpirvModule;
+    let mut module = Module::parse(spirv.binary).map_err(invalid)?;
+    let model = ExecutionModel::from_shader_type(shader_type)
+        .ok_or(ProgramCreationError::ShaderTypeNotSupported)?;
+    module
+        .check_entry_point(spirv.entry_point, model)
+        .map_err(invalid)?;
+    let values: Vec<_> = spirv
+        .specialization
+        .iter()
+        .map(|&(id, value)| value.to_spirv(id))
+        .collect();
+    module.specialize(&values).map_err(invalid)?;
+    // the entry point is a name of the module, which has no nul character
+    let entry_point = ffi::CString::new(spirv.entry_point.as_bytes())
+        .map_err(|_| invalid("the entry point has a nul character".to_owned()))?;
+    let indices: Vec<gl::types::GLuint> = values.iter().map(|value| value.id).collect();
+    let bits: Vec<gl::types::GLuint> = values.iter().map(|value| value.bits).collect();
+
     unsafe {
         let ctxt = facade.get_context().make_current();
 
@@ -132,9 +154,13 @@ where
             Err(_) => return Err(ProgramCreationError::ShaderTypeNotSupported),
         };
         let id = shader.raw_name();
+        // deleted if it doesn't compile
+        let built = Shader {
+            context: facade.get_context().clone(),
+            id: shader,
+        };
 
         let binary = &spirv.binary;
-        let entry_point = ffi::CString::new(spirv.entry_point.as_bytes()).unwrap();
 
         const GL_SHADER_BINARY_FORMAT_SPIR_V: gl::types::GLenum = 0x9551;
 
@@ -150,18 +176,20 @@ where
         {
             ctxt.report_debug_output_errors.set(false);
 
-            ctxt.extra
-                .SpecializeShader(id, entry_point.as_ptr() as _, 0, ptr::null(), ptr::null());
+            ctxt.extra.SpecializeShader(
+                id,
+                entry_point.as_ptr() as _,
+                values.len() as gl::types::GLuint,
+                indices.as_ptr(),
+                bits.as_ptr(),
+            );
 
             ctxt.report_debug_output_errors.set(true);
         }
 
         // checking compilation success by reading a flag on the shader
         if ctxt.glow.get_shader_compile_status(shader) {
-            Ok(Shader {
-                context: facade.get_context().clone(),
-                id: shader,
-            })
+            Ok((built, module))
         } else {
             // compilation error
             let msg = ctxt.glow.get_shader_info_log(shader);

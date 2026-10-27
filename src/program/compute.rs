@@ -71,11 +71,13 @@ impl ComputeShader {
                 None,
                 None,
                 Default::default(),
+                None,
             )?,
         })
     }
 
-    /// Builds a new compute shader from SPIR-V module.
+    /// Builds a new compute shader from SPIR-V module. See `SpirvEntryPoint` for the names of
+    /// the resources of the shader.
     #[cfg(safegl_gl46)]
     #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
     #[inline]
@@ -88,7 +90,7 @@ impl ComputeShader {
     {
         let _lock = COMPILER_GLOBAL_LOCK.lock();
 
-        let shader = build_spirv_shader(facade, gl::COMPUTE_SHADER, spirv)?;
+        let (shader, module) = build_spirv_shader(facade, gl::COMPUTE_SHADER, spirv)?;
 
         Ok(ComputeShader {
             raw: RawProgram::from_shaders(
@@ -100,6 +102,7 @@ impl ComputeShader {
                 None,
                 None,
                 Default::default(),
+                Some(&[module]),
             )?,
         })
     }

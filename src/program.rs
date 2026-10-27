@@ -34,6 +34,7 @@ mod program;
 mod raw;
 mod reflection;
 mod shader;
+mod spirv;
 mod uniforms_storage;
 
 /// Returns true if the backend supports geometry shaders.
@@ -215,6 +216,11 @@ pub enum ProgramCreationError {
         name: String,
     },
 
+    /// A SPIR-V module is invalid: it isn't a module, it has no such entry point for the stage
+    /// of the shader, or a specialization constant doesn't exist or has another type. The
+    /// string says why.
+    InvalidSpirvModule(String),
+
     /// Locations of fragment outputs can't be given before linking: OpenGL ES needs
     /// `GL_EXT_blend_func_extended`, and WebGL can't. Declare them with `layout(location = N)`.
     LinkLocationsNotSupported,
@@ -243,6 +249,7 @@ impl fmt::Display for ProgramCreationError {
             BinaryHeaderError => "The SafeGL-specific binary header was not found or is corrupt.",
             BinaryNotSupported => "Program binaries are not supported by the backend.",
             InvalidLinkLocation { .. } => "A location given before linking is invalid",
+            InvalidSpirvModule(_) => "Invalid SPIR-V module",
             LinkLocationsNotSupported => {
                 "Fragment output locations can't be given before linking by the backend"
             }
@@ -251,6 +258,7 @@ impl fmt::Display for ProgramCreationError {
             CompilationError(ref s, _) => write!(fmt, "{}: {}", desc, s),
             LinkingError(ref s) => write!(fmt, "{}: {}", desc, s),
             InvalidLinkLocation { ref name } => write!(fmt, "{}: `{}`", desc, name),
+            InvalidSpirvModule(ref s) => write!(fmt, "{}: {}", desc, s),
             _ => write!(fmt, "{}", desc),
         }
     }
@@ -441,17 +449,19 @@ pub struct SpirvProgram<'a> {
     /// Optional geometry shader.
     pub geometry_shader: Option<SpirvEntryPoint<'a>>,
 
-    /// The list of variables and mode to use for transform feedback.
-    ///
-    /// The information specified here will be passed to the OpenGL linker. If you pass
-    /// `None`, then you won't be able to use transform feedback.
-    pub transform_feedback_varyings: Option<(Vec<String>, TransformFeedbackMode)>,
-
     /// See [`ProgramCreationInput::SourceCode::outputs_srgb`].
     pub outputs_srgb: bool,
 
     /// Whether the shader uses point size.
     pub uses_point_size: bool,
+}
+
+#[cfg(safegl_gl46)]
+impl<'a> From<SpirvProgram<'a>> for ProgramCreationInput<'a> {
+    #[inline]
+    fn from(program: SpirvProgram<'a>) -> ProgramCreationInput<'a> {
+        ProgramCreationInput::SpirV(program)
+    }
 }
 
 #[cfg(safegl_gl46)]
@@ -467,7 +477,6 @@ impl<'a> SpirvProgram<'a> {
             tessellation_control_shader: None,
             tessellation_evaluation_shader: None,
             geometry_shader: None,
-            transform_feedback_varyings: None,
             outputs_srgb: true,
             uses_point_size: false,
         }
@@ -494,15 +503,6 @@ impl<'a> SpirvProgram<'a> {
     /// Builder method to set `geometry_shader`.
     pub fn geometry_shader(mut self, geometry_shader: Option<SpirvEntryPoint<'a>>) -> Self {
         self.geometry_shader = geometry_shader;
-        self
-    }
-
-    /// Builder method to set `transform_feedback_varyings`.
-    pub fn transform_feedback_varyings(
-        mut self,
-        transform_feedback_varyings: Option<(Vec<String>, TransformFeedbackMode)>,
-    ) -> Self {
-        self.transform_feedback_varyings = transform_feedback_varyings;
         self
     }
 
@@ -563,16 +563,111 @@ pub struct LinkLocations<'a> {
     pub fragment_outputs: &'a [(&'a str, u32, u32)],
 }
 
-/// Represents an entry point of a binary SPIR-V module.
+/// Represents an entry point of a binary SPIR-V module, with the values of its specialization
+/// constants.
+///
+/// SafeGL checks that the module has the entry point for the stage of the shader and the
+/// specialization constants with the types of their values. Since drivers can ignore the names
+/// that SPIR-V modules hold, and the modules can have none, SafeGL reads the names of the
+/// resources of the program from the modules, and gives them names from their locations and
+/// bindings too:
+///
+/// - uniforms are named `location=N`, and the elements of an array at location `N` are named
+///   `location=N[i]` too;
+/// - uniform blocks, shader storage blocks and atomic counters are named `binding=N`;
+/// - attributes are named `location=N`, or `location=N,component=C` after the first component;
+/// - fragment outputs are named `location=N`, and `location=N,index=1` for the second color of
+///   dual-source blending.
+///
+/// The members of blocks that the module doesn't name are named after their indices, `0`,
+/// `1`, ...
+///
+/// ```no_run
+/// # fn example(display: &safegl::Display<safegl::glutin::surface::WindowSurface>,
+/// #            vertex: &[u8], fragment: &[u8]) {
+/// use safegl::program::{SpecializationConstant, SpirvEntryPoint, SpirvProgram};
+///
+/// // `layout(constant_id = 0) const float scale = 1.0;` in the fragment shader
+/// let fragment = SpirvEntryPoint::new(fragment, "main")
+///     .specialized(&[(0, SpecializationConstant::Float(2.0))]);
+/// let program = safegl::Program::new(
+///     display,
+///     SpirvProgram::from_vs_and_fs(SpirvEntryPoint::new(vertex, "main"), fragment),
+/// )
+/// .unwrap();
+/// let uniforms = safegl::uniform! { "location=1": [1.0f32, 0.0, 0.0, 1.0] };
+/// # }
+/// ```
 #[cfg(safegl_gl46)]
 #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct SpirvEntryPoint<'a> {
     /// The binary module data.
     pub binary: &'a [u8],
 
     /// The entry point to use, e.g. "main".
     pub entry_point: &'a str,
+
+    /// The values of specialization constants, by `constant_id`. The others keep the values of
+    /// the module.
+    pub specialization: &'a [(u32, SpecializationConstant)],
+}
+
+#[cfg(safegl_gl46)]
+impl<'a> SpirvEntryPoint<'a> {
+    /// The entry point `entry_point` of a module, with the specialization constants of the
+    /// module.
+    #[inline]
+    pub fn new(binary: &'a [u8], entry_point: &'a str) -> SpirvEntryPoint<'a> {
+        SpirvEntryPoint {
+            binary,
+            entry_point,
+            specialization: &[],
+        }
+    }
+
+    /// Gives values to specialization constants, by `constant_id`.
+    #[inline]
+    pub fn specialized(
+        self,
+        specialization: &'a [(u32, SpecializationConstant)],
+    ) -> SpirvEntryPoint<'a> {
+        SpirvEntryPoint {
+            specialization,
+            ..self
+        }
+    }
+}
+
+/// The value of a specialization constant of a SPIR-V module. OpenGL can't specialize 64-bit
+/// constants.
+#[cfg(safegl_gl46)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum SpecializationConstant {
+    /// A `bool` constant.
+    Bool(bool),
+    /// An `int` constant.
+    Int(i32),
+    /// A `uint` constant.
+    UnsignedInt(u32),
+    /// A `float` constant.
+    Float(f32),
+}
+
+#[cfg(safegl_gl46)]
+impl SpecializationConstant {
+    /// Returns the kind and the bits that OpenGL takes.
+    pub(crate) fn to_spirv(self, id: u32) -> spirv::Specialization {
+        use spirv::SpecializationKind as K;
+        let (kind, bits) = match self {
+            SpecializationConstant::Bool(value) => (K::Bool, value as u32),
+            SpecializationConstant::Int(value) => (K::Int, value as u32),
+            SpecializationConstant::UnsignedInt(value) => (K::UnsignedInt, value),
+            SpecializationConstant::Float(value) => (K::Float, value.to_bits()),
+        };
+        spirv::Specialization { id, kind, bits }
+    }
 }
 
 /// Represents the source code of a program.

@@ -47,6 +47,7 @@ use crate::BufferSliceExt;
 use crate::program::uniforms_storage::UniformsStorage;
 #[cfg(any(safegl_gl41, safegl_gles30))]
 use crate::program::{is_binary_supported, Binary, GetBinaryError};
+use crate::program::spirv::Module;
 use crate::program::{LinkLocations, ProgramCreationError};
 
 #[cfg(any(safegl_gl41, safegl_gles30))]
@@ -55,6 +56,8 @@ use crate::program::binary_header::{attach_safegl_header, process_safegl_header}
 use crate::program::compute::ComputeCommand;
 use crate::program::reflection::reflect_subroutine_data;
 use crate::program::reflection::reflect_transform_feedback;
+#[cfg(safegl_gl46)]
+use crate::program::reflection::reflect_spirv;
 use crate::program::reflection::{reflect_attributes, reflect_uniform_blocks, reflect_uniforms};
 use crate::program::reflection::{reflect_geometry_input_type, reflect_geometry_output_type};
 use crate::program::reflection::{reflect_shader_storage_blocks, reflect_tess_eval_output_type};
@@ -87,6 +90,9 @@ pub struct RawProgram {
     has_geometry_shader: bool,
     has_tessellation_control_shader: bool,
     has_tessellation_evaluation_shader: bool,
+    /// The locations and indices of the fragment outputs of a program linked from SPIR-V,
+    /// which OpenGL can't look up by name.
+    spirv_outputs: Option<HashMap<String, (u32, u32), BuildHasherDefault<FnvHasher>>>,
 }
 
 impl RawProgram {
@@ -101,6 +107,7 @@ impl RawProgram {
         transform_feedback: Option<(Vec<String>, TransformFeedbackMode)>,
         fragment_source: Option<&str>,
         locations: LinkLocations<'_>,
+        spirv: Option<&[Module]>,
     ) -> Result<RawProgram, ProgramCreationError>
     where
         F: Facade,
@@ -176,12 +183,37 @@ impl RawProgram {
             id
         };
 
-        let (uniforms, atomic_counters, uniform_locations) =
-            unsafe { reflect_uniforms(&mut ctxt, id) };
-        let attributes = unsafe { reflect_attributes(&mut ctxt, id) };
-        let blocks = unsafe { reflect_uniform_blocks(&mut ctxt, id) };
+        // drivers can leave out the names of the resources of SPIR-V modules
+        let (uniforms, atomic_counters, uniform_locations, attributes, blocks, ssbos, outputs) =
+            match spirv {
+                #[cfg(safegl_gl46)]
+                Some(modules) => {
+                    let spirv = unsafe { reflect_spirv(&mut ctxt, id, modules) };
+                    (
+                        spirv.uniforms,
+                        spirv.atomic_counters,
+                        spirv.locations,
+                        spirv.attributes,
+                        spirv.uniform_blocks,
+                        spirv.ssbos,
+                        Some(spirv.outputs),
+                    )
+                }
+                _ => unsafe {
+                    let (uniforms, atomic_counters, uniform_locations) =
+                        reflect_uniforms(&mut ctxt, id);
+                    (
+                        uniforms,
+                        atomic_counters,
+                        uniform_locations,
+                        reflect_attributes(&mut ctxt, id),
+                        reflect_uniform_blocks(&mut ctxt, id),
+                        reflect_shader_storage_blocks(&mut ctxt, id),
+                        None,
+                    )
+                },
+            };
         let tf_buffers = unsafe { reflect_transform_feedback(&mut ctxt, id) };
-        let ssbos = unsafe { reflect_shader_storage_blocks(&mut ctxt, id) };
         let subroutine_data = unsafe {
             reflect_subroutine_data(
                 &mut ctxt,
@@ -222,6 +254,7 @@ impl RawProgram {
             has_geometry_shader,
             has_tessellation_control_shader,
             has_tessellation_evaluation_shader,
+            spirv_outputs: outputs,
         })
     }
 
@@ -322,6 +355,7 @@ impl RawProgram {
             has_geometry_shader,
             has_tessellation_control_shader,
             has_tessellation_evaluation_shader,
+            spirv_outputs: None,
         })
     }
 
@@ -374,6 +408,10 @@ impl RawProgram {
     /// ```
     ///
     pub fn get_frag_data_location(&self, name: &str) -> Option<u32> {
+        if let Some(outputs) = &self.spirv_outputs {
+            return outputs.get(name).map(|output| output.0);
+        }
+
         // looking for a cached value
         if let Some(result) = self.frag_data_locations.borrow_mut().get(name) {
             return *result;
@@ -399,6 +437,9 @@ impl RawProgram {
     /// blending, declared with `layout(location = 0, index = 1)`, and 0 for the others. Returns
     /// `None` if the program has no output with this name.
     pub fn get_frag_data_index(&self, name: &str) -> Option<u32> {
+        if let Some(outputs) = &self.spirv_outputs {
+            return outputs.get(name).map(|output| output.1);
+        }
         self.get_frag_data_location(name)?;
 
         let ctxt = self.context.make_current();
