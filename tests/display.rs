@@ -205,7 +205,9 @@ fn compatibility_profile_is_refused() {
         None => return,
     };
 
-    let error = result.err().expect("a compatibility profile context was accepted");
+    let Err(error) = result else {
+        panic!("a compatibility profile context was accepted");
+    };
     assert!(error.to_string().contains("core profile"), "{error}");
 }
 

@@ -108,7 +108,7 @@ fn transform_feedback() {
 
         texture
             .as_surface()
-            .draw(&vb, &ib, &program, &uniform! {}, &params)
+            .draw(&vb, ib, &program, &uniform! {}, &params)
             .unwrap();
     }
 
@@ -195,7 +195,7 @@ fn transform_feedback_session_continues() {
         for _ in 0..2 {
             texture
                 .as_surface()
-                .draw(&vb, &ib, &program, &uniform! {}, &params)
+                .draw(&vb, ib, &program, &uniform! {}, &params)
                 .unwrap();
         }
     }

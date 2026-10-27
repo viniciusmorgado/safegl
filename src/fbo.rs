@@ -78,9 +78,6 @@ use crate::gl;
 use crate::version::Api;
 use crate::version::Version;
 
-/// Returns true if the backend supports attachments with varying dimensions.
-
-
 /// Represents the attachments to use for an OpenGL framebuffer.
 #[derive(Clone)]
 pub enum FramebufferAttachments<'a> {

@@ -279,7 +279,7 @@ fn transform_feedback_generic_binding_does_not_change_indexed_binding() {
             .as_surface()
             .draw(
                 &vb,
-                &ib,
+                ib,
                 &program,
                 &uniform! {},
                 &safegl::DrawParameters {
