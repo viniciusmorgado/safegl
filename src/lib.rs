@@ -434,10 +434,6 @@ trait QueryExt {
 
     fn end_time_elapsed_query(ctxt: &mut CommandContext<'_>);
 
-    fn end_primitives_generated_query(ctxt: &mut CommandContext<'_>);
-
-    fn end_transform_feedback_primitives_written_query(ctxt: &mut CommandContext<'_>);
-
     #[cfg(safegl_desktop)]
     fn begin_conditional_render(
         &self,
@@ -841,7 +837,7 @@ impl ToGlEnum for BlitMask {
 /// width would be big enough for the point to be visible. However this standard behavior is not
 /// respected by nVidia drivers, which show the points anyway.
 ///
-/// If a query has been specified through `primitives_generated_query`, then its value is updated.
+/// If a query has been specified through `primitives_generated_queries`, then its value is updated.
 ///
 /// ## Step 7: Face culling (triangles only)
 ///

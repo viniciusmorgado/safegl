@@ -335,12 +335,6 @@ pub struct GlState {
     /// Current query being used for GL_ANY_SAMPLES_PASSED​_CONSERVATIVE.
     pub any_samples_passed_conservative_query: Option<glow::Query>,
 
-    /// Current query being used for GL_PRIMITIVES_GENERATED​.
-    pub primitives_generated_query: Option<glow::Query>,
-
-    /// Current query being used for GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN​.
-    pub transform_feedback_primitives_written_query: Option<glow::Query>,
-
     /// Current query being used for GL_TIME_ELAPSED​.
     pub time_elapsed_query: Option<glow::Query>,
 
@@ -557,8 +551,6 @@ impl Default for GlState {
             samples_passed_query: None,
             any_samples_passed_query: None,
             any_samples_passed_conservative_query: None,
-            primitives_generated_query: None,
-            transform_feedback_primitives_written_query: None,
             time_elapsed_query: None,
             indexed_queries: SmallVec::new(),
             conditional_render: None,

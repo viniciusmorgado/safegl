@@ -189,7 +189,7 @@ fn primitives_generated() {
 
     {
         let params = safegl::DrawParameters {
-            primitives_generated_query: Some(&query),
+            primitives_generated_queries: &[&query],
             ..Default::default()
         };
 
@@ -698,6 +698,66 @@ fn query_that_never_began_is_ready() {
     // its result is 0, at once
     assert!(query.is_ready());
     assert_eq!(query.get().unwrap(), 0);
+
+    display.assert_no_error(None);
+}
+
+/// Primitives queries count one vertex stream each, and two of the same stream can't count a
+/// draw together.
+#[cfg(safegl_desktop)]
+#[test]
+fn primitives_queries_of_streams() {
+    use safegl::draw_parameters::PrimitivesGeneratedQuery;
+    use safegl::CapabilitiesSource;
+
+    let display = support::build_display();
+    if support::is_gles(&display) {
+        assert!(matches!(
+            PrimitivesGeneratedQuery::with_stream(&display, 1),
+            Err(safegl::draw_parameters::QueryCreationError::NotSupported)
+        ));
+        return;
+    }
+    let max = display.get_capabilities().limits.max_vertex_streams.unwrap() as u32;
+    assert!(matches!(
+        PrimitivesGeneratedQuery::with_stream(&display, max),
+        Err(safegl::draw_parameters::QueryCreationError::NotSupported)
+    ));
+
+    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+    let texture = support::build_renderable_texture(&display);
+    let stream_0 = PrimitivesGeneratedQuery::new(&display).unwrap();
+    let also_stream_0 = PrimitivesGeneratedQuery::with_stream(&display, 0).unwrap();
+    let stream_1 = PrimitivesGeneratedQuery::with_stream(&display, 1).unwrap();
+
+    let result = texture.as_surface().draw(
+        &vb,
+        &ib,
+        &program,
+        &safegl::uniforms::EmptyUniforms,
+        &safegl::DrawParameters {
+            primitives_generated_queries: &[&stream_0, &also_stream_0],
+            ..Default::default()
+        },
+    );
+    assert!(matches!(result, Err(safegl::DrawError::WrongQueryOperation)));
+
+    // without a geometry shader, everything goes to stream 0
+    texture
+        .as_surface()
+        .draw(
+            &vb,
+            &ib,
+            &program,
+            &safegl::uniforms::EmptyUniforms,
+            &safegl::DrawParameters {
+                primitives_generated_queries: &[&stream_0, &stream_1],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(stream_0.get().unwrap(), 2);
+    assert_eq!(stream_1.get().unwrap(), 0);
 
     display.assert_no_error(None);
 }

@@ -110,7 +110,6 @@ pub(crate) use self::query::write_query_to_buffer;
 pub use self::query::{AnySamplesPassedQuery, TransformFeedbackPrimitivesWrittenQuery};
 #[cfg(safegl_desktop)]
 pub use self::query::{SamplesPassedQuery, TimeElapsedQuery};
-#[cfg(safegl_gl46)]
 pub(crate) use self::query::{sync_indexed_queries, RawQuery};
 #[cfg(safegl_gl46)]
 #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
@@ -469,14 +468,18 @@ pub struct DrawParameters<'a> {
     #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     pub time_elapsed_query: Option<&'a TimeElapsedQuery>,
 
-    /// If set, the number of primitives generated is added to the total stored inside the query.
+    /// The queries that count the primitives that this draw generates, each of another vertex
+    /// stream (see `PrimitivesGeneratedQuery::with_stream`), or the draw returns
+    /// `DrawError::WrongQueryOperation`. The default is none.
     #[cfg(any(safegl_desktop, safegl_gles32))]
     #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
-    pub primitives_generated_query: Option<&'a PrimitivesGeneratedQuery>,
+    pub primitives_generated_queries: &'a [&'a PrimitivesGeneratedQuery],
 
-    /// If set, the number of vertices written by transform feedback.
-    pub transform_feedback_primitives_written_query:
-        Option<&'a TransformFeedbackPrimitivesWrittenQuery>,
+    /// The queries that count the primitives that transform feedback writes during this draw,
+    /// each of another vertex stream, or the draw returns `DrawError::WrongQueryOperation`. The
+    /// default is none.
+    pub transform_feedback_primitives_written_queries:
+        &'a [&'a TransformFeedbackPrimitivesWrittenQuery],
 
     /// The pipeline statistics queries that count this draw, each of another statistic, or the
     /// draw returns `DrawError::WrongQueryOperation`. The default is none.
@@ -799,8 +802,9 @@ pub(crate) fn check_query_contexts(
         .as_ref()
         .is_none_or(samples)
         && draw_parameters
-            .transform_feedback_primitives_written_query
-            .is_none_or(|q| ctxt.owns(QueryExt::get_context(q)));
+            .transform_feedback_primitives_written_queries
+            .iter()
+            .all(|q| ctxt.owns(QueryExt::get_context(*q)));
     #[cfg(safegl_desktop)]
     let owned = owned
         && draw_parameters
@@ -822,8 +826,9 @@ pub(crate) fn check_query_contexts(
     #[cfg(any(safegl_desktop, safegl_gles32))]
     let owned = owned
         && draw_parameters
-            .primitives_generated_query
-            .is_none_or(|q| ctxt.owns(QueryExt::get_context(q)));
+            .primitives_generated_queries
+            .iter()
+            .all(|q| ctxt.owns(QueryExt::get_context(*q)));
 
     if owned {
         Ok(())
@@ -977,8 +982,8 @@ impl<'a> Default for DrawParameters<'a> {
             #[cfg(safegl_desktop)]
             time_elapsed_query: None,
             #[cfg(any(safegl_desktop, safegl_gles32))]
-            primitives_generated_query: None,
-            transform_feedback_primitives_written_query: None,
+            primitives_generated_queries: &[],
+            transform_feedback_primitives_written_queries: &[],
             #[cfg(safegl_gl46)]
             pipeline_statistics_queries: &[],
             #[cfg(safegl_gl46)]
@@ -1554,29 +1559,31 @@ fn sync_queries(
         AnySamplesPassedQuery::end_time_elapsed_query(ctxt);
     }
 
+    // the queries of primitives, statistics and overflows, by target and stream
+    #[cfg_attr(not(any(safegl_desktop, safegl_gles32)), allow(unused_mut))]
+    let mut queries: smallvec::SmallVec<[&RawQuery; 4]> = draw_parameters
+        .transform_feedback_primitives_written_queries
+        .iter()
+        .map(|q| q.raw())
+        .collect();
     #[cfg(any(safegl_desktop, safegl_gles32))]
-    if let Some(primitives_generated_query) = draw_parameters.primitives_generated_query {
-        primitives_generated_query.begin_query(ctxt)?;
-    } else {
-        AnySamplesPassedQuery::end_primitives_generated_query(ctxt);
-    }
-
-    if let Some(tfq) = draw_parameters.transform_feedback_primitives_written_query {
-        tfq.begin_query(ctxt)?;
-    } else {
-        AnySamplesPassedQuery::end_transform_feedback_primitives_written_query(ctxt);
-    }
-
+    queries.extend(
+        draw_parameters
+            .primitives_generated_queries
+            .iter()
+            .map(|q| q.raw()),
+    );
     #[cfg(safegl_gl46)]
     {
-        let mut queries: smallvec::SmallVec<[&RawQuery; 4]> = draw_parameters
-            .pipeline_statistics_queries
-            .iter()
-            .map(|q| q.raw())
-            .collect();
+        queries.extend(
+            draw_parameters
+                .pipeline_statistics_queries
+                .iter()
+                .map(|q| q.raw()),
+        );
         queries.extend(draw_parameters.transform_feedback_overflow_query.map(|q| q.raw()));
-        sync_indexed_queries(ctxt, &queries)?;
     }
+    sync_indexed_queries(ctxt, &queries, false)?;
 
     Ok(())
 }

@@ -13,7 +13,6 @@ use std::error::Error;
 use std::fmt;
 use std::rc::Rc;
 
-#[cfg(safegl_gl46)]
 use smallvec::SmallVec;
 
 #[cfg(safegl_gl44)]
@@ -26,7 +25,6 @@ use crate::BufferExt;
 use crate::BufferSliceExt;
 
 use crate::gl;
-#[cfg(safegl_desktop)]
 use crate::handles::RawName;
 use crate::version::Api;
 use crate::version::Version;
@@ -52,8 +50,10 @@ pub enum QueryType {
     AnySamplesPassedConservative,
     TimeElapsed,
     Timestamp,
-    PrimitivesGenerated,
-    TransformFeedbackPrimitivesWritten,
+    /// The primitives generated for a vertex stream.
+    PrimitivesGenerated(u32),
+    /// The primitives written by transform feedback for a vertex stream.
+    TransformFeedbackPrimitivesWritten(u32),
     #[cfg(safegl_gl46)]
     PipelineStatistic(PipelineStatistic),
     #[cfg(safegl_gl46)]
@@ -64,11 +64,17 @@ pub enum QueryType {
 
 impl QueryType {
     /// The target and index of the queries that `indexed_queries` tracks.
-    #[cfg(safegl_gl46)]
     fn indexed_target(&self) -> Option<(gl::types::GLenum, gl::types::GLuint)> {
         match *self {
+            QueryType::PrimitivesGenerated(stream) => Some((gl::PRIMITIVES_GENERATED, stream)),
+            QueryType::TransformFeedbackPrimitivesWritten(stream) => {
+                Some((gl::TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN, stream))
+            }
+            #[cfg(safegl_gl46)]
             QueryType::PipelineStatistic(statistic) => Some((statistic.to_glenum(), 0)),
+            #[cfg(safegl_gl46)]
             QueryType::TransformFeedbackOverflow => Some((gl::TRANSFORM_FEEDBACK_OVERFLOW, 0)),
+            #[cfg(safegl_gl46)]
             QueryType::TransformFeedbackStreamOverflow(stream) => {
                 Some((gl::TRANSFORM_FEEDBACK_STREAM_OVERFLOW, stream))
             }
@@ -143,8 +149,8 @@ impl ToGlEnum for QueryType {
             QueryType::AnySamplesPassedConservative => gl::ANY_SAMPLES_PASSED_CONSERVATIVE,
             QueryType::TimeElapsed => gl::TIME_ELAPSED,
             QueryType::Timestamp => gl::TIMESTAMP,
-            QueryType::PrimitivesGenerated => gl::PRIMITIVES_GENERATED,
-            QueryType::TransformFeedbackPrimitivesWritten => {
+            QueryType::PrimitivesGenerated(_) => gl::PRIMITIVES_GENERATED,
+            QueryType::TransformFeedbackPrimitivesWritten(_) => {
                 gl::TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN
             }
             #[cfg(safegl_gl46)]
@@ -378,9 +384,11 @@ impl RawQuery {
                 match ty {
                     QueryType::AnySamplesPassed
                     | QueryType::SamplesPassed
-                    | QueryType::PrimitivesGenerated
-                    | QueryType::TimeElapsed
-                    | QueryType::TransformFeedbackPrimitivesWritten => (),
+                    | QueryType::TimeElapsed => (),
+                    QueryType::PrimitivesGenerated(stream)
+                    | QueryType::TransformFeedbackPrimitivesWritten(stream)
+                        if (stream as gl::types::GLint)
+                            < ctxt.glow.get_parameter_i32(glow::MAX_VERTEX_STREAMS) => {}
                     QueryType::AnySamplesPassedConservative
                         if ctxt.extensions.gl_arb_es3_compatibility
                             || ctxt.version >= &Version(Api::Gl, 4, 3) =>
@@ -411,8 +419,8 @@ impl RawQuery {
                 match ty {
                     QueryType::AnySamplesPassed
                     | QueryType::AnySamplesPassedConservative
-                    | QueryType::TransformFeedbackPrimitivesWritten => (),
-                    QueryType::PrimitivesGenerated
+                    | QueryType::TransformFeedbackPrimitivesWritten(0) => (),
+                    QueryType::PrimitivesGenerated(0)
                         if ctxt.version >= &Version(Api::GlEs, 3, 2)
                             || ctxt.extensions.gl_ext_geometry_shader
                             || ctxt.extensions.gl_oes_geometry_shader => {}
@@ -587,16 +595,6 @@ impl RawQuery {
             ctxt.state.any_samples_passed_conservative_query = None;
         }
 
-        if ctxt.state.primitives_generated_query == Some(self.id) {
-            unsafe { raw_end_query(ctxt, gl::PRIMITIVES_GENERATED) };
-            ctxt.state.primitives_generated_query = None;
-        }
-
-        if ctxt.state.transform_feedback_primitives_written_query == Some(self.id) {
-            unsafe { raw_end_query(ctxt, gl::TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN) };
-            ctxt.state.transform_feedback_primitives_written_query = None;
-        }
-
         if ctxt.state.time_elapsed_query == Some(self.id) {
             unsafe { raw_end_query(ctxt, gl::TIME_ELAPSED) };
             ctxt.state.time_elapsed_query = None;
@@ -614,7 +612,6 @@ impl RawQuery {
     }
 
     /// Begins the query on its target and index, which `indexed_queries` tracks.
-    #[cfg(safegl_gl46)]
     fn begin_indexed_query(
         &self,
         ctxt: &mut CommandContext<'_>,
@@ -656,23 +653,24 @@ impl RawQuery {
     }
 }
 
-/// Makes the given pipeline statistics and transform feedback overflow queries active for the
-/// next command, and ends the others: like the other queries, such a query counts the commands
-/// that it is given to, as long as they follow each other.
+/// Makes the given primitives, pipeline statistics and transform feedback overflow queries
+/// active for the next command, and ends the others: like the other queries, such a query counts
+/// the commands that it is given to, as long as they follow each other. A compute dispatch only
+/// gives its pipeline statistics queries (`dispatch`), and leaves the queries of primitives,
+/// which it doesn't count, as they are.
 ///
-/// Two queries of the same statistic, or of the overflows of the same stream, return
-/// `DrawError::WrongQueryOperation`.
-#[cfg(safegl_gl46)]
+/// Two queries of the same target and stream return `DrawError::WrongQueryOperation`.
 pub(crate) fn sync_indexed_queries(
     ctxt: &mut CommandContext<'_>,
     queries: &[&RawQuery],
+    dispatch: bool,
 ) -> Result<(), DrawError> {
     let mut targets: SmallVec<[(gl::types::GLenum, gl::types::GLuint); 4]> = SmallVec::new();
     for query in queries {
         let target = query
             .ty
             .indexed_target()
-            .expect("not a pipeline statistics or overflow query");
+            .expect("not a primitives, pipeline statistics or overflow query");
         if targets.contains(&target) {
             return Err(DrawError::WrongQueryOperation);
         }
@@ -682,7 +680,9 @@ pub(crate) fn sync_indexed_queries(
     let mut position = 0;
     while position < ctxt.state.indexed_queries.len() {
         let (target, index, id) = ctxt.state.indexed_queries[position];
-        if queries.iter().any(|query| query.id == id) {
+        let primitives = target == gl::PRIMITIVES_GENERATED
+            || target == gl::TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN;
+        if queries.iter().any(|query| query.id == id) || (dispatch && primitives) {
             position += 1;
         } else {
             ctxt.state.indexed_queries.remove(position);
@@ -845,22 +845,10 @@ impl QueryExt for RawQuery {
 
             QueryType::Timestamp => panic!(),
 
-            QueryType::PrimitivesGenerated => {
-                if ctxt.state.primitives_generated_query != Some(self.id) {
-                    if self.has_been_used.get() {
-                        return Err(DrawError::WrongQueryOperation);
-                    }
-
-                    unsafe {
-                        if ctxt.state.primitives_generated_query.is_some() {
-                            raw_end_query(ctxt, gl::PRIMITIVES_GENERATED);
-                        }
-                        raw_begin_query(ctxt, gl::PRIMITIVES_GENERATED, self.id);
-                    }
-
-                    self.mark_used(ctxt);
-                    ctxt.state.primitives_generated_query = Some(self.id);
-                }
+            QueryType::PrimitivesGenerated(_)
+            | QueryType::TransformFeedbackPrimitivesWritten(_) => {
+                let (target, index) = self.ty.indexed_target().unwrap();
+                self.begin_indexed_query(ctxt, target, index)?;
             }
 
             #[cfg(safegl_gl46)]
@@ -869,28 +857,6 @@ impl QueryExt for RawQuery {
             | QueryType::TransformFeedbackStreamOverflow(_) => {
                 let (target, index) = self.ty.indexed_target().unwrap();
                 self.begin_indexed_query(ctxt, target, index)?;
-            }
-
-            QueryType::TransformFeedbackPrimitivesWritten => {
-                if ctxt.state.transform_feedback_primitives_written_query != Some(self.id) {
-                    if self.has_been_used.get() {
-                        return Err(DrawError::WrongQueryOperation);
-                    }
-
-                    unsafe {
-                        if ctxt
-                            .state
-                            .transform_feedback_primitives_written_query
-                            .is_some()
-                        {
-                            raw_end_query(ctxt, gl::TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN);
-                        }
-                        raw_begin_query(ctxt, gl::TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN, self.id);
-                    }
-
-                    self.mark_used(ctxt);
-                    ctxt.state.transform_feedback_primitives_written_query = Some(self.id);
-                }
             }
         };
 
@@ -926,30 +892,6 @@ impl QueryExt for RawQuery {
             ctxt.state.time_elapsed_query = None;
             unsafe {
                 raw_end_query(ctxt, gl::TIME_ELAPSED);
-            }
-        }
-    }
-
-    #[inline]
-    fn end_primitives_generated_query(ctxt: &mut CommandContext<'_>) {
-        if ctxt.state.primitives_generated_query.is_some() {
-            ctxt.state.primitives_generated_query = None;
-            unsafe {
-                raw_end_query(ctxt, gl::PRIMITIVES_GENERATED);
-            }
-        }
-    }
-
-    #[inline]
-    fn end_transform_feedback_primitives_written_query(ctxt: &mut CommandContext<'_>) {
-        if ctxt
-            .state
-            .transform_feedback_primitives_written_query
-            .is_some()
-        {
-            ctxt.state.transform_feedback_primitives_written_query = None;
-            unsafe {
-                raw_end_query(ctxt, gl::TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN);
             }
         }
     }
@@ -1212,16 +1154,6 @@ macro_rules! impl_helper {
             }
 
             #[inline]
-            fn end_primitives_generated_query(ctxt: &mut CommandContext<'_>) {
-                RawQuery::end_primitives_generated_query(ctxt)
-            }
-
-            #[inline]
-            fn end_transform_feedback_primitives_written_query(ctxt: &mut CommandContext<'_>) {
-                RawQuery::end_transform_feedback_primitives_written_query(ctxt)
-            }
-
-            #[inline]
             #[cfg(safegl_desktop)]
             fn begin_conditional_render(
                 &self,
@@ -1467,8 +1399,28 @@ impl PrimitivesGeneratedQuery {
     where
         F: Facade,
     {
-        RawQuery::new(facade, QueryType::PrimitivesGenerated)
+        RawQuery::new(facade, QueryType::PrimitivesGenerated(0))
             .map(|q| PrimitivesGeneratedQuery { query: q })
+    }
+
+    /// Builds a query of the primitives generated for a vertex stream of geometry shaders,
+    /// below `Limits::max_vertex_streams` (`glBeginQueryIndexed`).
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[inline]
+    pub fn with_stream<F: ?Sized>(
+        facade: &F,
+        stream: u32,
+    ) -> Result<PrimitivesGeneratedQuery, QueryCreationError>
+    where
+        F: Facade,
+    {
+        RawQuery::new(facade, QueryType::PrimitivesGenerated(stream))
+            .map(|q| PrimitivesGeneratedQuery { query: q })
+    }
+    #[inline]
+    pub(crate) fn raw(&self) -> &RawQuery {
+        &self.query
     }
 }
 
@@ -1490,8 +1442,28 @@ impl TransformFeedbackPrimitivesWrittenQuery {
     where
         F: Facade,
     {
-        RawQuery::new(facade, QueryType::TransformFeedbackPrimitivesWritten)
+        RawQuery::new(facade, QueryType::TransformFeedbackPrimitivesWritten(0))
             .map(|q| TransformFeedbackPrimitivesWrittenQuery { query: q })
+    }
+
+    /// Builds a query of the primitives written by transform feedback for a vertex stream of
+    /// geometry shaders, below `Limits::max_vertex_streams` (`glBeginQueryIndexed`).
+    #[cfg(safegl_desktop)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[inline]
+    pub fn with_stream<F: ?Sized>(
+        facade: &F,
+        stream: u32,
+    ) -> Result<TransformFeedbackPrimitivesWrittenQuery, QueryCreationError>
+    where
+        F: Facade,
+    {
+        RawQuery::new(facade, QueryType::TransformFeedbackPrimitivesWritten(stream))
+            .map(|q| TransformFeedbackPrimitivesWrittenQuery { query: q })
+    }
+    #[inline]
+    pub(crate) fn raw(&self) -> &RawQuery {
+        &self.query
     }
 }
 

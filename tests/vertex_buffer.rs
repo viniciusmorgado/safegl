@@ -101,7 +101,7 @@ fn transform_feedback() {
         // only capturing the vertices, on OpenGL and OpenGL ES alike
         let params = safegl::DrawParameters {
             transform_feedback: Some(&session),
-            transform_feedback_primitives_written_query: Some(&query),
+            transform_feedback_primitives_written_queries: &[&query],
             draw_primitives: false,
             ..Default::default()
         };

@@ -232,7 +232,7 @@ fn isolines(display: &Display, levels: safegl::draw_parameters::PatchDefaultLeve
             &uniform! {},
             &safegl::DrawParameters {
                 patch_default_levels: levels,
-                primitives_generated_query: Some(&query),
+                primitives_generated_queries: &[&query],
                 ..Default::default()
             },
         )

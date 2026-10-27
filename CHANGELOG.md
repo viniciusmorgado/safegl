@@ -231,6 +231,10 @@ Breaking changes:
   to 4.2 and OpenGL ES 3.1 without multidraw. `IndicesSource` also has `NoIndicesRanges` and
   `IndexBufferRanges` variants at the desktop levels, and `DrawError` `DrawRangesNotSupported`,
   `DrawRangeOutOfBounds` and `InstancedDrawRangesNotSupported` variants.
+- `DrawParameters::primitives_generated_query` and `transform_feedback_primitives_written_query`
+  are replaced by `primitives_generated_queries` and
+  `transform_feedback_primitives_written_queries`, slices of queries of different vertex streams:
+  write `&[&query]` instead of `Some(&query)`.
 
 Additions:
 
@@ -358,6 +362,9 @@ Additions:
 - Several ranges of vertices or indices drawn with one call (`desktop`): `index::NoIndicesRanges`
   (`glMultiDrawArrays`), and `IndexBuffer::ranges` and `ranges_with_base_vertices`
   (`glMultiDrawElementsBaseVertex`). The ranges are checked against the vertices and the indices.
+- `PrimitivesGeneratedQuery::with_stream` and `TransformFeedbackPrimitivesWrittenQuery::with_stream`
+  (`desktop`) count the primitives of a vertex stream of geometry shaders, and a draw can count
+  several streams at once. A compute dispatch with statistics leaves these queries active.
 
 Fixes:
 

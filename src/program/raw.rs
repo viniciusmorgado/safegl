@@ -706,7 +706,7 @@ fn sync_statistics(
     #[cfg(safegl_gl46)]
     {
         let queries: smallvec::SmallVec<[_; 4]> = statistics.iter().map(|q| q.raw()).collect();
-        crate::draw_parameters::sync_indexed_queries(ctxt, &queries)
+        crate::draw_parameters::sync_indexed_queries(ctxt, &queries, true)
     }
     #[cfg(not(safegl_gl46))]
     {

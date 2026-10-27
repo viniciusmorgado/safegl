@@ -192,7 +192,7 @@ fn primitives_generated_by_the_geometry_shader() {
             &program,
             &uniform! {},
             &DrawParameters {
-                primitives_generated_query: Some(&query),
+                primitives_generated_queries: &[&query],
                 ..Default::default()
             },
         )
