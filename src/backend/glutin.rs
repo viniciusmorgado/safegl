@@ -118,8 +118,8 @@ fn level_context_error_for(
     message
 }
 
-/// Returns the context attributes for `api`, which request the core profile for desktop OpenGL:
-/// SafeGL refuses compatibility profile contexts.
+/// Returns the context attributes for `api`, which request the core profile for desktop OpenGL,
+/// the only desktop profile that SafeGL accepts.
 pub fn context_attributes_builder(
     api: glutin::context::ContextApi,
 ) -> glutin::context::ContextAttributesBuilder {

@@ -49,9 +49,9 @@ OpenGL ES. The documentation of an item that needs a level shows its condition: 
 means the `gl43` level or a higher one, `safegl_gles31` the `gles31` level or a higher one,
 `safegl_desktop` any desktop OpenGL level and `safegl_webgl` the `webgl` level.
 
-Whatever the level, SafeGL runs on OpenGL 4.0 and OpenGL ES 3.0 and above, and refuses
-compatibility profile contexts. Extensions keep their checks at runtime, and the levels only
-remove what a version can't have. With glutin, `backend::glutin::level_context_apis` gives the
+Whatever the level, SafeGL runs on the core profile of OpenGL 4.0 and above, and on OpenGL ES 3.0
+and above, and refuses other contexts. Extensions keep their checks at runtime, and the levels
+only remove what a version can't have. With glutin, `backend::glutin::level_context_apis` gives the
 versions to request when creating a context.
 
 # Overview

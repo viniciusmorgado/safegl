@@ -13,24 +13,12 @@ In order to use SafeGL, you need to add it as a dependency to your `Cargo.toml` 
 
 ```toml
 [dependencies]
-safegl = "0.1.0"
+safegl = { version = "1", features = ["gl41"] }
 ```
 
-By default SafeGL includes the windowing dependencies and requests an OpenGL 4.6 core context. You will need a graphics driver that supports this version.
+SafeGL compiles the API of one OpenGL version, selected with a Cargo feature called its level. This tutorial uses `gl41`, OpenGL 4.1 in the core profile, which every current desktop driver provides, macOS included. SafeGL's default features include the windowing dependencies, and the window requests an OpenGL 4.1 core context. The levels go from `gl40` to `gl46` for desktop OpenGL, and from `gles30` to `gles32` for OpenGL ES.
 
-On macOS, or hardware limited to OpenGL 4.1, use this dependency configuration instead:
-
-```toml
-[dependencies]
-safegl = { version = "0.1.0", default-features = false, features = ["gl41", "glutin_backend", "simple_window_builder"] }
-glutin = "0.32.3"
-glutin-winit = "0.5.0"
-winit = "0.30.13"
-```
-
-The additional windowing dependencies enable their platform backends when SafeGL's default features are disabled.
-
-The shaders in this tutorial use GLSL 4.10 core, which works with both configurations. You should now have a `src/main.rs` file that looks similar to this:
+The shaders in this tutorial use GLSL 4.10 core, the shading language of OpenGL 4.1. You should now have a `src/main.rs` file that looks similar to this:
 
 ```rust
 fn main() {

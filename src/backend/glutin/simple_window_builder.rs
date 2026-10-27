@@ -127,7 +127,7 @@ impl SimpleWindowBuilder {
     }
 
     /// Can be used to configure the OpenGL version and the other context attributes. Desktop
-    /// OpenGL contexts must use the core profile: SafeGL refuses compatibility profile contexts.
+    /// OpenGL contexts must use the core profile, the only one that SafeGL accepts.
     /// If this is not set, the builder requests the versions of the selected levels: see
     /// `level_context_apis`.
     pub fn with_context_attributes_builder(

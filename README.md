@@ -50,126 +50,140 @@ way vulkano uses ash.
 - **Be safe to use.** Misuse of the OpenGL API that could cause crashes or undefined behavior is
   prevented by the type system or validated before reaching the driver.
 - **Enforce good practices** such as RAII and stateless function calls.
-- **Support a small set of well-established OpenGL feature tiers**, selected with Cargo features,
-  instead of the whole of OpenGL.
+- **Support modern OpenGL only**: desktop OpenGL 4.0 to 4.6 in the core profile, OpenGL ES 3.0
+  to 3.2 and WebGL 2, each version a level selected with a Cargo feature, instead of the whole of
+  OpenGL.
 - **Produce optimized OpenGL function calls**, and make modern OpenGL techniques easy to use.
 
 SafeGL validates how you use OpenGL, but it cannot detect or work around bugs in the drivers
 themselves.
 
-## OpenGL feature tiers
+## OpenGL levels
 
 Glium, SafeGL's predecessor, tries to expose the whole of OpenGL across a wide range of versions.
-SafeGL deliberately supports only a small set of well-established feature tiers, selected with
-Cargo features. Each tier includes everything in the tiers below it.
+SafeGL supports three chains of modern versions, and each version is a level, selected with a
+Cargo feature:
 
-| Feature  | API level                                     | Typical targets                                                                                |
-|----------|-----------------------------------------------|------------------------------------------------------------------------------------------------|
-| `gl46`   | Desktop OpenGL 4.6 core (**default**)         | Windows and Linux with current NVIDIA, AMD, Intel or Mesa drivers; Asahi Linux on Apple M1/M2   |
-| `gl41`   | Desktop OpenGL 4.1 core                       | macOS (Intel and Apple Silicon), older GPUs, most virtual machines and software renderers       |
-| `gles30` | Common subset of OpenGL ES 3.0 and OpenGL 4.1 | Embedded Linux (e.g. Raspberry Pi 4/5) and other OpenGL ES 3.0-class devices                     |
-| `webgl`  | WebGL 2, the `gles30` tier in a browser       | Browsers, through `wasm32-unknown-unknown` (see [examples/web](examples/web))                  |
+| Chain                        | Levels                                                | Typical targets                                                                                    |
+|------------------------------|-------------------------------------------------------|----------------------------------------------------------------------------------------------------|
+| Desktop OpenGL, core profile | `gl40` (**default**), `gl41`, `gl42`, `gl43`, `gl44`, `gl45`, `gl46` | Windows and Linux with NVIDIA, AMD, Intel or Mesa drivers (`gl46`); macOS (`gl41` at most); Asahi Linux on Apple M1/M2 (`gl46`) |
+| OpenGL ES                    | `gles30`, `gles31`, `gles32`                          | Embedded Linux, such as the Raspberry Pi 4/5 (`gles31`), and other OpenGL ES devices               |
+| WebGL                        | `webgl`                                               | Browsers, through `wasm32-unknown-unknown` (see [examples/web](examples/web))                     |
 
-Selecting a tier above what the target platform supports is a compile error: `gl46` on macOS, or
-anything above `gles30` in the browser.
+A level is a ceiling: SafeGL compiles the API of its version and of the versions below it in its
+chain, and the API of the versions above it doesn't compile. The API that only desktop OpenGL has
+needs a desktop level, and the API that only OpenGL ES has needs an OpenGL ES level. No level
+implies another:
 
-### APIs that need `gl46`
+- Select at most one desktop level and one OpenGL ES level. Both together compile the API of both,
+  for an application that runs on either.
+- Without any level, the level is `gl40`.
+- In the browser, select `webgl` alone: it is the OpenGL ES 3.0 API.
 
-The `gl41`, `gles30` and `webgl` tiers only expose what OpenGL 4.1 and OpenGL ES 3.0 provide.
-The following APIs exist only when the `gl46` feature is enabled. Other builds don't compile them
-at all, even where a 4.1 driver offers them as an extension:
-
-| Functionality       | Core since                        | Gated items                                                                                                                                  |
-|---------------------|-----------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|
-| Compute shaders     | OpenGL 4.3                        | `program::ComputeShader`, `program::ComputeCommand`, `BufferType::DispatchIndirectBuffer`                                                    |
-| Shader storage      | OpenGL 4.3                        | `BufferType::ShaderStorageBuffer`, `Program::get_shader_storage_blocks`, binding buffers to GLSL `buffer` blocks                             |
-| Atomic counters     | OpenGL 4.2                        | `BufferType::AtomicCounterBuffer`, `Program::get_atomic_counters`, binding buffers to `atomic_uint` uniforms                                 |
-| Image load/store    | OpenGL 4.2                        | `uniforms::{ImageUnit, ImageUnitBehavior, ImageUnitAccess, ImageUnitFormat, ImageUnitError}`, `image_unit()` on textures, `UniformValue::Image`, `DrawError::InsufficientImageUnits` |
-| Multidraw indirect  | OpenGL 4.3                        | `index::{DrawCommandsNoIndicesBuffer, DrawCommandsIndicesBuffer, DrawCommandNoIndices, DrawCommandIndices}`, `IndicesSource::Multidraw*`     |
-| Empty framebuffers  | OpenGL 4.3                        | `framebuffer::EmptyFrameBuffer`                                                                                                              |
-| Copying images      | OpenGL 4.3                        | `texture::{copy_image, is_copy_image_supported, CopyImageTarget, CopyImageError}`, `copy_to()` on mipmaps                                 |
-| Clearing textures   | OpenGL 4.4                        | `texture::{is_clear_texture_supported, ClearTextureError}`, `clear()`, `clear_region()` and `clear_depth_stencil()` on mipmaps            |
-| Query buffers       | OpenGL 4.4                        | `to_buffer_u32()` on queries, `draw_parameters::ToBufferError`, `BufferType::QueryBuffer`                                                    |
-| Texture barrier     | OpenGL 4.5                        | `texture::{texture_barrier, is_texture_barrier_supported, TextureBarrierNotSupportedError}`                                                 |
-| Clip control        | OpenGL 4.5                        | `DrawParameters::{clip_control_origin, clip_control_depth}`, `ClipControlOrigin`, `ClipControlDepth`, `DrawError::ClipControlNotSupported`   |
-| Polygon offset clamp | OpenGL 4.6                       | `DrawParameters::polygon_offset_clamp`, `DrawError::PolygonOffsetClampNotSupported`                                                         |
-| SPIR-V shaders      | OpenGL 4.6                        | `ProgramCreationInput::SpirV`, `program::{SpirvProgram, SpirvEntryPoint}`                                                                    |
-| Bindless textures   | never (`ARB_bindless_texture`)    | `texture::bindless`, `texture::{ResidentTexture, TextureHandle, BindlessTexturesNotSupportedError}`, `resident()` on textures                 |
-
-A `gl46` build still runs on an older driver, so these APIs keep their runtime checks: for example
-`ComputeShader::is_supported` returns `false` and `resident()` returns an error when the driver lacks
-the version or extension. Optional features that every tier exposes (tessellation or geometry
-shaders on OpenGL ES 3.0, for example) are checked at runtime in the same way. Among them:
-
-| Functionality       | Needs                                         | Items                                                                                    |
-|---------------------|-----------------------------------------------|------------------------------------------------------------------------------------------|
-| Sample shading      | OpenGL 4.0, OpenGL ES 3.2; not WebGL          | `DrawParameters::sample_shading`, `DrawError::SampleShadingNotSupported`                 |
-| Sample mask         | OpenGL 3.2, OpenGL ES 3.1; not WebGL          | `DrawParameters::sample_mask`, `DrawError::SampleMaskNotSupported`                       |
-| Per-output state    | OpenGL 4.0, OpenGL ES 3.2; not WebGL          | `DrawParameters::outputs`, `OutputState`, `DrawError::PerOutputStateNotSupported`        |
-| Invalidation        | OpenGL 4.3, OpenGL ES 3.0, WebGL 2            | `invalidate()` and `invalidate_rect()` on framebuffers, `framebuffer::InvalidateAttachments`; a no-op elsewhere |
-
-`DrawParameters::alpha_to_coverage` is core everywhere, WebGL 2 included.
-
-`BufferMode::Persistent` and `BufferMode::Immutable` are available in every tier. They use
-`glBufferStorage` (OpenGL 4.4) when the driver has it and fall back to `glBufferData` otherwise.
-
-`gl46` is enabled by default:
+Two levels of the same chain, a desktop or OpenGL ES level for `wasm32-unknown-unknown`, or no
+`webgl` level there are compile errors that name the levels.
 
 ```toml
 [dependencies]
+# OpenGL 4.0
 safegl = "1"
+# OpenGL 4.6
+safegl = { version = "1", features = ["gl46"] }
+# OpenGL 4.6, or OpenGL ES 3.2 where desktop OpenGL isn't available
+safegl = { version = "1", features = ["gl46", "gles32"] }
+# OpenGL ES 3.0
+safegl = { version = "1", features = ["gles30"] }
+# WebGL 2, drawing through `safegl::backend::web::WebDisplay`
+safegl = { version = "1", default-features = false, features = ["webgl"] }
 ```
 
-To select a lower tier, disable the default features:
-
-```toml
-[dependencies]
-safegl = { version = "1", default-features = false, features = ["gl41", "glutin_backend", "glutin/default"] }
-```
+Whatever the level, SafeGL runs on desktop OpenGL 4.0 and above, in the core profile only, and on
+OpenGL ES 3.0 and above. It refuses other contexts with `IncompatibleOpenGl`. `SimpleWindowBuilder` requests the version of the selected desktop level in
+the core profile, then the version of the selected OpenGL ES level, and
+`backend::glutin::level_context_apis()` gives them to code that creates its own contexts. glutin
+can't request a forward-compatible context, so SafeGL behaves as one on desktop OpenGL: lines
+wider than 1 pixel return `DrawError::LineWidthNotSupported`.
 
 The default `backtrace` feature prints a backtrace along with the OpenGL debug messages that
 SafeGL reports as errors; leave it out to avoid compiling the `backtrace` crate.
 
-For the browser, build for `wasm32-unknown-unknown` with the `webgl` feature and draw through
-`safegl::backend::web::WebDisplay`:
+### What each level compiles
 
-```toml
-[dependencies]
-safegl = { version = "1", default-features = false, features = ["webgl"] }
-```
+Everything that isn't listed here compiles at every level: buffers, textures and framebuffers of
+the OpenGL ES 3.0 set, vertex and index buffers, programs with vertex and fragment shaders,
+transform feedback, uniform blocks, instancing, samplers, sync fences, `AnySamplesPassedQuery`
+and `TransformFeedbackPrimitivesWrittenQuery`, among others. The table gives the lowest level of
+each chain that compiles a functionality; — means that the chain doesn't have it.
+
+| Functionality                                    | Desktop | OpenGL ES | WebGL | Gated items                                                                                                                                  |
+|--------------------------------------------------|---------|-----------|-------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| Geometry and tessellation shaders                | `gl40`  | `gles32`  | —     | geometry and tessellation sources of `ProgramCreationInput::SourceCode`, `Program::from_source` and `program!`; `PrimitiveType::{LinesListAdjacency, LineStripAdjacency, TrianglesListAdjacency, TriangleStripAdjacency, Patches}`; their `DrawError`s |
+| Per-output blending and color masks              | `gl40`  | `gles32`  | —     | `DrawParameters::outputs`, `OutputState`, `DrawError::{PerOutputStateNotSupported, OutputStateIndexOutOfBounds}`                            |
+| Sample shading                                   | `gl40`  | `gles32`  | —     | `DrawParameters::sample_shading`, `DrawError::SampleShadingNotSupported`                                                                     |
+| Primitives generated queries                     | `gl40`  | `gles32`  | —     | `PrimitivesGeneratedQuery`, `DrawParameters::primitives_generated_query`                                                                     |
+| Buffer textures                                  | `gl40`  | `gles32`  | —     | `texture::buffer_texture`, `UniformValue::BufferTexture`                                                                                     |
+| Cube map array and 2D multisample array textures | `gl40`  | `gles32`  | —     | `texture::{CubemapArray, Texture2dMultisampleArray, ...}`, `is_cubemap_arrays_supported`, `is_texture_2d_multisample_array_supported`        |
+| Border colors                                    | `gl40`  | `gles32`  | —     | `SamplerWrapFunction::BorderClamp`, `Sampler::border_color`, `uniforms::BorderColor`                                                         |
+| 2D multisample textures and sample masks         | `gl40`  | `gles31`  | —     | `texture::{Texture2dMultisample, ...}`, `is_texture_2d_multisample_supported`, `DrawParameters::sample_mask`, `DrawError::SampleMaskNotSupported` |
+| Subroutines                                      | `gl40`  | —         | —     | `UniformValue::Subroutine`, `Program::get_subroutine_uniforms`, `program::{is_subroutine_supported, SubroutineData, SubroutineUniform}`      |
+| Double-precision and 64-bit integer uniforms     | `gl40`  | —         | —     | `UniformValue::Double*`, `Int64*` and `UnsignedInt64*`, `RawUniformValue::Double*` and `*Int64*`, their `AsUniformValue` and block impls     |
+| 1D textures                                      | `gl40`  | —         | —     | `texture::{Texture1d, Texture1dArray, ...}`, `is_texture_1d_supported`, `is_texture_1d_array_supported`                                     |
+| Rasterization state of desktop OpenGL            | `gl40`  | —         | —     | `DrawParameters::{polygon_mode, point_size, clip_planes_bitmask, multisampling, smooth, provoking_vertex}`, `Depth::clamp`, `PolygonOffset::{point, line}`, `PolygonMode`, `Smooth`, `ProvokingVertex`, `DepthClamp`, their `DrawError`s |
+| Samples passed and time elapsed queries, conditional rendering | `gl40` | — | — | `SamplesPassedQuery`, `TimeElapsedQuery`, `DrawParameters::{time_elapsed_query, condition}`, `ConditionalRendering`, `DrawError::ConditionalRenderingNotSupported` |
+| 64-bit integer and packed float vertex attributes | `gl40` | —        | —     | `AttributeType::{I64*, U64*, F64*, F10F11F11UnsignedIntReversed}`                                                                            |
+| Bindless textures (`GL_ARB_bindless_texture`)    | `gl40`  | —         | —     | `texture::bindless`, `texture::{ResidentTexture, TextureHandle, BindlessTexturesNotSupportedError}`, `resident()` on textures                 |
+| Double-precision vertex attributes               | `gl41`  | —         | —     | the `Attribute` impls of `f64`, its arrays and its tuples                                                                                   |
+| Program binaries                                 | `gl41`  | `gles30`  | —     | `Program::get_binary`, `ComputeShader::{get_binary, from_binary}`, `ProgramCreationInput::Binary`, `program::{Binary, GetBinaryError, is_binary_supported}` |
+| Image load/store and atomic counters             | `gl42`  | `gles31`  | —     | `uniforms::{ImageUnit, ImageUnitBehavior, ImageUnitAccess, ImageUnitFormat, ImageUnitError}`, `image_unit()` on textures, `UniformValue::Image`, `BufferType::AtomicCounterBuffer`, `Program::get_atomic_counters` |
+| Compute shaders, shader storage and empty framebuffers | `gl43` | `gles31` | — | `program::{ComputeShader, ComputeCommand}`, `BufferType::{ShaderStorageBuffer, DispatchIndirectBuffer}`, `Program::get_shader_storage_blocks`, `framebuffer::EmptyFrameBuffer` |
+| Copying images                                   | `gl43`  | `gles32`  | —     | `texture::{copy_image, is_copy_image_supported, CopyImageTarget, CopyImageError}`, `copy_to()` on mipmaps                                    |
+| Multidraw indirect                               | `gl43`  | —         | —     | `index::{DrawCommandsNoIndicesBuffer, DrawCommandsIndicesBuffer, DrawCommandNoIndices, DrawCommandIndices}`, `IndicesSource::Multidraw*`     |
+| Framebuffer invalidation                         | `gl43`  | `gles30`  | `webgl` | `invalidate()` and `invalidate_rect()` on framebuffers, `framebuffer::InvalidateAttachments`                                              |
+| Stencil textures                                 | `gl44`  | `gles32`  | —     | `texture::{StencilTexture2d, ...}`                                                                                                           |
+| Clearing textures and query buffers              | `gl44`  | —         | —     | `texture::{is_clear_texture_supported, ClearTextureError}`, `clear()`, `clear_region()` and `clear_depth_stencil()` on mipmaps, `to_buffer_u32()` on queries, `draw_parameters::ToBufferError`, `BufferType::QueryBuffer` |
+| Mirror-clamp wrapping                            | `gl44`  | —         | —     | `SamplerWrapFunction::MirrorClamp`                                                                                                           |
+| Texture barrier and clip control                 | `gl45`  | —         | —     | `texture::{texture_barrier, is_texture_barrier_supported, TextureBarrierNotSupportedError}`, `DrawParameters::{clip_control_origin, clip_control_depth}`, `ClipControlOrigin`, `ClipControlDepth`, `DrawError::ClipControlNotSupported` |
+| Polygon offset clamp and SPIR-V shaders          | `gl46`  | —         | —     | `DrawParameters::polygon_offset_clamp`, `DrawError::PolygonOffsetClampNotSupported`, `ProgramCreationInput::SpirV`, `program::{SpirvProgram, SpirvEntryPoint}` |
+| Primitive bounding boxes                         | —       | `gles32`  | —     | `DrawParameters::primitive_bounding_box`                                                                                                     |
+
+At the levels without geometry and tessellation shaders, their sources have the type
+`program::NotInLevel`, which has no values: only `None` compiles. The documentation of the gated items shows their condition,
+where `safegl_gl43` means the `gl43` level or a higher one and `safegl_desktop` any desktop level.
+
+A level doesn't guarantee that the driver of a machine has its version, and some functionalities
+are extensions at every level, so the gated APIs keep their runtime checks: for example
+`ComputeShader::is_supported` returns `false` and `resident()` returns an error when the driver
+lacks them, and 64-bit integer uniforms need `GL_ARB_gpu_shader_int64`. Texture formats, vertex
+attribute types and the other values that describe what the driver has are checked at runtime
+too: `is_supported` on a format tells whether the context has it. `BufferMode::Persistent` and
+`BufferMode::Immutable` work at every level: they use `glBufferStorage` (OpenGL 4.4) when the
+driver has it and fall back to `glBufferData` otherwise.
 
 ### Platform notes
 
-- **macOS** stops at OpenGL 4.1, and Apple has deprecated OpenGL since macOS 10.14. Enabling `gl46`
-  on macOS is a compile error; use `gl41`.
+- **macOS** stops at OpenGL 4.1, and Apple has deprecated OpenGL since macOS 10.14: select `gl41`
+  or a lower level. Higher levels compile, but creating their context fails with a message that
+  says so.
 - **Asahi Linux** on Apple M1/M2 ships a conformant OpenGL 4.6 driver, so the same hardware that is
   limited to `gl41` under macOS can use `gl46` under Linux.
 - **Raspberry Pi 4/5** and similar boards expose OpenGL ES 3.1 but only desktop OpenGL 3.1; use
-  `gles30`.
-- **OpenGL ES** has no 1D textures (`TextureCreationError::TypeNotSupported`) and fewer formats
-  than desktop OpenGL; `is_supported` on a format tells whether the context has it. Data uploaded
-  to a texture must match its format, so a texture created from data gets a format chosen from
-  that data. OpenGL ES only reads textures back as `(i32, i32, i32, i32)`,
-  `(u32, u32, u32, u32)` or `(f32, f32, f32, f32)` for integer and float textures, and as
-  `(u8, u8, u8, u8)` for normalized ones; `read()` and `read_as()` convert the other pixel
-  formats on the CPU.
+  `gles31`.
+- **OpenGL ES** has fewer formats than desktop OpenGL. Data uploaded to a texture must match its
+  format, so a texture created from data gets a format chosen from that data. OpenGL ES only
+  reads textures back as `(i32, i32, i32, i32)`, `(u32, u32, u32, u32)` or `(f32, f32, f32, f32)`
+  for integer and float textures, and as `(u8, u8, u8, u8)` for normalized ones; `read()` and
+  `read_as()` convert the other pixel formats on the CPU.
 - **OpenGL ES** can't move shader storage blocks and image uniforms to other binding points:
   SafeGL binds them where the shader's `layout(binding = N)` puts them, and two of them with the
   same binding return `DrawError::SharedBindingPoint`. It also converts the colors written to
   sRGB targets unless the driver has `GL_EXT_sRGB_write_control`, whatever `outputs_srgb` is.
-- **Virtual machines and software renderers** (VirtualBox, VMware, Mesa llvmpipe) usually expose
-  OpenGL 4.1–4.5; use `gl41`.
+- **Virtual machines** (VirtualBox, VMware) usually expose OpenGL 4.1 to 4.3; recent Mesa
+  software renderers (llvmpipe) expose OpenGL 4.5 or 4.6.
 - **Windows without a vendor driver** (Microsoft's basic display driver, some Remote Desktop
-  sessions) only provides OpenGL 1.1 and is not supported by any tier.
+  sessions) only provides OpenGL 1.1 and is not supported by any level.
 - **Browsers** provide WebGL 2, which SafeGL treats as OpenGL ES 3.0. WebGL can't map buffers or
   block on fences, so buffer mappings are emulated with copies and `SyncFence::wait` returns after
   `glFinish`. Shaders must start with `#version 300 es` on their very first line.
-
-> [!NOTE]
-> A tier describes which APIs SafeGL compiles in. It does not guarantee that the driver on a given
-> machine actually provides that version. Whatever the tier, SafeGL refuses to create a context
-> below desktop OpenGL 4.1 or OpenGL ES 3.0, and `SimpleWindowBuilder` requests the newest context
-> version of the compiled tier.
 
 ## Why SafeGL matters for Oxidian
 
@@ -205,8 +219,12 @@ cargo run --example triangle
 cargo run --release --example weighted_oit
 ```
 
-The examples that need OpenGL 4.2+ features require the `gl46` feature, which is enabled by
-default; the list is in `Cargo.toml`.
+An example that needs a level above `gl40` says which one when it runs at a lower level; select
+it with `--features`:
+
+```sh
+cargo run --example gpgpu --features gl43
+```
 
 ## Running the tests
 
@@ -219,7 +237,7 @@ cargo test
 Environment variables select the context that the tests use:
 
 - `SAFEGL_GL_VERSION`: the version of the context, such as `"OpenGL 4.1"` or `"OpenGL ES 3.2"`.
-  Without it, the tests use the newest version of the compiled tier.
+  Without it, the tests use the versions of the selected levels.
 - `SAFEGL_GL_DISPLAY=egl`: create the context with EGL instead of GLX or WGL. Under Wayland, the
   tests use EGL anyway; unset `WAYLAND_DISPLAY` to use GLX through XWayland.
 
@@ -228,7 +246,21 @@ software renderer runs the whole suite (`LIBGL_ALWAYS_SOFTWARE=1`, plus
 `__GLX_VENDOR_LIBRARY_NAME=mesa` or `__EGL_VENDOR_LIBRARY_FILENAMES` pointing to Mesa's EGL vendor
 file on a machine with another driver). Set `MESA_SHADER_CACHE_DISABLE=true` when switching between
 desktop OpenGL and OpenGL ES with Mesa: its shader cache can report as compiled a desktop GLSL
-shader that OpenGL ES rejects, and its linker then crashes.
+shader that OpenGL ES rejects, and its linker then crashes. `MESA_GL_VERSION_OVERRIDE` and
+`MESA_GLES_VERSION_OVERRIDE` make Mesa run as an older version, such as OpenGL 4.0 or OpenGL ES 3.0:
+
+```sh
+MESA_GL_VERSION_OVERRIDE=4.0 MESA_GLSL_VERSION_OVERRIDE=400 LIBGL_ALWAYS_SOFTWARE=1 cargo test
+MESA_GLES_VERSION_OVERRIDE=3.0 LIBGL_ALWAYS_SOFTWARE=1 cargo test --features gles30
+```
+
+What each level compiles is checked by a [Lua](https://www.lua.org) script, which builds small
+crates against every level, the browser and macOS (`rustup target add wasm32-unknown-unknown
+aarch64-apple-darwin`):
+
+```sh
+lua tests/levels/check_levels.lua
+```
 
 ## Renderer examples
 
@@ -269,17 +301,18 @@ requirements yourself. It also targets desktop OpenGL, OpenGL ES and WebGL with 
  - You want validation that catches many invalid resource combinations and draw configurations
    before they reach OpenGL, reducing the amount of unsafe code in your application.
 
- - You want one API across desktop OpenGL, OpenGL ES and WebGL 2, with a feature tier that
+ - You want one API across desktop OpenGL, OpenGL ES and WebGL 2, with a level per version that
    decides at compile time which APIs are available, plus capability checks and fallback paths
-   within that tier. Individual features still depend on your context, hardware, and driver.
+   within that level. Individual features still depend on your context, hardware, and driver.
 
  - You want to focus on rendering techniques and application behavior while relying on an
    existing abstraction for common OpenGL operations.
 
 ### Choose lower-level bindings when
 
- - You need OpenGL features or extensions outside SafeGL's feature tiers. You can call them
-   through glow directly, or alongside SafeGL through `Context::glow_context`.
+ - You need OpenGL features or extensions outside SafeGL's levels, or OpenGL versions below 4.0
+   and OpenGL ES 3.0. You can call them through glow directly, or alongside SafeGL through
+   `Context::glow_context`.
 
  - You are building your own graphics abstraction and need to define its resource ownership,
    state tracking, synchronization, and error-handling rules.
