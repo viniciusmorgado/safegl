@@ -234,6 +234,20 @@ pub fn try_build_display_with(
     }))
 }
 
+/// Returns true if the context compiles GLSL `desktop` on desktop OpenGL, or GLSL `es` ES on
+/// OpenGL ES, written like `#version` numbers (430, 310).
+///
+/// A context can have the API of a feature through an extension without the GLSL version that
+/// the tests write their shaders in.
+pub fn glsl_supported(display: &safegl::Display<WindowSurface>, desktop: u32, es: u32) -> bool {
+    let version = if is_gles(display) {
+        safegl::Version(safegl::Api::GlEs, (es / 100) as u8, (es / 10 % 10) as u8)
+    } else {
+        safegl::Version(safegl::Api::Gl, (desktop / 100) as u8, (desktop / 10 % 10) as u8)
+    };
+    display.is_glsl_version_supported(&version)
+}
+
 /// Returns true if the display uses OpenGL ES, for the few tests of features it doesn't have.
 pub fn is_gles(display: &safegl::Display<WindowSurface>) -> bool {
     display.get_opengl_version().0 == safegl::Api::GlEs
@@ -388,21 +402,23 @@ where
             .unwrap()
             .into(),
         program!(facade,
-            110 => {
+            330 => {
                 vertex: "
-                    #version 110
+                    #version 330
 
-                    attribute vec2 position;
+                    in vec2 position;
 
                     void main() {
                         gl_Position = vec4(position, 0.0, 1.0);
                     }
                 ",
                 fragment: "
-                    #version 110
+                    #version 330
+
+                    out vec4 f_color;
 
                     void main() {
-                        gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+                        f_color = vec4(1.0, 0.0, 0.0, 1.0);
                     }
                 ",
             },
@@ -471,6 +487,36 @@ where
         safegl::IndexBuffer::new(facade, PrimitiveType::TriangleStrip, &[0u8, 1, 2, 3])
             .unwrap()
             .into(),
+    )
+}
+
+/// Same as `build_rectangle_vb_ib`, as a list of two triangles drawn without indices, for
+/// transform feedback on OpenGL ES 3.0 and 3.1, which only captures such draws.
+pub fn build_rectangle_triangles<F: ?Sized>(
+    facade: &F,
+) -> (safegl::vertex::VertexBufferAny, safegl::index::NoIndices)
+where
+    F: Facade,
+{
+    #[derive(Copy, Clone)]
+    struct Vertex {
+        position: [f32; 2],
+    }
+
+    implement_vertex!(Vertex, position);
+
+    let vertex = |x, y| Vertex { position: [x, y] };
+    let vertices = [
+        vertex(-1.0, 1.0),
+        vertex(1.0, 1.0),
+        vertex(-1.0, -1.0),
+        vertex(-1.0, -1.0),
+        vertex(1.0, 1.0),
+        vertex(1.0, -1.0),
+    ];
+    (
+        safegl::VertexBuffer::new(facade, &vertices).unwrap().into(),
+        safegl::index::NoIndices(PrimitiveType::TrianglesList),
     )
 }
 

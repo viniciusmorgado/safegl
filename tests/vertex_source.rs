@@ -70,14 +70,14 @@ fn multiple_buffers_source() {
         safegl::IndexBuffer::new(&display, PrimitiveType::TriangleStrip, &[0u16, 1, 2, 3]).unwrap();
 
     let program = program!(&display,
-    110 => {
+    330 => {
         vertex: "
-                #version 110
+                #version 330
 
-                attribute vec2 position;
-                attribute vec3 color;
+                in vec2 position;
+                in vec3 color;
 
-                varying vec3 v_color;
+                out vec3 v_color;
 
                 void main() {
                     gl_Position = vec4(position, 0.0, 1.0);
@@ -85,11 +85,13 @@ fn multiple_buffers_source() {
                 }
             ",
         fragment: "
-                #version 110
-                varying vec3 v_color;
+                #version 330
+                out vec4 f_color;
+
+                in vec3 v_color;
 
                 void main() {
-                    gl_FragColor = vec4(v_color, 1.0);
+                    f_color = vec4(v_color, 1.0);
                 }
             ",
     },
@@ -152,21 +154,23 @@ fn slice_draw_indices() {
 
     let display = support::build_display();
     let program = program!(&display,
-    110 => {
+    330 => {
         vertex: "
-                #version 110
+                #version 330
 
-                attribute vec2 position;
+                in vec2 position;
 
                 void main() {
                     gl_Position = vec4(position, 0.0, 1.0);
                 }
             ",
         fragment: "
-                #version 110
+                #version 330
+
+                out vec4 f_color;
 
                 void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+                    f_color = vec4(1.0, 0.0, 0.0, 1.0);
                 }
             ",
     },
@@ -243,21 +247,23 @@ fn slice_draw_noindices() {
 
     let display = support::build_display();
     let program = program!(&display,
-    110 => {
+    330 => {
         vertex: "
-                #version 110
+                #version 330
 
-                attribute vec2 position;
+                in vec2 position;
 
                 void main() {
                     gl_Position = vec4(position, 0.0, 1.0);
                 }
             ",
         fragment: "
-                #version 110
+                #version 330
+
+                out vec4 f_color;
 
                 void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+                    f_color = vec4(1.0, 0.0, 0.0, 1.0);
                 }
             ",
     },
@@ -340,12 +346,12 @@ fn slice_draw_multiple() {
 
     let display = support::build_display();
     let program = program!(&display,
-    110 => {
+    330 => {
         vertex: "
-                #version 110
+                #version 330
 
-                attribute vec2 position;
-                attribute vec2 position2;
+                in vec2 position;
+                in vec2 position2;
 
                 void main() {
                     if (position != position2) {
@@ -356,10 +362,12 @@ fn slice_draw_multiple() {
                 }
             ",
         fragment: "
-                #version 110
+                #version 330
+
+                out vec4 f_color;
 
                 void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+                    f_color = vec4(1.0, 0.0, 0.0, 1.0);
                 }
             ",
     },
@@ -809,19 +817,21 @@ fn per_instance_length_mismatch() {
         safegl::IndexBuffer::new(&display, PrimitiveType::TriangleStrip, &[0u16, 1, 2, 3]).unwrap();
 
     let program = program!(&display,
-    110 => {
+    330 => {
         vertex: "
-                #version 110
+                #version 330
 
                 void main() {
                     gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
                 }
             ",
         fragment: "
-                #version 110
+                #version 330
+
+                out vec4 f_color;
 
                 void main() {
-                    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+                    f_color = vec4(0.0, 0.0, 0.0, 1.0);
                 }
             ",
     },
@@ -915,14 +925,14 @@ fn normalized_vertex() {
         safegl::IndexBuffer::new(&display, PrimitiveType::TriangleStrip, &[0u16, 1, 2, 3]).unwrap();
 
     let program = program!(&display,
-    110 => {
+    330 => {
         vertex: "
-                #version 110
+                #version 330
 
-                attribute vec2 position;
-                attribute vec3 color;
+                in vec2 position;
+                in vec3 color;
 
-                varying vec3 v_color;
+                out vec3 v_color;
 
                 void main() {
                     gl_Position = vec4(position, 0.0, 1.0);
@@ -930,11 +940,13 @@ fn normalized_vertex() {
                 }
             ",
         fragment: "
-                #version 110
-                varying vec3 v_color;
+                #version 330
+                out vec4 f_color;
+
+                in vec3 v_color;
 
                 void main() {
-                    gl_FragColor = vec4(v_color, 1.0);
+                    f_color = vec4(v_color, 1.0);
                 }
             ",
     },

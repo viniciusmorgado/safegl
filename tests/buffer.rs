@@ -900,24 +900,6 @@ fn immutable_mapping_forget_then_draw() {
                 }
             ",
         },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec2 position;
-
-                void main() {
-                    gl_Position = vec4(position, 0.0, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-
-                void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            ",
-        },
         100 => {
             vertex: "
                 #version 100
@@ -1090,24 +1072,6 @@ fn dynamic_mapping_forget_then_draw() {
                 out vec4 color;
                 void main() {
                     color = vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            ",
-        },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec2 position;
-
-                void main() {
-                    gl_Position = vec4(position, 0.0, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-
-                void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
                 }
             ",
         },

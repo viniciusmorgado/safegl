@@ -57,11 +57,13 @@ fn program_compilation_error() {
         "invalid glsl code",
         // fragment shader
         "
-            #version 110
-            varying vec3 vColor;
+            #version 330
+
+            out vec4 f_color;
+            in vec3 vColor;
 
             void main() {
-                gl_FragColor = vec4(vColor, 1.0);
+                f_color = vec4(vColor, 1.0);
             }
         ",
         // geometry shader
@@ -155,7 +157,7 @@ fn get_uniform_blocks() {
             }
         ",
         "
-            #version 130
+            #version 330
 
             out vec4 color;
 
@@ -385,10 +387,10 @@ fn get_transform_feedback_varyings() {
     } else {
         (
             "
-            #version 110
+            #version 330
 
-            varying vec2 normal;
-            varying float color;
+            out vec2 normal;
+            out float color;
 
             void main() {
                 normal = vec2(0.0, 0.0);
@@ -398,7 +400,7 @@ fn get_transform_feedback_varyings() {
             }
         ",
             "
-            #version 130
+            #version 330
 
             out vec4 color;
 
@@ -516,7 +518,7 @@ fn ssbos() {
             }
         ",
         "
-            #version 130
+            #version 330
 
             out vec4 color;
 
@@ -612,7 +614,7 @@ fn complex_layout() {
             }
         ",
         "
-            #version 130
+            #version 330
 
             out vec4 color;
 

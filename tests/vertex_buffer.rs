@@ -18,7 +18,7 @@ fn transform_feedback() {
     implement_vertex!(Vertex, output_val);
     implement_any_bit_pattern!(Vertex, output_val);
 
-    let (vb, ib) = support::build_rectangle_vb_ib(&display);
+    let (vb, ib) = support::build_rectangle_triangles(&display);
 
     let (vertex_shader, fragment_shader) = if support::is_gles(&display) {
         (
@@ -39,11 +39,11 @@ fn transform_feedback() {
     } else {
         (
             "
-            #version 110
+            #version 330
 
-            attribute vec2 position;
+            in vec2 position;
 
-            varying vec2 output_val;
+            out vec2 output_val;
 
             void main() {
                 output_val = position;
@@ -51,7 +51,7 @@ fn transform_feedback() {
             }
         ",
             "
-            #version 130
+            #version 330
 
             out vec4 color;
 
@@ -135,7 +135,7 @@ fn transform_feedback() {
 }
 
 /// Builds a program that captures `output_val` from the positions of the vertices.
-fn capturing_program(display: &safegl::Display<safegl::glutin::surface::WindowSurface>) -> Option<safegl::Program> {
+fn capturing_program(display: &safegl::Display<safegl::glutin::surface::WindowSurface>) -> safegl::Program {
     let (vertex_shader, fragment_shader) = if support::is_gles(display) {
         (
             "#version 300 es\nin vec2 position;\nout vec2 output_val;\nvoid main() { output_val = position; gl_Position = vec4(0.0, 0.0, 0.0, 1.0); }",
@@ -161,10 +161,7 @@ fn capturing_program(display: &safegl::Display<safegl::glutin::surface::WindowSu
             safegl::program::TransformFeedbackMode::Separate,
         )),
     };
-    match safegl::Program::new(display, source) {
-        Ok(p) => Some(p),
-        Err(e) => panic!("{:?}", e),
-    }
+    safegl::Program::new(display, source).unwrap()
 }
 
 #[test]
@@ -178,11 +175,8 @@ fn transform_feedback_session_continues() {
     implement_vertex!(Vertex, output_val);
     implement_any_bit_pattern!(Vertex, output_val);
 
-    let program = match capturing_program(&display) {
-        Some(p) => p,
-        None => return,
-    };
-    let (vb, ib) = support::build_rectangle_vb_ib(&display);
+    let program = capturing_program(&display);
+    let (vb, ib) = support::build_rectangle_triangles(&display);
     let mut out_buffer: safegl::VertexBuffer<Vertex> =
         safegl::VertexBuffer::empty(&display, 12).unwrap();
     let texture = support::build_renderable_texture(&display);
@@ -225,10 +219,7 @@ fn transform_feedback_session_of_another_program() {
     implement_vertex!(Vertex, output_val);
     implement_any_bit_pattern!(Vertex, output_val);
 
-    let program = match capturing_program(&display) {
-        Some(p) => p,
-        None => return,
-    };
+    let program = capturing_program(&display);
     let (vb, ib, other_program) = support::build_fullscreen_red_pipeline(&display);
     let mut out_buffer: safegl::VertexBuffer<Vertex> =
         safegl::VertexBuffer::empty(&display, 6).unwrap();
@@ -247,6 +238,54 @@ fn transform_feedback_session_of_another_program() {
         result,
         Err(safegl::DrawError::TransformFeedbackProgramMismatch)
     ));
+
+    display.assert_no_error(None);
+}
+
+#[test]
+fn transform_feedback_of_strips() {
+    let display = support::build_display();
+
+    #[derive(Copy, Clone)]
+    struct Vertex {
+        output_val: (f32, f32),
+    }
+    implement_vertex!(Vertex, output_val);
+    implement_any_bit_pattern!(Vertex, output_val);
+
+    let program = capturing_program(&display);
+    let (vb, ib) = support::build_rectangle_vb_ib(&display);
+    let mut out_buffer: safegl::VertexBuffer<Vertex> =
+        safegl::VertexBuffer::empty(&display, 6).unwrap();
+    let texture = support::build_renderable_texture(&display);
+    let session =
+        safegl::vertex::TransformFeedbackSession::new(&display, &program, &mut out_buffer).unwrap();
+    let result = texture.as_surface().draw(
+        &vb,
+        &ib,
+        &program,
+        &uniform! {},
+        &safegl::DrawParameters {
+            transform_feedback: Some(&session),
+            ..Default::default()
+        },
+    );
+
+    // without geometry shaders, OpenGL ES only captures draws of lists without indices
+    let version = *display.get_opengl_version();
+    let extensions = safegl::CapabilitiesSource::get_extensions(&**display);
+    let lists_only = version.0 == safegl::Api::GlEs
+        && version < safegl::Version(safegl::Api::GlEs, 3, 2)
+        && !extensions.gl_ext_geometry_shader
+        && !extensions.gl_oes_geometry_shader;
+    if lists_only {
+        assert!(matches!(
+            result,
+            Err(safegl::DrawError::TransformFeedbackDrawNotSupported)
+        ));
+    } else {
+        result.unwrap();
+    }
 
     display.assert_no_error(None);
 }

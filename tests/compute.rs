@@ -17,7 +17,7 @@ type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
 
 /// A compute shader with `source` after the `#version` line, or `None` without compute shaders.
 fn compute_shader(display: &Display, source: &str) -> Option<ComputeShader> {
-    if !ComputeShader::is_supported(display) {
+    if !ComputeShader::is_supported(display) || !support::glsl_supported(display, 430, 310) {
         return None;
     }
     let header = if support::is_gles(display) {

@@ -336,28 +336,38 @@ macro_rules! uniform_test(
             let (vb, ib) = support::build_rectangle_vb_ib(&display);
 
             // Definition of multiple shader versions
+            let int64 = $glsl_ty.contains("64");
+            let extension = if int64 {
+                "#extension GL_ARB_gpu_shader_int64 : require"
+            } else {
+                ""
+            };
             let v400 = (
                 &format!("
                     #version 400
+                    {}
                     in vec2 position;
                     uniform {} my_uniform;
                     void main() {{
                         gl_Position = vec4(position, 0.0, 1.0);
                     }}
-                ", $glsl_ty),
+                ", extension, $glsl_ty),
                 &format!("
                     #version 400
+                    {}
                     uniform {} my_uniform;
                     out vec4 color;
                     void main() {{
                         color = vec4(1.0, 1.0, 1.0, 1.0);
                     }}
-                ", $glsl_ty)
+                ", extension, $glsl_ty)
             );
 
-            let v140 = (
+            let v300es = (
                 &format!("
-                    #version 140
+                    #version 300 es
+                    precision highp float;
+                    precision highp int;
                     in vec2 position;
                     uniform {} my_uniform;
                     void main() {{
@@ -365,7 +375,9 @@ macro_rules! uniform_test(
                     }}
                 ", $glsl_ty),
                 &format!("
-                    #version 140
+                    #version 300 es
+                    precision highp float;
+                    precision highp int;
                     uniform {} my_uniform;
                     out vec4 color;
                     void main() {{
@@ -374,53 +386,15 @@ macro_rules! uniform_test(
                 ", $glsl_ty)
             );
 
-            let v110 = (
-                &format!("
-                    #version 110
-                    attribute vec2 position;
-                    uniform {} my_uniform;
-                    void main() {{
-                        gl_Position = vec4(position, 0.0, 1.0);
-                    }}
-                ", $glsl_ty),
-                &format!("
-                    #version 110
-                    uniform {} my_uniform;
-                    void main() {{
-                        gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
-                    }}
-                ", $glsl_ty)
-            );
-
-            let v100 = (
-                &format!("
-                    #version 100
-                    attribute vec2 position;
-                    uniform {} my_uniform;
-                    void main() {{
-                        gl_Position = vec4(position, 0.0, 1.0);
-                    }}
-                ", $glsl_ty),
-                &format!("
-                    #version 100
-                    uniform {} my_uniform;
-                    void main() {{
-                        gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
-                    }}
-                ", $glsl_ty)
-            );
-
-            let program = if let Ok(program) = safegl::Program::from_source(&display, v400.0, v400.1, None) {
-                program
-            } else if let Ok(program) = safegl::Program::from_source(&display, v140.0, v140.1, None) {
-                program
-            } else if let Ok(program) = safegl::Program::from_source(&display, v110.0, v110.1, None) {
-                program
-            } else if let Ok(program) = safegl::Program::from_source(&display, v100.0, v100.1, None) {
-                program
-            } else {
-                return
-            };
+            // OpenGL ES has no double-precision values nor 64-bit integers
+            if support::is_gles(&display) && ($glsl_ty.starts_with('d') || int64) {
+                return;
+            }
+            if int64 && !safegl::CapabilitiesSource::get_extensions(&**display).gl_arb_gpu_shader_int64 {
+                return;
+            }
+            let (vertex, fragment) = if support::is_gles(&display) { v300es } else { v400 };
+            let program = safegl::Program::from_source(&display, vertex, fragment, None).unwrap();
 
             let uniforms = safegl::uniforms::UniformsStorage::new("my_uniform", $value);
             let mut target = display.draw();

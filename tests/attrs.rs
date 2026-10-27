@@ -40,23 +40,6 @@ fn attribute_types_mismatch() {
                 }
             "
         },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec2 field1;
-
-                void main() {
-                    gl_Position = vec4(field1, 0.0, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-                void main() {
-                    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-                }
-            "
-        },
         100 => {
             vertex: "
                 #version 100
@@ -123,23 +106,6 @@ fn missing_attribute() {
                 out vec4 color;
                 void main() {
                     color = vec4(0.0, 0.0, 0.0, 1.0);
-                }
-            "
-        },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec2 field2;
-
-                void main() {
-                    gl_Position = vec4(field2, 0.0, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-                void main() {
-                    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
                 }
             "
         },
@@ -213,23 +179,6 @@ macro_rules! attribute_test(
                         out vec4 color;
                         void main() {
                             color = vec4(0.0, 0.0, 0.0, 1.0);
-                        }
-                    "
-                },
-                110 => {
-                    vertex: &format!("
-                        #version 110
-
-                        attribute {} field1;
-
-                        void main() {{
-                            gl_Position = {};
-                        }}
-                    ", $glsl_ty, $gl_pos),
-                    fragment: "
-                        #version 110
-                        void main() {
-                            gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
                         }
                     "
                 },

@@ -357,24 +357,6 @@ fn cull_clockwise() {
                 }
             "
         },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec2 position;
-
-                void main() {
-                    gl_Position = vec4(position, 0.0, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-
-                void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            "
-        },
         100 => {
             vertex: "
                 #version 100
@@ -480,24 +462,6 @@ fn cull_counterclockwise() {
                 }
             "
         },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec2 position;
-
-                void main() {
-                    gl_Position = vec4(position, 0.0, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-
-                void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            "
-        },
         100 => {
             vertex: "
                 #version 100
@@ -595,24 +559,6 @@ fn cull_clockwise_trianglestrip() {
                 out vec4 color;
                 void main() {
                     color = vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            "
-        },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec2 position;
-
-                void main() {
-                    gl_Position = vec4(position, 0.0, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-
-                void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
                 }
             "
         },
@@ -716,24 +662,6 @@ fn cull_counterclockwise_trianglestrip() {
                 }
             "
         },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec2 position;
-
-                void main() {
-                    gl_Position = vec4(position, 0.0, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-
-                void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            "
-        },
         100 => {
             vertex: "
                 #version 100
@@ -812,24 +740,6 @@ macro_rules! blending_test {
                         out vec4 color;
                         void main() {
                             color = vec4(1.0, 0.0, 0.0, 1.0);
-                        }
-                    "
-                },
-                110 => {
-                    vertex: "
-                        #version 110
-
-                        attribute vec2 position;
-
-                        void main() {
-                            gl_Position = vec4(position, 0.0, 1.0);
-                        }
-                    ",
-                    fragment: "
-                        #version 110
-
-                        void main() {
-                            gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
                         }
                     "
                 },
@@ -1083,24 +993,6 @@ fn depth_clamp_all() {
                 }
             "
         },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec3 position;
-
-                void main() {
-                    gl_Position = vec4(position, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-
-                void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            "
-        },
         100 => {
             vertex: "
                 #version 100
@@ -1207,24 +1099,6 @@ fn depth_clamp_near() {
                 out vec4 color;
                 void main() {
                     color = vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            "
-        },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec3 position;
-
-                void main() {
-                    gl_Position = vec4(position, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-
-                void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
                 }
             "
         },
@@ -1342,24 +1216,6 @@ fn depth_clamp_far() {
                 out vec4 color;
                 void main() {
                     color = vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            "
-        },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec3 position;
-
-                void main() {
-                    gl_Position = vec4(position, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-
-                void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
                 }
             "
         },
@@ -1509,24 +1365,6 @@ fn primitive_restart_index() {
                 out vec4 color;
                 void main() {
                     color = vec4(1.0, 0.0, 0.0, 1.0);
-                }
-            "
-        },
-        110 => {
-            vertex: "
-                #version 110
-
-                attribute vec3 position;
-
-                void main() {
-                    gl_Position = vec4(position, 1.0);
-                }
-            ",
-            fragment: "
-                #version 110
-
-                void main() {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
                 }
             "
         },

@@ -297,7 +297,9 @@ fn block_buffer_offsets() {
         .get_context()
         .get_capabilities()
         .shader_storage_buffer_offset_alignment;
-    if display.get_context().get_capabilities().max_indexed_shader_storage_buffer == 0 {
+    if display.get_context().get_capabilities().max_indexed_shader_storage_buffer == 0
+        || !support::glsl_supported(&display, 430, 310)
+    {
         return;
     }
     let header = if support::is_gles(&display) {
