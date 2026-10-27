@@ -366,6 +366,12 @@ local cases = {
         t.main_level().read_box((0, 0, 0), (1, 1, 1))
     }
   ]] },
+  { "gl43_has_format_info", { "gl43" }, nil, [[
+    pub use safegl::{FormatInfo, FormatTarget};
+  ]] },
+  { "gl42_has_no_format_info", { "gl42" }, "FormatInfo", [[
+    pub use safegl::FormatInfo;
+  ]] },
   { "gl43_has_texture_views", { "gl43" }, nil, [[
     pub fn f(t: &safegl::texture::Texture2dArray) -> Result<safegl::texture::Texture2d, safegl::texture::TextureViewError> {
         safegl::texture::Texture2d::view(t, safegl::texture::UncompressedFloatFormat::U8U8U8U8, 0..1, 0..1)

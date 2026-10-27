@@ -154,6 +154,9 @@ pub use crate::context::{
     Capabilities, ExtensionsList, Limits, ProvokingVertexConvention, QueryCounterBits,
     ReleaseBehavior, ResetNotificationStrategy, StageLimits,
 };
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+pub use crate::context::{FormatInfo, FormatInfoNotSupportedError, FormatSupport, FormatTarget};
 #[cfg(any(safegl_desktop, safegl_gles32))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
 pub use crate::draw_parameters::OutputState;

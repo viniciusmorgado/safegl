@@ -467,6 +467,12 @@ Additions:
   `border_color_uint`, `glSamplerParameterIiv` and `glSamplerParameterIuiv`;
   `any(desktop, gles32)`), and `BorderColor::value` with `uniforms::BorderColorValue`. A border
   color of another kind than its texture returns `DrawError::BorderColorMismatch`.
+- `Context::format_info` tells what the implementation supports for an internal format and a
+  kind of texture or render buffer: whether it is supported, its largest dimensions, whether it
+  is renderable, blendable, filterable and usable by image units and texture views, its mipmaps
+  and its numbers of samples (`gl43`, `glGetInternalformativ`, `FormatTarget`, `FormatInfo`,
+  `FormatSupport`; OpenGL 4.3 or `GL_ARB_internalformat_query2` at runtime). The answers are
+  cached.
 - Every texture type has a `view` constructor that builds a texture sharing the storage of
   another one, with another kind, format of the same size, range of levels or range of layers
   (`gl43`, `glTextureView`; OpenGL 4.3 or `GL_ARB_texture_view` at runtime), such as a layer of

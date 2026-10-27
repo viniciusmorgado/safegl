@@ -43,6 +43,9 @@ use crate::vertex_array_object;
 pub use self::capabilities::GraphicsResetStatus;
 pub use self::capabilities::{Capabilities, ReleaseBehavior, ResetNotificationStrategy};
 pub use self::extensions::ExtensionsList;
+#[cfg(safegl_gl43)]
+#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+pub use self::format_info::{FormatInfo, FormatInfoNotSupportedError, FormatSupport, FormatTarget};
 #[cfg(any(safegl_gl43, safegl_gles32))]
 pub use self::debug_output::DebugGroup;
 #[cfg(any(safegl_gl43, safegl_gles32))]
@@ -53,6 +56,8 @@ pub(crate) use self::state::RecordingTransformFeedback;
 
 mod capabilities;
 mod extensions;
+#[cfg(safegl_gl43)]
+mod format_info;
 mod limits;
 #[cfg(any(safegl_gl43, safegl_gles32))]
 mod debug_output;
@@ -139,6 +144,12 @@ pub struct Context {
             sampler_object::SamplerObject,
             BuildHasherDefault<FnvHasher>,
         >,
+    >,
+
+    /// The answers of `format_info`.
+    #[cfg(safegl_gl43)]
+    format_infos: RefCell<
+        HashMap<(FormatTarget, crate::image_format::TextureFormat), FormatInfo>,
     >,
 
     /// List of texture handles that are resident. We need to call `MakeTextureHandleResidentARB`
@@ -354,6 +365,8 @@ impl Context {
             framebuffer_objects: Some(framebuffer_objects),
             vertex_array_objects,
             samplers,
+            #[cfg(safegl_gl43)]
+            format_infos: RefCell::new(HashMap::new()),
             resident_texture_handles,
             resident_image_handles,
         });
