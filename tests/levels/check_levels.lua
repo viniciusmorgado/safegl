@@ -80,6 +80,20 @@ local cases = {
   { "gles32_has_object_labels", { "gles32" }, nil, [[
     pub use safegl::debug::{DebugMessage, ObjectLabel};
   ]] },
+  { "gl40_has_gpu_timestamps", { "gl40" }, nil, [[
+    pub fn f(c: &safegl::backend::Context) -> Option<u64> { c.gpu_timestamp() }
+  ]] },
+  { "gl44_has_query_buffer_modes", { "gl44" }, nil, [[
+    pub use safegl::draw_parameters::{QueryBufferMode, QueryBufferValue};
+  ]] },
+  { "gl45_has_inverted_conditions", { "gl45" }, nil, [[
+    pub fn f(q: &safegl::draw_parameters::AnySamplesPassedQuery) -> safegl::draw_parameters::ConditionalRendering<'_> {
+        safegl::draw_parameters::ConditionalRendering { query: q.into(), wait: true, per_region: false, inverted: true }
+    }
+  ]] },
+  { "gles30_has_fence_timeouts", { "gles30" }, nil, [[
+    pub fn f(s: &safegl::SyncFence) -> safegl::SyncWaitResult { s.wait_timeout(std::time::Duration::ZERO) }
+  ]] },
   { "gles30_has_framebuffer_invalidation", { "gles30" }, nil, [[
     pub use safegl::framebuffer::InvalidateAttachments;
   ]] },
@@ -167,6 +181,17 @@ local cases = {
   { "gles31_has_no_debug_log", { "gles31" }, "no variant", [[
     pub const B: fn() -> safegl::debug::DebugCallbackBehavior = || safegl::debug::DebugCallbackBehavior::Log;
   ]] },
+  { "gl43_has_no_query_buffer_modes", { "gl43" }, "QueryBufferMode", [[
+    pub use safegl::draw_parameters::QueryBufferMode;
+  ]] },
+  { "gl44_has_no_inverted_conditions", { "gl44" }, "has no field named `inverted`", [[
+    pub fn f(q: &safegl::draw_parameters::AnySamplesPassedQuery) -> safegl::draw_parameters::ConditionalRendering<'_> {
+        safegl::draw_parameters::ConditionalRendering { query: q.into(), wait: true, per_region: false, inverted: true }
+    }
+  ]] },
+  { "gles32_has_no_gpu_timestamps", { "gles32" }, "no method named `gpu_timestamp`", [[
+    pub fn f(c: &safegl::backend::Context) -> Option<u64> { c.gpu_timestamp() }
+  ]] },
   { "gles30_has_no_compute_shaders", { "gles30" }, "ComputeShader", [[
     pub use safegl::program::ComputeShader;
   ]] },
@@ -213,6 +238,9 @@ local cases = {
     pub fn f(p: &safegl::Program) { let _ = p.get_binary(); }
   ]], WASM },
 
+  { "webgl_has_fence_timeouts", { "webgl" }, nil, [[
+    pub fn f(s: &safegl::SyncFence) -> safegl::SyncWaitResult { s.wait_timeout(std::time::Duration::ZERO) }
+  ]], WASM },
   { "webgl_has_shader_precision", { "webgl" }, nil, [[
     pub use safegl::program::{PrecisionQualifier, ShaderPrecision};
   ]], WASM },
