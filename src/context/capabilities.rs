@@ -170,6 +170,13 @@ pub struct Capabilities {
 
     /// The other limits of the implementation.
     pub limits: Limits,
+
+    /// The SPIR-V extensions that the SPIR-V modules of programs can use
+    /// (`GL_SPIR_V_EXTENSIONS`), from OpenGL 4.6 or `GL_ARB_spirv_extensions`; empty without
+    /// them.
+    #[cfg(safegl_gl46)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    pub spirv_extensions: Vec<String>,
 }
 
 /// Information about an internal format.
@@ -600,6 +607,18 @@ pub unsafe fn get_capabilities(
         },
 
         limits: limits::get_limits(gl, extra, version, extensions),
+
+        #[cfg(safegl_gl46)]
+        spirv_extensions: if version >= &Version(Api::Gl, 4, 6)
+            || (version.0 == Api::Gl && extensions.gl_arb_spirv_extensions)
+        {
+            let count = gl.get_parameter_i32(gl::NUM_SPIR_V_EXTENSIONS).max(0) as u32;
+            (0..count)
+                .map(|index| gl.get_parameter_indexed_string(gl::SPIR_V_EXTENSIONS, index))
+                .collect()
+        } else {
+            Vec::new()
+        },
 
         renderer,
     }

@@ -292,3 +292,17 @@ fn transform_feedback() {
 
     display.assert_no_error(None);
 }
+
+#[test]
+fn spirv_extensions() {
+    let display = support::build_display();
+    let context = display.get_context();
+    let extensions = &context.get_capabilities().spirv_extensions;
+    let supported = *context.get_version() >= safegl::Version(safegl::Api::Gl, 4, 6)
+        || context.get_extensions().gl_arb_spirv_extensions;
+    if !supported {
+        assert!(extensions.is_empty());
+    }
+    // the names of SPIR-V extensions start with `SPV_`
+    assert!(extensions.iter().all(|name| name.starts_with("SPV_")));
+}

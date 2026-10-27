@@ -68,6 +68,7 @@ extensions! {
     "GL_ARB_framebuffer_no_attachments" => gl_arb_framebuffer_no_attachments,
     "GL_ARB_get_program_binary" => gl_arb_get_program_binary,
     "GL_ARB_gl_spirv" => gl_arb_gl_spirv,
+    "GL_ARB_spirv_extensions" => gl_arb_spirv_extensions,
     "GL_ARB_gpu_shader_int64" => gl_arb_gpu_shader_int64,
     "GL_ARB_internalformat_query" => gl_arb_internalformat_query,
     "GL_ARB_internalformat_query2" => gl_arb_internalformat_query2,
