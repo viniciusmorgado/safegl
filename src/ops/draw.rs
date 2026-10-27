@@ -75,23 +75,25 @@ where
     check_contexts(&ctxt, program, &indices, draw_parameters)?;
     #[cfg(safegl_gl46)]
     check_draw_count(&ctxt, &indices)?;
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    check_indirect(&ctxt, &indices, draw_parameters)?;
 
     // handling vertices source
     let (vertices_count, instances_count, base_vertex, base_instance) = {
         let index_buffer = match indices {
             IndicesSource::IndexBuffer { buffer, .. } => Some(buffer),
-            #[cfg(safegl_gl43)]
+            #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawArray { .. } => None,
-            #[cfg(safegl_gl43)]
+            #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawElement { indices, .. } => Some(indices),
             IndicesSource::NoIndices { .. } => None,
         };
 
         // determining whether we can use the `base_vertex` variants for drawing
         let use_base_vertex = match indices {
-            #[cfg(safegl_gl43)]
+            #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawArray { .. } => false,
-            #[cfg(safegl_gl43)]
+            #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawElement { .. } => false,
             IndicesSource::NoIndices { .. } => true,
             _ => {
@@ -104,7 +106,7 @@ where
         // the commands of multidraws have their own base instance
         let use_base_instance = supports_base_instance
             && match indices {
-                #[cfg(safegl_gl43)]
+                #[cfg(any(safegl_desktop, safegl_gles31))]
                 IndicesSource::MultidrawArray { .. } | IndicesSource::MultidrawElement { .. } => {
                     false
                 }
@@ -236,7 +238,7 @@ where
     unsafe {
         let index_type = match indices {
             IndicesSource::IndexBuffer { data_type, .. } => Some(data_type),
-            #[cfg(safegl_gl43)]
+            #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawElement { data_type, .. } => Some(data_type),
             _ => None,
         };
@@ -371,15 +373,18 @@ where
                 }
             }
 
-            #[cfg(safegl_gl43)]
+            #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawArray {
                 ref buffer,
+                command_offset,
                 primitives,
                 #[cfg(safegl_gl46)]
                 draw_count,
             } => {
+                let offset = buffer.get_offset_bytes() + command_offset;
                 let ptr: *const u8 = ptr::null_mut();
-                let ptr = unsafe { ptr.add(buffer.get_offset_bytes()) };
+                let ptr = unsafe { ptr.add(offset) };
+                let stride = buffer.get_elements_size() as gl::types::GLsizei;
 
                 debug_assert_eq!(base_vertex, 0); // enforced earlier in this function
 
@@ -400,7 +405,7 @@ where
                                 ptr as *const _,
                                 offset,
                                 max,
-                                0,
+                                stride,
                             );
                         } else {
                             ctxt.extra.MultiDrawArraysIndirectCountARB(
@@ -408,45 +413,52 @@ where
                                 ptr as *const _,
                                 offset,
                                 max,
-                                0,
+                                stride,
                             );
                         }
                     });
                     #[cfg(not(safegl_gl46))]
                     let counted: Option<()> = None;
 
-                    // OpenGL ES only has `GL_EXT_multi_draw_indirect`
+                    // a single command doesn't need multidraw; OpenGL ES only has
+                    // `GL_EXT_multi_draw_indirect`
                     if counted.is_some() {
                         // drawn with the number of commands of the buffer
+                    } else if count == 1 {
+                        ctxt.glow
+                            .draw_arrays_indirect_offset(primitives.to_glenum(), offset as i32);
                     } else if ctxt.version.0 == Api::GlEs {
                         ctxt.extra.MultiDrawArraysIndirectEXT(
                             primitives.to_glenum(),
                             ptr as *const _,
                             count,
-                            0,
+                            stride,
                         );
                     } else {
                         ctxt.extra.MultiDrawArraysIndirect(
                             primitives.to_glenum(),
                             ptr as *const _,
                             count,
-                            0,
+                            stride,
                         );
                     }
                 }
             }
 
-            #[cfg(safegl_gl43)]
+            #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawElement {
                 ref commands,
+                command_offset,
                 ref indices,
                 data_type,
                 primitives,
                 #[cfg(safegl_gl46)]
                 draw_count,
             } => {
+                let cmd_offset = commands.get_offset_bytes() + command_offset;
                 let cmd_ptr: *const u8 = ptr::null_mut();
-                let cmd_ptr = unsafe { cmd_ptr.add(commands.get_offset_bytes()) };
+                let cmd_ptr = unsafe { cmd_ptr.add(cmd_offset) };
+                let stride = commands.get_elements_size() as gl::types::GLsizei;
 
                 if let Some(fence) = commands.add_fence() {
                     fences.push(fence);
@@ -471,7 +483,7 @@ where
                                 cmd_ptr as *const _,
                                 offset,
                                 max,
-                                0,
+                                stride,
                             );
                         } else {
                             ctxt.extra.MultiDrawElementsIndirectCountARB(
@@ -480,23 +492,30 @@ where
                                 cmd_ptr as *const _,
                                 offset,
                                 max,
-                                0,
+                                stride,
                             );
                         }
                     });
                     #[cfg(not(safegl_gl46))]
                     let counted: Option<()> = None;
 
-                    // OpenGL ES only has `GL_EXT_multi_draw_indirect`
+                    // a single command doesn't need multidraw; OpenGL ES only has
+                    // `GL_EXT_multi_draw_indirect`
                     if counted.is_some() {
                         // drawn with the number of commands of the buffer
+                    } else if count == 1 {
+                        ctxt.glow.draw_elements_indirect_offset(
+                            primitives.to_glenum(),
+                            data_type.to_glenum(),
+                            cmd_offset as i32,
+                        );
                     } else if ctxt.version.0 == Api::GlEs {
                         ctxt.extra.MultiDrawElementsIndirectEXT(
                             primitives.to_glenum(),
                             data_type.to_glenum(),
                             cmd_ptr as *const _,
                             count,
-                            0,
+                            stride,
                         );
                     } else {
                         ctxt.extra.MultiDrawElementsIndirect(
@@ -504,7 +523,7 @@ where
                             data_type.to_glenum(),
                             cmd_ptr as *const _,
                             count,
-                            0,
+                            stride,
                         );
                     }
                 }
@@ -574,6 +593,42 @@ fn draw_count<'a>(indices: &IndicesSource<'a>) -> Option<index::DrawCount<'a>> {
         | IndicesSource::MultidrawElement { draw_count, .. } => draw_count,
         _ => None,
     }
+}
+
+/// Checks that the backend can draw the commands of an indirect draw: one command needs OpenGL
+/// 4.0 or OpenGL ES 3.1, and several ones multidraw (OpenGL 4.3, `GL_ARB_multi_draw_indirect` or
+/// `GL_EXT_multi_draw_indirect`). OpenGL ES doesn't draw indirectly while transform feedback
+/// records.
+#[cfg(any(safegl_desktop, safegl_gles31))]
+fn check_indirect(
+    ctxt: &context::CommandContext<'_>,
+    indices: &IndicesSource<'_>,
+    draw_parameters: &DrawParameters<'_>,
+) -> Result<(), DrawError> {
+    let (commands, counted) = match *indices {
+        IndicesSource::MultidrawArray { ref buffer, .. } => (buffer.get_elements_count(), false),
+        IndicesSource::MultidrawElement { ref commands, .. } => {
+            (commands.get_elements_count(), false)
+        }
+        _ => return Ok(()),
+    };
+    #[cfg(safegl_gl46)]
+    let counted = counted || draw_count(indices).is_some();
+
+    if !(ctxt.version.0 == Api::Gl || ctxt.version >= &Version(Api::GlEs, 3, 1)) {
+        return Err(DrawError::IndirectDrawsNotSupported);
+    }
+    if (commands != 1 || counted)
+        && !(ctxt.version >= &Version(Api::Gl, 4, 3)
+            || (ctxt.version.0 == Api::Gl && ctxt.extensions.gl_arb_multi_draw_indirect)
+            || (ctxt.version.0 == Api::GlEs && ctxt.extensions.gl_ext_multi_draw_indirect))
+    {
+        return Err(DrawError::MultidrawNotSupported);
+    }
+    if ctxt.version.0 == Api::GlEs && draw_parameters.transform_feedback.is_some() {
+        return Err(DrawError::IndirectDrawWithTransformFeedback);
+    }
+    Ok(())
 }
 
 /// Checks that the backend can read the number of commands of a multidraw from a buffer
@@ -742,13 +797,13 @@ fn check_contexts(
                 return mismatch("index buffer");
             }
         }
-        #[cfg(safegl_gl43)]
+        #[cfg(any(safegl_desktop, safegl_gles31))]
         IndicesSource::MultidrawArray { ref buffer, .. } => {
             if !ctxt.owns(buffer.get_context()) {
                 return mismatch("draw commands buffer");
             }
         }
-        #[cfg(safegl_gl43)]
+        #[cfg(any(safegl_desktop, safegl_gles31))]
         IndicesSource::MultidrawElement {
             ref commands,
             ref indices,

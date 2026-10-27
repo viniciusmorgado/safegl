@@ -1369,6 +1369,23 @@ pub enum DrawError {
     /// given two constant values.
     AttributeProvidedTwice,
 
+    /// Indirect draws aren't supported by the backend: they need OpenGL 4.0 or OpenGL ES 3.1.
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
+    IndirectDrawsNotSupported,
+
+    /// Drawing several commands of a buffer with one call isn't supported by the backend: it
+    /// needs OpenGL 4.3, `GL_ARB_multi_draw_indirect` or `GL_EXT_multi_draw_indirect`. Draw the
+    /// commands one by one with `command` instead.
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
+    MultidrawNotSupported,
+
+    /// OpenGL ES doesn't draw indirectly while transform feedback records.
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles31))))]
+    IndirectDrawWithTransformFeedback,
+
     /// The viewport's dimensions are not supported by the backend.
     ViewportTooLarge,
 
@@ -1690,6 +1707,14 @@ impl fmt::Display for DrawError {
                 "A stencil test or operation has been requested but no stencil buffer is available",
             AttributeTypeMismatch =>
                 "The type of a vertex attribute in the vertices source doesn't match what the program requires",
+            #[cfg(any(safegl_desktop, safegl_gles31))]
+            IndirectDrawsNotSupported => "Indirect draws are not supported by the backend",
+            #[cfg(any(safegl_desktop, safegl_gles31))]
+            MultidrawNotSupported =>
+                "Drawing several commands with one call is not supported by the backend",
+            #[cfg(any(safegl_desktop, safegl_gles31))]
+            IndirectDrawWithTransformFeedback =>
+                "OpenGL ES doesn't draw indirectly while transform feedback records",
             AttributeProvidedTwice =>
                 "An attribute has a constant value and is provided by another vertex source too",
             AttributeMissing =>

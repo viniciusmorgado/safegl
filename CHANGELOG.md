@@ -223,6 +223,12 @@ Breaking changes:
 - `AttributeType` has the `U8U8U8U8Bgra`, `I2I10I10I10ReversedBgra` and `U2U10U10U10ReversedBgra`
   variants at the desktop levels, `VerticesSource` a `Constant` variant, and `DrawError` an
   `AttributeProvidedTwice` variant.
+- The draw command buffers and their `IndicesSource` variants exist at the levels with indirect
+  draws (`any(desktop, gles31)`), and the variants have a `command_offset` field; drawing all the
+  commands of a buffer with `with_primitive_type` and `with_index_buffer` stays at `gl43`.
+  `DrawError` has `IndirectDrawsNotSupported`, `MultidrawNotSupported` and
+  `IndirectDrawWithTransformFeedback` variants, and indirect buffers can be created on OpenGL 4.0
+  to 4.2 and OpenGL ES 3.1 without multidraw.
 
 Additions:
 
@@ -340,6 +346,13 @@ Additions:
   and doubles at the `gl41` level, as an `AttributeValue`. Its type is checked against the
   attribute, `restore_state` sets the values again, and a constant for an attribute that a buffer
   provides too is a `DrawError::AttributeProvidedTwice`.
+- Indirect draws of one command (`any(desktop, gles31)`): `command(index, primitives)` and
+  `command_with_index_buffer(index, index_buffer)` on the draw command buffers draw one of their
+  commands with `glDrawArraysIndirect` or `glDrawElementsIndirect`, on OpenGL 4.0 and OpenGL ES
+  3.1, and a buffer of a single command draws without multidraw. Commands can be inside other
+  values: `implement_draw_command!` implements `index::DrawCommandLayout` for a struct with a
+  command field, and `from_buffer` makes a buffer of such structs a buffer of draw commands, read
+  with the size of the struct as stride.
 
 Fixes:
 

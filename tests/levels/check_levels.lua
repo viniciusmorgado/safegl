@@ -21,6 +21,17 @@ local cases = {
   { "gl41_has_program_binaries", { "gl41" }, nil, [[
     pub fn f(p: &safegl::Program) { let _ = p.get_binary(); }
   ]] },
+  { "gl40_has_indirect_draws", { "gl40" }, nil, [[
+    pub fn f(b: &safegl::index::DrawCommandsNoIndicesBuffer) -> Option<safegl::index::IndicesSource<'_>> {
+        b.command(0, safegl::index::PrimitiveType::Points)
+    }
+  ]] },
+  { "gl40_has_primitive_restart_index", { "gl40" }, nil, [[
+    pub const R: safegl::draw_parameters::PrimitiveRestart = safegl::draw_parameters::PrimitiveRestart::Index(7);
+  ]] },
+  { "gles31_has_indirect_draws", { "gles31" }, nil, [[
+    pub use safegl::index::{DrawCommandLayout, DrawCommandsIndicesBuffer};
+  ]] },
   { "gl42_has_image_units", { "gl42" }, nil, [[
     pub use safegl::uniforms::ImageUnitFormat;
   ]] },
@@ -191,6 +202,20 @@ local cases = {
   ]] },
   { "gles32_has_no_gpu_timestamps", { "gles32" }, "no method named `gpu_timestamp`", [[
     pub fn f(c: &safegl::backend::Context) -> Option<u64> { c.gpu_timestamp() }
+  ]] },
+  { "gl42_has_no_multidraw", { "gl42" }, "no method named `with_primitive_type`", [[
+    pub fn f(b: &safegl::index::DrawCommandsNoIndicesBuffer) -> safegl::index::IndicesSource<'_> {
+        b.with_primitive_type(safegl::index::PrimitiveType::Points)
+    }
+  ]] },
+  { "gles30_has_no_indirect_draws", { "gles30" }, "DrawCommandsNoIndicesBuffer", [[
+    pub use safegl::index::DrawCommandsNoIndicesBuffer;
+  ]] },
+  { "gles32_has_no_primitive_restart_index", { "gles32" }, "no variant", [[
+    pub const R: safegl::draw_parameters::PrimitiveRestart = safegl::draw_parameters::PrimitiveRestart::Index(7);
+  ]] },
+  { "gles32_has_no_bgra_attributes", { "gles32" }, "Bgra8", [[
+    pub use safegl::vertex::Bgra8;
   ]] },
   { "gles30_has_no_compute_shaders", { "gles30" }, "ComputeShader", [[
     pub use safegl::program::ComputeShader;
