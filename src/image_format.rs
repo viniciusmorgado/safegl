@@ -246,6 +246,10 @@ pub enum UncompressedFloatFormat {
     ///
     U5U5U5,
     /// Five bits of red, six of green and five of blue, common for embedded displays.
+    ///
+    /// Requires OpenGL 4.1 or `GL_ARB_ES2_compatibility` on desktop OpenGL.
+    #[cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))))]
     U5U6U5,
     ///
     ///
@@ -343,7 +347,8 @@ impl UncompressedFloatFormat {
     /// Returns a list of all the possible values of this enumeration.
     #[inline]
     pub fn get_formats_list() -> Vec<UncompressedFloatFormat> {
-        vec![
+        #[allow(unused_mut)]
+        let mut formats = vec![
             UncompressedFloatFormat::U8,
             UncompressedFloatFormat::I8,
             UncompressedFloatFormat::U16,
@@ -355,7 +360,6 @@ impl UncompressedFloatFormat {
             UncompressedFloatFormat::U3U3U2,
             UncompressedFloatFormat::U4U4U4,
             UncompressedFloatFormat::U5U5U5,
-            UncompressedFloatFormat::U5U6U5,
             UncompressedFloatFormat::U8U8U8,
             UncompressedFloatFormat::I8I8I8,
             UncompressedFloatFormat::U10U10U10,
@@ -381,7 +385,10 @@ impl UncompressedFloatFormat {
             UncompressedFloatFormat::F32F32F32F32,
             UncompressedFloatFormat::F11F11F10,
             UncompressedFloatFormat::F9F9F9,
-        ]
+        ];
+        #[cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))]
+        formats.push(UncompressedFloatFormat::U5U6U5);
+        formats
     }
 
     /// Turns this format into a more generic `TextureFormat`.
@@ -421,6 +428,7 @@ impl UncompressedFloatFormat {
             | Self::U2U2U2U2
             | Self::U12U12U12U12 => desktop,
             // `GL_RGB565` is core in OpenGL 4.1
+            #[cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))]
             Self::U5U6U5 => {
                 !desktop
                     || version >= &Version(Api::Gl, 4, 1)
@@ -476,9 +484,10 @@ impl UncompressedFloatFormat {
 
         // if we have OpenGL ES, it depends
         match self {
+            #[cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))]
+            UncompressedFloatFormat::U5U6U5 => true,
             UncompressedFloatFormat::U8
             | UncompressedFloatFormat::U8U8
-            | UncompressedFloatFormat::U5U6U5
             | UncompressedFloatFormat::U8U8U8
             | UncompressedFloatFormat::U4U4U4U4
             | UncompressedFloatFormat::U5U5U5U1
@@ -517,6 +526,7 @@ impl UncompressedFloatFormat {
             UncompressedFloatFormat::U3U3U2 => gl::R3_G3_B2,
             UncompressedFloatFormat::U4U4U4 => gl::RGB4,
             UncompressedFloatFormat::U5U5U5 => gl::RGB5,
+            #[cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))]
             UncompressedFloatFormat::U5U6U5 => gl::RGB565,
             UncompressedFloatFormat::U8U8U8 => gl::RGB8,
             UncompressedFloatFormat::I8I8I8 => gl::RGB8_SNORM,
@@ -1994,10 +2004,11 @@ pub fn default_client_format_to_glenum(
                 F::U8U8 | F::U16U16 => (2, gl::UNSIGNED_BYTE),
                 F::I8I8 | F::I16I16 => (2, gl::BYTE),
                 F::F16F16 | F::F32F32 => (2, gl::FLOAT),
+                #[cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))]
+                F::U5U6U5 => (3, gl::UNSIGNED_BYTE),
                 F::U3U3U2
                 | F::U4U4U4
                 | F::U5U5U5
-                | F::U5U6U5
                 | F::U8U8U8
                 | F::U10U10U10
                 | F::U12U12U12

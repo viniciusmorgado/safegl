@@ -1679,31 +1679,31 @@ fn glenum_to_attribute_type(value: gl::types::GLenum) -> Option<AttributeType> {
         gl::FLOAT_MAT3x4 => AttributeType::F32x3x4,
         gl::FLOAT_MAT4x2 => AttributeType::F32x4x2,
         gl::FLOAT_MAT4x3 => AttributeType::F32x4x3,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE => AttributeType::F64,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_VEC2 => AttributeType::F64F64,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_VEC3 => AttributeType::F64F64F64,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_VEC4 => AttributeType::F64F64F64F64,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_MAT2 => AttributeType::F64x2x2,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_MAT3 => AttributeType::F64x3x3,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_MAT4 => AttributeType::F64x4x4,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_MAT2x3 => AttributeType::F64x2x3,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_MAT2x4 => AttributeType::F64x2x4,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_MAT3x2 => AttributeType::F64x3x2,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_MAT3x4 => AttributeType::F64x3x4,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_MAT4x2 => AttributeType::F64x4x2,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_MAT4x3 => AttributeType::F64x4x3,
         #[cfg(safegl_desktop)]
         gl::INT64_ARB => AttributeType::I64,

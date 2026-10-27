@@ -9,7 +9,9 @@ use safegl::texture::{
     MipmapsOption, Texture2d, TextureCreationError, UncompressedFloatFormat, UncompressedIntFormat,
     UncompressedUintFormat, UnsignedTexture2d,
 };
-use safegl::{CapabilitiesSource, Surface};
+#[cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))]
+use safegl::Surface;
+use safegl::CapabilitiesSource;
 
 mod support;
 
@@ -158,6 +160,7 @@ fn render_buffers() {
     display.assert_no_error(None);
 }
 
+#[cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))]
 #[test]
 fn rgb565() {
     let display = support::build_display();

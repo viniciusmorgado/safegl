@@ -535,6 +535,43 @@ local cases = {
     "the `gl46` level can't be selected in the browser, which only has WebGL 2", "", WASM },
   { "browser_without_webgl", {}, "browsers only have WebGL 2: select the `webgl` level", "", WASM },
 
+  -- vertex attribute types and texture formats at the version that made them core
+  { "gl41_has_double_attributes", { "gl41" }, nil, [[
+    pub const T: safegl::vertex::AttributeType = safegl::vertex::AttributeType::F64F64;
+  ]] },
+  { "gl40_has_no_double_attributes", { "gl40" }, "F64F64", [[
+    pub const T: safegl::vertex::AttributeType = safegl::vertex::AttributeType::F64F64;
+  ]] },
+  { "gl41_has_fixed_attributes", { "gl41" }, nil, [[
+    pub const T: safegl::vertex::AttributeType = safegl::vertex::AttributeType::FixedFloatI16U16;
+  ]] },
+  { "gl40_has_no_fixed_attributes", { "gl40" }, "FixedFloatI16U16", [[
+    pub const T: safegl::vertex::AttributeType = safegl::vertex::AttributeType::FixedFloatI16U16;
+  ]] },
+  { "gles30_has_fixed_attributes", { "gles30" }, nil, [[
+    pub const T: safegl::vertex::AttributeType = safegl::vertex::AttributeType::FixedFloatI16U16;
+  ]] },
+  { "gl44_has_packed_float_attributes", { "gl44" }, nil, [[
+    pub const T: safegl::vertex::AttributeType =
+        safegl::vertex::AttributeType::F10F11F11UnsignedIntReversed;
+  ]] },
+  { "gl43_has_no_packed_float_attributes", { "gl43" }, "F10F11F11UnsignedIntReversed", [[
+    pub const T: safegl::vertex::AttributeType =
+        safegl::vertex::AttributeType::F10F11F11UnsignedIntReversed;
+  ]] },
+  { "gl41_has_rgb565", { "gl41" }, nil, [[
+    pub const F: safegl::texture::UncompressedFloatFormat = safegl::texture::UncompressedFloatFormat::U5U6U5;
+  ]] },
+  { "gl40_has_no_rgb565", { "gl40" }, "U5U6U5", [[
+    pub const F: safegl::texture::UncompressedFloatFormat = safegl::texture::UncompressedFloatFormat::U5U6U5;
+  ]] },
+  { "gles30_has_rgb565", { "gles30" }, nil, [[
+    pub const F: safegl::texture::UncompressedFloatFormat = safegl::texture::UncompressedFloatFormat::U5U6U5;
+  ]] },
+  { "webgl_has_rgb565", { "webgl" }, nil, [[
+    pub const F: safegl::texture::UncompressedFloatFormat = safegl::texture::UncompressedFloatFormat::U5U6U5;
+  ]], WASM },
+
   -- macOS stops at OpenGL 4.1, but `gl46` compiles there and fails when creating the context
   { "gl46_compiles_for_macos", { "gl46" }, nil, [[
     pub use safegl::program::SpirvProgram;
