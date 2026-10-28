@@ -852,6 +852,9 @@ Fixes:
 - `restore_state` resets every pixel store parameter that other code may change (row lengths,
   image heights, skips, compressed block parameters, byte orders), where it only reset the
   alignments.
+- Shaders whose `#version` comes after blank lines or indentation compile in browsers, which
+  only accept it on the first line: SafeGL moves it there, followed by a `#line` that keeps the
+  line numbers of the errors.
 
 ## [0.2.0]
 

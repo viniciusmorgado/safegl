@@ -9,6 +9,7 @@ use crate::context::Context;
 use crate::CapabilitiesSource;
 use crate::ContextExt;
 
+use std::borrow::Cow;
 use std::rc::Rc;
 #[cfg(safegl_gl46)]
 use std::ffi;
@@ -49,6 +50,26 @@ impl Drop for Shader {
 }
 
 /// Builds an individual shader.
+/// The source with the blank lines before its `#version` directive removed, since GLSL ES
+/// compilers such as WebGL's require the directive on the first line, and desktop compilers
+/// accept it there. A `#line` directive keeps the line numbers of the compilation messages.
+fn version_first(source: &str) -> Cow<'_, str> {
+    let trimmed = source.trim_start();
+    if trimmed.len() == source.len() || !trimmed.starts_with("#version") {
+        return Cow::Borrowed(source);
+    }
+    let skipped_lines = source[..source.len() - trimmed.len()].matches('\n').count();
+    if skipped_lines == 0 {
+        return Cow::Borrowed(trimmed);
+    }
+    // the line after the directive keeps the number it had
+    let (version, rest) = match trimmed.find('\n') {
+        Some(end) => trimmed.split_at(end + 1),
+        None => return Cow::Borrowed(trimmed),
+    };
+    Cow::Owned(format!("{version}#line {}\n{rest}", skipped_lines + 2))
+}
+
 pub fn build_shader<F: ?Sized>(
     facade: &F,
     shader_type: gl::types::GLenum,
@@ -73,7 +94,7 @@ where
             Err(_) => return Err(ProgramCreationError::ShaderTypeNotSupported),
         };
 
-        ctxt.glow.shader_source(shader, source_code);
+        ctxt.glow.shader_source(shader, &version_first(source_code));
 
         // compiling
         {
