@@ -666,6 +666,40 @@ Additions:
 - OpenGL ES and WebGL render to the signed normalized formats with `GL_EXT_render_snorm`, read
   them as bytes or shorts, and read the 16-bit normalized formats as shorts. WebGL renders to
   `F9F9F9` with `WEBGL_render_shared_exponent`, read as floats.
+- The `webgl` level has the draw states and draws that WebGL 2 has through extensions, with the
+  checks of their support:
+  - `DrawParameters::clip_control_origin` and `clip_control_depth` (`EXT_clip_control`, and
+    `GL_EXT_clip_control` on OpenGL ES at the `gl45` level), `polygon_offset_clamp`
+    (`EXT_polygon_offset_clamp`), `provoking_vertex` (`WEBGL_provoking_vertex`),
+    `polygon_mode` (`Line` and `Fill`, `WEBGL_polygon_mode`, which offsets lines too),
+    `clip_planes_bitmask` (`WEBGL_clip_cull_distance`) and `Depth::clamp`
+    (`DepthClamp::Clamp`, `EXT_depth_clamp`, and `GL_EXT_depth_clamp` on OpenGL ES);
+  - `DrawParameters::outputs` (`OES_draw_buffers_indexed`) and dual-source blending
+    (`WEBGL_blend_func_extended`, whose second output is declared with `index = 1`);
+  - `DrawParameters::base_instance` and base vertices
+    (`WEBGL_draw_instanced_base_vertex_base_instance`), and the draws of ranges
+    (`index::NoIndicesRanges`, `IndexBuffer::ranges`), which use `WEBGL_multi_draw` and are
+    otherwise drawn one by one;
+  - `SamplerWrapFunction::MirrorClamp` (`EXT_texture_mirror_clamp_to_edge`) and the stencil
+    mode of depth-stencil textures (`WEBGL_stencil_texturing`);
+  - `TimeElapsedQuery`, `debug::TimestampQuery` and `Context::gpu_timestamp`
+    (`EXT_disjoint_timer_query_webgl2`). Timer queries return the new
+    `QueryResultError::Disjoint` when the GPU changed its frequency or was reset during them,
+    on OpenGL ES and WebGL, and `TimestampQuery::get` takes `&self`.
+- `Program::new_pending` starts building a program and returns a `PendingProgram` before its
+  shaders are compiled and linked, which drivers with `GL_KHR_parallel_shader_compile` or
+  `GL_ARB_parallel_shader_compile` and browsers with `KHR_parallel_shader_compile` do in the
+  background: `PendingProgram::is_ready` tells when `finish` returns without waiting.
+  `Context::set_shader_compiler_threads` sets the threads of the driver. A program whose link
+  fails is deleted instead of leaking.
+- Multiview framebuffers (`LayeredFrameBuffer::multiview` and `multiview_with_outputs`, with
+  `GL_OVR_multiview2` or `OVR_multiview2` at every level) render each draw to two views or more,
+  layers of 2D array textures, with `gl_ViewID_OVR`. A program that doesn't declare the views of
+  the framebuffer with `layout(num_views = N) in;`, or that declares views for another
+  framebuffer, returns `DrawError::ViewsMismatch`, and the
+  draws to several views can't capture transform feedback nor be timed
+  (`DrawError::MultiviewRestricted`) nor be blitted (`BlitError::Multiview`). The layered
+  framebuffer types are at every level for it; layered rendering keeps its levels.
 - `WebDisplay::builder(canvas)` creates the WebGL 2 context with its attributes: alpha,
   antialiasing, depth, stencil, premultiplied alpha, preserved drawing buffer, power preference
   (`PowerPreference`), failure on a major performance caveat, and desynchronized presentation.
