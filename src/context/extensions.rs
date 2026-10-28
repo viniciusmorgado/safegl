@@ -1,8 +1,16 @@
 
+use crate::version::is_webgl;
+
 macro_rules! extensions {
     ($($string:expr => $field:ident,)+) => {
         /// Contains data about the list of extensions.
+        ///
+        /// WebGL names its extensions without the `GL_` prefix: the ones that OpenGL ES has too
+        /// set the same fields (`EXT_color_buffer_float` sets `gl_ext_color_buffer_float`), and
+        /// the ones that only WebGL has set the fields of their own name
+        /// (`WEBGL_multi_draw` sets `webgl_multi_draw`).
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #[non_exhaustive]
         pub struct ExtensionsList {
             $(
                 #[allow(missing_docs)]
@@ -35,11 +43,19 @@ macro_rules! extensions {
                 if hidden.iter().any(|name| name == extension) {
                     continue;
                 }
-                match &extension[..] {
-                    $(
-                        $string => extensions.$field = true,
-                    )+
-                    _ => ()
+                // the names of browsers have no `GL_` prefix
+                let prefixed = if is_webgl() {
+                    format!("GL_{}", extension)
+                } else {
+                    String::new()
+                };
+                for name in [&extension[..], &prefixed[..]] {
+                    match name {
+                        $(
+                            $string => extensions.$field = true,
+                        )+
+                        _ => ()
+                    }
                 }
             }
 
@@ -50,12 +66,17 @@ macro_rules! extensions {
 
 /// The extensions that the context must treat as missing, from the space-separated names of
 /// `SAFEGL_DISABLE_EXTENSIONS`, so that tests run the paths of drivers without them on drivers
-/// that can't hide them (Mesa can't disable some extensions). Only debug builds read it.
-fn hidden_extensions() -> Vec<String> {
+/// that can't hide them (Mesa can't disable some extensions). Only debug builds read it: from the
+/// environment of the program, or, in browsers, which have no environment, from the environment
+/// of the build.
+pub(crate) fn hidden_extensions() -> Vec<String> {
     if !cfg!(debug_assertions) {
         return Vec::new();
     }
-    std::env::var("SAFEGL_DISABLE_EXTENSIONS")
+    let names = std::env::var("SAFEGL_DISABLE_EXTENSIONS")
+        .ok()
+        .or_else(|| option_env!("SAFEGL_DISABLE_EXTENSIONS").map(str::to_owned));
+    names
         .map(|names| names.split_whitespace().map(str::to_owned).collect())
         .unwrap_or_default()
 }
@@ -124,7 +145,10 @@ extensions! {
     "GL_EXT_blend_func_extended" => gl_ext_blend_func_extended,
     "GL_EXT_buffer_storage" => gl_ext_buffer_storage,
     "GL_EXT_clear_texture" => gl_ext_clear_texture,
+    "GL_EXT_clip_control" => gl_ext_clip_control,
     "GL_EXT_clip_cull_distance" => gl_ext_clip_cull_distance,
+    "GL_EXT_conservative_depth" => gl_ext_conservative_depth,
+    "GL_EXT_depth_clamp" => gl_ext_depth_clamp,
     "GL_EXT_tessellation_shader" => gl_ext_tessellation_shader,
     "GL_EXT_color_buffer_float" => gl_ext_color_buffer_float,
     "GL_EXT_color_buffer_half_float" => gl_ext_color_buffer_half_float,
@@ -133,6 +157,7 @@ extensions! {
     "GL_EXT_memory_object" => gl_ext_memory_object,
     "GL_EXT_memory_object_fd" => gl_ext_memory_object_fd,
     "GL_EXT_disjoint_timer_query" => gl_ext_disjoint_timer_query,
+    "GL_EXT_float_blend" => gl_ext_float_blend,
     "GL_EXT_geometry_shader" => gl_ext_geometry_shader,
     "GL_EXT_multi_draw_indirect" => gl_ext_multi_draw_indirect,
     "GL_EXT_multisampled_render_to_texture" => gl_ext_multisampled_render_to_texture,
@@ -140,12 +165,15 @@ extensions! {
     "GL_EXT_polygon_offset_clamp" => gl_ext_polygon_offset_clamp,
     "GL_EXT_primitive_bounding_box" => gl_ext_primitive_bounding_box,
     "GL_EXT_provoking_vertex" => gl_ext_provoking_vertex,
+    "GL_EXT_render_snorm" => gl_ext_render_snorm,
     "GL_EXT_robustness" => gl_ext_robustness,
     "GL_EXT_sRGB_write_control" => gl_ext_srgb_write_control,
     "GL_EXT_semaphore" => gl_ext_semaphore,
     "GL_EXT_semaphore_fd" => gl_ext_semaphore_fd,
     "GL_EXT_texture_border_clamp" => gl_ext_texture_border_clamp,
     "GL_EXT_texture_buffer" => gl_ext_texture_buffer,
+    "GL_EXT_texture_compression_bptc" => gl_ext_texture_compression_bptc,
+    "GL_EXT_texture_compression_rgtc" => gl_ext_texture_compression_rgtc,
     "GL_EXT_texture_compression_s3tc" => gl_ext_texture_compression_s3tc,
     "GL_EXT_texture_cube_map_array" => gl_ext_texture_cube_map_array,
     "GL_EXT_texture_filter_anisotropic" => gl_ext_texture_filter_anisotropic,
@@ -155,9 +183,13 @@ extensions! {
     "GL_EXT_texture_norm16" => gl_ext_texture_norm16,
     "GL_EXT_texture_sRGB" => gl_ext_texture_srgb,
     "GL_KHR_debug" => gl_khr_debug,
+    "GL_IMG_texture_compression_pvrtc" => gl_img_texture_compression_pvrtc,
     "GL_KHR_no_error" => gl_khr_no_error,
+    "GL_KHR_parallel_shader_compile" => gl_khr_parallel_shader_compile,
+    "GL_ARB_parallel_shader_compile" => gl_arb_parallel_shader_compile,
     "GL_KHR_context_flush_control" => gl_khr_context_flush_control,
     "GL_KHR_robustness" => gl_khr_robustness,
+    "GL_KHR_texture_compression_astc_ldr" => gl_khr_texture_compression_astc_ldr,
     "GL_KHR_robust_buffer_access_behavior" => gl_khr_robust_buffer_access_behavior,
     "GL_NV_conditional_render" => gl_nv_conditional_render,
     "GL_NV_internalformat_sample_query" => gl_nv_internalformat_sample_query,
@@ -169,10 +201,13 @@ extensions! {
     "GL_NV_texture_barrier" => gl_nv_texture_barrier,
     "GL_NV_vertex_attrib_integer_64bit" => gl_nv_vertex_attrib_integer_64bit,
     "GL_NVX_gpu_memory_info" => gl_nvx_gpu_memory_info,
+    "GL_OES_compressed_ETC1_RGB8_texture" => gl_oes_compressed_etc1_rgb8_texture,
+    "GL_OES_draw_buffers_indexed" => gl_oes_draw_buffers_indexed,
     "GL_OES_draw_elements_base_vertex" => gl_oes_draw_elements_base_vertex,
     "GL_OES_geometry_shader" => gl_oes_geometry_shader,
     "GL_OES_primitive_bounding_box" => gl_oes_primitive_bounding_box,
     "GL_OES_sample_shading" => gl_oes_sample_shading,
+    "GL_OES_sample_variables" => gl_oes_sample_variables,
     "GL_OES_shader_multisample_interpolation" => gl_oes_shader_multisample_interpolation,
     "GL_OES_tessellation_shader" => gl_oes_tessellation_shader,
     "GL_OES_texture_border_clamp" => gl_oes_texture_border_clamp,
@@ -181,4 +216,34 @@ extensions! {
     "GL_OES_texture_float_linear" => gl_oes_texture_float_linear,
     "GL_OES_texture_stencil8" => gl_oes_texture_stencil8,
     "GL_OES_texture_storage_multisample_2d_array" => gl_oes_texture_storage_multisample_2d_array,
+    "GL_OVR_multiview2" => gl_ovr_multiview2,
+    // the extensions that only WebGL has
+    "EXT_disjoint_timer_query_webgl2" => ext_disjoint_timer_query_webgl2,
+    "WEBGL_blend_func_extended" => webgl_blend_func_extended,
+    "WEBGL_clip_cull_distance" => webgl_clip_cull_distance,
+    "WEBGL_compressed_texture_astc" => webgl_compressed_texture_astc,
+    "WEBGL_compressed_texture_etc" => webgl_compressed_texture_etc,
+    "WEBGL_compressed_texture_etc1" => webgl_compressed_texture_etc1,
+    "WEBGL_compressed_texture_pvrtc" => webgl_compressed_texture_pvrtc,
+    "WEBGL_compressed_texture_s3tc" => webgl_compressed_texture_s3tc,
+    "WEBGL_compressed_texture_s3tc_srgb" => webgl_compressed_texture_s3tc_srgb,
+    "WEBGL_debug_renderer_info" => webgl_debug_renderer_info,
+    "WEBGL_draw_instanced_base_vertex_base_instance" =>
+        webgl_draw_instanced_base_vertex_base_instance,
+    "WEBGL_lose_context" => webgl_lose_context,
+    "WEBGL_multi_draw" => webgl_multi_draw,
+    "WEBGL_multi_draw_instanced_base_vertex_base_instance" =>
+        webgl_multi_draw_instanced_base_vertex_base_instance,
+    "WEBGL_polygon_mode" => webgl_polygon_mode,
+    "WEBGL_provoking_vertex" => webgl_provoking_vertex,
+    "WEBGL_render_shared_exponent" => webgl_render_shared_exponent,
+    "WEBGL_stencil_texturing" => webgl_stencil_texturing,
+}
+
+impl ExtensionsList {
+    /// Returns true if the backend has the timer queries of OpenGL ES
+    /// (`GL_EXT_disjoint_timer_query`) or of WebGL (`EXT_disjoint_timer_query_webgl2`).
+    pub(crate) fn disjoint_timer_query(&self) -> bool {
+        self.gl_ext_disjoint_timer_query || self.ext_disjoint_timer_query_webgl2
+    }
 }

@@ -9,6 +9,9 @@ use safegl::Surface;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 #[test]
 fn program_creation() {
     let display = support::build_display();
@@ -88,11 +91,13 @@ fn program_linking_error() {
         "#version 330\n"
     };
 
-    // `position` is declared but defined in no shader, which only the linker can find out
+    // the uniform `u` is a `float` in the vertex shader and a `vec4` in the fragment shader,
+    // which only the linker can find out (browsers check that every function called is defined
+    // when they compile, and some drivers link outputs and inputs of different sizes)
     let program = safegl::Program::from_source(
         &display,
-        &format!("{header}vec4 position();\nvoid main() {{ gl_Position = position(); }}"),
-        &format!("{header}out vec4 color;\nvoid main() {{ color = vec4(1.0); }}"),
+        &format!("{header}uniform float u;\nvoid main() {{ gl_Position = vec4(u); }}"),
+        &format!("{header}uniform vec4 u;\nout vec4 color;\nvoid main() {{ color = u; }}"),
         None,
     );
 

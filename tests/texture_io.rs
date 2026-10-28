@@ -16,6 +16,9 @@ use safegl::{GlObject, Rect, Surface, Texture2d};
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 type Pixel = (u8, u8, u8, u8);
 
 fn rect(left: u32, bottom: u32, width: u32, height: u32) -> Rect {
@@ -324,7 +327,7 @@ fn write_depth_stencil() {
         .is_err());
 
     // the stencil index written is the one sampled, where it can be
-    #[cfg(any(safegl_gl43, safegl_gles31))]
+    #[cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))]
     {
         use safegl::texture::DepthStencilTextureMode;
         if texture

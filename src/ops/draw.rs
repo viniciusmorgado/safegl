@@ -1,6 +1,6 @@
 use std::ptr;
 
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 use smallvec::SmallVec;
 
 use glow::HasContext;
@@ -55,11 +55,11 @@ where
 
     // the base instance given in the draw parameters
     let supports_base_instance = is_base_instance_supported(context);
-    #[cfg(safegl_gl42)]
+    #[cfg(any(safegl_gl42, safegl_webgl))]
     let parameters_base_instance = draw_parameters.base_instance;
-    #[cfg(not(safegl_gl42))]
+    #[cfg(not(any(safegl_gl42, safegl_webgl)))]
     let parameters_base_instance = 0u32;
-    #[cfg(safegl_gl42)]
+    #[cfg(any(safegl_gl42, safegl_webgl))]
     if parameters_base_instance != 0 && !supports_base_instance {
         return Err(DrawError::BaseInstanceNotSupported);
     }
@@ -77,6 +77,17 @@ where
         }
     }
 
+    // WebGL always restarts primitives at the largest index value
+    if crate::version::is_webgl()
+        && draw_parameters.primitive_restart == draw_parameters::PrimitiveRestart::Disabled
+    {
+        if let IndicesSource::IndexBuffer { ref buffer, .. } = indices {
+            if buffer.may_hold_restart_index() {
+                return Err(DrawError::PrimitiveRestartAlwaysOn);
+            }
+        }
+    }
+
     if !draw_parameters::check_queries(draw_parameters)? {
         return Ok(());
     }
@@ -90,6 +101,10 @@ where
 
     // OpenGL objects can only be used with the context that created them
     check_contexts(&ctxt, &program, &indices, draw_parameters)?;
+    // the commands of a lost context do nothing
+    if ctxt.state.lost_context {
+        return Ok(());
+    }
     #[cfg(safegl_gl46)]
     check_draw_count(&ctxt, &indices)?;
     #[cfg(any(safegl_desktop, safegl_gles31))]
@@ -106,9 +121,9 @@ where
             IndicesSource::NoIndices { .. } => None,
             #[cfg(safegl_desktop)]
             IndicesSource::TransformFeedback { .. } => None,
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             IndicesSource::NoIndicesRanges { .. } => None,
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             IndicesSource::IndexBufferRanges { buffer, .. } => Some(buffer),
         };
 
@@ -120,12 +135,13 @@ where
             IndicesSource::MultidrawElement { .. } => false,
             IndicesSource::NoIndices { .. } => true,
             // the base vertex is added to the first vertex of each range
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             IndicesSource::NoIndicesRanges { .. } => true,
             _ => {
                 ctxt.version.0 == Api::Gl
                     || ctxt.version >= &Version(Api::GlEs, 3, 2)
                     || ctxt.extensions.gl_oes_draw_elements_base_vertex
+                    || ctxt.extensions.webgl_draw_instanced_base_vertex_base_instance
             }
         };
 
@@ -137,10 +153,12 @@ where
                 IndicesSource::MultidrawArray { .. } | IndicesSource::MultidrawElement { .. } => {
                     false
                 }
+                #[cfg(any(safegl_desktop, safegl_webgl))]
+                IndicesSource::NoIndicesRanges { .. } | IndicesSource::IndexBufferRanges { .. } => {
+                    false
+                }
                 #[cfg(safegl_desktop)]
-                IndicesSource::NoIndicesRanges { .. }
-                | IndicesSource::IndexBufferRanges { .. }
-                | IndicesSource::TransformFeedback { .. } => false,
+                IndicesSource::TransformFeedback { .. } => false,
                 _ => true,
             };
 
@@ -267,6 +285,58 @@ where
     // binding the program and uniforms
     bind_programs(&mut ctxt, &program, &uniforms, &mut fences)?;
 
+    // OpenGL ES and WebGL only blend into 32-bit float targets with `GL_EXT_float_blend`
+    if let FramebufferTarget::Attachments(attachments) = framebuffer {
+        if ctxt.version.0 == Api::GlEs
+            && !ctxt.extensions.gl_ext_float_blend
+            && attachments.has_float32_colors()
+            && draw_parameters::blends(draw_parameters)
+        {
+            return Err(DrawError::FloatBlendNotSupported);
+        }
+    }
+
+    // the views of a multiview framebuffer are drawn by a program that declares as many, and a
+    // program that declares views only draws to a multiview framebuffer of as many; the draws
+    // to several views can't capture transform feedback nor be timed (`GL_OVR_multiview2`)
+    let views = match framebuffer {
+        FramebufferTarget::Attachments(attachments) => attachments.get_views(),
+        _ => None,
+    };
+    let declared_views = match program {
+        DrawProgram::Program(program) => program.declared_views(),
+        #[cfg(any(safegl_gl41, safegl_gles31))]
+        DrawProgram::Pipeline(_) => Err(()),
+    };
+    // the views of the programs whose source SafeGL doesn't have are unknown
+    if let Ok(declared) = declared_views {
+        if declared != views {
+            return Err(DrawError::ViewsMismatch {
+                framebuffer: views,
+                program: declared,
+            });
+        }
+    }
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    let timed = draw_parameters.time_elapsed_query.is_some();
+    #[cfg(not(any(safegl_desktop, safegl_webgl)))]
+    let timed = false;
+    if views > Some(1) && (timed || draw_parameters.transform_feedback.is_some()) {
+        return Err(DrawError::MultiviewRestricted);
+    }
+
+    // sampling a level that the draw renders to is a feedback loop: undefined on OpenGL, and an
+    // error on WebGL; texture barriers make it defined when each texel is read before it is
+    // written (`texture_barrier`)
+    let texture_barriers = ctxt.version >= &Version(Api::Gl, 4, 5)
+        || ctxt.extensions.gl_arb_texture_barrier
+        || ctxt.extensions.gl_nv_texture_barrier;
+    if let (FramebufferTarget::Attachments(attachments), false) = (framebuffer, texture_barriers) {
+        if attachments.attaches_any(&ctxt.sampled_textures) {
+            return Err(DrawError::FeedbackLoop);
+        }
+    }
+
     // sync-ing draw_parameters
     unsafe {
         let index_type = match indices {
@@ -308,8 +378,23 @@ where
                     fences.push(fence);
                 }
 
+                // WebGL draws with a base vertex or a base instance with
+                // `WEBGL_draw_instanced_base_vertex_base_instance`, as one instance or more
+                let webgl = cfg!(safegl_browser) && (base_instance != 0 || base_vertex != 0);
+
                 unsafe {
-                    if base_instance != 0 {
+                    if webgl {
+                        #[cfg(safegl_browser)]
+                        ctxt.webgl.draw_elements_instanced_base_vertex_base_instance(
+                            primitives.to_glenum(),
+                            buffer.get_elements_count() as gl::types::GLsizei,
+                            data_type.to_glenum(),
+                            offset,
+                            instances_count.unwrap_or(1) as gl::types::GLsizei,
+                            base_vertex,
+                            base_instance,
+                        );
+                    } else if base_instance != 0 {
                         // a draw without per-instance buffers draws one instance
                         let instances_count = instances_count.unwrap_or(1) as gl::types::GLsizei;
                         let count = buffer.get_elements_count() as gl::types::GLsizei;
@@ -630,7 +715,7 @@ where
                 }
             }
 
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             IndicesSource::NoIndicesRanges { primitives, ranges } => {
                 let vertices_count = match vertices_count {
                     Some(c) => c,
@@ -648,7 +733,16 @@ where
                     .collect();
                 unsafe {
                     // `glMultiDrawArrays` has no base instance: each range is drawn with it
-                    if base_instance != 0 {
+                    if cfg!(safegl_browser) {
+                        #[cfg(safegl_browser)]
+                        draw_array_ranges_in_browser(
+                            &ctxt,
+                            primitives.to_glenum(),
+                            &firsts,
+                            &counts,
+                            base_instance,
+                        );
+                    } else if base_instance != 0 {
                         for (&first, &count) in firsts.iter().zip(counts.iter()) {
                             ctxt.glow.draw_arrays_instanced_base_instance(
                                 primitives.to_glenum(),
@@ -669,7 +763,7 @@ where
                 }
             }
 
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             IndicesSource::IndexBufferRanges {
                 ref buffer,
                 data_type,
@@ -699,7 +793,17 @@ where
                 unsafe {
                     // `glMultiDrawElementsBaseVertex` has no base instance: each range is drawn
                     // with it
-                    if base_instance != 0 {
+                    if cfg!(safegl_browser) {
+                        #[cfg(safegl_browser)]
+                        draw_element_ranges_in_browser(
+                            &ctxt,
+                            (primitives.to_glenum(), data_type.to_glenum()),
+                            &offsets,
+                            &counts,
+                            &base_vertices,
+                            base_instance,
+                        )?;
+                    } else if base_instance != 0 {
                         for i in 0..ranges.len() {
                             ctxt.glow.draw_elements_instanced_base_vertex_base_instance(
                                 primitives.to_glenum(),
@@ -730,8 +834,21 @@ where
                     None => return Err(DrawError::VerticesSourcesLengthMismatch),
                 };
 
+                // WebGL draws with a base instance with
+                // `WEBGL_draw_instanced_base_vertex_base_instance`
+                let webgl = cfg!(safegl_browser) && base_instance != 0;
+
                 unsafe {
-                    if base_instance != 0 {
+                    if webgl {
+                        #[cfg(safegl_browser)]
+                        ctxt.webgl.draw_arrays_instanced_base_instance(
+                            primitives.to_glenum(),
+                            base_vertex,
+                            vertices_count as gl::types::GLsizei,
+                            instances_count.unwrap_or(1) as gl::types::GLsizei,
+                            base_instance,
+                        );
+                    } else if base_instance != 0 {
                         // a draw without per-instance buffers draws one instance
                         let instances_count = instances_count.unwrap_or(1) as gl::types::GLsizei;
                         if ctxt.version.0 == Api::Gl {
@@ -790,17 +907,17 @@ fn draw_count<'a>(indices: &IndicesSource<'a>) -> Option<index::DrawCount<'a>> {
     }
 }
 
-/// Checks that the backend can draw ranges of vertices or indices with one call, which only
-/// desktop OpenGL has, that the ranges are in the `len` vertices or indices, and that the draw
-/// has no instances.
-#[cfg(safegl_desktop)]
+/// Checks that the backend can draw ranges of vertices or indices, which desktop OpenGL draws
+/// with one call and browsers with `WEBGL_multi_draw` or one by one, that the ranges are in the
+/// `len` vertices or indices, and that the draw has no instances.
+#[cfg(any(safegl_desktop, safegl_webgl))]
 fn check_ranges(
     ctxt: &context::CommandContext<'_>,
     ranges: &[std::ops::Range<usize>],
     len: usize,
     instances_count: Option<usize>,
 ) -> Result<(), DrawError> {
-    if ctxt.version.0 != Api::Gl {
+    if ctxt.version.0 != Api::Gl && !crate::version::is_webgl() {
         return Err(DrawError::DrawRangesNotSupported);
     }
     if instances_count.is_some_and(|instances| instances != 1) {
@@ -811,6 +928,70 @@ fn check_ranges(
         .any(|range| range.start > range.end || range.end > len)
     {
         return Err(DrawError::DrawRangeOutOfBounds);
+    }
+    Ok(())
+}
+
+/// Draws ranges of vertices in a browser, starting at `firsts`: with `WEBGL_multi_draw`, or one
+/// by one, and with a base instance through `WEBGL_draw_instanced_base_vertex_base_instance`.
+#[cfg(safegl_browser)]
+unsafe fn draw_array_ranges_in_browser(
+    ctxt: &context::CommandContext<'_>,
+    mode: gl::types::GLenum,
+    firsts: &[gl::types::GLint],
+    counts: &[gl::types::GLsizei],
+    base_instance: u32,
+) {
+    let ranges = firsts.iter().zip(counts);
+    if base_instance != 0 {
+        for (&first, &count) in ranges {
+            ctxt.webgl
+                .draw_arrays_instanced_base_instance(mode, first, count, 1, base_instance);
+        }
+    } else if ctxt.extensions.webgl_multi_draw {
+        ctxt.webgl.multi_draw_arrays(mode, firsts, counts);
+    } else {
+        for (&first, &count) in ranges {
+            ctxt.glow.draw_arrays(mode, first, count);
+        }
+    }
+}
+
+/// Draws ranges of indices in a browser, at the `offsets` in bytes in the bound index buffer:
+/// with `WEBGL_multi_draw`, or one by one, and with base vertices or a base instance through
+/// `WEBGL_draw_instanced_base_vertex_base_instance`, without which they return
+/// `DrawError::DrawRangesNotSupported`.
+#[cfg(safegl_browser)]
+unsafe fn draw_element_ranges_in_browser(
+    ctxt: &context::CommandContext<'_>,
+    (mode, ty): (gl::types::GLenum, gl::types::GLenum),
+    offsets: &[*const std::os::raw::c_void],
+    counts: &[gl::types::GLsizei],
+    base_vertices: &[gl::types::GLint],
+    base_instance: u32,
+) -> Result<(), DrawError> {
+    let offsets: SmallVec<[i32; 8]> = offsets.iter().map(|&offset| offset as i32).collect();
+    if base_instance != 0 || base_vertices.iter().any(|&base| base != 0) {
+        if !ctxt.extensions.webgl_draw_instanced_base_vertex_base_instance {
+            return Err(DrawError::DrawRangesNotSupported);
+        }
+        for i in 0..counts.len() {
+            ctxt.webgl.draw_elements_instanced_base_vertex_base_instance(
+                mode,
+                counts[i],
+                ty,
+                offsets[i],
+                1,
+                base_vertices[i],
+                base_instance,
+            );
+        }
+    } else if ctxt.extensions.webgl_multi_draw {
+        ctxt.webgl.multi_draw_elements(mode, counts, ty, &offsets);
+    } else {
+        for (&count, &offset) in counts.iter().zip(&offsets) {
+            ctxt.glow.draw_elements(mode, count, ty, offset);
+        }
     }
     Ok(())
 }
@@ -900,7 +1081,10 @@ fn is_base_instance_supported(context: &Context) -> bool {
     let extensions = context.get_extensions();
     match version.0 {
         Api::Gl => version >= &Version(Api::Gl, 4, 2) || extensions.gl_arb_base_instance,
-        Api::GlEs => extensions.gl_ext_base_instance,
+        Api::GlEs => {
+            extensions.gl_ext_base_instance
+                || extensions.webgl_draw_instanced_base_vertex_base_instance
+        }
     }
 }
 
@@ -1081,7 +1265,7 @@ fn check_contexts(
                 return mismatch("index buffer");
             }
         }
-        #[cfg(safegl_desktop)]
+        #[cfg(any(safegl_desktop, safegl_webgl))]
         IndicesSource::IndexBufferRanges { ref buffer, .. } => {
             if !ctxt.owns(buffer.get_context()) {
                 return mismatch("index buffer");
@@ -1107,7 +1291,7 @@ fn check_contexts(
             }
         }
         IndicesSource::NoIndices { .. } => (),
-        #[cfg(safegl_desktop)]
+        #[cfg(any(safegl_desktop, safegl_webgl))]
         IndicesSource::NoIndicesRanges { .. } => (),
         #[cfg(safegl_desktop)]
         IndicesSource::TransformFeedback { captured, .. } => {

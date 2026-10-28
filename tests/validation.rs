@@ -13,7 +13,10 @@ use safegl::{BlitTarget, DrawError, Surface, Texture2d, VertexBuffer};
 
 mod support;
 
-type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
+type Display = support::Backend;
 
 /// The `#version` line for desktop OpenGL, or for OpenGL ES with default precisions.
 fn header(display: &Display, desktop: u32, es: u32) -> String {
@@ -40,7 +43,8 @@ fn pixel(texture: &Texture2d) -> (u8, u8, u8, u8) {
 fn incomplete_framebuffer() {
     let display = support::build_display();
 
-    // shared-exponent textures can't be rendered to
+    // shared-exponent textures can't be rendered to, which SafeGL knows before OpenGL finds the
+    // framebuffer incomplete
     let texture = Texture2d::empty_with_format(
         &display,
         UncompressedFloatFormat::F9F9F9,
@@ -51,7 +55,7 @@ fn incomplete_framebuffer() {
     .unwrap();
     assert!(matches!(
         SimpleFrameBuffer::new(&display, &texture),
-        Err(ValidationError::Incomplete { .. })
+        Err(ValidationError::FormatNotRenderable)
     ));
     display.assert_no_error(None);
 }

@@ -14,6 +14,9 @@ use safegl::{BlitTarget, DrawError, Surface};
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 const SIZE: u32 = 64;
 const SAMPLES: u32 = 4;
 
@@ -32,7 +35,7 @@ struct Pipeline {
 }
 
 impl Pipeline {
-    fn new(display: &safegl::Display<safegl::glutin::surface::WindowSurface>) -> Pipeline {
+    fn new(display: &support::Backend) -> Pipeline {
         let vertices = safegl::VertexBuffer::new(
             display,
             &[
@@ -110,7 +113,7 @@ impl Pipeline {
 
 /// Resolves a multisample texture and returns the average of its red channel, from 0 to 255.
 fn resolved_red(
-    display: &safegl::Display<safegl::glutin::surface::WindowSurface>,
+    display: &support::Backend,
     texture: &Texture2dMultisample,
 ) -> f32 {
     let resolved = safegl::Texture2d::empty(display, SIZE, SIZE).unwrap();
@@ -130,7 +133,7 @@ fn resolved_red(
 }
 
 fn multisample_texture(
-    display: &safegl::Display<safegl::glutin::surface::WindowSurface>,
+    display: &support::Backend,
 ) -> Texture2dMultisample {
     let texture = Texture2dMultisample::empty(display, SIZE, SIZE, SAMPLES).unwrap();
     texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
@@ -258,7 +261,7 @@ fn sample_shading_sets_the_minimum_fraction() {
     let pipeline = Pipeline::new(&display);
     let texture = multisample_texture(&display);
 
-    let gl_state = |display: &safegl::Display<_>| unsafe {
+    let gl_state = |display: &support::Backend| unsafe {
         let gl = display.get_context().glow_context().clone();
         display.get_context().exec_in_context(move || {
             (
@@ -312,7 +315,7 @@ fn sample_shading_sets_the_minimum_fraction() {
 /// Resolves a multisample texture and returns the average of its alpha channel, from 0 to 255.
 #[cfg(safegl_desktop)]
 fn resolved_alpha(
-    display: &safegl::Display<safegl::glutin::surface::WindowSurface>,
+    display: &support::Backend,
     texture: &Texture2dMultisample,
 ) -> f32 {
     let resolved = safegl::Texture2d::empty(display, SIZE, SIZE).unwrap();

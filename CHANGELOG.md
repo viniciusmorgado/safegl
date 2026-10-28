@@ -347,6 +347,29 @@ Breaking changes:
 - `DrawParameters::base_instance` given to a draw of multidraw commands, which give their own
   base instance, or of captured vertices, which are drawn without one, returns
   `DrawError::BaseInstanceNotApplicable` instead of being ignored.
+- `ExtensionsList` is `#[non_exhaustive]`, so that new extensions don't break code that builds
+  it, and has fields for the WebGL 2 extensions: the ones that only WebGL has
+  (`webgl_multi_draw`, `webgl_compressed_texture_s3tc`, `ext_disjoint_timer_query_webgl2`, ...),
+  and the OpenGL ES ones that WebGL 2 has too (`gl_ext_float_blend`, `gl_ext_clip_control`,
+  `gl_ext_texture_compression_bptc`, `gl_ovr_multiview2`, ...).
+- In browsers, `Backend` has a `webgl2_context` method, which returns the WebGL 2 context that
+  `create_glow_context` wraps. `WebGlBackend` implements it; other backends for browsers must too.
+- `buffer::CopyError` is `#[non_exhaustive]`, with the variant `IndexBufferMismatch`: WebGL can't
+  copy between an index buffer and another buffer, since its index buffers never hold other
+  data.
+- Creating an object in a lost context returns an error instead of panicking: the new
+  `ContextLost` variants of `BufferCreationError` (now `#[non_exhaustive]`),
+  `TextureCreationError`, `RenderBufferCreationError`, `ProgramCreationError`,
+  `QueryCreationError` (now `#[non_exhaustive]`) and `buffer_texture::TextureCreationError`, and
+  `None` from `TimestampQuery::new`. A draw that loses the context while it creates an object
+  returns the new `DrawError::ContextLost`. Draws, clears and blits on a context known to be
+  lost do nothing, and the objects of a lost context are dropped without OpenGL calls.
+- `WebDisplayCreationError` is `#[non_exhaustive]`, with the variant `ContextNotRestored`.
+- `QueryResultError` is `#[non_exhaustive]`, with the variant `NotAvailable`, and the `get` of the
+  queries takes `&self` instead of consuming the query. WebGL makes the results of queries
+  available in a later task of the browser's event loop and can't wait for them: there, `get`
+  returns `NotAvailable` until `is_ready` returns true, where it returned a wrong value, and the
+  query can be read again later.
 
 Additions:
 
@@ -616,6 +639,11 @@ Additions:
   `write_compressed_box_from` does it with compressed blocks (OpenGL 4.2 or
   `GL_ARB_compressed_texture_pixel_storage`, `UploadError::NotSupported` otherwise), and
   `read_box_into` reads a box into a box of a larger client image (OpenGL 4.5).
+- The book chapter [WebGL 2](book/webgl-2.md) tells how to create and configure a `WebDisplay`
+  and survive the loss of its context, every rule that WebGL 2 adds to OpenGL ES 3.0 with the
+  SafeGL error that reports it, every extension of WebGL 2 with its SafeGL API and the error
+  without it, and what the tests in Firefox don't verify. The level table of the README has a
+  WebGL column for the functionalities that WebGL 2 has through extensions.
 - The book chapter [OpenGL 4.0 to 4.5 drivers](book/opengl-4.0-4.5.md) tells, for every
   extension that OpenGL 4.1 to 4.6 made core, the SafeGL API, its levels, what SafeGL checks at
   runtime and does without it, and the tests that cover it.
@@ -627,6 +655,83 @@ Additions:
   `ImageCompatibility`), sampling while depth and stencil are tested or written
   (`SimultaneousUse`), compressed blocks, buffer and texture clears, and texture views
   (`ViewClass`).
+- Compressed formats: `CompressedFormat::Astc` and `CompressedSrgbFormat::Astc` with the 14
+  block sizes of `AstcBlockSize` (`GL_KHR_texture_compression_astc_ldr`,
+  `WEBGL_compressed_texture_astc`), `CompressedFormat::Etc1Rgb8`
+  (`GL_OES_compressed_ETC1_RGB8_texture`, `WEBGL_compressed_texture_etc1`) and the four PVRTC
+  formats (`GL_IMG_texture_compression_pvrtc`, `WEBGL_compressed_texture_pvrtc`). ETC1 and PVRTC
+  textures are written whole, and PVRTC textures have power-of-two sizes. `block_size` gives the
+  size of the blocks of each compressed format, which the regions of compressed textures are
+  aligned to.
+- The ETC2 and EAC formats are at the `webgl` level too, with `WEBGL_compressed_texture_etc`, and
+  OpenGL ES and WebGL have the S3TC (`WEBGL_compressed_texture_s3tc` and its sRGB variant), RGTC
+  and BPTC (`GL_EXT_texture_compression_rgtc`, `GL_EXT_texture_compression_bptc`) formats. In
+  browsers, textures of these formats need a level 0 of whole blocks (a width and a height that
+  are multiples of 4), or their creation returns `DimensionsNotSupported`.
+- OpenGL ES and WebGL render to the signed normalized formats with `GL_EXT_render_snorm`, read
+  them as bytes or shorts, and read the 16-bit normalized formats as shorts. WebGL renders to
+  `F9F9F9` with `WEBGL_render_shared_exponent`, read as floats.
+- The `webgl` level has the draw states and draws that WebGL 2 has through extensions, with the
+  checks of their support:
+  - `DrawParameters::clip_control_origin` and `clip_control_depth` (`EXT_clip_control`, and
+    `GL_EXT_clip_control` on OpenGL ES at the `gl45` level), `polygon_offset_clamp`
+    (`EXT_polygon_offset_clamp`), `provoking_vertex` (`WEBGL_provoking_vertex`),
+    `polygon_mode` (`Line` and `Fill`, `WEBGL_polygon_mode`, which offsets lines too),
+    `clip_planes_bitmask` (`WEBGL_clip_cull_distance`) and `Depth::clamp`
+    (`DepthClamp::Clamp`, `EXT_depth_clamp`, and `GL_EXT_depth_clamp` on OpenGL ES);
+  - `DrawParameters::outputs` (`OES_draw_buffers_indexed`) and dual-source blending
+    (`WEBGL_blend_func_extended`, whose second output is declared with `index = 1`);
+  - `DrawParameters::base_instance` and base vertices
+    (`WEBGL_draw_instanced_base_vertex_base_instance`), and the draws of ranges
+    (`index::NoIndicesRanges`, `IndexBuffer::ranges`), which use `WEBGL_multi_draw` and are
+    otherwise drawn one by one;
+  - `SamplerWrapFunction::MirrorClamp` (`EXT_texture_mirror_clamp_to_edge`) and the stencil
+    mode of depth-stencil textures (`WEBGL_stencil_texturing`);
+  - `TimeElapsedQuery`, `debug::TimestampQuery` and `Context::gpu_timestamp`
+    (`EXT_disjoint_timer_query_webgl2`). Timer queries return the new
+    `QueryResultError::Disjoint` when the GPU changed its frequency or was reset during them,
+    on OpenGL ES and WebGL, and `TimestampQuery::get` takes `&self`.
+- `Program::new_pending` starts building a program and returns a `PendingProgram` before its
+  shaders are compiled and linked, which drivers with `GL_KHR_parallel_shader_compile` or
+  `GL_ARB_parallel_shader_compile` and browsers with `KHR_parallel_shader_compile` do in the
+  background: `PendingProgram::is_ready` tells when `finish` returns without waiting.
+  `Context::set_shader_compiler_threads` sets the threads of the driver. A program whose link
+  fails is deleted instead of leaking.
+- Multiview framebuffers (`LayeredFrameBuffer::multiview` and `multiview_with_outputs`, with
+  `GL_OVR_multiview2` or `OVR_multiview2` at every level) render each draw to two views or more,
+  layers of 2D array textures, with `gl_ViewID_OVR`. A program that doesn't declare the views of
+  the framebuffer with `layout(num_views = N) in;`, or that declares views for another
+  framebuffer, returns `DrawError::ViewsMismatch`, and the
+  draws to several views can't capture transform feedback nor be timed
+  (`DrawError::MultiviewRestricted`) nor be blitted (`BlitError::Multiview`). The layered
+  framebuffer types are at every level for it; layered rendering keeps its levels.
+- In browsers, `Texture2d` and `SrgbTexture2d` are built from the images of the browser
+  (`from_web_image`) and written from them (`write_web_image`, also on the levels of
+  `TextureAnyMipmap`): image, canvas and video elements, image bitmaps, image data and offscreen
+  canvases, through the `WebImageSource` trait. `WebImageOptions` sets the flip, the
+  premultiplication and the color conversion of the image, which don't outlive the write, and
+  `restore_state` resets them. An image the browser refuses (another origin without CORS, not
+  loaded) is `UploadError::ImageRefused`, with the message of the browser.
+- `WebDisplay::builder(canvas)` creates the WebGL 2 context with its attributes: alpha,
+  antialiasing, depth, stencil, premultiplied alpha, preserved drawing buffer, power preference
+  (`PowerPreference`), failure on a major performance caveat, and desynchronized presentation.
+  `WebDisplay::resize_to_display` sizes the drawing buffer for the device pixels of the screen
+  (HiDPI).
+- The WebGL context survives its loss: the backend asks the browser to restore it, and once
+  `WebDisplay::is_context_restored` returns true, `WebDisplay::restore` returns a display that
+  draws with the restored context. Its objects must be created again; the objects of the lost
+  context belong to the old display.
+- On WebGL, which has no debug output, the debug callback gets the errors of `glGetError` after
+  each operation, as messages of high severity from the API, and the messages of the default
+  callbacks go to the browser's console, where the standard error went nowhere.
+- In browsers, the extensions of WebGL 2, named without the `GL_` prefix, set the fields of
+  `ExtensionsList`, so SafeGL uses the float render targets, anisotropic filtering, norm16
+  textures and the others that the browser has. SafeGL enables each WebGL 2 extension that it
+  uses (`getExtension`), so their constants and their GLSL `#extension` work.
+- In browsers, `FormatInfos::multisamples` lists the sample counts of the formats of render
+  buffers, so that render buffers with more samples than their format has return
+  `RenderBufferCreationError::SamplesNotSupported`, and `Capabilities::renderer` and `vendor`
+  are the real ones when the browser gives them (`WEBGL_debug_renderer_info`).
 
 Fixes:
 
@@ -852,6 +957,46 @@ Fixes:
 - `restore_state` resets every pixel store parameter that other code may change (row lengths,
   image heights, skips, compressed block parameters, byte orders), where it only reset the
   alignments.
+- Draws that WebGL refuses return errors instead of raising WebGL errors and drawing nothing:
+  - stencil faces with different reference values or masks: `DrawError::StencilFacesMismatch`
+    (SafeGL gives the tests that always pass or fail the mask of the other face, which they
+    don't read);
+  - a color blending function with a constant color factor and a constant alpha factor:
+    `DrawError::BlendConstantsMismatch`;
+  - a depth range whose near value is above its far value: `DrawError::InvalidDepthRange`;
+  - `PrimitiveRestart::Disabled` with an index buffer that may hold the largest index value,
+    at which WebGL always restarts: `DrawError::PrimitiveRestartAlwaysOn`. Index buffers track
+    whether they may hold it, from the data written to them;
+  - link locations whose name starts with `webgl_` or `_webgl_`, or is longer than 1024 bytes:
+    `ProgramCreationError::InvalidLinkLocation`.
+- A draw that samples a level of a texture that it renders to returns the new
+  `DrawError::FeedbackLoop`, outside of the levels given to `set_mipmap_range`, except where
+  texture barriers make it defined (OpenGL 4.5, `GL_ARB_texture_barrier`,
+  `GL_NV_texture_barrier`): WebGL refused the draw, and OpenGL left its result undefined.
+- On WebGL, depth textures sampled without a depth comparison use nearest filters, since WebGL
+  can't filter them: they read as zero with linear filters.
+- On WebGL, `SyncFence::wait_timeout` with a timeout calls `glFinish` and returns `Signaled`,
+  like `wait`, instead of timing out: WebGL only signals fences in a later task of the event loop.
+  `is_signaled` and `wait_timeout` see the fences that a `glFinish` completed (`wait`,
+  `Context::finish`) as signaled.
+- Framebuffers refuse the textures whose format can't be rendered to (compressed, `F9F9F9`, or
+  on OpenGL ES and WebGL the formats that need an extension, such as the float formats without
+  `GL_EXT_color_buffer_float`) with the new `ValidationError::FormatNotRenderable`, also when the
+  driver would accept them through an extension that SafeGL treats as missing.
+- On OpenGL ES and WebGL, a draw that blends into a color attachment of 32-bit floats without
+  `GL_EXT_float_blend` returns the new `DrawError::FloatBlendNotSupported` instead of raising an
+  error, and 32-bit float textures are sampled without filtering without
+  `GL_OES_texture_float_linear`, where they read as zero.
+- Textures with fewer mipmap levels than down to 1x1 (`EmptyMipmapsMax`,
+  `AutoGeneratedMipmapsMax`) are complete without texture storage (below OpenGL 4.2 without
+  `GL_ARB_texture_storage`): their last level is `GL_TEXTURE_MAX_LEVEL`, where it was 1000, so
+  that they sampled as black, their levels other than the first were incomplete framebuffer
+  attachments, and mipmap generation went down to 1x1.
+- Programs with uniform blocks are created in browsers, where they panicked: glow doesn't have
+  `glGetActiveUniformsiv` there, and SafeGL calls the browser's `getActiveUniforms`.
+- Shaders whose `#version` comes after blank lines or indentation compile in browsers, which
+  only accept it on the first line: SafeGL moves it there, followed by a `#line` that keeps the
+  line numbers of the errors.
 
 ## [0.2.0]
 

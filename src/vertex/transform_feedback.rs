@@ -281,7 +281,7 @@ impl<'a> TransformFeedbackExt for TransformFeedback<'a> {
         };
 
         // a capture can't change its type of primitives
-        let id = self.object(ctxt);
+        let id = self.object(ctxt)?;
         if let Some(recording) = ctxt.state.transform_feedbacks.iter().find(|r| r.id == id) {
             if recording.primitives != primitives {
                 return Err(DrawError::TransformFeedbackPrimitivesMismatch);
@@ -350,12 +350,12 @@ impl<'a> TransformFeedbackExt for TransformFeedback<'a> {
 impl<'a> TransformFeedback<'a> {
     /// Returns the transform feedback object, which is created with its buffers the first time,
     /// and again in a new context after `Context::rebuild`: transform feedback objects aren't
-    /// shared between contexts.
-    fn object(&self, ctxt: &mut CommandContext<'_>) -> glow::TransformFeedback {
+    /// shared between contexts. Fails when the context is lost.
+    fn object(&self, ctxt: &mut CommandContext<'_>) -> Result<glow::TransformFeedback, DrawError> {
         let generation = ctxt.context.generation();
         if let Some((id, object_generation)) = self.object.get() {
             if object_generation == generation {
-                return id;
+                return Ok(id);
             }
         }
 
@@ -364,13 +364,13 @@ impl<'a> TransformFeedback<'a> {
             let id = ctxt
                 .glow
                 .create_transform_feedback()
-                .expect("glGenTransformFeedbacks failed");
+                .map_err(|_| DrawError::ContextLost)?;
             bind_object(ctxt, Some(id));
             for (index, buffer) in self.buffers.iter().enumerate() {
                 buffer.bind_to_transform_feedback(ctxt, index as gl::types::GLuint);
             }
             self.object.set(Some((id, generation)));
-            id
+            Ok(id)
         }
     }
 }
@@ -521,7 +521,9 @@ unsafe fn end(ctxt: &mut CommandContext<'_>, id: glow::TransformFeedback) -> boo
 
 /// Deletes an object that doesn't record, which binds the default object if it was bound.
 unsafe fn delete_object(ctxt: &mut CommandContext<'_>, id: glow::TransformFeedback) {
-    ctxt.glow.delete_transform_feedback(id);
+    if !ctxt.objects_lost() {
+        ctxt.glow.delete_transform_feedback(id);
+    }
     if ctxt.state.transform_feedback == Some(id) {
         ctxt.state.transform_feedback = None;
     }

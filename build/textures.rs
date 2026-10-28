@@ -525,6 +525,8 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
             use crate::texture::{{TextureCreationError, Texture1dDataSource, Texture2dDataSource}};
             use crate::texture::{{Texture3dDataSource, Texture2dDataSink, MipmapsOption, CompressedMipmapsOption}};
             use crate::texture::{{RawImage1d, RawImage2d, RawImage3d, CubeLayer, UploadError}};
+            #[cfg(safegl_browser)]
+            use crate::texture::{{WebImageError, WebImageOptions, WebImageSource}};
             use crate::ReadError;
             use crate::texture::pixel::PixelValue;
 
@@ -1590,6 +1592,56 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
             "#, format = relevant_format)).unwrap();
     }
 
+    // the images of browsers, written to 2D textures of RGBA8 colors
+    if dimensions == TextureDimensions::Texture2d
+        && matches!(ty, TextureType::Regular | TextureType::Srgb)
+    {
+        let rgba8 = match ty {
+            TextureType::Srgb => "SrgbFormat::U8U8U8U8",
+            _ => "UncompressedFloatFormat::U8U8U8U8",
+        };
+        (write!(dest, r#"
+                /// Builds a texture of the size of an image of the browser, with `U8U8U8U8`
+                /// texels, from the image: an image, canvas or video element, an image bitmap,
+                /// image data or an offscreen canvas. See `write_web_image` for the errors, and
+                /// `WebImageOptions` for the conversions.
+                #[cfg(safegl_browser)]
+                #[cfg_attr(docsrs, doc(cfg(safegl_browser)))]
+                pub fn from_web_image<F: ?Sized, S: ?Sized>(facade: &F, source: &S,
+                                                            mipmaps: MipmapsOption,
+                                                            options: WebImageOptions)
+                                                            -> Result<{name}, WebImageError>
+                    where F: Facade, S: WebImageSource
+                {{
+                    let (width, height) = source.dimensions();
+                    if width == 0 || height == 0 {{
+                        // an image without pixels, such as an image element that hasn't loaded
+                        return Err(TextureCreationError::DimensionsNotSupported.into());
+                    }}
+                    let texture = {name}::empty_with_format(facade, {rgba8}, mipmaps, width,
+                                                           height)?;
+                    texture.main_level().write_web_image(0, 0, source, options)?;
+                    if mipmaps.should_generate() {{
+                        // a level written whole, of a format whose mipmaps can be generated
+                        let _ = texture.generate_mipmaps();
+                    }}
+                    Ok(texture)
+                }}
+
+                /// Writes an image of the browser to the main level at `left` and `bottom`, the
+                /// image keeping its size. See `TextureAnyMipmap::write_web_image`.
+                #[cfg(safegl_browser)]
+                #[cfg_attr(docsrs, doc(cfg(safegl_browser)))]
+                pub fn write_web_image<S: ?Sized>(&self, left: u32, bottom: u32, source: &S,
+                                                  options: WebImageOptions)
+                                                  -> Result<(), UploadError>
+                    where S: WebImageSource
+                {{
+                    self.main_level().write_web_image(left, bottom, source, options)
+                }}
+            "#, name = name, rgba8 = rgba8)).unwrap();
+    }
+
     // `resident_if_supported`
     (write!(
         dest,
@@ -2204,7 +2256,6 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         };
         if !attachment.is_empty() {
             (writeln!(dest, "
-                    #[cfg(any(safegl_desktop, safegl_gles32))]
                     impl<'t> crate::framebuffer::ToLayered{attachment}Attachment<'t> for {name}Mipmap<'t> {{
                         #[inline]
                         fn to_layered_{method}_attachment(self) -> crate::framebuffer::Layered{attachment}Attachment<'t> {{
@@ -2212,7 +2263,6 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                         }}
                     }}
 
-                    #[cfg(any(safegl_desktop, safegl_gles32))]
                     impl<'t> crate::framebuffer::ToLayered{attachment}Attachment<'t> for &'t {name} {{
                         #[inline]
                         fn to_layered_{method}_attachment(self) -> crate::framebuffer::Layered{attachment}Attachment<'t> {{

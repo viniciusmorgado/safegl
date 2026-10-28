@@ -6,7 +6,10 @@ use safegl::Surface;
 
 mod support;
 
-type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
+type Display = support::Backend;
 
 /// The `#version` line for desktop OpenGL, or for OpenGL ES with a default precision.
 fn header(display: &Display) -> &'static str {

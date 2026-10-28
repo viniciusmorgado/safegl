@@ -6,6 +6,9 @@ use safegl::Surface;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 macro_rules! create_program {
     ($display:expr, $glsl_ty:expr, $glsl_value:expr) => {{
         let header = if support::is_gles(&$display) {
@@ -109,11 +112,12 @@ texture_draw_test!(
     "vec4(1.0, 0.0, 1.0, 0.0)",
     (255, 0, 255, 0)
 );
+// a format that every API renders to: the test is about a texture that SafeGL doesn't own
 unowned_draw_test!(
     texture_2d_draw_unowned,
     Texture2d,
     UncompressedFloatFormat,
-    F32F32F32F32,
+    U8U8U8U8,
     [1024, 1024],
     "vec4",
     "vec4(1.0, 0.0, 1.0, 0.0)",

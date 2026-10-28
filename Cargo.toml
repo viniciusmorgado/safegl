@@ -28,7 +28,7 @@ gl46 = [] # desktop OpenGL 4.6 core
 gles30 = [] # OpenGL ES 3.0
 gles31 = [] # OpenGL ES 3.1
 gles32 = [] # OpenGL ES 3.2
-webgl = ["dep:web-sys", "dep:wasm-bindgen"] # WebGL 2 in browsers (wasm32), the OpenGL ES 3.0 set
+webgl = ["dep:web-sys", "dep:wasm-bindgen", "dep:js-sys"] # WebGL 2 in browsers (wasm32), the OpenGL ES 3.0 set
 glutin_backend = ["glutin"]
 backtrace = ["dep:backtrace"] # prints a backtrace with the OpenGL debug messages reported as errors
 unstable = [] # used for benchmarks
@@ -65,7 +65,8 @@ smallvec = "1.16.4"
 fnv = "1.0.7"
 glow = "0.18"
 
-[dev-dependencies]
+# the tests and examples run natively, and the tests also run in browsers (see below)
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ouroboros = "0.18.5"
 nalgebra = "0.35.0"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
@@ -248,4 +249,13 @@ path = "examples/standalone/spirv/main.rs"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { version = "0.2", optional = true }
-web-sys = { version = "0.3", optional = true, features = ["HtmlCanvasElement", "WebGl2RenderingContext", "WebGlContextAttributes"] }
+js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", optional = true, features = ["console", "Event", "EventTarget", "HtmlCanvasElement", "HtmlImageElement", "HtmlVideoElement", "ImageBitmap", "ImageData", "OffscreenCanvas", "WebGl2RenderingContext", "WebGlContextAttributes", "WebGlPowerPreference", "WebGlProgram"] }
+
+# the tests in browsers: `cargo test --target wasm32-unknown-unknown --no-default-features
+# --features webgl`, run by `wasm-bindgen-test-runner` (see `.cargo/config.toml`)
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["CanvasRenderingContext2d", "Document", "Element", "HtmlCanvasElement", "ImageData", "WebGl2RenderingContext", "WebGlContextAttributes", "WebglLoseContext", "Window"] }

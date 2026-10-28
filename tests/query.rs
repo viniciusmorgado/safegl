@@ -5,6 +5,9 @@ use safegl::Surface;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 #[cfg(safegl_desktop)]
 #[test]
 fn query_sequence() {
@@ -13,6 +16,7 @@ fn query_sequence() {
     let query = match safegl::draw_parameters::SamplesPassedQuery::new(&display) {
         Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
+        Err(error) => panic!("{error}"),
     };
 
     let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
@@ -46,6 +50,7 @@ fn samples_passed() {
     let query = match safegl::draw_parameters::SamplesPassedQuery::new(&display) {
         Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
+        Err(error) => panic!("{error}"),
     };
 
     let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
@@ -71,105 +76,122 @@ fn samples_passed() {
     display.assert_no_error(None);
 }
 
-#[test]
-fn any_samples_passed() {
-    let display = support::build_display();
+support::async_test! {
+    fn any_samples_passed() {
+        let display = support::build_display();
 
-    let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false) {
-        Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
-        Ok(q) => q,
-    };
-
-    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
-
-    let texture = support::build_renderable_texture(&display);
-    texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
-
-    {
-        let params = safegl::DrawParameters {
-            samples_passed_query: Some((&query).into()),
-            ..Default::default()
+        let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false) {
+            Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
+            Ok(q) => q,
+            Err(error) => panic!("{error}"),
         };
 
-        texture
-            .as_surface()
-            .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
-            .unwrap();
+        let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+
+        let texture = support::build_renderable_texture(&display);
+        texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+
+        {
+            let params = safegl::DrawParameters {
+                samples_passed_query: Some((&query).into()),
+                ..Default::default()
+            };
+
+            texture
+                .as_surface()
+                .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
+                .unwrap();
+        }
+
+        // WebGL gives the result in a later task of the event loop
+        support::until(|| query.is_ready()).await;
+        assert!(query.get().unwrap());
+
+        let query2 = safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false).unwrap();
+        assert!(!query2.get().unwrap());
+
+        display.assert_no_error(None);
     }
-
-    assert!(query.get().unwrap());
-
-    let query2 = safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false).unwrap();
-    assert!(!query2.get().unwrap());
-
-    display.assert_no_error(None);
 }
 
-#[test]
-fn any_samples_passed_conservative() {
-    let display = support::build_display();
+support::async_test! {
+    fn any_samples_passed_conservative() {
+        let display = support::build_display();
 
-    let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, true) {
-        Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
-        Ok(q) => q,
-    };
-
-    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
-
-    let texture = support::build_renderable_texture(&display);
-    texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
-
-    {
-        let params = safegl::DrawParameters {
-            samples_passed_query: Some((&query).into()),
-            ..Default::default()
+        let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, true) {
+            Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
+            Ok(q) => q,
+            Err(error) => panic!("{error}"),
         };
 
-        texture
-            .as_surface()
-            .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
-            .unwrap();
+        let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+
+        let texture = support::build_renderable_texture(&display);
+        texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+
+        {
+            let params = safegl::DrawParameters {
+                samples_passed_query: Some((&query).into()),
+                ..Default::default()
+            };
+
+            texture
+                .as_surface()
+                .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
+                .unwrap();
+        }
+
+        // WebGL gives the result in a later task of the event loop
+        support::until(|| query.is_ready()).await;
+        assert!(query.get().unwrap());
+
+        let query2 = safegl::draw_parameters::AnySamplesPassedQuery::new(&display, true).unwrap();
+        assert!(!query2.get().unwrap());
+
+        display.assert_no_error(None);
     }
-
-    assert!(query.get().unwrap());
-
-    let query2 = safegl::draw_parameters::AnySamplesPassedQuery::new(&display, true).unwrap();
-    assert!(!query2.get().unwrap());
-
-    display.assert_no_error(None);
 }
 
-#[cfg(safegl_desktop)]
-#[test]
-fn time_elapsed() {
-    let display = support::build_display();
+support::async_test! {
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    fn time_elapsed() {
+        let display = support::build_display();
 
-    let query = match safegl::draw_parameters::TimeElapsedQuery::new(&display) {
-        Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
-        Ok(q) => q,
-    };
-
-    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
-
-    let texture = support::build_renderable_texture(&display);
-    texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
-
-    {
-        let params = safegl::DrawParameters {
-            time_elapsed_query: Some(&query),
-            ..Default::default()
+        let query = match safegl::draw_parameters::TimeElapsedQuery::new(&display) {
+            Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
+            Ok(q) => q,
+            Err(error) => panic!("{error}"),
         };
 
-        texture
-            .as_surface()
-            .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
-            .unwrap();
+        let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+
+        let texture = support::build_renderable_texture(&display);
+        texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+
+        {
+            let params = safegl::DrawParameters {
+                time_elapsed_query: Some(&query),
+                ..Default::default()
+            };
+
+            texture
+                .as_surface()
+                .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
+                .unwrap();
+        }
+
+        // WebGL gives the result in a later task of the event loop; a GPU that changed its
+        // frequency during the draw gives none
+        support::until(|| query.is_ready()).await;
+        let result = match query.get() {
+            Ok(result) => result,
+            Err(safegl::draw_parameters::QueryResultError::Disjoint) => return,
+            Err(error) => panic!("{error}"),
+        };
+        assert!(result >= 1);
+
+        display.assert_no_error(None);
     }
-
-    let result = query.get().unwrap();
-    assert!(result >= 1);
-
-    display.assert_no_error(None);
 }
 
 #[cfg(any(safegl_desktop, safegl_gles32))]
@@ -180,6 +202,7 @@ fn primitives_generated() {
     let query = match safegl::draw_parameters::PrimitivesGeneratedQuery::new(&display) {
         Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
+        Err(error) => panic!("{error}"),
     };
 
     let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
@@ -216,6 +239,7 @@ fn conditional_render_nodraw() {
     let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false) {
         Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
+        Err(error) => panic!("{error}"),
     };
 
     let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
@@ -263,6 +287,7 @@ fn conditional_render_simultaneous_query() {
     let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false) {
         Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
+        Err(error) => panic!("{error}"),
     };
 
     let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
@@ -303,6 +328,7 @@ fn query_to_buffer() {
     let query = match safegl::draw_parameters::SamplesPassedQuery::new(&display) {
         Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
+        Err(error) => panic!("{error}"),
     };
 
     let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
@@ -350,6 +376,7 @@ fn conditional_render_after_query() {
         let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false) {
             Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
             Ok(q) => q,
+            Err(error) => panic!("{error}"),
         };
 
         let texture = support::build_renderable_texture(&display);
@@ -404,7 +431,7 @@ fn conditional_render_after_query() {
     display.assert_no_error(None);
 }
 
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 #[test]
 fn time_elapsed_is_64_bits() {
     let display = support::build_display();
@@ -412,6 +439,7 @@ fn time_elapsed_is_64_bits() {
     let query = match safegl::draw_parameters::TimeElapsedQuery::new(&display) {
         Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
+        Err(error) => panic!("{error}"),
     };
     // never used: its result is 0
     let elapsed: u64 = query.get().unwrap();
@@ -439,6 +467,7 @@ fn unused_query_to_buffer() {
     let query = match safegl::draw_parameters::SamplesPassedQuery::new(&display) {
         Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
+        Err(error) => panic!("{error}"),
     };
 
     let mut buffer = safegl::buffer::Buffer::new(
@@ -492,6 +521,7 @@ fn query_to_buffers_of_each_type() {
     let query = match safegl::draw_parameters::SamplesPassedQuery::new(&display) {
         Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
+        Err(error) => panic!("{error}"),
     };
     draw_quad(
         &display,
@@ -542,6 +572,7 @@ fn query_availability_and_results_without_waiting() {
     let unused = match safegl::draw_parameters::SamplesPassedQuery::new(&display) {
         Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
+        Err(error) => panic!("{error}"),
     };
     let available = value_buffer::<u32>(&display);
     let result = value_buffer::<u32>(&display);
@@ -629,6 +660,7 @@ fn query_to_a_buffer_of_another_context() {
     let query = match safegl::draw_parameters::SamplesPassedQuery::new(&display) {
         Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
+        Err(error) => panic!("{error}"),
     };
     let buffer = value_buffer::<u32>(&other);
 
@@ -650,6 +682,7 @@ fn inverted_conditional_render() {
     let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false) {
         Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
+        Err(error) => panic!("{error}"),
     };
     let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
     let texture = support::build_renderable_texture(&display);
@@ -693,6 +726,7 @@ fn query_that_never_began_is_ready() {
     let query = match safegl::draw_parameters::SamplesPassedQuery::new(&display) {
         Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
         Ok(q) => q,
+        Err(error) => panic!("{error}"),
     };
 
     // its result is 0, at once

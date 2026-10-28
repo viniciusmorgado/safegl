@@ -371,6 +371,45 @@ impl BlendState {
 ///
 /// The caller has already checked that `outputs` fits in the draw buffers and that the backend
 /// supports per-draw-buffer state if any entry differs from `blend`.
+/// Returns `DrawError::BlendConstantsMismatch` if the color function of `blend` has a constant
+/// color factor and a constant alpha factor, which WebGL refuses (its `blendFuncSeparate` checks
+/// the color factors only).
+pub fn validate_webgl_constants(blend: &Blend) -> Result<(), DrawError> {
+    let (source, destination) = match blend.color {
+        BlendingFunction::Addition {
+            source,
+            destination,
+        }
+        | BlendingFunction::Subtraction {
+            source,
+            destination,
+        }
+        | BlendingFunction::ReverseSubtraction {
+            source,
+            destination,
+        } => (source, destination),
+        BlendingFunction::AlwaysReplace | BlendingFunction::Min | BlendingFunction::Max => {
+            return Ok(())
+        }
+    };
+    let color = |factor| {
+        matches!(
+            factor,
+            LinearBlendingFactor::ConstantColor | LinearBlendingFactor::OneMinusConstantColor
+        )
+    };
+    let alpha = |factor| {
+        matches!(
+            factor,
+            LinearBlendingFactor::ConstantAlpha | LinearBlendingFactor::OneMinusConstantAlpha
+        )
+    };
+    if (color(source) && alpha(destination)) || (alpha(source) && color(destination)) {
+        return Err(DrawError::BlendConstantsMismatch);
+    }
+    Ok(())
+}
+
 pub fn sync_blending(
     ctxt: &mut CommandContext<'_>,
     blend: Blend,
@@ -444,6 +483,17 @@ pub fn sync_blending(
 
     for (index, state) in &overrides {
         let index = *index as u32;
+        // WebGL has the functions in `OES_draw_buffers_indexed`
+        #[cfg(safegl_browser)]
+        if state.enabled {
+            ctxt.webgl.enable_indexed(glow::BLEND, index, true);
+            ctxt.webgl
+                .blend_equation_indexed(index, state.equation.0, state.equation.1);
+            ctxt.webgl.blend_func_indexed(index, state.func);
+        } else {
+            ctxt.webgl.enable_indexed(glow::BLEND, index, false);
+        }
+        #[cfg(not(safegl_browser))]
         unsafe {
             if state.enabled {
                 ctxt.glow.enable_draw_buffer(glow::BLEND, index);

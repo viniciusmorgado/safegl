@@ -322,13 +322,19 @@ where
 }
 
 /// Error that can happen when creating a buffer.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[derive(Debug, Copy, Clone)]
+#[non_exhaustive]
 pub enum BufferCreationError {
     /// Not enough memory to create the buffer.
     OutOfMemory,
 
     /// This type of buffer is not supported.
     BufferTypeNotSupported,
+
+    /// The context is lost: nothing can be created in it.
+    ContextLost,
 }
 
 impl fmt::Display for BufferCreationError {
@@ -336,6 +342,7 @@ impl fmt::Display for BufferCreationError {
         let desc = match self {
             BufferCreationError::OutOfMemory => "Not enough memory to create the buffer",
             BufferCreationError::BufferTypeNotSupported => "This type of buffer is not supported",
+            BufferCreationError::ContextLost => "The context is lost",
         };
         fmt.write_str(desc)
     }

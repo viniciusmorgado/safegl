@@ -156,7 +156,9 @@ impl fmt::Display for ReadError {
 
 impl Error for ReadError {}
 
-/// Returns the only client format that OpenGL ES guarantees for reading from `source`.
+/// Returns the only client format that OpenGL ES guarantees for reading from `source`: the
+/// norm16 formats (`GL_EXT_texture_norm16`) are read as unsigned shorts, the signed normalized
+/// ones (`GL_EXT_render_snorm`) as bytes or shorts, and the floating-point ones as floats.
 fn es_read_format(source: &Source<'_>) -> ClientFormat {
     use crate::image_format::UncompressedFloatFormat as F;
 
@@ -185,8 +187,18 @@ fn es_read_format(source: &Source<'_>) -> ClientFormat {
             | F::F32F32
             | F::F32F32F32
             | F::F32F32F32F32
-            | F::F11F11F10,
+            | F::F11F11F10
+            | F::F9F9F9,
         ))) => ClientFormat::F32F32F32F32,
+        Some(TextureFormatRequest::Specific(TextureFormat::UncompressedFloat(
+            F::U16 | F::U16U16 | F::U16U16U16U16,
+        ))) => ClientFormat::U16U16U16U16,
+        Some(TextureFormatRequest::Specific(TextureFormat::UncompressedFloat(
+            F::I8 | F::I8I8 | F::I8I8I8I8,
+        ))) => ClientFormat::I8I8I8I8,
+        Some(TextureFormatRequest::Specific(TextureFormat::UncompressedFloat(
+            F::I16 | F::I16I16 | F::I16I16I16I16,
+        ))) => ClientFormat::I16I16I16I16,
         _ => ClientFormat::U8U8U8U8,
     }
 }

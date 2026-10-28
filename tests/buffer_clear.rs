@@ -8,7 +8,10 @@ use safegl::buffer::{Buffer, BufferMode, BufferType, ClearBufferError};
 
 mod support;
 
-type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
+type Display = support::Backend;
 
 /// Returns false, after checking the error, if the backend can't clear buffers.
 fn cleared(display: &Display, result: Result<(), ClearBufferError>) -> bool {

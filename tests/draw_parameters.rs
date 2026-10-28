@@ -6,6 +6,9 @@ use safegl::Surface;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 #[test]
 fn color_mask() {
     let display = support::build_display();
@@ -807,10 +810,10 @@ blending_test!(
     (255, 255, 255, 255)
 );
 
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 /// A program that colors each triangle with the `value.y` of its provoking vertex.
 fn provoking_vertex_program(
-    display: &safegl::Display<safegl::glutin::surface::WindowSurface>,
+    display: &support::Backend,
 ) -> safegl::Program {
     let header = if support::is_gles(display) {
         "#version 300 es\nprecision highp float;\n"
@@ -828,7 +831,7 @@ fn provoking_vertex_program(
     safegl::Program::from_source(display, &vertex, &fragment, None).unwrap()
 }
 
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 #[test]
 fn provoking_vertex_last() {
     let display = support::build_display();
@@ -883,7 +886,7 @@ fn provoking_vertex_last() {
     display.assert_no_error(None);
 }
 
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 #[test]
 fn provoking_vertex_first() {
     let display = support::build_display();
@@ -944,7 +947,7 @@ fn provoking_vertex_first() {
     display.assert_no_error(None);
 }
 
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 #[test]
 fn depth_clamp_all() {
     let display = support::build_display();

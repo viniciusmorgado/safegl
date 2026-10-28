@@ -6,11 +6,10 @@ use safegl::{index, Surface};
 
 mod support;
 
-fn build_program<
-    T: glutin::surface::SurfaceTypeTrait + glutin::surface::ResizeableSurface + 'static,
->(
-    display: &safegl::Display<T>,
-) -> safegl::Program {
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
+fn build_program(display: &support::Backend) -> safegl::Program {
     program!(display,
         330 => {
             vertex: "

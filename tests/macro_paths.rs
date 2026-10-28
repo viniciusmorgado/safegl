@@ -11,7 +11,7 @@ safegl::implement_uniform_block!(Light, color);
 safegl::implement_vertex!(Light, color);
 
 #[allow(dead_code)]
-fn program(display: &safegl::Display<safegl::glutin::surface::WindowSurface>) -> safegl::Program {
+fn program<F: safegl::backend::Facade + ?Sized>(display: &F) -> safegl::Program {
     safegl::program!(display,
         330 => {
             vertex: "#version 330\nvoid main() { gl_Position = vec4(0.0); }",

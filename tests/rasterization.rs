@@ -15,7 +15,10 @@ use safegl::{
 
 mod support;
 
-type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
+type Display = support::Backend;
 
 #[derive(Copy, Clone)]
 struct Vertex {
@@ -772,13 +775,14 @@ fn program_point_size_follows_the_program() {
 
 /// The clip control flips the origin of the viewport (`UpperLeft`) and maps the depths from 0
 /// instead of -1 (`ZeroToOne`), which clips what is in front of 0.
-#[cfg(safegl_gl45)]
+#[cfg(any(safegl_gl45, safegl_webgl))]
 #[test]
 fn clip_control() {
     use safegl::draw_parameters::{ClipControlDepth, ClipControlOrigin};
 
+    // OpenGL ES has no clip control in SafeGL, WebGL has `EXT_clip_control`
     let display = support::build_display();
-    if support::is_gles(&display) {
+    if support::is_gles(&display) && !cfg!(target_arch = "wasm32") {
         return;
     }
     let program = support::program_from_legacy(
@@ -826,9 +830,11 @@ fn clip_control() {
     // the flipped origin draws the lower half at the top, where it is supported
     let flipped = draw(ClipControlOrigin::UpperLeft, ClipControlDepth::NegativeOneToOne, -0.5);
     let Some(flipped) = flipped else {
+        let extensions = support::extensions(&display);
         assert!(
             !support::gl_at_least(&display, 4, 5)
-                && !support::extensions(&display).gl_arb_clip_control
+                && !extensions.gl_arb_clip_control
+                && !extensions.gl_ext_clip_control
         );
         return;
     };

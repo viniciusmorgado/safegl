@@ -3,6 +3,9 @@ extern crate safegl;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 // Tests for support of the cube map array type in programs.
 fn program_support_for_cube_map_array(type_prefix: &str) {
     let display = support::build_display();

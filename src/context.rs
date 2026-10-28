@@ -67,6 +67,7 @@ mod limits;
 mod debug_output;
 mod restore;
 mod state;
+mod webgl;
 
 /// Stores the state and information required for SafeGL to execute commands. Most public SafeGL
 /// functions require passing a `Rc<Context>`.
@@ -76,6 +77,9 @@ pub struct Context {
 
     /// Contains the pointers to OpenGL functions.
     extra: gl::Extra,
+
+    /// The browser's WebGL 2 context, for the functions that glow doesn't have.
+    webgl: webgl::WebGl,
 
     /// The current state of the OpenGL state machine. Contains for example which buffer is bound
     /// to which bind point, whether depth testing is activated, etc.
@@ -120,6 +124,10 @@ pub struct Context {
 
     /// Whether the debug messages go to the message log of the context instead of a callback.
     debug_output_log: bool,
+
+    /// Whether the callback gets the errors of `glGetError` after each operation, on WebGL,
+    /// which has no debug output.
+    debug_output_polls_errors: bool,
 
     /// The number of debug groups pushed by `push_debug_group` and not popped yet.
     debug_group_depth: Cell<u32>,
@@ -188,6 +196,13 @@ pub struct CommandContext<'a> {
 
     /// Source of OpenGL function pointers.
     pub extra: &'a gl::Extra,
+
+    /// The browser's WebGL 2 context, for the functions that glow doesn't have.
+    pub webgl: &'a webgl::WebGl,
+
+    /// The textures that the uniforms of the command sample, with the levels that they read,
+    /// from the first to the second included.
+    pub sampled_textures: Vec<(glow::Texture, (u32, u32))>,
 
     /// Refers to the state of the OpenGL backend. Maintained between multiple calls.
     /// **Must** be synchronized with the real state of the backend.
@@ -272,6 +287,10 @@ impl Context {
 
 impl<'a> Drop for CommandContext<'a> {
     fn drop(&mut self) {
+        if self.context.debug_output_polls_errors && !thread::panicking() {
+            self.report_polled_error();
+        }
+
         // the debug callback panicked during the commands
         if let Some(payload) = self.context.debug_callback_panic.take() {
             if !thread::panicking() {
@@ -287,6 +306,36 @@ impl<'a> CommandContext<'a> {
     #[inline]
     pub fn owns(&self, context: &Context) -> bool {
         std::ptr::eq(self.context, context)
+    }
+
+    /// Returns true if the context is known to be lost: its objects are gone, so they aren't
+    /// deleted, and in browsers the restored context would refuse them.
+    #[inline]
+    pub fn objects_lost(&self) -> bool {
+        self.state.lost_context
+    }
+
+    /// Gives the error that the operation raised, if any, to the debug callback, as a message
+    /// of high severity from the API: WebGL has no debug output. The error is kept for
+    /// `glGetError`, which `Context::assert_no_error` calls.
+    fn report_polled_error(&mut self) {
+        // `GL_CONTEXT_LOST_WEBGL` tells the loss of the context, which isn't an error
+        const CONTEXT_LOST_WEBGL: gl::types::GLenum = 0x9242;
+        let error = unsafe { self.glow.get_error() };
+        if error == gl::NO_ERROR || error == CONTEXT_LOST_WEBGL {
+            return;
+        }
+        if self.state.polled_error == gl::NO_ERROR {
+            self.state.polled_error = error;
+        }
+        let message = crate::gl_error_name(error);
+        let report = self.report_debug_output_errors.get();
+        if let Ok(mut callback) = self.context.debug_callback.try_borrow_mut() {
+            if let Some(callback) = callback.as_mut() {
+                let (source, ty) = (debug::Source::Api, debug::MessageType::Error);
+                callback(source, ty, debug::Severity::High, error, report, message);
+            }
+        }
     }
 }
 
@@ -323,8 +372,13 @@ impl Context {
         let version = version::get_gl_version(&glow);
         let extensions = extensions::get_extensions(&glow);
         check_gl_compatibility(&glow, &version)?;
+        #[cfg(safegl_browser)]
+        let webgl = webgl::WebGl::new(backend.webgl2_context(), &extensions::hidden_extensions());
+        #[cfg(not(safegl_browser))]
+        let webgl = webgl::WebGl::new();
 
-        let capabilities = capabilities::get_capabilities(&glow, &extra, &version, &extensions);
+        let capabilities =
+            capabilities::get_capabilities(&glow, &extra, &webgl, &version, &extensions);
         let report_debug_output_errors = Cell::new(true);
 
         let vertex_array_objects = vertex_array_object::VertexAttributesSystem::new();
@@ -361,9 +415,11 @@ impl Context {
             } => (Some(callback), synchronous),
         };
 
+        let polls_errors = is_webgl() && debug_callback.is_some();
         let context = Rc::new(Context {
             glow,
             extra,
+            webgl,
             state: gl_state,
             version,
             extensions,
@@ -374,6 +430,7 @@ impl Context {
             debug_output_synchronous: synchronous,
             debug_output_errors_only: errors_only,
             debug_output_log: log,
+            debug_output_polls_errors: polls_errors,
             debug_group_depth: Cell::new(0),
             generation: Cell::new(0),
             report_debug_output_errors,
@@ -637,6 +694,17 @@ impl Context {
         self.capabilities().no_error
     }
 
+    /// Marks the context lost for good, with an unknown reset status if it wasn't known lost:
+    /// the browser restored its WebGL context, which belongs to a new context now.
+    #[cfg(safegl_browser)]
+    pub(crate) fn mark_lost(&self) {
+        let mut state = self.state.borrow_mut();
+        if !state.lost_context {
+            state.lost_context = true;
+            state.reset_status = gl::UNKNOWN_CONTEXT_RESET;
+        }
+    }
+
     /// Returns true if the context has been lost and needs to be recreated.
     ///
     /// # Implementation
@@ -745,13 +813,14 @@ impl Context {
 
     /// Returns the time of the GPU in nanoseconds, when it has received every previous command
     /// but not necessarily run them (`GL_TIMESTAMP`), or `None` on OpenGL ES without
-    /// `GL_EXT_disjoint_timer_query`. `debug::TimestampQuery` gives the time when the commands
-    /// have run, and the two use the same clock.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    /// `GL_EXT_disjoint_timer_query`, and on WebGL without `EXT_disjoint_timer_query_webgl2`.
+    /// `debug::TimestampQuery` gives the time when the commands have run, and the two use the
+    /// same clock.
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     pub fn gpu_timestamp(&self) -> Option<u64> {
         let ctxt = self.make_current();
-        if ctxt.version.0 != Api::Gl && !ctxt.extensions.gl_ext_disjoint_timer_query {
+        if ctxt.version.0 != Api::Gl && !ctxt.extensions.disjoint_timer_query() {
             return None;
         }
         Some(unsafe { ctxt.glow.get_parameter_i64(gl::TIMESTAMP) } as u64)
@@ -793,6 +862,24 @@ impl Context {
                 ctxt.extra.ReleaseShaderCompiler();
             }
         }
+    }
+
+    /// Sets the number of threads that the driver may use to compile and link the programs of
+    /// `Program::new_pending` in the background: `Some(0)` compiles them when they are created,
+    /// `None` lets the driver choose (`glMaxShaderCompilerThreadsKHR`).
+    ///
+    /// Returns false if the backend can't set it: without `GL_KHR_parallel_shader_compile` or
+    /// `GL_ARB_parallel_shader_compile`, and in browsers, which choose.
+    pub fn set_shader_compiler_threads(&self, threads: Option<u32>) -> bool {
+        let ctxt = self.make_current();
+        let available = !is_webgl()
+            && (ctxt.extensions.gl_khr_parallel_shader_compile
+                || ctxt.extensions.gl_arb_parallel_shader_compile);
+        if available && !ctxt.objects_lost() {
+            // glow calls the function of the KHR extension if it is loaded, else the ARB one
+            unsafe { ctxt.glow.max_shader_compiler_threads(threads.unwrap_or(u32::MAX)) };
+        }
+        available
     }
 
     /// Returns an estimate of the amount of video memory available in bytes.
@@ -963,10 +1050,11 @@ impl Context {
     /// You normally don't need to call this function manually, except for debugging purposes.
     #[inline]
     pub fn finish(&self) {
-        let ctxt = self.make_current();
+        let mut ctxt = self.make_current();
         unsafe {
             ctxt.glow.finish();
         }
+        ctxt.state.fences_finished = ctxt.state.fences_created;
     }
 
     /// Calls `glFlush()`. This starts executing the commands that you have issued if it is not
@@ -1057,15 +1145,24 @@ impl ContextExt for Context {
 
         // SafeGL can't issue commands while it is already issuing some: from a debug callback
         // or a destructor that runs in the middle of a command
-        let state = self.state.try_borrow_mut().expect(
+        let mut state = self.state.try_borrow_mut().expect(
             "SafeGL was called while it was already issuing OpenGL commands, for example from a \
              debug callback",
         );
+
+        // browsers tell at once when they lose the context, whose commands then do nothing and
+        // can't create objects
+        if is_webgl() && !state.lost_context && self.backend.borrow().is_context_lost() {
+            state.lost_context = true;
+            state.reset_status = gl::UNKNOWN_CONTEXT_RESET;
+        }
 
         CommandContext {
             context: self,
             glow: &self.glow,
             extra: &self.extra,
+            webgl: &self.webgl,
+            sampled_textures: Vec::new(),
             state,
             version: &self.version,
             extensions: &self.extensions,
@@ -1119,6 +1216,8 @@ impl Drop for Context {
                 context: self,
                 glow: &self.glow,
                 extra: &self.extra,
+                webgl: &self.webgl,
+                sampled_textures: Vec::new(),
                 state: self.state.borrow_mut(),
                 version: &self.version,
                 extensions: &self.extensions,
@@ -1249,6 +1348,12 @@ fn check_gl_compatibility(gl: &glow::Context, version: &Version) -> Result<(), I
 /// The messages come from OpenGL 4.3, OpenGL ES 3.2 or `GL_KHR_debug`, which SafeGL turns on in
 /// every context. Drivers below them that only have `GL_ARB_debug_output` may keep the messages
 /// of contexts that aren't debug contexts, and nothing can turn them on there.
+///
+/// WebGL has no debug output: with a callback (`DebugMessageOnError`, `PrintAll`, `Custom`), the
+/// callback gets the error of `glGetError` after each operation, as a message of high severity
+/// from the API whose id is the error. Each `glGetError` waits for the browser, which slows down
+/// every operation, which is why release builds use `Ignore` by default. The messages of the
+/// default callbacks go to the browser's console.
 pub enum DebugCallbackBehavior {
     /// Don't do anything. This is the default behavior in release.
     Ignore,
@@ -1314,16 +1419,29 @@ fn default_debug_callback(
     };
 
     if report_debug_output_errors {
-        eprint!(
-            "Debug message with high or medium severity: `{}`.\n\
+        // browsers have no standard error: the message goes to their console, with its stack
+        #[cfg(safegl_browser)]
+        web_sys::console::error_1(
+            &format!(
+                "Debug message with high or medium severity: `{}`.\n\
                  Please report this error: https://github.com/viniciusmorgado/safegl/issues",
-            message
+                message
+            )
+            .into(),
         );
+        #[cfg(not(safegl_browser))]
+        {
+            eprint!(
+                "Debug message with high or medium severity: `{}`.\n\
+                     Please report this error: https://github.com/viniciusmorgado/safegl/issues",
+                message
+            );
 
-        #[cfg(feature = "backtrace")]
-        print_backtrace();
+            #[cfg(feature = "backtrace")]
+            print_backtrace();
 
-        eprintln!("\n");
+            eprintln!("\n");
+        }
     }
 }
 
@@ -1368,7 +1486,7 @@ fn printall_debug_callback(
     _: bool,
     message: &str,
 ) {
-    eprintln!(
+    let text = format!(
         "Source: {src:?}\t\tSeverity: {sev:?}\t\tType: {ty:?}\t\tId: {id}\n{msg}",
         src = source,
         sev = severity,
@@ -1376,6 +1494,11 @@ fn printall_debug_callback(
         id = id,
         msg = message
     );
+    // browsers have no standard error: the message goes to their console
+    #[cfg(safegl_browser)]
+    web_sys::console::log_1(&text.into());
+    #[cfg(not(safegl_browser))]
+    eprintln!("{}", text);
 }
 
 /// Initializes `GL_KHR_debug`, `GL_ARB_debug`, or a similar extension so that the debug output

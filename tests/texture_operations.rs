@@ -21,7 +21,10 @@ use safegl::{Surface, Texture2d};
 
 mod support;
 
-type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
+type Display = support::Backend;
 
 const SIZE: u32 = 8;
 

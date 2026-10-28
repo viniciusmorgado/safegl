@@ -6,7 +6,10 @@ use safegl::Surface;
 
 mod support;
 
-type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
+type Display = support::Backend;
 
 /// Changes the OpenGL state behind SafeGL's back, the way another library sharing the context
 /// would: blending that outputs black, a closed scissor box, culling of every face, a masked color
@@ -216,7 +219,7 @@ fn rasterization_state_after_foreign_changes() {
             gl.get_parameter_i32(glow::FRONT_FACE) as u32,
             gl.is_enabled(glow::SAMPLE_COVERAGE),
             gl.get_parameter_f32(glow::SAMPLE_COVERAGE_VALUE),
-            gl.get_parameter_i32(glow::SAMPLE_COVERAGE_INVERT) != 0,
+            gl.get_parameter_bool(glow::SAMPLE_COVERAGE_INVERT),
             !support::is_gles(&display) && gl.is_enabled(glow::SAMPLE_ALPHA_TO_ONE),
             !support::is_gles(&display) && gl.is_enabled(glow::COLOR_LOGIC_OP),
         )

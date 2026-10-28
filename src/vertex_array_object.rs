@@ -505,7 +505,7 @@ impl VertexArrayObject {
         let id = ctxt
             .glow
             .create_vertex_array()
-            .expect("glGenVertexArrays failed");
+            .map_err(|_| DrawError::ContextLost)?;
 
         // we don't use DSA as we're going to make multiple calls for this VAO
         // and we're likely going to use the VAO right after it's been created
@@ -595,7 +595,9 @@ impl VertexArrayObject {
         }
 
         // deleting
-        unsafe { ctxt.glow.delete_vertex_array(self.id) };
+        if !ctxt.objects_lost() {
+            unsafe { ctxt.glow.delete_vertex_array(self.id) }
+        }
     }
 }
 

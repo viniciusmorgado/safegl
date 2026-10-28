@@ -164,8 +164,8 @@ pub use self::view::TextureViewError;
 #[cfg(any(safegl_desktop, safegl_gles30))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles30))))]
 pub use self::parameters::{Swizzle, SwizzleSource};
-#[cfg(any(safegl_gl43, safegl_gles31))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
+#[cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))))]
 pub use self::parameters::{DepthStencilTextureMode, DepthStencilTextureModeError};
 pub use self::pixel::PixelValue;
 #[cfg(any(safegl_desktop, safegl_gles32))]
@@ -179,7 +179,8 @@ pub use self::ty_support::is_texture_2d_multisample_array_supported;
 #[cfg(any(safegl_desktop, safegl_gles31))]
 pub use self::ty_support::is_texture_2d_multisample_supported;
 pub use crate::image_format::{ClientFormat, TextureFormat};
-pub use crate::image_format::{CompressedFormat, DepthFormat, DepthStencilFormat, StencilFormat};
+pub use crate::image_format::{AstcBlockSize, CompressedFormat, DepthFormat, DepthStencilFormat};
+pub use crate::image_format::StencilFormat;
 pub use crate::image_format::{CompressedSrgbFormat, SrgbFormat};
 pub use crate::image_format::{
     UncompressedFloatFormat, UncompressedIntFormat, UncompressedUintFormat,
@@ -205,13 +206,25 @@ mod regions;
 mod sub_image;
 
 /// Puts the row length, image height and skips of client images back to their default, for
-/// both uploads and downloads.
+/// both uploads and downloads. Reads have an image height and skipped images on desktop OpenGL
+/// only.
 pub(crate) unsafe fn reset_client_layouts(ctxt: &mut crate::context::CommandContext<'_>) {
     regions::UNPACK.reset(ctxt);
-    regions::PACK.reset(ctxt);
+    if ctxt.version.0 == crate::version::Api::Gl {
+        regions::PACK.reset(ctxt);
+    } else {
+        regions::PACK.reset_rows(ctxt);
+    }
 }
 #[cfg(safegl_gl43)]
 mod view;
+#[cfg(safegl_browser)]
+mod web_image;
+#[cfg(safegl_browser)]
+#[cfg_attr(docsrs, doc(cfg(safegl_browser)))]
+pub use self::web_image::{WebImageError, WebImageOptions, WebImageSource};
+#[cfg(safegl_browser)]
+pub(crate) use self::web_image::reset_options as reset_web_image_options;
 mod pixel;
 mod ty_support;
 
@@ -955,6 +968,9 @@ pub enum TextureCreationError {
     /// generate mipmaps in its format, like the formats that aren't both color-renderable and
     /// filterable on OpenGL ES.
     MipmapsNotSupported,
+
+    /// The context is lost: nothing can be created in it.
+    ContextLost,
 }
 
 impl fmt::Display for TextureCreationError {
@@ -966,6 +982,7 @@ impl fmt::Display for TextureCreationError {
             TypeNotSupported => "The texture type is not supported by the backend",
             DataSizeMismatch => "The size of the data doesn't match the texture dimensions",
             MipmapsNotSupported => "Mipmaps can't be generated for the texture",
+            ContextLost => "The context is lost",
         };
         fmt.write_str(desc)
     }
@@ -981,6 +998,14 @@ impl Error for TextureCreationError {}
 pub enum UploadError {
     /// The region is outside of the texture, or its dimensions don't match the data.
     OutOfBounds,
+
+    /// The browser refused the image written with `write_web_image`, with this message: an
+    /// image of another origin without the permission of its server, or an image that hasn't
+    /// loaded.
+    ImageRefused {
+        /// The message of the browser.
+        message: String,
+    },
 
     /// The data doesn't have the size that the region needs in its format.
     DataSizeMismatch {
@@ -1008,7 +1033,8 @@ pub enum UploadError {
     MisalignedBlocks,
 
     /// Uploading this way isn't supported by the backend: boxes of compressed client images
-    /// need OpenGL 4.2 or `GL_ARB_compressed_texture_pixel_storage`.
+    /// need OpenGL 4.2 or `GL_ARB_compressed_texture_pixel_storage`, and the regions of ETC1 and
+    /// PVRTC textures can't be written: only their whole levels.
     NotSupported,
 }
 
@@ -1018,6 +1044,9 @@ impl fmt::Display for UploadError {
             UploadError::OutOfBounds => fmt.write_str(
                 "The region is outside of the texture, or its dimensions don't match the data",
             ),
+            UploadError::ImageRefused { message } => {
+                write!(fmt, "The browser refused the image: {}", message)
+            }
             UploadError::DataSizeMismatch { expected, obtained } => write!(
                 fmt,
                 "The data has {} bytes, but the region needs {}",

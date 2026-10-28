@@ -161,8 +161,8 @@ pub use crate::context::{
     FormatSupport, FormatTarget, ImageCompatibility, ImageFormatClass, SimultaneousUse,
     StageSupport, ViewClass,
 };
-#[cfg(any(safegl_desktop, safegl_gles32))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+#[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))))]
 pub use crate::draw_parameters::OutputState;
 #[cfg(safegl_desktop)]
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
@@ -188,7 +188,7 @@ pub use crate::ops::ReadError;
 pub use crate::program::ProgramCreationError::{
     CompilationError, LinkingError, ShaderTypeNotSupported,
 };
-pub use crate::program::{Program, ProgramCreationError};
+pub use crate::program::{PendingProgram, Program, ProgramCreationError};
 pub use crate::sync::{LinearSyncFence, SyncFence, SyncWaitResult};
 pub use crate::texture::Texture2d;
 pub use crate::version::{get_supported_glsl_version, Api, Version};
@@ -496,6 +496,22 @@ trait TextureExt {
     /// when it is integer.
     fn has_integer_filters(&self) -> bool {
         true
+    }
+
+    /// Returns true if sampling the texture reads depths: a depth texture, or a depth-stencil
+    /// texture that isn't in stencil mode.
+    fn is_depth(&self) -> bool {
+        false
+    }
+
+    /// Returns true if the texture has a format of 32-bit floats.
+    fn is_float32(&self) -> bool {
+        false
+    }
+
+    /// The levels that sampling the texture reads, from the first to the second included.
+    fn sampled_levels(&self) -> (u32, u32) {
+        (0, u32::MAX)
     }
 }
 
@@ -1154,8 +1170,6 @@ pub trait Surface {
     }
 
     /// Copies a rectangle of pixels from layer 0 of a layered framebuffer to this surface.
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     #[inline]
     fn blit_from_layered_framebuffer(
         &self,
@@ -1276,8 +1290,6 @@ pub trait Surface {
     ///
     /// Every surface of SafeGL implements it; the default implementation, for other surfaces,
     /// returns `BlitError::UnsupportedSource`.
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     fn blit_buffers_from_layered_framebuffer(
         &self,
         source: &framebuffer::LayeredFrameBuffer<'_>,
@@ -1415,6 +1427,10 @@ pub enum BlitError {
 
     /// The source has no color buffer to copy, like an empty framebuffer.
     NoColorBuffer,
+
+    /// The source or the target is a multiview framebuffer with several views, which blits
+    /// can't read or write (`GL_OVR_multiview2`).
+    Multiview,
 }
 
 impl fmt::Display for BlitError {
@@ -1442,6 +1458,7 @@ impl fmt::Display for BlitError {
             }
             BlitError::SameSourceAndTarget => "OpenGL ES can't blit a buffer to itself",
             BlitError::NoColorBuffer => "The source has no color buffer to copy",
+            BlitError::Multiview => "Blits can't read or write several views",
         };
         fmt.write_str(desc)
     }
@@ -1513,19 +1530,19 @@ pub enum DrawError {
 
     /// Drawing ranges of vertices or indices with one call (`index::NoIndicesRanges`,
     /// `IndexBuffer::ranges`) needs desktop OpenGL.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     DrawRangesNotSupported,
 
     /// A range of vertices or indices drawn with one call is outside the vertices source or the
     /// index buffer.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     DrawRangeOutOfBounds,
 
     /// Ranges of vertices or indices drawn with one call can't have several instances.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     InstancedDrawRangesNotSupported,
 
     /// Indirect draws aren't supported by the backend: they need OpenGL 4.0 or OpenGL ES 3.1.
@@ -1548,7 +1565,8 @@ pub enum DrawError {
     /// The viewport's dimensions are not supported by the backend.
     ViewportTooLarge,
 
-    /// The depth range is outside of the `(0, 1)` range.
+    /// The depth range is outside of the `(0, 1)` range, or, on WebGL, its near value is above
+    /// its far value.
     InvalidDepthRange,
 
     /// The line width isn't positive, or is above 1 pixel on desktop OpenGL, which SafeGL uses
@@ -1556,9 +1574,9 @@ pub enum DrawError {
     LineWidthNotSupported,
 
     /// `DrawParameters::base_instance` isn't 0, and the backend doesn't support base instances
-    /// (OpenGL 4.2 or `GL_ARB_base_instance`).
-    #[cfg(safegl_gl42)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl42)))]
+    /// (see `DrawParameters::base_instance`).
+    #[cfg(any(safegl_gl42, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_webgl))))]
     BaseInstanceNotSupported,
 
     /// `DrawParameters::base_instance` isn't 0 for a draw that can't take it: the commands of
@@ -1680,13 +1698,13 @@ pub enum DrawError {
     SmoothingNotSupported,
 
     /// The requested provoking vertex is not supported by the backend.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     ProvokingVertexNotSupported,
 
     /// Depth clamping isn't supported by the backend.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     DepthClampNotSupported,
 
     /// One of the blending parameters is not supported by the backend.
@@ -1699,13 +1717,13 @@ pub enum DrawError {
     PrimitiveRestartIndexNotSupported,
 
     /// Changing the clip volume definition (origin and depth mode) is not supported by the backend.
-    #[cfg(safegl_gl45)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
+    #[cfg(any(safegl_gl45, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_webgl))))]
     ClipControlNotSupported,
 
     /// Tried to enable a clip plane that does not exist.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     ClipPlaneIndexOutOfBounds,
 
     /// Tried to sample more textures than the backend has texture units.
@@ -1717,8 +1735,8 @@ pub enum DrawError {
     InsufficientImageUnits,
 
     /// A polygon mode other than `Fill` was requested, but the backend doesn't support it.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     PolygonModeNotSupported,
 
     /// Disabling multisampling isn't supported by the backend.
@@ -1727,8 +1745,8 @@ pub enum DrawError {
     MultisamplingNotSupported,
 
     /// Offsetting the depth of points or lines isn't supported by the backend.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     PolygonOffsetNotSupported,
 
     /// Conditional rendering isn't supported by the backend.
@@ -1832,19 +1850,19 @@ pub enum DrawError {
 
     /// Giving outputs their own blending or color mask (`DrawParameters::outputs`) isn't
     /// supported by the backend.
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))))]
     PerOutputStateNotSupported,
 
     /// `DrawParameters::outputs` has more entries than the backend has draw buffers.
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))))]
     OutputStateIndexOutOfBounds,
 
     /// Clamping the depth offset (`DrawParameters::polygon_offset_clamp`) isn't supported by the
     /// backend.
-    #[cfg(safegl_gl46)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    #[cfg(any(safegl_gl46, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl46, safegl_webgl))))]
     PolygonOffsetClampNotSupported,
 
     /// A uniform block, shader storage block or atomic counter buffer needs a binding point
@@ -1929,6 +1947,52 @@ pub enum DrawError {
         /// The alignment required by the backend.
         alignment: usize,
     },
+
+    /// The stencil test of the two faces has different reference values, test masks or write
+    /// masks, which WebGL refuses. They are compared on the 8 bits of WebGL's stencil buffers,
+    /// and the test masks of the tests that always pass or fail don't matter.
+    StencilFacesMismatch,
+
+    /// The color function of the blending has a constant color factor (`ConstantColor`,
+    /// `OneMinusConstantColor`) and a constant alpha factor (`ConstantAlpha`,
+    /// `OneMinusConstantAlpha`), which WebGL refuses.
+    BlendConstantsMismatch,
+
+    /// A texture that the draw samples has a level attached to the framebuffer drawn to, in the
+    /// levels that the sampling reads (`set_mipmap_range`): the draw would read what it writes.
+    /// WebGL refuses it, and OpenGL leaves the result undefined, except with texture barriers
+    /// (OpenGL 4.5, `GL_ARB_texture_barrier` or `GL_NV_texture_barrier`), which make it defined
+    /// when each texel is read before it is written: there, the draw is allowed (see
+    /// `texture::texture_barrier`).
+    FeedbackLoop,
+
+    /// `DrawParameters::primitive_restart` is `Disabled`, but the index buffer may hold the
+    /// largest value of its index type, at which WebGL always restarts primitives. See
+    /// `DrawParameters::primitive_restart`.
+    PrimitiveRestartAlwaysOn,
+
+    /// The context was lost while the draw was creating an object that it needs. Draws on a
+    /// context known to be lost do nothing instead.
+    ContextLost,
+
+    /// The draw blends into a color attachment of 32-bit floats, which OpenGL ES and WebGL only
+    /// do with `GL_EXT_float_blend` (`EXT_float_blend` on WebGL).
+    FloatBlendNotSupported,
+
+    /// The number of views that the vertex shader declares (`layout(num_views = N) in;`) isn't
+    /// the number of views of the multiview framebuffer (`GL_OVR_multiview2`): a multiview
+    /// framebuffer is drawn by programs that declare its views, and the other framebuffers by
+    /// programs that declare none.
+    ViewsMismatch {
+        /// The views of the multiview framebuffer, `None` for the other framebuffers.
+        framebuffer: Option<u32>,
+        /// The views that the program declares.
+        program: Option<u32>,
+    },
+
+    /// A draw to several views of a multiview framebuffer can't capture transform feedback nor
+    /// be timed by a `TimeElapsedQuery` (`GL_OVR_multiview2`).
+    MultiviewRestricted,
 }
 
 impl Error for DrawError {
@@ -1960,11 +2024,11 @@ impl fmt::Display for DrawError {
             #[cfg(any(safegl_desktop, safegl_gles31))]
             IndirectDrawWithTransformFeedback =>
                 "OpenGL ES doesn't draw indirectly while transform feedback records",
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             DrawRangesNotSupported => "Drawing ranges with one call is not supported by the backend",
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             DrawRangeOutOfBounds => "A drawn range is outside the vertices or the indices",
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             InstancedDrawRangesNotSupported => "Drawn ranges can't have several instances",
             TransformFeedbackBuffersMissing =>
                 "The transform feedback object lacks buffers of its program",
@@ -1987,10 +2051,10 @@ impl fmt::Display for DrawError {
             ViewportTooLarge =>
                 "The viewport's dimensions are not supported by the backend",
             InvalidDepthRange =>
-                "The depth range is outside of the `(0, 1)` range",
+                "The depth range is outside of the `(0, 1)` range, or reversed on WebGL",
             LineWidthNotSupported =>
                 "The line width isn't positive, or is above 1 pixel on desktop OpenGL",
-            #[cfg(safegl_gl42)]
+            #[cfg(any(safegl_gl42, safegl_webgl))]
             BaseInstanceNotSupported =>
                 "The backend doesn't support drawing from a base instance",
             #[cfg(safegl_gl42)]
@@ -2042,10 +2106,10 @@ impl fmt::Display for DrawError {
             #[cfg(safegl_desktop)]
             SmoothingNotSupported =>
                 "Trying to use smoothing, but this is not supported by the backend",
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             ProvokingVertexNotSupported =>
                 "Trying to set the provoking vertex, but this is not supported by the backend",
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             DepthClampNotSupported =>
                 "The depth clamp mode is not supported by the backend",
             BlendingParameterNotSupported =>
@@ -2053,10 +2117,10 @@ impl fmt::Display for DrawError {
             #[cfg(safegl_desktop)]
             PrimitiveRestartIndexNotSupported =>
                 "Restarting primitives at a chosen index is not supported by the backend",
-            #[cfg(safegl_gl45)]
+            #[cfg(any(safegl_gl45, safegl_webgl))]
             ClipControlNotSupported =>
                 "Changing the clip volume definition (origin and depth mode) is not supported by the backend",
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             ClipPlaneIndexOutOfBounds =>
                 "Tried to enable a clip plane that does not exist.",
             InsufficientTextureUnits =>
@@ -2064,13 +2128,13 @@ impl fmt::Display for DrawError {
             #[cfg(any(safegl_gl42, safegl_gles31))]
             InsufficientImageUnits =>
                 "Tried to use more image uniforms that the implementation has support for",
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             PolygonModeNotSupported =>
                 "A polygon mode other than `Fill` is not supported by the backend",
             #[cfg(safegl_desktop)]
             MultisamplingNotSupported =>
                 "Disabling multisampling is not supported by the backend",
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             PolygonOffsetNotSupported =>
                 "Offsetting the depth of points or lines is not supported by the backend",
             #[cfg(safegl_desktop)]
@@ -2115,13 +2179,13 @@ impl fmt::Display for DrawError {
             #[cfg(any(safegl_desktop, safegl_gles31))]
             SampleMaskNotSupported =>
                 "Masking samples is not supported by the backend",
-            #[cfg(any(safegl_desktop, safegl_gles32))]
+            #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
             PerOutputStateNotSupported =>
                 "Giving outputs their own blending or color mask is not supported by the backend",
-            #[cfg(any(safegl_desktop, safegl_gles32))]
+            #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
             OutputStateIndexOutOfBounds =>
                 "There are more output states than draw buffers",
-            #[cfg(safegl_gl46)]
+            #[cfg(any(safegl_gl46, safegl_webgl))]
             PolygonOffsetClampNotSupported =>
                 "Clamping the depth offset is not supported by the backend",
             BufferBindingOutOfRange { .. } =>
@@ -2148,6 +2212,20 @@ impl fmt::Display for DrawError {
                 "An object belongs to another context than the one drawn upon",
             BufferOffsetNotAligned { .. } =>
                 "A buffer slice bound to a block doesn't start at an offset the backend accepts",
+            StencilFacesMismatch =>
+                "WebGL needs the same stencil reference value and masks for both faces",
+            BlendConstantsMismatch =>
+                "WebGL can't blend with a constant color factor and a constant alpha factor",
+            FeedbackLoop =>
+                "A texture that the draw samples is attached to the framebuffer drawn to",
+            PrimitiveRestartAlwaysOn =>
+                "WebGL restarts primitives at the largest index value, which the indices may hold",
+            ContextLost => "The context was lost during the draw",
+            FloatBlendNotSupported => "The backend can't blend into 32-bit float attachments",
+            ViewsMismatch { .. } =>
+                "The program doesn't declare the number of views of the framebuffer",
+            MultiviewRestricted =>
+                "Draws to several views can't capture transform feedback nor be timed",
         };
         match self {
             UniformTypeMismatch {
@@ -2155,6 +2233,10 @@ impl fmt::Display for DrawError {
                 ref expected,
             } => write!(fmt, "{}: `{}` is a {:?}", desc, name, expected),
             UniformBufferToValue { name } => write!(fmt, "{}: {}", desc, name,),
+            ViewsMismatch {
+                framebuffer,
+                program,
+            } => write!(fmt, "{}: {:?} views, the program declares {:?}", desc, framebuffer, program),
             UniformValueToBlock { name } => write!(fmt, "{}: {}", desc, name,),
             BufferBindingOutOfRange { name } => write!(fmt, "{}: {}", desc, name,),
             SharedBindingPoint { name } => write!(fmt, "{}: `{}`", desc, name),
@@ -2525,8 +2607,6 @@ impl Surface for Frame {
         )
     }
 
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     fn blit_buffers_from_layered_framebuffer(
         &self,
         source: &framebuffer::LayeredFrameBuffer<'_>,
@@ -2595,16 +2675,28 @@ impl Error for IncompatibleOpenGl {}
 fn get_gl_error(ctxt: &mut context::CommandContext<'_>) -> Option<&'static str> {
     use glow::HasContext;
 
-    match unsafe { ctxt.glow.get_error() } {
-        glow::NO_ERROR => None,
-        glow::INVALID_ENUM => Some("GL_INVALID_ENUM"),
-        glow::INVALID_VALUE => Some("GL_INVALID_VALUE"),
-        glow::INVALID_OPERATION => Some("GL_INVALID_OPERATION"),
-        glow::INVALID_FRAMEBUFFER_OPERATION => Some("GL_INVALID_FRAMEBUFFER_OPERATION"),
-        glow::OUT_OF_MEMORY => Some("GL_OUT_OF_MEMORY"),
-        glow::STACK_UNDERFLOW => Some("GL_STACK_UNDERFLOW"),
-        glow::STACK_OVERFLOW => Some("GL_STACK_OVERFLOW"),
-        glow::CONTEXT_LOST => Some("GL_CONTEXT_LOST"),
-        _ => Some("Unknown glGetError return value"),
+    // the error that the debug output of WebGL read after an operation comes first
+    let polled = std::mem::replace(&mut ctxt.state.polled_error, glow::NO_ERROR);
+    match polled {
+        glow::NO_ERROR => match unsafe { ctxt.glow.get_error() } {
+            glow::NO_ERROR => None,
+            error => Some(gl_error_name(error)),
+        },
+        error => Some(gl_error_name(error)),
+    }
+}
+
+/// The name of a value of `glGetError`.
+fn gl_error_name(error: gl::types::GLenum) -> &'static str {
+    match error {
+        glow::INVALID_ENUM => "GL_INVALID_ENUM",
+        glow::INVALID_VALUE => "GL_INVALID_VALUE",
+        glow::INVALID_OPERATION => "GL_INVALID_OPERATION",
+        glow::INVALID_FRAMEBUFFER_OPERATION => "GL_INVALID_FRAMEBUFFER_OPERATION",
+        glow::OUT_OF_MEMORY => "GL_OUT_OF_MEMORY",
+        glow::STACK_UNDERFLOW => "GL_STACK_UNDERFLOW",
+        glow::STACK_OVERFLOW => "GL_STACK_OVERFLOW",
+        glow::CONTEXT_LOST => "GL_CONTEXT_LOST",
+        _ => "Unknown glGetError return value",
     }
 }

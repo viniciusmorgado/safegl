@@ -6,12 +6,19 @@
 #[macro_use]
 extern crate safegl;
 
+#[cfg(not(target_arch = "wasm32"))]
 use safegl::glutin::context::Robustness;
-use safegl::{CapabilitiesSource, ResetNotificationStrategy, Surface};
+use safegl::CapabilitiesSource;
+#[cfg(not(target_arch = "wasm32"))]
+use safegl::{ResetNotificationStrategy, Surface};
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 /// A display whose context has `robustness`, or `None` if the driver can't create one.
+#[cfg(not(target_arch = "wasm32"))]
 fn display_with(robustness: Robustness) -> Option<support::WindowDisplay> {
     let display = support::context_apis().into_iter().find_map(|api| {
         let attributes =
@@ -43,6 +50,7 @@ fn context_is_not_lost() {
     display.assert_no_error(None);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn robust_context_lost_on_reset() {
     let display = match display_with(Robustness::RobustLoseContextOnReset) {
@@ -64,6 +72,7 @@ fn robust_context_lost_on_reset() {
     display.assert_no_error(None);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn robust_context_without_reset_notification() {
     let display = match display_with(Robustness::RobustNoResetNotification) {
@@ -92,6 +101,7 @@ fn robust_context_without_reset_notification() {
 }
 
 /// A context without error checking draws like any other: SafeGL doesn't rely on OpenGL errors.
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn context_without_error_checking_draws() {
     let display = match display_with(Robustness::NoError) {

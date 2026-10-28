@@ -27,10 +27,11 @@ pub enum SamplerWrapFunction {
     /// Same as Mirror, but only for one repetition,
     ///
     /// Requires OpenGL 4.4, `GL_ARB_texture_mirror_clamp_to_edge` or, on OpenGL ES,
-    /// `GL_EXT_texture_mirror_clamp_to_edge`. Sampling with it where it's unsupported is an
+    /// `GL_EXT_texture_mirror_clamp_to_edge` (`EXT_texture_mirror_clamp_to_edge` on WebGL).
+    /// Sampling with it where it's unsupported is an
     /// error (`SamplerNotSupportedError::WrapFunction`).
-    #[cfg(safegl_gl44)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
+    #[cfg(any(safegl_gl44, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl44, safegl_webgl))))]
     MirrorClamp,
 }
 
@@ -43,7 +44,7 @@ impl ToGlEnum for SamplerWrapFunction {
             SamplerWrapFunction::Clamp => gl::CLAMP_TO_EDGE,
             #[cfg(any(safegl_desktop, safegl_gles32))]
             SamplerWrapFunction::BorderClamp => gl::CLAMP_TO_BORDER,
-            #[cfg(safegl_gl44)]
+            #[cfg(any(safegl_gl44, safegl_webgl))]
             SamplerWrapFunction::MirrorClamp => gl::MIRROR_CLAMP_TO_EDGE,
         }
     }

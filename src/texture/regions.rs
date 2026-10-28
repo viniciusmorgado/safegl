@@ -55,6 +55,14 @@ impl ClientLayout {
         ctxt.glow.pixel_store_i32(self.skip_images, offset.2 as i32);
     }
 
+    /// Puts the row length and the skipped pixels and rows back to their default, which are the
+    /// parameters of reads on OpenGL ES and WebGL.
+    pub(crate) unsafe fn reset_rows(&self, ctxt: &mut CommandContext<'_>) {
+        for pname in [self.row_length, self.skip_pixels, self.skip_rows] {
+            ctxt.glow.pixel_store_i32(pname, 0);
+        }
+    }
+
     /// Puts the parameters back to their default, tightly packed images.
     pub(crate) unsafe fn reset(&self, ctxt: &mut CommandContext<'_>) {
         for pname in [
@@ -81,13 +89,18 @@ fn is_compressed(format: TextureFormatRequest) -> bool {
 }
 
 #[cfg(safegl_gl42)]
-/// Returns true if the box of `size` at `offset` starts on the 4 × 4 blocks of compressed
-/// formats and ends on them or on the edge of `extent`.
-fn is_block_aligned(offset: (u32, u32, u32), size: (u32, u32, u32), extent: (u32, u32, u32)) -> bool {
-    let aligned = |offset: u32, size: u32, extent: u32| {
-        offset % 4 == 0 && (size % 4 == 0 || offset + size == extent)
+/// Returns true if the box of `size` at `offset` starts on the blocks of `block` texels of a
+/// compressed format and ends on them or on the edge of `extent`.
+fn is_block_aligned(
+    offset: (u32, u32, u32),
+    size: (u32, u32, u32),
+    extent: (u32, u32, u32),
+    block: (u32, u32),
+) -> bool {
+    let aligned = |offset: u32, size: u32, extent: u32, block: u32| {
+        offset % block == 0 && (size % block == 0 || offset + size == extent)
     };
-    aligned(offset.0, size.0, extent.0) && aligned(offset.1, size.1, extent.1)
+    aligned(offset.0, size.0, extent.0, block.0) && aligned(offset.1, size.1, extent.1, block.1)
 }
 
 impl<'a> TextureAnyMipmap<'a> {
@@ -208,8 +221,10 @@ impl<'a> TextureAnyMipmap<'a> {
     /// without copying the blocks out of the image first (`GL_UNPACK_COMPRESSED_BLOCK_SIZE` and
     /// the other block parameters).
     ///
-    /// The boxes must start on the 4 × 4 blocks of the formats of SafeGL and end on them or on
-    /// the edge of their images, or `UploadError::MisalignedBlocks` is returned.
+    /// The boxes must start on the blocks of the format (see `CompressedFormat::block_size`)
+    /// and end on them or on the edge of their images, or `UploadError::MisalignedBlocks` is
+    /// returned. The levels of ETC1 and PVRTC textures can only be written whole, with
+    /// `write`: they return `UploadError::NotSupported`.
     ///
     /// Needs OpenGL 4.2 or `GL_ARB_compressed_texture_pixel_storage`, otherwise returns
     /// `UploadError::NotSupported`. See `write_box_from` for the other errors.
@@ -231,12 +246,6 @@ impl<'a> TextureAnyMipmap<'a> {
         if !is_compressed(texture.get_requested_format()) {
             return Err(UploadError::FormatNotSupported);
         }
-        if !is_block_aligned(offset, size, extent)
-            || !is_block_aligned(source_offset, size, source_size)
-        {
-            return Err(UploadError::MisalignedBlocks);
-        }
-
         let mut ctxt = TextureExt::get_context(texture).make_current();
         if !(ctxt.version >= &Version(Api::Gl, 4, 2)
             || ctxt.extensions.gl_arb_compressed_texture_pixel_storage)
@@ -254,11 +263,20 @@ impl<'a> TextureAnyMipmap<'a> {
                     as gl::types::GLenum;
             let format = ClientFormatAny::from_internal_compressed_format(internal_format)
                 .ok_or(UploadError::FormatNotSupported)?;
-            let block_bytes = format
-                .get_buffer_size(4, Some(4), None, None)
-                .ok_or(UploadError::FormatNotSupported)?;
-            let blocks = |texels: u32| texels.div_ceil(4) as usize;
-            let expected = blocks(source_size.0) * blocks(source_size.1) * block_bytes
+            if format.is_written_whole() {
+                return Err(UploadError::NotSupported);
+            }
+            let (block_width, block_height, block_bytes) =
+                format.block_size().ok_or(UploadError::FormatNotSupported)?;
+            let block = (block_width, block_height);
+            if !is_block_aligned(offset, size, extent, block)
+                || !is_block_aligned(source_offset, size, source_size, block)
+            {
+                return Err(UploadError::MisalignedBlocks);
+            }
+            let blocks_w = |texels: u32| texels.div_ceil(block_width) as usize;
+            let blocks_h = |texels: u32| texels.div_ceil(block_height) as usize;
+            let expected = blocks_w(source_size.0) * blocks_h(source_size.1) * block_bytes
                 * source_size.2 as usize;
             if source.len() != expected {
                 return Err(UploadError::DataSizeMismatch {
@@ -268,15 +286,17 @@ impl<'a> TextureAnyMipmap<'a> {
             }
 
             BufferAny::unbind_pixel_unpack(&mut ctxt);
-            ctxt.glow.pixel_store_i32(gl::UNPACK_COMPRESSED_BLOCK_WIDTH, 4);
-            ctxt.glow.pixel_store_i32(gl::UNPACK_COMPRESSED_BLOCK_HEIGHT, 4);
+            ctxt.glow
+                .pixel_store_i32(gl::UNPACK_COMPRESSED_BLOCK_WIDTH, block_width as i32);
+            ctxt.glow
+                .pixel_store_i32(gl::UNPACK_COMPRESSED_BLOCK_HEIGHT, block_height as i32);
             ctxt.glow.pixel_store_i32(gl::UNPACK_COMPRESSED_BLOCK_DEPTH, 1);
             ctxt.glow
                 .pixel_store_i32(gl::UNPACK_COMPRESSED_BLOCK_SIZE, block_bytes as i32);
 
             // the size given to OpenGL is the size of the blocks of the box itself; the blocks
             // are read from the client image with the skips, inside `source`
-            let image_size = blocks(size.0) * blocks(size.1) * block_bytes;
+            let image_size = blocks_w(size.0) * blocks_h(size.1) * block_bytes;
             let blocks_of = |count: usize| {
                 glow::CompressedPixelUnpackData::Slice(&source[..image_size * count])
             };

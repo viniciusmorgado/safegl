@@ -3,6 +3,9 @@ extern crate safegl;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 use safegl::buffer::BufferMode;
 use safegl::Surface;
 use std::mem;

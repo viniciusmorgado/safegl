@@ -20,7 +20,7 @@ pub use self::pipeline::DrawProgram;
 pub use self::pipeline::{
     ProgramPipeline, ProgramPipelineCreationError, SeparableProgram, SeparableSource,
 };
-pub use self::program::Program;
+pub use self::program::{PendingProgram, Program};
 pub use self::reflection::ShaderStage;
 #[cfg(not(safegl_desktop))]
 pub(crate) use self::reflection::SubroutineData;
@@ -231,7 +231,8 @@ pub enum ProgramCreationError {
 
     /// A location of `LinkLocations` can't be given: it is too large for the implementation,
     /// the index of a fragment output isn't 0 or 1, or the name starts with `gl_` or holds a nul
-    /// character.
+    /// character. WebGL also refuses names that start with `webgl_` or `_webgl_`, and names
+    /// longer than 1024 bytes.
     InvalidLinkLocation {
         /// The name of the attribute or output.
         name: String,
@@ -251,6 +252,9 @@ pub enum ProgramCreationError {
     /// Locations of fragment outputs can't be given before linking: OpenGL ES needs
     /// `GL_EXT_blend_func_extended`, and WebGL can't. Declare them with `layout(location = N)`.
     LinkLocationsNotSupported,
+
+    /// The context is lost: nothing can be created in it.
+    ContextLost,
 }
 
 impl fmt::Display for ProgramCreationError {
@@ -284,6 +288,7 @@ impl fmt::Display for ProgramCreationError {
             LinkLocationsNotSupported => {
                 "Fragment output locations can't be given before linking by the backend"
             }
+            ContextLost => "The context is lost",
         };
         match *self {
             CompilationError(ref s, _) => write!(fmt, "{}: {}", desc, s),

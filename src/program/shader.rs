@@ -5,10 +5,11 @@ use crate::version::Api;
 use crate::version::Version;
 
 use crate::backend::Facade;
-use crate::context::Context;
+use crate::context::{CommandContext, Context};
 use crate::CapabilitiesSource;
 use crate::ContextExt;
 
+use std::borrow::Cow;
 use std::rc::Rc;
 #[cfg(safegl_gl46)]
 use std::ffi;
@@ -43,13 +44,70 @@ impl Drop for Shader {
         let ctxt = self.context.make_current();
 
         unsafe {
-            ctxt.glow.delete_shader(self.id);
+            if !ctxt.objects_lost() {
+                ctxt.glow.delete_shader(self.id);
+            }
         }
     }
 }
 
 /// Builds an individual shader.
+/// The source with the blank lines before its `#version` directive removed, since GLSL ES
+/// compilers such as WebGL's require the directive on the first line, and desktop compilers
+/// accept it there. A `#line` directive keeps the line numbers of the compilation messages.
+fn version_first(source: &str) -> Cow<'_, str> {
+    let trimmed = source.trim_start();
+    if trimmed.len() == source.len() || !trimmed.starts_with("#version") {
+        return Cow::Borrowed(source);
+    }
+    let skipped_lines = source[..source.len() - trimmed.len()].matches('\n').count();
+    if skipped_lines == 0 {
+        return Cow::Borrowed(trimmed);
+    }
+    // the line after the directive keeps the number it had
+    let (version, rest) = match trimmed.find('\n') {
+        Some(end) => trimmed.split_at(end + 1),
+        None => return Cow::Borrowed(trimmed),
+    };
+    Cow::Owned(format!("{version}#line {}\n{rest}", skipped_lines + 2))
+}
+
 pub fn build_shader<F: ?Sized>(
+    facade: &F,
+    shader_type: gl::types::GLenum,
+    source_code: &str,
+) -> Result<Shader, ProgramCreationError>
+where
+    F: Facade,
+{
+    let shader = start_shader(facade, shader_type, source_code)?;
+    check_shader(&facade.get_context().make_current(), &shader, shader_type)?;
+    Ok(shader)
+}
+
+/// Returns the error of the compilation of `shader`, which waits for its end. `ctxt` is the
+/// current context of the shader.
+pub fn check_shader(
+    ctxt: &CommandContext<'_>,
+    shader: &Shader,
+    shader_type: gl::types::GLenum,
+) -> Result<(), ProgramCreationError> {
+    unsafe {
+        // checking compilation success by reading a flag on the shader
+        if ctxt.glow.get_shader_compile_status(shader.id) {
+            Ok(())
+        } else {
+            Err(ProgramCreationError::CompilationError(
+                ctxt.glow.get_shader_info_log(shader.id),
+                ShaderType::from_opengl_type(shader_type),
+            ))
+        }
+    }
+}
+
+/// Starts compiling an individual shader, without waiting for the end of the compilation, which
+/// drivers with `GL_KHR_parallel_shader_compile` do in the background.
+pub fn start_shader<F: ?Sized>(
     facade: &F,
     shader_type: gl::types::GLenum,
     source_code: &str,
@@ -68,12 +126,17 @@ where
             return Err(ProgramCreationError::ShaderTypeNotSupported);
         }
 
+        // the type is supported, so only a lost context fails, whether the browser creates the
+        // shader or not
+        if ctxt.objects_lost() {
+            return Err(ProgramCreationError::ContextLost);
+        }
         let shader = match ctxt.glow.create_shader(shader_type) {
             Ok(shader) => shader,
-            Err(_) => return Err(ProgramCreationError::ShaderTypeNotSupported),
+            Err(_) => return Err(ProgramCreationError::ContextLost),
         };
 
-        ctxt.glow.shader_source(shader, source_code);
+        ctxt.glow.shader_source(shader, &version_first(source_code));
 
         // compiling
         {
@@ -82,21 +145,10 @@ where
             ctxt.report_debug_output_errors.set(true);
         }
 
-        // checking compilation success by reading a flag on the shader
-        if ctxt.glow.get_shader_compile_status(shader) {
-            Ok(Shader {
-                context: facade.get_context().clone(),
-                id: shader,
-            })
-        } else {
-            // compilation error
-            let msg = ctxt.glow.get_shader_info_log(shader);
-
-            Err(ProgramCreationError::CompilationError(
-                msg,
-                ShaderType::from_opengl_type(shader_type),
-            ))
-        }
+        Ok(Shader {
+            context: facade.get_context().clone(),
+            id: shader,
+        })
     }
 }
 
@@ -266,8 +318,8 @@ pub struct FragmentOutput {
 ///
 /// Only declarations at global scope count, so the `out` parameters of functions are left out.
 /// Arrays whose size isn't a number get a size of 1.
-pub fn fragment_outputs(source: &str) -> Vec<FragmentOutput> {
-    // the source without comments nor preprocessor lines
+/// The source of a shader without its comments nor its preprocessor lines.
+fn code_without_comments(source: &str) -> String {
     let mut code = String::with_capacity(source.len());
     let mut chars = source.chars().peekable();
     let mut line_start = true;
@@ -305,6 +357,11 @@ pub fn fragment_outputs(source: &str) -> Vec<FragmentOutput> {
         }
     }
 
+    code
+}
+
+/// The declarations at global scope of code without comments.
+fn global_declarations(code: &str) -> Vec<String> {
     // the declarations at global scope: the text between `;` and `}` at a depth of 0
     let mut declarations = Vec::new();
     let mut depth = 0u32;
@@ -324,6 +381,34 @@ pub fn fragment_outputs(source: &str) -> Vec<FragmentOutput> {
             _ => (),
         }
     }
+
+    declarations
+}
+
+/// Returns the number of views that the source of a vertex shader declares with
+/// `layout(num_views = N) in;` (`GL_OVR_multiview2`), if it declares one.
+pub fn declared_views(source: &str) -> Option<u32> {
+    let code = code_without_comments(source);
+    global_declarations(&code).iter().find_map(|declaration| {
+        let start = declaration.find("layout")?;
+        let after = &declaration[start + "layout".len()..];
+        let open = after.find('(').filter(|&open| after[..open].trim().is_empty())?;
+        let close = after.find(')')?;
+        if after[close + 1..].trim() != "in" {
+            return None;
+        }
+        after[open + 1..close].split(',').find_map(|qualifier| {
+            let mut parts = qualifier.splitn(2, '=');
+            match parts.next().map(str::trim) {
+                Some("num_views") => parts.next()?.trim().parse().ok(),
+                _ => None,
+            }
+        })
+    })
+}
+
+pub fn fragment_outputs(source: &str) -> Vec<FragmentOutput> {
+    let declarations = global_declarations(&code_without_comments(source));
 
     let mut outputs = Vec::new();
     for declaration in declarations {
@@ -402,7 +487,7 @@ pub fn fragment_outputs(source: &str) -> Vec<FragmentOutput> {
 
 #[cfg(test)]
 mod tests {
-    use super::{fragment_outputs, FragmentOutput};
+    use super::{declared_views, fragment_outputs, FragmentOutput};
 
     fn output(name: &str, location: Option<u32>, size: u32) -> FragmentOutput {
         FragmentOutput {
@@ -442,5 +527,18 @@ mod tests {
                 output("extra", None, 1),
             ]
         );
+    }
+
+    #[test]
+    fn views_of_vertex_shaders() {
+        let source = "#version 300 es\n#extension GL_OVR_multiview2 : require\n\
+                      // layout(num_views = 4) in;\n\
+                      layout(num_views = 2) in;\nin vec2 position;\n\
+                      void main() { gl_Position = vec4(position, 0.0, 1.0); }";
+        assert_eq!(declared_views(source), Some(2));
+        let source = "#version 330\nlayout (num_views=3) in;\nvoid main() {}";
+        assert_eq!(declared_views(source), Some(3));
+        let source = "#version 330\nlayout(location = 0) in vec2 position;\nvoid main() {}";
+        assert_eq!(declared_views(source), None);
     }
 }

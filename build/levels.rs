@@ -60,7 +60,12 @@ pub fn build(out: &mut File) {
         desktop = Some(0);
     }
 
-    let mut names = vec!["safegl_desktop", "safegl_embedded", "safegl_webgl"];
+    let mut names = vec![
+        "safegl_desktop",
+        "safegl_embedded",
+        "safegl_webgl",
+        "safegl_browser",
+    ];
     names.extend(
         DESKTOP
             .iter()
@@ -87,6 +92,12 @@ pub fn build(out: &mut File) {
     }
     if webgl {
         println!("cargo::rustc-cfg=safegl_webgl");
+    }
+    // the WebGL 2 context of a browser, which the `web` backend and SafeGL's own WebGL calls use
+    let wasm = env::var("CARGO_CFG_TARGET_FAMILY").as_deref() == Ok("wasm")
+        && env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("emscripten");
+    if webgl && wasm {
+        println!("cargo::rustc-cfg=safegl_browser");
     }
 
     for error in errors {

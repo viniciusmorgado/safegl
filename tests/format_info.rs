@@ -10,6 +10,9 @@ use safegl::{FormatInfoNotSupportedError, FormatSupport, FormatTarget};
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 #[test]
 fn format_info() {
     let display = support::build_display();

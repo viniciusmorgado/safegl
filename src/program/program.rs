@@ -7,12 +7,17 @@ use crate::backend::Facade;
 
 use std::collections::hash_map::{self, HashMap};
 use std::fmt;
+use std::mem;
+use std::rc::Rc;
+
+use crate::context::Context;
 use std::hash::BuildHasherDefault;
 
 use fnv::FnvHasher;
 use glow::HasContext;
 
 use crate::GlObject;
+use crate::ContextExt;
 use crate::ProgramExt;
 use crate::RawUniformValue;
 
@@ -32,7 +37,8 @@ use crate::program::reflection::SubroutineUniform;
 use crate::program::reflection::{Attribute, TransformFeedbackBuffer};
 use crate::program::reflection::{OutputPrimitives, Uniform, UniformBlock};
 use crate::program::reflection::{ShaderStage, SubroutineData};
-use crate::program::shader::build_shader;
+use crate::program::raw::check_program_link_errors;
+use crate::program::shader::{check_shader, declared_views, start_shader, Shader};
 #[cfg(safegl_gl46)]
 use crate::program::shader::build_spirv_shader;
 
@@ -47,10 +53,15 @@ pub struct Program {
     uses_point_size: bool,
     // the stages of a separable program, 0 for the others
     separable_stages: gl::types::GLbitfield,
+    // the number of views that the vertex shader declares (`GL_OVR_multiview2`), `None` for
+    // the programs whose source SafeGL doesn't have
+    declared_views: Option<Option<u32>>,
 }
 
 impl Program {
     /// Builds a new program.
+    // at the levels without binaries nor SPIR-V, every input is source code, which returns early
+    #[allow(unreachable_code)]
     pub fn new<'a, F: ?Sized, I>(facade: &F, input: I) -> Result<Program, ProgramCreationError>
     where
         I: Into<ProgramCreationInput<'a>>,
@@ -59,67 +70,9 @@ impl Program {
         let input = input.into();
 
         let (raw, outputs_srgb, uses_point_size) = match input {
-            ProgramCreationInput::SourceCode {
-                vertex_shader,
-                tessellation_control_shader,
-                tessellation_evaluation_shader,
-                geometry_shader,
-                fragment_shader,
-                transform_feedback_varyings,
-                outputs_srgb,
-                uses_point_size,
-                locations,
-            } => {
-                let mut has_geometry_shader = false;
-                let mut has_tessellation_control_shader = false;
-                let mut has_tessellation_evaluation_shader = false;
-
-                let mut shaders = vec![
-                    (vertex_shader, ShaderType::Vertex),
-                    (fragment_shader, ShaderType::Fragment),
-                ];
-
-                if let Some(gs) = geometry_shader {
-                    shaders.push((stage_source(gs), ShaderType::Geometry));
-                    has_geometry_shader = true;
-                }
-
-                if let Some(ts) = tessellation_control_shader {
-                    shaders.push((stage_source(ts), ShaderType::TesselationControl));
-                    has_tessellation_control_shader = true;
-                }
-
-                if let Some(ts) = tessellation_evaluation_shader {
-                    shaders.push((stage_source(ts), ShaderType::TesselationEvaluation));
-                    has_tessellation_evaluation_shader = true;
-                }
-
-                let _lock = COMPILER_GLOBAL_LOCK.lock();
-
-                let shaders_store = {
-                    let mut shaders_store = Vec::new();
-                    for (src, ty) in shaders.into_iter() {
-                        shaders_store.push(build_shader(facade, ty.to_opengl_type(), src)?);
-                    }
-                    shaders_store
-                };
-
-                (
-                    RawProgram::from_shaders(
-                        facade,
-                        &shaders_store,
-                        has_geometry_shader,
-                        has_tessellation_control_shader,
-                        has_tessellation_evaluation_shader,
-                        transform_feedback_varyings,
-                        Some(fragment_shader),
-                        locations,
-                        None,
-                        None,
-                    )?,
-                    outputs_srgb,
-                    uses_point_size,
-                )
+            // the program is linked whether the driver compiles in the background or not
+            input @ ProgramCreationInput::SourceCode { .. } => {
+                return Program::new_pending(facade, input)?.finish();
             }
 
             #[cfg(any(safegl_gl41, safegl_gles30))]
@@ -201,6 +154,112 @@ impl Program {
             outputs_srgb,
             uses_point_size,
             separable_stages: 0,
+            declared_views: None,
+        })
+    }
+
+    /// Starts building a program, and returns it before its shaders are compiled and linked:
+    /// drivers with `GL_KHR_parallel_shader_compile` or `GL_ARB_parallel_shader_compile`, and
+    /// browsers with `KHR_parallel_shader_compile`, do it in the background, and
+    /// `PendingProgram::is_ready` tells when it is done, so that a program can wait for it
+    /// without blocking. `PendingProgram::finish` returns the program or its errors.
+    ///
+    /// Elsewhere, and for the inputs other than source code, the program is built at once.
+    pub fn new_pending<'a, F: ?Sized, I>(
+        facade: &F,
+        input: I,
+    ) -> Result<PendingProgram, ProgramCreationError>
+    where
+        I: Into<ProgramCreationInput<'a>>,
+        F: Facade,
+    {
+        let (
+            vertex_shader,
+            tessellation_control_shader,
+            tessellation_evaluation_shader,
+            geometry_shader,
+            fragment_shader,
+            transform_feedback_varyings,
+            outputs_srgb,
+            uses_point_size,
+            locations,
+        ) = match input.into() {
+            ProgramCreationInput::SourceCode {
+                vertex_shader,
+                tessellation_control_shader,
+                tessellation_evaluation_shader,
+                geometry_shader,
+                fragment_shader,
+                transform_feedback_varyings,
+                outputs_srgb,
+                uses_point_size,
+                locations,
+            } => (
+                vertex_shader,
+                tessellation_control_shader,
+                tessellation_evaluation_shader,
+                geometry_shader,
+                fragment_shader,
+                transform_feedback_varyings,
+                outputs_srgb,
+                uses_point_size,
+                locations,
+            ),
+            // binaries and SPIR-V modules
+            #[allow(unreachable_patterns)]
+            input => {
+                return Program::new(facade, input).map(|program| PendingProgram {
+                    context: facade.get_context().clone(),
+                    state: PendingState::Built(program),
+                })
+            }
+        };
+
+        let mut shaders = vec![
+            (vertex_shader, ShaderType::Vertex),
+            (fragment_shader, ShaderType::Fragment),
+        ];
+        let declared_views = declared_views(vertex_shader);
+        let has_geometry_shader = geometry_shader.is_some();
+        let has_tessellation_control_shader = tessellation_control_shader.is_some();
+        let has_tessellation_evaluation_shader = tessellation_evaluation_shader.is_some();
+        if let Some(gs) = geometry_shader {
+            shaders.push((stage_source(gs), ShaderType::Geometry));
+        }
+        if let Some(ts) = tessellation_control_shader {
+            shaders.push((stage_source(ts), ShaderType::TesselationControl));
+        }
+        if let Some(ts) = tessellation_evaluation_shader {
+            shaders.push((stage_source(ts), ShaderType::TesselationEvaluation));
+        }
+
+        let _lock = COMPILER_GLOBAL_LOCK.lock();
+        let mut shaders_store = Vec::with_capacity(shaders.len());
+        for (source, ty) in shaders {
+            let ty = ty.to_opengl_type();
+            shaders_store.push((start_shader(facade, ty, source)?, ty));
+        }
+        let id = RawProgram::link(
+            facade,
+            shaders_store.iter().map(|(shader, _)| shader),
+            transform_feedback_varyings,
+            Some(fragment_shader),
+            locations,
+            None,
+        )?;
+
+        Ok(PendingProgram {
+            context: facade.get_context().clone(),
+            state: PendingState::Linking {
+                id,
+                shaders: shaders_store,
+                has_geometry_shader,
+                has_tessellation_control_shader,
+                has_tessellation_evaluation_shader,
+                outputs_srgb,
+                uses_point_size,
+                declared_views,
+            },
         })
     }
 
@@ -218,6 +277,7 @@ impl Program {
             outputs_srgb,
             uses_point_size,
             separable_stages: stages,
+            declared_views: None,
         }
     }
 
@@ -226,6 +286,13 @@ impl Program {
     #[cfg(any(safegl_gl41, safegl_gles31))]
     pub(crate) fn separable_stages(&self) -> gl::types::GLbitfield {
         self.separable_stages
+    }
+
+    /// The number of views that the vertex shader declares (`GL_OVR_multiview2`), `None` if it
+    /// declares none, and `Err(())` if SafeGL doesn't know: for binaries, SPIR-V modules and
+    /// the programs of program pipelines.
+    pub(crate) fn declared_views(&self) -> Result<Option<u32>, ()> {
+        self.declared_views.ok_or(())
     }
 
     /// Returns the program, which knows its uniform values.
@@ -666,4 +733,135 @@ impl ProgramExt for Program {
     fn get_subroutine_data(&self) -> &SubroutineData {
         self.raw.get_subroutine_data()
     }
+}
+
+/// A program whose shaders may still be compiling and linking in the background. See
+/// `Program::new_pending`.
+pub struct PendingProgram {
+    context: Rc<Context>,
+    state: PendingState,
+}
+
+enum PendingState {
+    /// The program is linking.
+    Linking {
+        id: glow::Program,
+        // the shaders, with their `GLenum` types, whose errors `finish` returns
+        shaders: Vec<(Shader, gl::types::GLenum)>,
+        has_geometry_shader: bool,
+        has_tessellation_control_shader: bool,
+        has_tessellation_evaluation_shader: bool,
+        outputs_srgb: bool,
+        uses_point_size: bool,
+        declared_views: Option<u32>,
+    },
+    /// The program was built at once.
+    Built(Program),
+    /// `finish` took the program.
+    Finished,
+}
+
+impl PendingProgram {
+    /// Returns true if the compilation and the link of the program are done, so that `finish`
+    /// doesn't wait. Without parallel compilation, it is always true.
+    pub fn is_ready(&self) -> bool {
+        let PendingState::Linking { id, .. } = self.state else {
+            return true;
+        };
+        let ctxt = self.context.make_current();
+        if ctxt.objects_lost() || !is_parallel_compile_supported(&ctxt) {
+            return true;
+        }
+        unsafe { ctxt.glow.get_program_completion_status(id) }
+    }
+
+    /// Returns the program, after waiting for its compilation and its link if they aren't done,
+    /// or the error of the first shader that didn't compile, or the error of the link.
+    pub fn finish(mut self) -> Result<Program, ProgramCreationError> {
+        match mem::replace(&mut self.state, PendingState::Finished) {
+            PendingState::Built(program) => Ok(program),
+            PendingState::Finished => unreachable!("a pending program is finished once"),
+            PendingState::Linking {
+                id,
+                shaders,
+                has_geometry_shader,
+                has_tessellation_control_shader,
+                has_tessellation_evaluation_shader,
+                outputs_srgb,
+                uses_point_size,
+                declared_views,
+            } => {
+                let linked = unsafe {
+                    let mut ctxt = self.context.make_current();
+                    if ctxt.objects_lost() {
+                        Err(ProgramCreationError::ContextLost)
+                    } else if ctxt.glow.get_program_link_status(id) {
+                        Ok(())
+                    } else {
+                        // the shaders that didn't compile, then the link
+                        shaders
+                            .iter()
+                            .try_for_each(|(shader, ty)| check_shader(&ctxt, shader, *ty))
+                            .and_then(|()| check_program_link_errors(&mut ctxt, id))
+                    }
+                };
+                if let Err(error) = linked {
+                    self.delete(id);
+                    return Err(error);
+                }
+                drop(shaders);
+
+                let raw = RawProgram::from_linked(
+                    &self.context,
+                    id,
+                    has_geometry_shader,
+                    has_tessellation_control_shader,
+                    has_tessellation_evaluation_shader,
+                    None,
+                    None,
+                )?;
+                Ok(Program {
+                    raw,
+                    outputs_srgb,
+                    uses_point_size,
+                    separable_stages: 0,
+                    declared_views: Some(declared_views),
+                })
+            }
+        }
+    }
+
+    /// Deletes the program, which is linking or failed.
+    fn delete(&self, id: glow::Program) {
+        let ctxt = self.context.make_current();
+        if !ctxt.objects_lost() {
+            unsafe { ctxt.glow.delete_program(id) };
+        }
+    }
+}
+
+impl Drop for PendingProgram {
+    fn drop(&mut self) {
+        if let PendingState::Linking { id, .. } = self.state {
+            self.delete(id);
+        }
+    }
+}
+
+impl fmt::Debug for PendingProgram {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let state = match self.state {
+            PendingState::Linking { .. } => "linking",
+            PendingState::Built(_) | PendingState::Finished => "built",
+        };
+        write!(formatter, "PendingProgram({state})")
+    }
+}
+
+/// Returns true if the backend compiles and links in the background, and reports when it is done
+/// (`GL_KHR_parallel_shader_compile`, `GL_ARB_parallel_shader_compile`, or
+/// `KHR_parallel_shader_compile` in browsers).
+pub(crate) fn is_parallel_compile_supported(ctxt: &CommandContext<'_>) -> bool {
+    ctxt.extensions.gl_khr_parallel_shader_compile
+        || ctxt.extensions.gl_arb_parallel_shader_compile
 }

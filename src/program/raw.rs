@@ -9,9 +9,9 @@ use crate::version::Version;
 
 use crate::backend::Facade;
 use crate::context::Context;
-#[cfg(any(safegl_gl43, safegl_gles31))]
+#[cfg(any(safegl_gl43, safegl_gles31, safegl_browser))]
 use crate::vertex::TransformFeedback;
-#[cfg(any(safegl_gl43, safegl_gles31))]
+#[cfg(any(safegl_gl43, safegl_gles31, safegl_browser))]
 use crate::TransformFeedbackExt;
 use crate::ContextExt;
 #[cfg(any(safegl_gl43, safegl_gles31))]
@@ -114,13 +114,53 @@ impl RawProgram {
         F: Facade,
         I: IntoIterator<Item = &'a Shader>,
     {
+        let id = Self::link(
+            facade,
+            shaders,
+            transform_feedback,
+            fragment_source,
+            locations,
+            separable,
+        )?;
+        unsafe {
+            let mut ctxt = facade.get_context().make_current();
+            if let Err(error) = check_program_link_errors(&mut ctxt, id) {
+                ctxt.glow.delete_program(id);
+                return Err(error);
+            }
+        }
+        Self::from_linked(
+            facade,
+            id,
+            has_geometry_shader,
+            has_tessellation_control_shader,
+            has_tessellation_evaluation_shader,
+            spirv,
+            separable,
+        )
+    }
+
+    /// Links a program from a list of shaders, without waiting for the end of the link, which
+    /// drivers with `GL_KHR_parallel_shader_compile` do in the background.
+    pub fn link<'a, F: ?Sized, I>(
+        facade: &'a F,
+        shaders: I,
+        transform_feedback: Option<(Vec<String>, TransformFeedbackMode)>,
+        fragment_source: Option<&str>,
+        locations: LinkLocations<'_>,
+        separable: Option<gl::types::GLbitfield>,
+    ) -> Result<glow::Program, ProgramCreationError>
+    where
+        F: Facade,
+        I: IntoIterator<Item = &'a Shader>,
+    {
         let mut ctxt = facade.get_context().make_current();
         check_link_locations(&ctxt, &locations)?;
 
         let shaders_ids = shaders.into_iter().map(|s| s.get_id()).collect::<Vec<_>>();
 
         let id = unsafe {
-            let id = create_program(&mut ctxt);
+            let id = create_program(&mut ctxt)?;
 
             // attaching shaders
             for &sh in shaders_ids.iter() {
@@ -188,11 +228,25 @@ impl RawProgram {
                 ctxt.report_debug_output_errors.set(true);
             }
 
-            // checking for errors
-            check_program_link_errors(&mut ctxt, id)?;
-
             id
         };
+        Ok(id)
+    }
+
+    /// Builds the program from a program that linked, reading what it contains.
+    pub fn from_linked<F: ?Sized>(
+        facade: &F,
+        id: glow::Program,
+        has_geometry_shader: bool,
+        has_tessellation_control_shader: bool,
+        has_tessellation_evaluation_shader: bool,
+        spirv: Option<&[Module]>,
+        separable: Option<gl::types::GLbitfield>,
+    ) -> Result<RawProgram, ProgramCreationError>
+    where
+        F: Facade,
+    {
+        let mut ctxt = facade.get_context().make_current();
 
         // drivers can leave out the names of the resources of SPIR-V modules
         let (uniforms, atomic_counters, uniform_locations, attributes, blocks, ssbos, outputs) =
@@ -297,7 +351,7 @@ impl RawProgram {
         let mut ctxt = facade.get_context().make_current();
 
         let id = unsafe {
-            let id = create_program(&mut ctxt);
+            let id = create_program(&mut ctxt)?;
 
             ctxt.glow.program_binary(
                 id,
@@ -462,7 +516,15 @@ impl RawProgram {
         }
         self.get_frag_data_location(name)?;
 
-        let ctxt = self.context.make_current();
+        #[cfg_attr(not(safegl_browser), allow(unused_mut))]
+        let mut ctxt = self.context.make_current();
+        // WebGL gives it with `WEBGL_blend_func_extended`, for the current program
+        #[cfg(safegl_browser)]
+        if ctxt.extensions.webgl_blend_func_extended {
+            TransformFeedback::pause(&mut ctxt);
+            self.use_program(&mut ctxt);
+            return u32::try_from(ctxt.webgl.frag_data_index_of_current_program(name)).ok();
+        }
         let name = std::ffi::CString::new(name).ok()?;
         let index = unsafe {
             if ctxt.version.0 == crate::version::Api::Gl {
@@ -970,20 +1032,27 @@ impl Drop for RawProgram {
                 self.uniform_values.flush_subroutine_uniforms();
             }
 
-            ctxt.glow.delete_program(self.id);
+            if !ctxt.objects_lost() {
+                ctxt.glow.delete_program(self.id);
+            }
         }
     }
 }
 
-/// Builds an empty program from within the GL context.
-unsafe fn create_program(ctxt: &mut CommandContext<'_>) -> glow::Program {
-    match ctxt.glow.create_program() {
-        Ok(id) => id,
-        Err(_) => panic!("glCreateProgram failed"),
+/// Builds an empty program from within the GL context, which fails when the context is lost.
+unsafe fn create_program(
+    ctxt: &mut CommandContext<'_>,
+) -> Result<glow::Program, ProgramCreationError> {
+    // the objects of a lost context are gone, whether the browser creates them or not
+    if ctxt.objects_lost() {
+        return Err(ProgramCreationError::ContextLost);
     }
+    ctxt.glow
+        .create_program()
+        .map_err(|_| ProgramCreationError::ContextLost)
 }
 
-unsafe fn check_program_link_errors(
+pub(crate) unsafe fn check_program_link_errors(
     ctxt: &mut CommandContext<'_>,
     program: glow::Program,
 ) -> Result<(), ProgramCreationError> {
@@ -1055,7 +1124,16 @@ fn check_link_locations(
     ctxt: &CommandContext<'_>,
     locations: &LinkLocations<'_>,
 ) -> Result<(), ProgramCreationError> {
-    let invalid = |name: &str| name.starts_with("gl_") || name.contains('\0') || name.is_empty();
+    // WebGL reserves its own prefixes, and limits the length of the names it is given
+    let webgl = |name: &str| {
+        name.starts_with("webgl_") || name.starts_with("_webgl_") || name.len() > 1024
+    };
+    let invalid = |name: &str| {
+        name.starts_with("gl_")
+            || name.contains('\0')
+            || name.is_empty()
+            || (crate::version::is_webgl() && webgl(name))
+    };
     let error = |name: &str| ProgramCreationError::InvalidLinkLocation {
         name: name.to_owned(),
     };

@@ -73,6 +73,10 @@ primitive to a layer by writing `gl_Layer`, so that one draw renders into all of
 the six faces of a shadow cube map. It needs desktop OpenGL or OpenGL ES 3.2 (the `gles32`
 level), and `GL_EXT_geometry_shader` on OpenGL ES below 3.2.
 
+A multiview `LayeredFrameBuffer` (`LayeredFrameBuffer::multiview`) attaches views, layers of 2D
+array textures, that each draw renders to at once, such as the two eyes of stereo rendering. It
+needs `GL_OVR_multiview2` (`OVR_multiview2` on WebGL), at every level.
+
 */
 use smallvec::SmallVec;
 use std::rc::Rc;
@@ -115,11 +119,8 @@ pub use crate::fbo::{ClearBufferData, ClearBufferError};
 use crate::uniforms::MagnifySamplerFilter;
 
 mod default_fb;
-#[cfg(any(safegl_desktop, safegl_gles32))]
 mod layered;
 
-#[cfg(any(safegl_desktop, safegl_gles32))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
 pub use self::layered::{
     LayeredColorAttachment, LayeredDepthAttachment, LayeredDepthStencil,
     LayeredDepthStencilAttachment, LayeredFrameBuffer, LayeredStencilAttachment,
@@ -204,10 +205,14 @@ impl<'a> SimpleFrameBuffer<'a> {
     /// The framebuffer object belongs to SafeGL, which deletes it with its attachments. Code
     /// outside SafeGL must not delete it or change its attachments, and must be followed by
     /// [`Context::restore_state`](crate::context::Context::restore_state) if it binds it.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the context is lost, where no framebuffer object can be created.
     pub fn get_framebuffer_object(&self) -> glow::Framebuffer {
         let mut ctxt = self.context.make_current();
         fbo::FramebuffersContainer::get_framebuffer_for_drawing(&mut ctxt, self.get_attachments())
-            .expect("a framebuffer with attachments always has a framebuffer object")
+            .expect("the context is lost")
     }
 
     /// Discards the content of the attachments selected by `which`
@@ -696,8 +701,6 @@ impl<'a> Surface for SimpleFrameBuffer<'a> {
         )
     }
 
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     fn blit_buffers_from_layered_framebuffer(
         &self,
         source: &crate::framebuffer::LayeredFrameBuffer<'_>,
@@ -1249,8 +1252,6 @@ impl<'a> Surface for MultiOutputFrameBuffer<'a> {
         )
     }
 
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     fn blit_buffers_from_layered_framebuffer(
         &self,
         source: &crate::framebuffer::LayeredFrameBuffer<'_>,
@@ -1604,8 +1605,6 @@ impl Surface for EmptyFrameBuffer {
         )
     }
 
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     fn blit_buffers_from_layered_framebuffer(
         &self,
         source: &crate::framebuffer::LayeredFrameBuffer<'_>,

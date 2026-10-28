@@ -8,6 +8,9 @@ use safegl::Surface;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 fn assert_mismatch(result: Result<(), safegl::DrawError>) {
     assert!(
         matches!(result, Err(safegl::DrawError::ContextMismatch { .. })),

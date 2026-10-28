@@ -1029,18 +1029,30 @@ where
     T: TextureExt,
 {
     texture.prepare_for_access(ctxt, crate::TextureAccess::TextureFetch);
+    ctxt.sampled_textures
+        .push((texture.get_texture_id(), texture.sampled_levels()));
 
     // integer textures can only be sampled without filtering: with linear filters they are
     // incomplete and read as zero. Depth-stencil textures in stencil mode have the linear
-    // filters of depth textures, so they always get a sampler.
-    let sampler = if sampler.is_none() && texture.is_integer() && !texture.has_integer_filters()
+    // filters of depth textures, so they always get a sampler. WebGL can't filter the depths
+    // that are sampled without a comparison either.
+    let unfiltered_depth = crate::version::is_webgl()
+        && texture.is_depth()
+        && sampler.map_or(true, |sampler| sampler.depth_texture_comparison.is_none());
+    // OpenGL ES and WebGL only filter 32-bit floats with `GL_OES_texture_float_linear`
+    let unfiltered = unfiltered_depth
+        || (ctxt.version.0 == crate::version::Api::GlEs
+            && !ctxt.extensions.gl_oes_texture_float_linear
+            && texture.is_float32());
+    let sampler = if sampler.is_none()
+        && ((texture.is_integer() && !texture.has_integer_filters()) || unfiltered)
     {
         Some(SamplerBehavior::default())
     } else {
         sampler
     };
     let sampler = sampler.map(|mut sampler| {
-        if texture.is_integer() {
+        if texture.is_integer() || unfiltered {
             sampler.magnify_filter = MagnifySamplerFilter::Nearest;
             sampler.minify_filter = match sampler.minify_filter {
                 MinifySamplerFilter::Nearest | MinifySamplerFilter::Linear => {

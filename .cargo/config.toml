@@ -1,0 +1,4 @@
+# The tests in browsers run through wasm-bindgen's test runner, which starts a headless browser
+# with its WebDriver (geckodriver for Firefox).
+[target.wasm32-unknown-unknown]
+runner = "wasm-bindgen-test-runner"

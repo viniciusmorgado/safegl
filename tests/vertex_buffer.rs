@@ -6,138 +6,144 @@ use safegl::Surface;
 
 mod support;
 
-#[test]
-fn transform_feedback() {
-    let display = support::build_display();
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
 
-    #[derive(Copy, Clone, PartialEq)]
-    struct Vertex {
-        output_val: (f32, f32),
-    }
+support::async_test! {
+    fn transform_feedback() {
+        let display = support::build_display();
 
-    implement_vertex!(Vertex, output_val);
-    implement_any_bit_pattern!(Vertex, output_val);
+        #[derive(Copy, Clone, PartialEq)]
+        struct Vertex {
+            output_val: (f32, f32),
+        }
 
-    let (vb, ib) = support::build_rectangle_triangles(&display);
+        implement_vertex!(Vertex, output_val);
+        implement_any_bit_pattern!(Vertex, output_val);
 
-    let (vertex_shader, fragment_shader) = if support::is_gles(&display) {
-        (
-            "#version 300 es
-            in vec2 position;
-            out vec2 output_val;
-            void main() {
-                output_val = position;
-                gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
-            }",
-            "#version 300 es
-            precision mediump float;
-            out vec4 color;
-            void main() {
-                color = vec4(1.0, 1.0, 1.0, 1.0);
-            }",
-        )
-    } else {
-        (
-            "
-            #version 330
+        let (vb, ib) = support::build_rectangle_triangles(&display);
 
-            in vec2 position;
+        let (vertex_shader, fragment_shader) = if support::is_gles(&display) {
+            (
+                "#version 300 es
+                in vec2 position;
+                out vec2 output_val;
+                void main() {
+                    output_val = position;
+                    gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+                }",
+                "#version 300 es
+                precision mediump float;
+                out vec4 color;
+                void main() {
+                    color = vec4(1.0, 1.0, 1.0, 1.0);
+                }",
+            )
+        } else {
+            (
+                "
+                #version 330
 
-            out vec2 output_val;
+                in vec2 position;
 
-            void main() {
-                output_val = position;
-                gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
-            }
-        ",
-            "
-            #version 330
+                out vec2 output_val;
 
-            out vec4 color;
+                void main() {
+                    output_val = position;
+                    gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+                }
+            ",
+                "
+                #version 330
 
-            void main() {
-                color = vec4(1.0, 1.0, 1.0, 1.0);
-            }
-        ",
-        )
-    };
+                out vec4 color;
 
-    let source = safegl::program::ProgramCreationInput::SourceCode {
-        tessellation_control_shader: None,
-        tessellation_evaluation_shader: None,
-        geometry_shader: None,
-        outputs_srgb: false,
-        uses_point_size: false,
-        locations: Default::default(),
-
-        vertex_shader,
-        fragment_shader,
-
-        transform_feedback_varyings: Some((
-            vec!["output_val".to_string()],
-            safegl::program::TransformFeedbackMode::Separate,
-        )),
-    };
-
-    let program = match safegl::Program::new(&display, source) {
-        Ok(p) => p,
-        Err(e) => panic!("{:?}", e),
-    };
-
-    let mut out_buffer: safegl::VertexBuffer<Vertex> =
-        safegl::VertexBuffer::empty(&display, 6).unwrap();
-
-    // counts the captured primitives
-    let query = safegl::draw_parameters::TransformFeedbackPrimitivesWrittenQuery::new(&display)
-        .unwrap();
-
-    let texture = support::build_renderable_texture(&display);
-    texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
-
-    {
-        let session =
-            safegl::vertex::TransformFeedback::new(&display, &program)
-            .and_then(|transform_feedback| transform_feedback.with_buffer(&mut out_buffer))
-                .unwrap();
-
-        // only capturing the vertices, on OpenGL and OpenGL ES alike
-        let params = safegl::DrawParameters {
-            transform_feedback: Some(&session),
-            transform_feedback_primitives_written_queries: &[&query],
-            draw_primitives: false,
-            ..Default::default()
+                void main() {
+                    color = vec4(1.0, 1.0, 1.0, 1.0);
+                }
+            ",
+            )
         };
 
-        texture
-            .as_surface()
-            .draw(&vb, ib, &program, &uniform! {}, &params)
+        let source = safegl::program::ProgramCreationInput::SourceCode {
+            tessellation_control_shader: None,
+            tessellation_evaluation_shader: None,
+            geometry_shader: None,
+            outputs_srgb: false,
+            uses_point_size: false,
+            locations: Default::default(),
+
+            vertex_shader,
+            fragment_shader,
+
+            transform_feedback_varyings: Some((
+                vec!["output_val".to_string()],
+                safegl::program::TransformFeedbackMode::Separate,
+            )),
+        };
+
+        let program = match safegl::Program::new(&display, source) {
+            Ok(p) => p,
+            Err(e) => panic!("{:?}", e),
+        };
+
+        let mut out_buffer: safegl::VertexBuffer<Vertex> =
+            safegl::VertexBuffer::empty(&display, 6).unwrap();
+
+        // counts the captured primitives
+        let query = safegl::draw_parameters::TransformFeedbackPrimitivesWrittenQuery::new(&display)
             .unwrap();
+
+        let texture = support::build_renderable_texture(&display);
+        texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+
+        {
+            let session =
+                safegl::vertex::TransformFeedback::new(&display, &program)
+                .and_then(|transform_feedback| transform_feedback.with_buffer(&mut out_buffer))
+                    .unwrap();
+
+            // only capturing the vertices, on OpenGL and OpenGL ES alike
+            let params = safegl::DrawParameters {
+                transform_feedback: Some(&session),
+                transform_feedback_primitives_written_queries: &[&query],
+                draw_primitives: false,
+                ..Default::default()
+            };
+
+            texture
+                .as_surface()
+                .draw(&vb, ib, &program, &uniform! {}, &params)
+                .unwrap();
+        }
+
+        // WebGL gives the result in a later task of the event loop
+        support::until(|| query.is_ready()).await;
+        assert_eq!(query.get().unwrap(), 2);
+
+        // nothing was rasterized
+        let pixels: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
+        assert!(pixels.iter().flatten().all(|&p| p == (0, 0, 0, 0)));
+
+        let result = match out_buffer.read() {
+            Ok(r) => r,
+            Err(safegl::buffer::ReadError::NotSupported) => return,
+            e => e.unwrap(),
+        };
+
+        assert_eq!(result[0].output_val, (-1.0, 1.0));
+        assert_eq!(result[1].output_val, (1.0, 1.0));
+        assert_eq!(result[2].output_val, (-1.0, -1.0));
+        assert_eq!(result[3].output_val, (-1.0, -1.0));
+        assert_eq!(result[4].output_val, (1.0, 1.0));
+        assert_eq!(result[5].output_val, (1.0, -1.0));
+
+        display.assert_no_error(None);
     }
-
-    assert_eq!(query.get().unwrap(), 2);
-
-    // nothing was rasterized
-    let pixels: Vec<Vec<(u8, u8, u8, u8)>> = texture.read().unwrap();
-    assert!(pixels.iter().flatten().all(|&p| p == (0, 0, 0, 0)));
-
-    let result = match out_buffer.read() {
-        Ok(r) => r,
-        Err(safegl::buffer::ReadError::NotSupported) => return,
-        e => e.unwrap(),
-    };
-
-    assert_eq!(result[0].output_val, (-1.0, 1.0));
-    assert_eq!(result[1].output_val, (1.0, 1.0));
-    assert_eq!(result[2].output_val, (-1.0, -1.0));
-    assert_eq!(result[3].output_val, (-1.0, -1.0));
-    assert_eq!(result[4].output_val, (1.0, 1.0));
-    assert_eq!(result[5].output_val, (1.0, -1.0));
-
-    display.assert_no_error(None);
 }
 
 /// Builds a program that captures `output_val` from the positions of the vertices.
-fn capturing_program(display: &safegl::Display<safegl::glutin::surface::WindowSurface>) -> safegl::Program {
+fn capturing_program(display: &support::Backend) -> safegl::Program {
     let (vertex_shader, fragment_shader) = if support::is_gles(display) {
         (
             "#version 300 es\nin vec2 position;\nout vec2 output_val;\nvoid main() { output_val = position; gl_Position = vec4(0.0, 0.0, 0.0, 1.0); }",

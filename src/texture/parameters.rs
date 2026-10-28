@@ -119,10 +119,11 @@ impl TextureAny {
     /// without filtering and without depth comparison, and returns the stencil index in the red
     /// channel. With `Depth`, it is sampled by `sampler*` or `sampler*Shadow` uniforms.
     ///
-    /// Needs OpenGL 4.3, OpenGL ES 3.1 or `GL_ARB_stencil_texturing`. Returns an error without
-    /// them, or if the texture isn't a depth-stencil texture.
-    #[cfg(any(safegl_gl43, safegl_gles31))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
+    /// Needs OpenGL 4.3, OpenGL ES 3.1, `GL_ARB_stencil_texturing` or, on WebGL,
+    /// `WEBGL_stencil_texturing`. Returns an error without them, or if the texture isn't a
+    /// depth-stencil texture.
+    #[cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))))]
     pub fn set_depth_stencil_mode(
         &self,
         mode: DepthStencilTextureMode,
@@ -133,7 +134,8 @@ impl TextureAny {
         let mut ctxt = self.get_context().make_current();
         if !(ctxt.version >= &Version(Api::Gl, 4, 3)
             || ctxt.version >= &Version(Api::GlEs, 3, 1)
-            || ctxt.extensions.gl_arb_stencil_texturing)
+            || ctxt.extensions.gl_arb_stencil_texturing
+            || ctxt.extensions.webgl_stencil_texturing)
         {
             return Err(DepthStencilTextureModeError::NotSupported);
         }
@@ -151,8 +153,8 @@ impl TextureAny {
 
     /// Returns whether sampling a depth-stencil texture returns its depth or its stencil index.
     /// See `set_depth_stencil_mode`.
-    #[cfg(any(safegl_gl43, safegl_gles31))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
+    #[cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))))]
     pub fn depth_stencil_mode(&self) -> DepthStencilTextureMode {
         if self.samples_stencil() {
             DepthStencilTextureMode::Stencil
@@ -267,8 +269,8 @@ impl SwizzleSource {
 
 /// What sampling a depth-stencil texture returns. See `TextureAny::set_depth_stencil_mode`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-#[cfg(any(safegl_gl43, safegl_gles31))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
+#[cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))))]
 pub enum DepthStencilTextureMode {
     /// The depth, the default.
     Depth,
@@ -278,8 +280,8 @@ pub enum DepthStencilTextureMode {
 
 /// An error of `TextureAny::set_depth_stencil_mode`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[cfg(any(safegl_gl43, safegl_gles31))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
+#[cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))))]
 #[non_exhaustive]
 pub enum DepthStencilTextureModeError {
     /// Stencil texturing isn't supported by the backend.
@@ -288,7 +290,7 @@ pub enum DepthStencilTextureModeError {
     NotDepthStencil,
 }
 
-#[cfg(any(safegl_gl43, safegl_gles31))]
+#[cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))]
 impl fmt::Display for DepthStencilTextureModeError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.write_str(match self {
@@ -302,5 +304,5 @@ impl fmt::Display for DepthStencilTextureModeError {
     }
 }
 
-#[cfg(any(safegl_gl43, safegl_gles31))]
+#[cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))]
 impl Error for DepthStencilTextureModeError {}

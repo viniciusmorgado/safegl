@@ -382,8 +382,6 @@ impl Surface for DefaultFramebuffer {
         )
     }
 
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     fn blit_buffers_from_layered_framebuffer(
         &self,
         source: &crate::framebuffer::LayeredFrameBuffer<'_>,

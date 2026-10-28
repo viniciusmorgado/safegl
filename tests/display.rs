@@ -5,6 +5,9 @@ use safegl::Surface;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 #[test]
 fn get_opengl_version() {
     let display = support::build_display();
@@ -181,8 +184,10 @@ fn one_frame_at_a_time() {
     );
     frame.finish().unwrap();
 
-    // once finished, a new frame can start, and a frame dropped during a panic ends too
+    // once finished, a new frame can start, and a frame dropped during a panic ends too, where
+    // panics unwind (not in browsers)
     display.try_draw().unwrap().finish().unwrap();
+    #[cfg(not(target_arch = "wasm32"))]
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _frame = display.draw();
         panic!("dropping the frame");
@@ -192,6 +197,7 @@ fn one_frame_at_a_time() {
     display.assert_no_error(None);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn compatibility_profile_is_refused() {
     use safegl::glutin::context::{ContextApi, ContextAttributesBuilder, GlProfile, Version};
@@ -211,6 +217,7 @@ fn compatibility_profile_is_refused() {
     assert!(error.to_string().contains("core profile"), "{error}");
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn core_profile_is_accepted() {
     use safegl::glutin::context::{ContextApi, Version};

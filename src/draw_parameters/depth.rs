@@ -1,5 +1,4 @@
 use crate::context::CommandContext;
-#[cfg(safegl_desktop)]
 use crate::version::Api;
 
 use crate::gl;
@@ -32,19 +31,20 @@ pub struct Depth {
     /// coordinates, it will also map your Z coordinates to a certain range which you can
     /// specify here.
     ///
-    /// The two values must be between `0.0` and `1.0`, anything outside this range will result
-    /// in a panic. By default the depth range is `(0.0, 1.0)`.
+    /// The two values must be between `0.0` and `1.0`: draws with values outside of this range
+    /// return `DrawError::InvalidDepthRange`. By default the depth range is `(0.0, 1.0)`.
     ///
     /// The first value of the tuple must be the "near" value, where `-1.0` will be mapped.
     /// The second value must be the "far" value, where `1.0` will be mapped.
-    /// It is possible for the "near" value to be greater than the "far" value.
+    /// It is possible for the "near" value to be greater than the "far" value, except on WebGL,
+    /// where it returns `DrawError::InvalidDepthRange`.
     pub range: (f32, f32),
 
     /// Sets whether the depth values of samples should be clamped to `0.0` and `1.0`.
     ///
     /// The default value is `NoClamp`.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     pub clamp: DepthClamp,
 }
 
@@ -55,7 +55,7 @@ impl Default for Depth {
             test: DepthTest::Overwrite,
             write: false,
             range: (0.0, 1.0),
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             clamp: DepthClamp::NoClamp,
         }
     }
@@ -145,8 +145,8 @@ impl DepthTest {
 
 /// Specifies whether the depth value of samples should be clamped to `0.0` or `1.0`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg(safegl_desktop)]
-#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+#[cfg(any(safegl_desktop, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
 pub enum DepthClamp {
     /// Do not clamp. Samples with values outside of the `[0.0, 1.0]` range will be discarded.
     ///
@@ -155,7 +155,7 @@ pub enum DepthClamp {
 
     /// Clamp the depth values. All samples will always be drawn.
     ///
-    /// This value is only supported on OpenGL.
+    /// Needs desktop OpenGL, or `GL_EXT_depth_clamp` (`EXT_depth_clamp` on WebGL).
     Clamp,
 
     /// Depth values inferior to `0.0` will be clamped to `0.0`.
@@ -171,7 +171,7 @@ pub enum DepthClamp {
 
 pub fn sync_depth(ctxt: &mut CommandContext<'_>, depth: &Depth) -> Result<(), DrawError> {
     // depth clamp
-    #[cfg(safegl_desktop)]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
     {
         let state = &mut *ctxt.state;
         match (
@@ -183,7 +183,8 @@ pub fn sync_depth(ctxt: &mut CommandContext<'_>, depth: &Depth) -> Result<(), Dr
             (DepthClamp::Clamp, &mut true, &mut true) => (),
 
             (DepthClamp::NoClamp, near, far) => {
-                if ctxt.version.0 == Api::Gl {
+                // OpenGL ES and WebGL clamp with `GL_EXT_depth_clamp`
+                if ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_depth_clamp {
                     unsafe { ctxt.glow.disable(glow::DEPTH_CLAMP) };
                     *near = false;
                     *far = false;
@@ -193,7 +194,8 @@ pub fn sync_depth(ctxt: &mut CommandContext<'_>, depth: &Depth) -> Result<(), Dr
             }
 
             (DepthClamp::Clamp, near, far) => {
-                if ctxt.version.0 == Api::Gl {
+                // OpenGL ES and WebGL clamp with `GL_EXT_depth_clamp`
+                if ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_depth_clamp {
                     unsafe { ctxt.glow.enable(glow::DEPTH_CLAMP) };
                     *near = true;
                     *far = true;
@@ -261,10 +263,15 @@ pub fn sync_depth(ctxt: &mut CommandContext<'_>, depth: &Depth) -> Result<(), Dr
     }
 
     if depth.range != ctxt.state.depth_range {
-        // TODO: WebGL requires depth.range.1 > depth.range.0
+        // `glDepthRange` takes doubles on desktop OpenGL, and floats on OpenGL ES and WebGL,
+        // which refuses a near value above the far value (`validate_webgl`)
         unsafe {
-            ctxt.glow
-                .depth_range_f64(depth.range.0 as f64, depth.range.1 as f64);
+            if ctxt.version.0 == Api::Gl {
+                ctxt.glow
+                    .depth_range_f64(depth.range.0 as f64, depth.range.1 as f64);
+            } else {
+                ctxt.glow.depth_range_f32(depth.range.0, depth.range.1);
+            }
         }
         ctxt.state.depth_range = depth.range;
     }

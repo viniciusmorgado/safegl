@@ -114,7 +114,9 @@ the SafeGL API that gives it, or to the command that SafeGL calls instead, in th
 [OpenGL 4.6 coverage](book/opengl-4.6.md) of the book. The chapter
 [OpenGL 4.0 to 4.5 drivers](book/opengl-4.0-4.5.md) tells, for every extension that OpenGL 4.1 to
 4.6 made core, what SafeGL checks and does on drivers below the version of the extension, and how
-the tests simulate them.
+the tests simulate them. The chapter [WebGL 2](book/webgl-2.md) tells how SafeGL creates its
+contexts in browsers, checks the rules that WebGL 2 adds to OpenGL ES 3.0, and uses each extension
+of WebGL 2.
 
 Everything that isn't listed here compiles at every level: buffers, textures and framebuffers of
 the OpenGL ES 3.0 set, vertex and index buffers, programs with vertex and fragment shaders,
@@ -124,9 +126,9 @@ each chain that compiles a functionality; — means that the chain doesn't have 
 
 | Functionality                                    | Desktop | OpenGL ES | WebGL | Gated items                                                                                                                                  |
 |--------------------------------------------------|---------|-----------|-------|----------------------------------------------------------------------------------------------------------------------------------------------|
-| Layered framebuffers                             | `gl40`  | `gles32`  | —     | `framebuffer::{LayeredFrameBuffer, LayeredDepthStencil, Layered*Attachment, ToLayered*Attachment}`, `Surface::{blit_from_layered_framebuffer, blit_buffers_from_layered_framebuffer}`, `ValidationError::{LayeredFramebuffersNotSupported, LayerTargetsMismatch}` |
+| Layered framebuffers                             | `gl40`  | `gles32`  | —     | `LayeredFrameBuffer::{is_supported, new, with_depth_buffer, with_stencil_buffer, with_depth_stencil_buffer, depth_only, with_outputs}`, `ValidationError::{LayeredFramebuffersNotSupported, LayerTargetsMismatch}` (the multiview framebuffers of the same types are at every level) |
 | Geometry and tessellation shaders                | `gl40`  | `gles32`  | —     | geometry and tessellation sources of `ProgramCreationInput::SourceCode`, `Program::from_source` and `program!`; `PrimitiveType::{LinesListAdjacency, LineStripAdjacency, TrianglesListAdjacency, TriangleStripAdjacency, Patches}`; their `DrawError`s |
-| Per-output blending and color masks              | `gl40`  | `gles32`  | —     | `DrawParameters::outputs`, `OutputState`, `DrawError::{PerOutputStateNotSupported, OutputStateIndexOutOfBounds}`                            |
+| Per-output blending and color masks              | `gl40`  | `gles32`  | `webgl` | `DrawParameters::outputs`, `OutputState`, `DrawError::{PerOutputStateNotSupported, OutputStateIndexOutOfBounds}`                            |
 | Sample shading                                   | `gl40`  | `gles32`  | —     | `MultisampleState::sample_shading`, `DrawError::SampleShadingNotSupported`                                                                   |
 | Primitives generated queries                     | `gl40`  | `gles32`  | —     | `PrimitivesGeneratedQuery`, `DrawParameters::primitives_generated_queries`                                                                   |
 | Buffer textures                                  | `gl40`  | `gles32`  | —     | `texture::buffer_texture`, `UniformValue::BufferTexture`                                                                                     |
@@ -136,18 +138,21 @@ each chain that compiles a functionality; — means that the chain doesn't have 
 | Format queries                                   | `gl43`  | —         | —     | `Context::format_info`, `FormatTarget`, `FormatInfo`, `FormatSupport`, `FormatInfoNotSupportedError`                                       |
 | Texture views                                    | `gl43`  | —         | —     | `view` constructors of every texture type, `texture::TextureViewError`                                                                     |
 | Texture invalidation                             | `gl43`  | —         | —     | `TextureAnyMipmap::{invalidate, invalidate_region}`, `texture::RegionOutOfBoundsError`                                                       |
-| ETC2 and EAC compressed formats                  | `gl43`  | `gles30`  | —     | `CompressedFormat::{Etc2Rgb8, Etc2Rgb8PunchthroughAlpha1, Etc2Rgba8Eac, EacR11Unsigned, EacR11Signed, EacRg11Unsigned, EacRg11Signed}`, `CompressedSrgbFormat::{Etc2Rgb8, Etc2Rgb8PunchthroughAlpha1, Etc2Rgba8Eac}` |
+| ETC2 and EAC compressed formats                  | `gl43`  | `gles30`  | `webgl` | `CompressedFormat::{Etc2Rgb8, Etc2Rgb8PunchthroughAlpha1, Etc2Rgba8Eac, EacR11Unsigned, EacR11Signed, EacRg11Unsigned, EacRg11Signed}`, `CompressedSrgbFormat::{Etc2Rgb8, Etc2Rgb8PunchthroughAlpha1, Etc2Rgba8Eac}` |
 | Texture swizzle                                  | `gl40`  | `gles30`  | —     | `TextureAny::{set_swizzle, swizzle}`, `texture::{Swizzle, SwizzleSource}`                                                                     |
 | Border colors                                    | `gl40`  | `gles32`  | —     | `SamplerWrapFunction::BorderClamp`, `Sampler::{border_color, border_color_int, border_color_uint}`, `uniforms::{BorderColor, BorderColorValue}`, `DrawError::BorderColorMismatch` |
 | 2D multisample textures, sample masks and sample positions | `gl40` | `gles31` | — | `texture::{Texture2dMultisample, ...}`, `is_texture_2d_multisample_supported`, `MultisampleState::sample_mask`, `DrawError::SampleMaskNotSupported`, `sample_positions` of the framebuffers and `Frame`, `framebuffer::SamplePositionsNotSupportedError` |
 | Subroutines                                      | `gl40`  | —         | —     | `UniformValue::Subroutine`, `Program::get_subroutine_uniforms`, `program::{is_subroutine_supported, SubroutineData, SubroutineUniform}`      |
 | Double-precision and 64-bit integer uniforms     | `gl40`  | —         | —     | `UniformValue::Double*`, `Int64*` and `UnsignedInt64*`, `RawUniformValue::Double*` and `*Int64*`, their `AsUniformValue` and block impls     |
 | 1D textures                                      | `gl40`  | —         | —     | `texture::{Texture1d, Texture1dArray, ...}`, `is_texture_1d_supported`, `is_texture_1d_array_supported`                                     |
-| Rasterization state of desktop OpenGL            | `gl40`  | —         | —     | `DrawParameters::{polygon_mode, point_size, clip_planes_bitmask, smooth, provoking_vertex, logic_op, point_coord_origin, point_fade_threshold}`, `MultisampleState::{enabled, alpha_to_one}`, `Depth::clamp`, `PolygonOffset::{point, line}`, `PolygonMode`, `LogicOp`, `PointCoordOrigin`, `Smooth`, `ProvokingVertex`, `DepthClamp`, their `DrawError`s |
-| Samples passed and time elapsed queries, conditional rendering, GPU timestamps | `gl40` | — | — | `SamplesPassedQuery`, `TimeElapsedQuery`, `DrawParameters::{time_elapsed_query, condition}`, `ConditionalRendering`, `DrawError::ConditionalRenderingNotSupported`, `Context::gpu_timestamp` |
+| Rasterization state of desktop OpenGL            | `gl40`  | —         | —     | `DrawParameters::{point_size, smooth, logic_op, point_coord_origin, point_fade_threshold}`, `MultisampleState::{enabled, alpha_to_one}`, `PolygonOffset::point`, `LogicOp`, `PointCoordOrigin`, `Smooth`, their `DrawError`s |
+| Rasterization state of WebGL extensions          | `gl40`  | —         | `webgl` | `DrawParameters::{polygon_mode, clip_planes_bitmask, provoking_vertex}`, `Depth::clamp`, `PolygonOffset::line`, `PolygonMode`, `ProvokingVertex`, `DepthClamp`, `DrawError::{PolygonModeNotSupported, PolygonOffsetNotSupported, ProvokingVertexNotSupported, DepthClampNotSupported}` |
+| Samples passed queries, conditional rendering    | `gl40`  | —         | —     | `SamplesPassedQuery`, `DrawParameters::condition`, `ConditionalRendering`, `DrawError::ConditionalRenderingNotSupported` |
+| Time elapsed queries and GPU timestamps          | `gl40`  | —         | `webgl` | `TimeElapsedQuery`, `DrawParameters::time_elapsed_query`, `Context::gpu_timestamp`, `QueryResultError::Disjoint` |
 | 64-bit integer and packed float vertex attributes | `gl40` | —        | —     | `AttributeType::{I64*, U64*, F64*, F10F11F11UnsignedIntReversed}`                                                                            |
 | Bindless textures (`GL_ARB_bindless_texture`)    | `gl40`  | —         | —     | `texture::bindless`, `texture::{ResidentTexture, TextureHandle, BindlessTexturesNotSupportedError}`, `resident()` on textures                 |
-| Chosen primitive restart index, BGRA attributes, ranges drawn with one call, default tessellation levels | `gl40` | — | — | `PrimitiveRestart::Index`, `DrawError::PrimitiveRestartIndexNotSupported`, `vertex::Bgra8`, `AttributeType::*Bgra`, `index::NoIndicesRanges`, `IndexBuffer::{ranges, ranges_with_base_vertices}`, `IndicesSource::{NoIndicesRanges, IndexBufferRanges}`, `DrawError::{DrawRangesNotSupported, DrawRangeOutOfBounds, InstancedDrawRangesNotSupported}`, `DrawParameters::patch_default_levels`, `PatchDefaultLevels` |
+| Chosen primitive restart index, BGRA attributes, default tessellation levels | `gl40` | — | — | `PrimitiveRestart::Index`, `DrawError::PrimitiveRestartIndexNotSupported`, `vertex::Bgra8`, `AttributeType::*Bgra`, `DrawParameters::patch_default_levels`, `PatchDefaultLevels` |
+| Ranges drawn with one call                       | `gl40`  | —         | `webgl` | `index::NoIndicesRanges`, `IndexBuffer::{ranges, ranges_with_base_vertices}`, `IndicesSource::{NoIndicesRanges, IndexBufferRanges}`, `DrawError::{DrawRangesNotSupported, DrawRangeOutOfBounds, InstancedDrawRangesNotSupported}` |
 | Draws of captured vertices and vertex streams    | `gl40`  | —         | —     | `CapturedVertices::{indices, stream_indices}`, `IndicesSource::TransformFeedback`, `PrimitivesGeneratedQuery::with_stream`, `TransformFeedbackPrimitivesWrittenQuery::with_stream`, `DrawError::CapturedVerticesDrawNotSupported` |
 | Rectangle textures                               | `gl40`  | —         | —     | `texture::{TextureRectangle, SrgbTextureRectangle, IntegralTextureRectangle, UnsignedTextureRectangle, DepthTextureRectangle, DepthStencilTextureRectangle}`, `DrawError::RectangleTextureSampler` |
 | Double-precision vertex attributes               | `gl41`  | —         | —     | the `Attribute` impls of `f64`, its arrays and its tuples                                                                                   |
@@ -155,7 +160,7 @@ each chain that compiles a functionality; — means that the chain doesn't have 
 | Shader precision formats                         | `gl41`  | `gles30`  | `webgl` | `Context::shader_precision_format`, `program::{PrecisionQualifier, ShaderPrecision}`                                                          |
 | Viewport arrays                                  | `gl41`  | —         | —     | `DrawParameters::viewports`, `ViewportState`, `DrawError::{ViewportArrayNotSupported, ViewportArrayConflict, ViewportIndexOutOfBounds, InvalidViewport}` |
 | Program pipelines of separable programs          | `gl41`  | `gles31`  | —     | `program::{SeparableProgram, SeparableSource, ProgramPipeline, ProgramPipelineCreationError}`, `DrawProgram::Pipeline` |
-| Base instances                                   | `gl42`  | —         | —     | `DrawParameters::base_instance`, `DrawError::BaseInstanceNotSupported`                                                                     |
+| Base instances                                   | `gl42`  | —         | `webgl` | `DrawParameters::base_instance`, `DrawError::BaseInstanceNotSupported`                                                                     |
 | Indirect draws of one command                    | `gl40`  | `gles31`  | —     | `index::{DrawCommandsNoIndicesBuffer, DrawCommandsIndicesBuffer, DrawCommandNoIndices, DrawCommandIndices, DrawCommandLayout}`, `command()` and `command_with_index_buffer()` on them, `implement_draw_command!`, `IndicesSource::Multidraw*`, `DrawError::{IndirectDrawsNotSupported, MultidrawNotSupported, IndirectDrawWithTransformFeedback}` |
 | Image load/store and atomic counters             | `gl42`  | `gles31`  | —     | `uniforms::{ImageUnit, ImageUnitBehavior, ImageUnitAccess, ImageUnitFormat, ImageUnitError}`, `image_unit()` on textures, `UniformValue::Image`, `BufferType::AtomicCounterBuffer`, `Program::get_atomic_counters` |
 | Multisample images                               | `gl42`  | —         | —     | `image_unit()` on multisample textures, `ImageUnitError::TooManySamples`                                                                    |
@@ -167,18 +172,21 @@ each chain that compiles a functionality; — means that the chain doesn't have 
 | Framebuffer invalidation                         | `gl43`  | `gles30`  | `webgl` | `invalidate()` and `invalidate_rect()` on framebuffers, `framebuffer::InvalidateAttachments`                                              |
 | Debug groups, object labels and debug messages   | `gl43`  | `gles32`  | —     | `Context::{push_debug_group, set_debug_messages_enabled, insert_debug_message, debug_message_log, is_debug_output_supported}`, `debug::{DebugGroup, ObjectLabel, DebugMessage, DebugMessageFilter, DebugError}`, `DebugCallbackBehavior::Log`, the debug fields of `Limits` |
 | Stencil textures                                 | `gl44`  | `gles32`  | —     | `texture::{StencilTexture2d, ...}`                                                                                                           |
-| Sampling the stencil of depth-stencil textures   | `gl43`  | `gles31`  | —     | `TextureAny::{set_depth_stencil_mode, depth_stencil_mode}`, `texture::{DepthStencilTextureMode, DepthStencilTextureModeError}`                 |
+| Sampling the stencil of depth-stencil textures   | `gl43`  | `gles31`  | `webgl` | `TextureAny::{set_depth_stencil_mode, depth_stencil_mode}`, `texture::{DepthStencilTextureMode, DepthStencilTextureModeError}`                 |
 | Clearing textures and query buffers              | `gl44`  | —         | —     | `texture::{is_clear_texture_supported, ClearTextureError}`, `clear()`, `clear_region()` and `clear_depth_stencil()` on mipmaps, `to_buffer_u32()` and `to_buffer()` on queries, `debug::TimestampQuery::to_buffer`, `draw_parameters::{ToBufferError, QueryBufferMode, QueryBufferValue}`, `BufferType::QueryBuffer` |
-| Mirror-clamp wrapping                            | `gl44`  | —         | —     | `SamplerWrapFunction::MirrorClamp`                                                                                                           |
+| Mirror-clamp wrapping                            | `gl44`  | —         | `webgl` | `SamplerWrapFunction::MirrorClamp`                                                                                                           |
 | Reading boxes of textures                        | `gl45`  | —         | —     | `TextureAnyMipmap::{read_box, read_volume, read_compressed_box}`, `ReadError::{NotSupported, MisalignedBlocks}`                            |
-| Texture barrier and clip control                 | `gl45`  | —         | —     | `texture::{texture_barrier, is_texture_barrier_supported, TextureBarrierNotSupportedError}`, `DrawParameters::{clip_control_origin, clip_control_depth}`, `ClipControlOrigin`, `ClipControlDepth`, `DrawError::ClipControlNotSupported` |
+| Texture barrier                                  | `gl45`  | —         | —     | `texture::{texture_barrier, is_texture_barrier_supported, TextureBarrierNotSupportedError}` |
+| Clip control                                     | `gl45`  | —         | `webgl` | `DrawParameters::{clip_control_origin, clip_control_depth}`, `ClipControlOrigin`, `ClipControlDepth`, `DrawError::ClipControlNotSupported` |
 | Graphics reset status                            | `gl45`  | `gles32`  | —     | `Context::graphics_reset_status`, `GraphicsResetStatus`                                                                                      |
 | Inverted conditional rendering                   | `gl45`  | —         | —     | `ConditionalRendering::inverted`, `DrawError::ConditionalRenderingInvertedNotSupported`                                                      |
 | Draws with a number of commands from a buffer    | `gl46`  | —         | —     | `DrawCommandsNoIndicesBuffer::with_draw_count`, `DrawCommandsIndicesBuffer::with_index_buffer_and_draw_count`, `index::DrawCount`, `BufferType::ParameterBuffer`, `DrawError::DrawCountNotSupported` |
 | Pipeline statistics and transform feedback overflow queries | `gl46` | — | — | `draw_parameters::{PipelineStatisticsQuery, PipelineStatistic, TransformFeedbackOverflowQuery}`, `DrawParameters::{pipeline_statistics_queries, transform_feedback_overflow_query}`, `ComputeShader::execute_with_statistics`, `ConditionQuery::TransformFeedbackOverflowQuery` |
-| Polygon offset clamp and SPIR-V shaders          | `gl46`  | —         | —     | `DrawParameters::polygon_offset_clamp`, `DrawError::PolygonOffsetClampNotSupported`, `ProgramCreationInput::SpirV`, `program::{SpirvProgram, SpirvEntryPoint, SpecializationConstant}`, `ComputeShader::from_spirv`, `Capabilities::spirv_extensions` |
+| SPIR-V shaders                                   | `gl46`  | —         | —     | `ProgramCreationInput::SpirV`, `program::{SpirvProgram, SpirvEntryPoint, SpecializationConstant}`, `ComputeShader::from_spirv`, `Capabilities::spirv_extensions` |
+| Polygon offset clamp                             | `gl46`  | —         | `webgl` | `DrawParameters::polygon_offset_clamp`, `DrawError::PolygonOffsetClampNotSupported` |
 | Contexts without error checking                  | `gl46`  | —         | —     | `Capabilities::no_error`, `Context::is_no_error`                                                                                              |
 | Primitive bounding boxes                         | —       | `gles32`  | —     | `DrawParameters::primitive_bounding_box`                                                                                                     |
+| Textures from the images of browsers             | —       | —         | `webgl` (wasm32) | `texture::{WebImageSource, WebImageOptions, WebImageError}`, `from_web_image` and `write_web_image` on `Texture2d` and `SrgbTexture2d`, `TextureAnyMipmap::write_web_image`, `UploadError::ImageRefused` |
 
 At the levels without geometry and tessellation shaders, their sources have the type
 `program::NotInLevel`, which has no values: only `None` compiles. The fields of
@@ -298,6 +306,23 @@ MESA_GLES_VERSION_OVERRIDE=3.0 LIBGL_ALWAYS_SOFTWARE=1 cargo test --features gle
 
 The chapter [OpenGL 4.0 to 4.5 drivers](book/opengl-4.0-4.5.md) describes the configurations that
 simulate drivers of each version without the extensions promoted after it.
+
+The same tests run in a browser with WebGL 2, headless, through
+[wasm-bindgen-test](https://wasm-bindgen.github.io/wasm-bindgen/wasm-bindgen-test/index.html).
+They need the `wasm32-unknown-unknown` target, `wasm-bindgen-cli` at the version of
+`wasm-bindgen` in `Cargo.lock` (it provides the test runner that `.cargo/config.toml` names), and
+Firefox with [geckodriver](https://github.com/mozilla/geckodriver) (or Chrome with chromedriver):
+
+```sh
+cargo test --target wasm32-unknown-unknown --no-default-features --features webgl --tests
+```
+
+Even headless, Firefox only creates WebGL contexts with a display: on a machine without one, run
+the tests under `xvfb-run`, and Firefox draws with Mesa's software driver where there is no GPU.
+
+Browsers have no environment: there, `SAFEGL_DISABLE_EXTENSIONS` is read when the tests are
+built. The tests that need native windows or contexts (rebuilding a display, robust contexts,
+caught panics) only run natively.
 
 What each level compiles is checked by a [Lua](https://www.lua.org) script, which builds small
 crates against every level, the browser and macOS (`rustup target add wasm32-unknown-unknown

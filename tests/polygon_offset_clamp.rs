@@ -1,4 +1,4 @@
-#![cfg(safegl_gl46)]
+#![cfg(any(safegl_gl46, safegl_webgl))]
 
 #[macro_use]
 extern crate safegl;
@@ -10,6 +10,9 @@ use safegl::texture::DepthFormat;
 use safegl::{DrawError, Surface, Texture2d};
 
 mod support;
+
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
 
 const SIZE: u32 = 16;
 
@@ -28,7 +31,7 @@ struct Pipeline {
 }
 
 impl Pipeline {
-    fn new(display: &safegl::Display<safegl::glutin::surface::WindowSurface>) -> Pipeline {
+    fn new(display: &support::Backend) -> Pipeline {
         let vertices = safegl::VertexBuffer::new(
             display,
             &[

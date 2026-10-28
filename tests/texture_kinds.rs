@@ -13,7 +13,11 @@ use safegl::{DrawError, Program, Surface, VertexBuffer};
 
 mod support;
 
-type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
+#[cfg(target_arch = "wasm32")]
+#[allow(unused_imports)]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
+type Display = support::Backend;
 type Pixel = (u8, u8, u8, u8);
 
 #[derive(Copy, Clone)]
@@ -70,7 +74,7 @@ fn draw(
 const ETC2_BLOCK: [u8; 8] = [0x88, 0x44, 0x22, 0x00, 0, 0, 0, 0];
 const ETC2_COLOR: Pixel = (0x88 + 2, 0x44 + 2, 0x22 + 2, 255);
 
-#[cfg(any(safegl_gl43, safegl_gles30))]
+#[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
 #[test]
 fn etc2_textures() {
     use safegl::texture::{CompressedFormat, CompressedMipmapsOption, CompressedTexture2d};
@@ -136,7 +140,7 @@ fn etc2_textures() {
     display.assert_no_error(None);
 }
 
-#[cfg(any(safegl_gl43, safegl_gles30))]
+#[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
 #[test]
 fn etc2_srgb_textures() {
     use safegl::texture::{CompressedMipmapsOption, CompressedSrgbFormat, CompressedSrgbTexture2d};
@@ -168,6 +172,175 @@ fn etc2_srgb_textures() {
         "{pixel:?}"
     );
 
+    display.assert_no_error(None);
+}
+
+/// Samples a compressed texture made of one `block` of `format`, and returns its pixels, or
+/// `None` if the backend doesn't have the format.
+fn sample_block(
+    display: &Display,
+    format: safegl::texture::CompressedFormat,
+    block: &[u8],
+) -> Option<Vec<Vec<Pixel>>> {
+    use safegl::texture::{CompressedMipmapsOption, CompressedTexture2d};
+
+    if !format.is_supported(display) {
+        let texture = CompressedTexture2d::with_compressed_data(
+            display,
+            block,
+            4,
+            4,
+            format,
+            CompressedMipmapsOption::NoMipmap,
+        );
+        assert!(texture.is_err(), "{:?}", format);
+        return None;
+    }
+    let (width, height, _) = format.block_size();
+    let texture = CompressedTexture2d::with_compressed_data(
+        display,
+        block,
+        width,
+        height,
+        format,
+        CompressedMipmapsOption::NoMipmap,
+    )
+    .unwrap();
+    let program = program(
+        display,
+        330,
+        300,
+        "uniform sampler2D tex;",
+        "color = texture(tex, uv);",
+    );
+    Some(draw(display, &program, &uniform! { tex: &texture }).unwrap())
+}
+
+/// A DXT1 block of 4 × 4 red texels: both colors are pure red in RGB565, and every texel takes
+/// the first one.
+const S3TC_RED_BLOCK: [u8; 8] = [0x00, 0xf8, 0x00, 0xf8, 0, 0, 0, 0];
+
+/// S3TC textures, which WebGL has through `WEBGL_compressed_texture_s3tc`, sample their colors.
+#[test]
+fn s3tc_textures() {
+    use safegl::texture::CompressedFormat;
+
+    let display = support::build_display();
+    if let Some(pixels) = sample_block(&display, CompressedFormat::S3tcDxt1NoAlpha, &S3TC_RED_BLOCK)
+    {
+        assert_eq!(pixels[2][2], (255, 0, 0, 255));
+    }
+    display.assert_no_error(None);
+}
+
+/// An ASTC block of a single color, of any block size: a void-extent block, whose colors are
+/// four 16-bit values, here opaque green.
+const ASTC_GREEN_BLOCK: [u8; 16] = [
+    0xfc, 0xfd, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0xff,
+    0xff,
+];
+
+/// ASTC textures of every block size sample their colors, and their images are sized in their
+/// blocks.
+#[test]
+fn astc_textures() {
+    use safegl::texture::{AstcBlockSize, CompressedFormat};
+    use safegl::texture::{CompressedMipmapsOption, CompressedTexture2d};
+
+    let display = support::build_display();
+    for size in AstcBlockSize::ALL {
+        let format = CompressedFormat::Astc(size);
+        let (width, height) = size.dimensions();
+        assert_eq!(format.block_size(), (width, height, 16));
+        let Some(pixels) = sample_block(&display, format, &ASTC_GREEN_BLOCK) else {
+            continue;
+        };
+        assert_eq!(pixels[2][2], (0, 255, 0, 255), "{:?}", size);
+
+        // a 10 × 10 image is made of the blocks that cover it
+        let blocks = (10u32.div_ceil(width) * 10u32.div_ceil(height)) as usize;
+        let texture = |blocks: usize| {
+            CompressedTexture2d::with_compressed_data(
+                &display,
+                &vec![0u8; blocks * 16],
+                10,
+                10,
+                format,
+                CompressedMipmapsOption::NoMipmap,
+            )
+        };
+        assert!(texture(blocks).is_ok(), "{:?}", size);
+        assert!(texture(blocks - 1).is_err(), "{:?}", size);
+    }
+    display.assert_no_error(None);
+}
+
+/// ETC1 and PVRTC textures are written whole, and PVRTC textures have power-of-two sizes.
+#[test]
+fn whole_written_formats() {
+    use safegl::texture::{
+        CompressedFormat, CompressedMipmapsOption, CompressedTexture2d, TextureCreationError,
+        UploadError,
+    };
+
+    let display = support::build_display();
+    for format in [CompressedFormat::Etc1Rgb8, CompressedFormat::PvrtcRgba4] {
+        if !format.is_supported(&display) {
+            continue;
+        }
+        // a PVRTC image takes two blocks at least in each direction
+        let size = |side: u32| {
+            let (width, height, bytes) = format.block_size();
+            let min = if format == CompressedFormat::Etc1Rgb8 { 1 } else { 2 };
+            let blocks = side.div_ceil(width).max(min) * side.div_ceil(height).max(min);
+            blocks as usize * bytes
+        };
+        let texture = CompressedTexture2d::with_compressed_data(
+            &display,
+            &vec![0u8; size(8)],
+            8,
+            8,
+            format,
+            CompressedMipmapsOption::NoMipmap,
+        )
+        .unwrap();
+        // a region is refused, the whole level is written
+        let region = safegl::Rect {
+            left: 0,
+            bottom: 0,
+            width: 4,
+            height: 4,
+        };
+        assert_eq!(
+            texture.write_compressed_data(region, &vec![0u8; size(4)], 4, 4, format),
+            Err(UploadError::NotSupported)
+        );
+        let whole = safegl::Rect {
+            width: 8,
+            height: 8,
+            ..region
+        };
+        texture
+            .write_compressed_data(whole, &vec![0u8; size(8)], 8, 8, format)
+            .unwrap();
+    }
+
+    // PVRTC textures need power-of-two sizes
+    let format = CompressedFormat::PvrtcRgba4;
+    if format.is_supported(&display) {
+        let texture = CompressedTexture2d::with_compressed_data(
+            &display,
+            &[0u8; 128],
+            12,
+            8,
+            format,
+            CompressedMipmapsOption::NoMipmap,
+        );
+        assert!(matches!(
+            texture,
+            Err(TextureCreationError::DimensionsNotSupported)
+        ));
+    }
     display.assert_no_error(None);
 }
 

@@ -11,7 +11,10 @@ use safegl::{DrawError, Program, Surface, VertexBuffer};
 
 mod support;
 
-type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
+type Display = support::Backend;
 type Pixel = (u8, u8, u8, u8);
 
 #[derive(Copy, Clone)]
@@ -213,7 +216,7 @@ fn level_of_detail() {
 }
 
 /// Sampling a depth-stencil texture returns its depth or its stencil index.
-#[cfg(any(safegl_gl43, safegl_gles31))]
+#[cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))]
 #[test]
 fn depth_stencil_texture_mode() {
     use safegl::framebuffer::SimpleFrameBuffer;
@@ -250,7 +253,7 @@ fn depth_stencil_texture_mode() {
     let stencil = program(
         &display,
         430,
-        310,
+        300,
         "uniform usampler2D tex;",
         "color = vec4(texelFetch(tex, ivec2(0), 0)) / 255.0;",
     );
@@ -275,7 +278,7 @@ fn depth_stencil_texture_mode() {
     let depth = program(
         &display,
         430,
-        310,
+        300,
         "uniform sampler2D tex;",
         "color = texture(tex, vec2(0.5));",
     );

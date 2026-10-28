@@ -122,6 +122,9 @@ pub enum TextureCreationError {
         /// The alignment of the offsets in bytes.
         alignment: usize,
     },
+
+    /// The context is lost: nothing can be created in it.
+    ContextLost,
 }
 
 impl fmt::Display for TextureCreationError {
@@ -144,6 +147,7 @@ impl fmt::Display for TextureCreationError {
             #[cfg(any(safegl_gl43, safegl_gles32))]
             MisalignedRange { .. } =>
                 "The offset of the range isn't a multiple of the alignment of buffer texture offsets",
+            ContextLost => "The context is lost",
         };
         fmt.write_str(desc)
     }
@@ -526,10 +530,13 @@ where
         // now the texture creation
         debug_assert_eq!(buffer.get_offset_bytes(), 0);
         // reserving the ID
-        let id = unsafe {
-            ctxt.glow
-                .create_texture()
-                .expect("failed to create a texture")
+        // the objects of a lost context are gone, whether the browser creates them or not
+        if ctxt.objects_lost() {
+            return Err((TextureCreationError::ContextLost, buffer));
+        }
+        let id = match unsafe { ctxt.glow.create_texture() } {
+            Ok(id) => id,
+            Err(_) => return Err((TextureCreationError::ContextLost, buffer)),
         };
 
         // binding the texture
@@ -642,7 +649,9 @@ where
         }
 
         unsafe {
-            ctxt.glow.delete_texture(self.texture);
+            if !ctxt.objects_lost() {
+                ctxt.glow.delete_texture(self.texture);
+            }
         }
     }
 }

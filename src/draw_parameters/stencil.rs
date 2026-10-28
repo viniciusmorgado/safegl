@@ -1,6 +1,7 @@
 use crate::context;
 use crate::gl;
 use crate::ToGlEnum;
+use crate::DrawError;
 use glow::HasContext;
 
 /// Describes the parameters that must be used for the stencil operations when drawing.
@@ -256,6 +257,44 @@ impl Stencil {
     }
 }
 
+/// The mask of a test, or `None` for the tests that always pass or fail, which don't read one.
+fn test_mask(test: StencilTest) -> Option<u32> {
+    match test {
+        StencilTest::AlwaysPass | StencilTest::AlwaysFail => None,
+        StencilTest::IfLess { mask }
+        | StencilTest::IfLessOrEqual { mask }
+        | StencilTest::IfMore { mask }
+        | StencilTest::IfMoreOrEqual { mask }
+        | StencilTest::IfEqual { mask }
+        | StencilTest::IfNotEqual { mask } => Some(mask),
+    }
+}
+
+/// Returns `DrawError::StencilFacesMismatch` if the stencil test is enabled with faces that have
+/// different reference values, test masks or write masks, which WebGL refuses. WebGL compares
+/// them on the bits of the stencil buffer: 8 bits at most.
+pub fn validate_webgl_faces(params: &Stencil) -> Result<(), DrawError> {
+    if !params.requires_stencil_buffer() {
+        return Ok(());
+    }
+    let reference = |value: i32| value.clamp(0, 0xff);
+    let masks = match (
+        test_mask(params.test_clockwise),
+        test_mask(params.test_counter_clockwise),
+    ) {
+        (Some(clockwise), Some(counter_clockwise)) => (clockwise & 0xff, counter_clockwise & 0xff),
+        _ => (0, 0),
+    };
+    if reference(params.reference_value_clockwise)
+        != reference(params.reference_value_counter_clockwise)
+        || masks.0 != masks.1
+        || params.write_mask_clockwise & 0xff != params.write_mask_counter_clockwise & 0xff
+    {
+        return Err(DrawError::StencilFacesMismatch);
+    }
+    Ok(())
+}
+
 pub fn sync_stencil(
     ctxt: &mut context::CommandContext<'_>,
     params: &Stencil,
@@ -310,6 +349,16 @@ pub fn sync_stencil(
         StencilTest::IfMoreOrEqual { mask } => (gl::GEQUAL, mask),
         StencilTest::IfEqual { mask } => (gl::EQUAL, mask),
         StencilTest::IfNotEqual { mask } => (gl::NOTEQUAL, mask),
+    };
+
+    // the tests that always pass or fail don't read their mask: they get the one of the other
+    // face, since WebGL refuses faces with different test masks
+    let (read_mask_cw, read_mask_ccw) = match (
+        test_mask(params.test_clockwise),
+        test_mask(params.test_counter_clockwise),
+    ) {
+        (None, Some(mask)) | (Some(mask), None) => (mask, mask),
+        _ => (read_mask_cw, read_mask_ccw),
     };
 
     let ref_cw = params.reference_value_clockwise;

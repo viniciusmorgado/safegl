@@ -45,6 +45,9 @@ pub enum CreationError {
     /// The number of samples is above `Limits::max_samples`, or above the largest number of
     /// samples of the format.
     SamplesNotSupported,
+
+    /// The context is lost: nothing can be created in it.
+    ContextLost,
 }
 
 impl fmt::Display for CreationError {
@@ -54,6 +57,7 @@ impl fmt::Display for CreationError {
             FormatNotSupported => "The requested format is not supported",
             DimensionsNotSupported => "The dimensions of the render buffer are too large",
             SamplesNotSupported => "The number of samples isn't supported for this format",
+            ContextLost => "The context is lost",
         };
         fmt.write_str(desc)
     }
@@ -414,6 +418,7 @@ pub struct RenderBufferAny {
     height: u32,
     samples: Option<u32>,
     kind: TextureKind,
+    format: image_format::TextureFormat,
 }
 
 impl RenderBufferAny {
@@ -463,10 +468,14 @@ impl RenderBufferAny {
         unsafe {
             let mut ctxt = context.make_current();
 
+            // the objects of a lost context are gone, whether the browser creates them or not
+            if ctxt.objects_lost() {
+                return Err(CreationError::ContextLost);
+            }
             let id = ctxt
                 .glow
                 .create_renderbuffer()
-                .expect("failed to create a renderbuffer object");
+                .map_err(|_| CreationError::ContextLost)?;
             ctxt.glow.bind_renderbuffer(glow::RENDERBUFFER, Some(id));
             ctxt.state.renderbuffer = Some(id);
 
@@ -494,8 +503,15 @@ impl RenderBufferAny {
                 height,
                 samples,
                 kind,
+                format: texture_format,
             })
         }
+    }
+
+    /// Returns the format of the render buffer.
+    #[inline]
+    pub fn get_format(&self) -> image_format::TextureFormat {
+        self.format
     }
 
     /// Returns the dimensions of the render buffer.
@@ -561,7 +577,9 @@ impl Drop for RenderBufferAny {
                 ctxt.state.renderbuffer = None;
             }
 
-            ctxt.glow.delete_renderbuffer(self.id);
+            if !ctxt.objects_lost() {
+                ctxt.glow.delete_renderbuffer(self.id);
+            }
         }
     }
 }

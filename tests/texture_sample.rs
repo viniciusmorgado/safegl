@@ -5,6 +5,9 @@ use safegl::Surface;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 macro_rules! texture_sample_test {
     ($test_name:ident, $tex_ty:ident, $sampler_ty:expr, $fun:expr, $coords:expr, $data:expr) => {
         #[test]

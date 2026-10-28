@@ -10,7 +10,10 @@ use safegl::{Api, CapabilitiesSource, Limits, StageLimits, Version};
 
 mod support;
 
-type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
+type Display = support::Backend;
 
 /// Desktop OpenGL `major.minor` or above.
 // unused at the OpenGL 4.0 level

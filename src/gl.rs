@@ -61,6 +61,8 @@ pub const DEPTH_CLAMP_FAR_AMD: GLenum = 0x901F;
 pub const DEPTH_CLAMP_NEAR_AMD: GLenum = 0x901E;
 pub const GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX: GLenum = 0x9049;
 pub const INT64_NV: GLenum = 0x140E;
+// GL_OVR_multiview
+pub const MAX_VIEWS_OVR: GLenum = 0x9631;
 // WebGL 2
 pub const MAX_CLIENT_WAIT_TIMEOUT_WEBGL: GLenum = 0x9247;
 pub const TEXTURE_FREE_MEMORY_ATI: GLenum = 0x87FC;
@@ -157,6 +159,7 @@ extra_functions! {
     fn ClearTexImageEXT(texture: GLuint, level: GLint, format: GLenum, type_: GLenum, data: *const c_void) -> ();
     fn ClearTexSubImageEXT(texture: GLuint, level: GLint, xoffset: GLint, yoffset: GLint, zoffset: GLint, width: GLsizei, height: GLsizei, depth: GLsizei, format: GLenum, type_: GLenum, data: *const c_void) -> ();
     fn ClipControl(origin: GLenum, depth: GLenum) -> ();
+    fn ClipControlEXT(origin: GLenum, depth: GLenum) -> ();
     fn CopyImageSubData(srcName: GLuint, srcTarget: GLenum, srcLevel: GLint, srcX: GLint, srcY: GLint, srcZ: GLint, dstName: GLuint, dstTarget: GLenum, dstLevel: GLint, dstX: GLint, dstY: GLint, dstZ: GLint, srcWidth: GLsizei, srcHeight: GLsizei, srcDepth: GLsizei) -> ();
     fn CompressedTexSubImage1D(target: GLenum, level: GLint, xoffset: GLint, width: GLsizei, format: GLenum, imageSize: GLsizei, data: *const c_void) -> ();
     fn DebugMessageCallback(callback: GLDEBUGPROC, userParam: *const c_void) -> ();
@@ -174,6 +177,7 @@ extra_functions! {
     fn EndConditionalRenderNV() -> ();
     fn FramebufferParameteri(target: GLenum, pname: GLenum, param: GLint) -> ();
     fn FramebufferTextureEXT(target: GLenum, attachment: GLenum, texture: GLuint, level: GLint) -> ();
+    fn FramebufferTextureMultiviewOVR(target: GLenum, attachment: GLenum, texture: GLuint, level: GLint, baseViewIndex: GLint, numViews: GLsizei) -> ();
     fn GetActiveAtomicCounterBufferiv(program: GLuint, bufferIndex: GLuint, pname: GLenum, params: *mut GLint) -> ();
     fn GetActiveSubroutineName(program: GLuint, shadertype: GLenum, index: GLuint, bufsize: GLsizei, length: *mut GLsizei, name: *mut GLchar) -> ();
     fn GetActiveSubroutineUniformName(program: GLuint, shadertype: GLenum, index: GLuint, bufsize: GLsizei, length: *mut GLsizei, name: *mut GLchar) -> ();

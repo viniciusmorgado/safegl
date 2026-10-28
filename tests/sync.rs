@@ -9,6 +9,9 @@ use safegl::{Surface, SyncFence, SyncWaitResult};
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 #[test]
 fn wait_with_a_timeout() {
     let display = support::build_display();

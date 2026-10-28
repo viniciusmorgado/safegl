@@ -1,5 +1,5 @@
 //! `DrawParameters::base_instance`, added to the start of the per-instance slices.
-#![cfg(safegl_gl42)]
+#![cfg(any(safegl_gl42, safegl_webgl))]
 
 #[macro_use]
 extern crate safegl;
@@ -9,7 +9,10 @@ use safegl::{DrawError, DrawParameters, IndexBuffer, Program, Surface, VertexBuf
 
 mod support;
 
-type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
+type Display = support::Backend;
 
 #[derive(Copy, Clone)]
 struct Position {

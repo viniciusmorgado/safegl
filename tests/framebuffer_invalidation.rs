@@ -11,6 +11,9 @@ use safegl::{Rect, Surface, Texture2d};
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 const SIZE: u32 = 16;
 
 /// The content of invalidated attachments is undefined, so these tests check that invalidating

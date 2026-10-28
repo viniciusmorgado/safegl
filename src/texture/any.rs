@@ -12,7 +12,7 @@ use crate::Rect;
 use crate::TextureExt;
 use crate::TextureMipmapExt;
 
-use crate::image_format::{self, ClientFormatAny, TextureFormatRequest};
+use crate::image_format::{self, ClientFormatAny, CompressedFormat, TextureFormatRequest};
 use crate::texture::pixel::PixelValue;
 use crate::texture::pixel_buffer::PixelBuffer;
 use crate::texture::Texture2dDataSink;
@@ -106,6 +106,10 @@ pub struct TextureAny {
     /// Cache for the actual format of the texture. The outer Option is None if the format hasn't
     /// been checked yet. The inner Result is Err if the format has been checked but is unknown.
     actual_format: Cell<Option<Result<InternalFormat, GetFormatError>>>,
+
+    /// The internal format that SafeGL created the texture with, sized or not, or 0 for the
+    /// textures that it didn't create.
+    created_format: gl::types::GLenum,
 
     /// Type and dimensions of the texture.
     ty: Dimensions,
@@ -410,8 +414,6 @@ unsafe fn allocate_upper_levels(
     let layered_height = bind_point == gl::TEXTURE_1D_ARRAY;
     let layered_depth =
         bind_point == gl::TEXTURE_2D_ARRAY || bind_point == gl::TEXTURE_CUBE_MAP_ARRAY;
-    let block_bytes = compressed.and_then(|c| c.get_buffer_size(4, Some(4), None, None));
-
     for level in 1..levels {
         let w = halve(width, level);
         let h = match height {
@@ -425,15 +427,15 @@ unsafe fn allocate_upper_levels(
             None => 1,
         };
         let level = level as i32;
-        // zeroed 4x4 blocks covering the level
-        let blocks = block_bytes.map(|bytes| {
-            let blocks_w = (w as usize).div_ceil(4);
-            let blocks_h = if bind_point == gl::TEXTURE_1D || layered_height {
+        // zeroed blocks covering the level, in its layers or slices
+        let blocks = compressed.map(|format| {
+            let rows = if bind_point == gl::TEXTURE_1D || layered_height {
                 1
             } else {
-                (h as usize).div_ceil(4)
+                h
             };
-            vec![0u8; bytes * blocks_w * blocks_h * d as usize]
+            let size = format.get_buffer_size(w as u32, Some(rows as u32), None, Some(d as u32));
+            vec![0u8; size.unwrap_or(0)]
         });
 
         if bind_point == gl::TEXTURE_1D {
@@ -544,6 +546,19 @@ where
     P: Send + Clone + 'a,
     F: Facade,
 {
+    // compressed data gives its format to the textures of any compressed format, which then
+    // have that format
+    let format = match (format, data.as_ref().map(|&(client, _)| client)) {
+        (TextureFormatRequest::AnyCompressed, Some(ClientFormatAny::CompressedFormat(f))) => {
+            TextureFormatRequest::Specific(TextureFormat::CompressedFormat(f))
+        }
+        (
+            TextureFormatRequest::AnyCompressedSrgb,
+            Some(ClientFormatAny::CompressedSrgbFormat(f)),
+        ) => TextureFormatRequest::Specific(TextureFormat::CompressedSrgbFormat(f)),
+        (format, _) => format,
+    };
+
     // getting the width, height, depth, array_size, samples from the type
     let (width, height, depth, array_size, samples) = extract_dimensions(ty);
     let (is_client_compressed, data_bufsize) = match data {
@@ -569,6 +584,39 @@ where
     }
     check_dimensions(facade.get_context(), ty)?;
 
+    // ETC1 and PVRTC textures have no texture storage: their levels are given whole, the
+    // levels of PVRTC textures have power-of-two sizes
+    let written_whole = match format {
+        TextureFormatRequest::Specific(TextureFormat::CompressedFormat(format)) => {
+            Some(ClientFormatAny::CompressedFormat(format)).filter(|f| f.is_written_whole())
+        }
+        _ => None,
+    };
+    let power_of_two = |size: Option<u32>| size.is_none_or(u32::is_power_of_two);
+    let etc1 = ClientFormatAny::CompressedFormat(CompressedFormat::Etc1Rgb8);
+    if written_whole.is_some_and(|f| f != etc1)
+        && !(power_of_two(Some(width)) && power_of_two(height))
+    {
+        return Err(TextureCreationError::DimensionsNotSupported);
+    }
+    // the S3TC, RGTC and BPTC extensions of WebGL need a level 0 of whole blocks
+    let compressed = match format {
+        TextureFormatRequest::Specific(TextureFormat::CompressedFormat(format)) => {
+            Some(ClientFormatAny::CompressedFormat(format))
+        }
+        TextureFormatRequest::Specific(TextureFormat::CompressedSrgbFormat(format)) => {
+            Some(ClientFormatAny::CompressedSrgbFormat(format))
+        }
+        _ => None,
+    };
+    let whole_blocks = |size: Option<u32>| size.is_none_or(|size| size % 4 == 0);
+    if cfg!(safegl_browser)
+        && compressed.is_some_and(|f| f.needs_whole_blocks_on_webgl())
+        && !(whole_blocks(Some(width)) && whole_blocks(height))
+    {
+        return Err(TextureCreationError::DimensionsNotSupported);
+    }
+
     let should_generate_mipmaps = mipmaps.should_generate();
     let texture_levels = mipmaps.num_levels(width, height, depth) as gl::types::GLsizei;
     // rectangle textures have a single level
@@ -592,7 +640,8 @@ where
         format,
         image_format::RequestType::TexStorage(storage_client),
     )
-    .ok();
+    .ok()
+    .filter(|_| written_whole.is_none());
 
     let (client_format, client_type) = match (&data, format) {
         (&Some((client_format, _)), f) => {
@@ -692,10 +741,14 @@ where
 
         BufferAny::unbind_pixel_unpack(&mut ctxt);
 
+        // the objects of a lost context are gone, whether the browser creates them or not
+        if ctxt.objects_lost() {
+            return Err(TextureCreationError::ContextLost);
+        }
         let id = ctxt
             .glow
             .create_texture()
-            .expect("failed to create a texture");
+            .map_err(|_| TextureCreationError::ContextLost)?;
 
         {
             ctxt.glow.bind_texture(bind_point, Some(id));
@@ -922,6 +975,22 @@ where
                     data_bufsize as i32,
                     data_raw,
                 );
+            } else if let Some(format) = written_whole {
+                // an empty ETC1 or PVRTC level is made of zeroed blocks
+                let size = format.get_buffer_size(width as u32, Some(height as u32), None, None);
+                let zeroes = vec![0u8; size.unwrap_or(0)];
+                for target in image_targets(bind_point) {
+                    ctxt.glow.compressed_tex_image_2d(
+                        target,
+                        0,
+                        teximg_internal_format as i32,
+                        width,
+                        height,
+                        0,
+                        zeroes.len() as i32,
+                        &zeroes,
+                    );
+                }
             } else {
                 // the six faces of a cube map are separate images
                 for target in image_targets(bind_point) {
@@ -1094,8 +1163,15 @@ where
         }
 
         // `glTexImage*` allocates one level: without texture storage, the other levels are
-        // allocated one by one, empty, so that the texture is complete
+        // allocated one by one, empty, and the last level is the one that the texture has, so
+        // that it is complete with fewer levels than down to 1x1, and that mipmap generation
+        // stops there
         let has_storage = storage_internal_format.is_some() && is_tex_storage_supported(&ctxt);
+        if texture_levels > 1 && !has_storage {
+            let max_level = texture_levels - 1;
+            ctxt.glow
+                .tex_parameter_i32(bind_point, glow::TEXTURE_MAX_LEVEL, max_level);
+        }
         if texture_levels > 1 && !should_generate_mipmaps && !has_storage {
             let compressed = data.as_ref().map(|&(c, _)| c).filter(|c| c.is_compressed());
             allocate_upper_levels(
@@ -1117,11 +1193,18 @@ where
         id
     };
 
+    let has_storage = storage_internal_format.is_some() && is_tex_storage_supported(&ctxt);
+    let mipmap_max = match texture_levels {
+        1 => 0,
+        levels if !has_storage => levels as u32 - 1,
+        _ => 1000,
+    };
     Ok(TextureAny {
         context: facade.get_context().clone(),
         id,
         requested_format: format,
         actual_format: Cell::new(None),
+        created_format: storage_internal_format.unwrap_or(teximg_internal_format),
         ty,
         levels: texture_levels as u32,
         generate_mipmaps: should_generate_mipmaps,
@@ -1129,8 +1212,9 @@ where
         owned: true,
         latest_shader_write: Rc::new(Cell::new(0)),
         swizzle: Cell::new(Some([gl::RED, gl::GREEN, gl::BLUE, gl::ALPHA])),
-        // the defaults of OpenGL, or the range set above for textures without mipmaps
-        mipmap_range: Cell::new(Some((0, if texture_levels > 1 { 1000 } else { 0 }))),
+        // the defaults of OpenGL, or the range set above for textures without mipmaps or
+        // texture storage
+        mipmap_range: Cell::new(Some((0, mipmap_max))),
         depth_stencil_mode: Cell::new(Some(gl::DEPTH_COMPONENT)),
         fixed_sample_locations,
     })
@@ -1320,6 +1404,7 @@ pub fn new_texture_view(
         id,
         requested_format: format,
         actual_format: Cell::new(None),
+        created_format: view_format,
         ty,
         levels: levels.len() as u32,
         generate_mipmaps: false,
@@ -1354,6 +1439,7 @@ pub unsafe fn from_id<F: Facade + ?Sized>(
         id,
         requested_format: format,
         actual_format: Cell::new(None),
+        created_format: 0,
         ty,
         levels: mipmap_levels,
         generate_mipmaps: should_generate_mipmaps,
@@ -1430,6 +1516,12 @@ impl TextureAny {
             Dimensions::Texture3d { depth, .. } => Some(depth),
             _ => None,
         }
+    }
+
+    /// The internal format that SafeGL created the texture with, sized or not, or 0 for the
+    /// textures that it didn't create.
+    pub(crate) fn created_format(&self) -> gl::types::GLenum {
+        self.created_format
     }
 
     /// Returns the initial requested format.
@@ -1693,6 +1785,28 @@ impl TextureExt for TextureAny {
     }
 
     #[inline]
+    fn is_depth(&self) -> bool {
+        match self.kind() {
+            TextureKind::Depth => true,
+            TextureKind::DepthStencil => !self.samples_stencil(),
+            _ => false,
+        }
+    }
+
+    #[inline]
+    fn is_float32(&self) -> bool {
+        match self.requested_format {
+            TextureFormatRequest::Specific(format) => format.is_float32(),
+            _ => false,
+        }
+    }
+
+    #[inline]
+    fn sampled_levels(&self) -> (u32, u32) {
+        self.mipmap_range()
+    }
+
+    #[inline]
     fn get_context(&self) -> &Rc<Context> {
         &self.context
     }
@@ -1771,7 +1885,9 @@ impl Drop for TextureAny {
 
         if self.owned {
             unsafe {
-                ctxt.glow.delete_texture(self.id);
+                if !ctxt.objects_lost() {
+                    ctxt.glow.delete_texture(self.id);
+                }
             }
         }
     }
@@ -2182,22 +2298,40 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
             return Err(UploadError::OutOfBounds);
         }
 
-        // the regions of compressed textures are made of whole blocks
-        let compressed = matches!(
-            self.texture.requested_format,
-            TextureFormatRequest::AnyCompressed
-                | TextureFormatRequest::AnyCompressedSrgb
-                | TextureFormatRequest::Specific(TextureFormat::CompressedFormat(_))
-                | TextureFormatRequest::Specific(TextureFormat::CompressedSrgbFormat(_))
-        );
-        let aligned = |offset: u32, size: u32, extent: u32| {
-            offset % 4 == 0 && (size % 4 == 0 || offset + size == extent)
+        // the regions of compressed textures are made of whole blocks, of 4x4 texels for the
+        // formats that SafeGL chooses; ETC1 and PVRTC textures are written whole
+        let texture_format = match self.texture.requested_format {
+            TextureFormatRequest::Specific(TextureFormat::CompressedFormat(format)) => {
+                Some(ClientFormatAny::CompressedFormat(format))
+            }
+            TextureFormatRequest::Specific(TextureFormat::CompressedSrgbFormat(format)) => {
+                Some(ClientFormatAny::CompressedSrgbFormat(format))
+            }
+            _ => None,
         };
-        if compressed
-            && !(aligned(x_offset, width, self.width)
-                && aligned(y_offset, height.unwrap_or(1), self.height.unwrap_or(1)))
-        {
-            return Err(UploadError::MisalignedBlocks);
+        let block = match (texture_format, self.texture.requested_format) {
+            (Some(format), _) => format.block_size(),
+            (
+                None,
+                TextureFormatRequest::AnyCompressed | TextureFormatRequest::AnyCompressedSrgb,
+            ) => Some((4, 4, 0)),
+            (None, _) => None,
+        };
+        let written_whole = texture_format.is_some_and(|format| format.is_written_whole());
+        let whole = (x_offset, y_offset, width, height.unwrap_or(1))
+            == (0, 0, self.width, self.height.unwrap_or(1));
+        if written_whole && !whole {
+            return Err(UploadError::NotSupported);
+        }
+        if let Some((block_width, block_height, _)) = block {
+            let aligned = |offset: u32, size: u32, extent: u32, block: u32| {
+                offset % block == 0 && (size % block == 0 || offset + size == extent)
+            };
+            if !(aligned(x_offset, width, self.width, block_width)
+                && aligned(y_offset, height.unwrap_or(1), self.height.unwrap_or(1), block_height))
+            {
+                return Err(UploadError::MisalignedBlocks);
+            }
         }
 
         if data.len() * mem::size_of::<P>() != data_bufsize {
@@ -2270,7 +2404,19 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
             {
                 assert!(z_offset == 0);
                 // FIXME should glTexImage be used here somewhere or glTexSubImage does it just fine?
-                if is_client_compressed {
+                if written_whole {
+                    // ETC1 and PVRTC levels can only be given whole, with `glCompressedTexImage2D`
+                    ctxt.glow.compressed_tex_image_2d(
+                        bind_point,
+                        level as gl::types::GLint,
+                        client_format as gl::types::GLint,
+                        width as gl::types::GLsizei,
+                        height.unwrap_or(1) as gl::types::GLsizei,
+                        0,
+                        data.len() as gl::types::GLint,
+                        data,
+                    );
+                } else if is_client_compressed {
                     ctxt.glow.compressed_tex_sub_image_2d(
                         bind_point,
                         level as gl::types::GLint,
@@ -2369,15 +2515,12 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
                     internal_format as gl::types::GLenum,
                 ) {
                     Some(known_format) => {
-                        // the size of a face is that of its 4x4 blocks: NVIDIA gives the size
-                        // of the whole cube map for each face
+                        // the size of a face is that of its blocks: NVIDIA gives the size of
+                        // the whole cube map for each face
                         let image_size = if targets.len() > 1 {
-                            let block = known_format
-                                .get_buffer_size(4, Some(4), None, None)
-                                .unwrap_or(0);
-                            let blocks_w = (self.width as usize).div_ceil(4);
-                            let blocks_h = (self.height.unwrap_or(1) as usize).div_ceil(4);
-                            (block * blocks_w * blocks_h) as gl::types::GLint
+                            known_format
+                                .get_buffer_size(self.width, self.height, None, None)
+                                .unwrap_or(0) as gl::types::GLint
                         } else {
                             queried_size
                         };

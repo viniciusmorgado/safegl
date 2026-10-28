@@ -85,11 +85,11 @@ impl Application {
     }
 
     fn draw(&self, time_seconds: f32) {
+        // a pixel of the drawing buffer per pixel of the screen, on HiDPI screens too
         let canvas = self.display.canvas();
-        let (width, height) = (canvas.client_width() as u32, canvas.client_height() as u32);
-        if (canvas.width(), canvas.height()) != (width, height) {
-            self.display.resize((width, height));
-        }
+        let css_size = (canvas.client_width() as f64, canvas.client_height() as f64);
+        let ratio = web_sys::window().unwrap().device_pixel_ratio();
+        let (width, height) = self.display.resize_to_display(css_size, ratio);
 
         let (sin, cos) = time_seconds.sin_cos();
         let aspect = height as f32 / width.max(1) as f32;
@@ -113,7 +113,11 @@ impl Application {
                 &Default::default(),
             )
             .unwrap();
-        frame.finish().unwrap();
+        // the context can be lost at any time: the next frames restore it
+        match frame.finish() {
+            Ok(()) | Err(safegl::SwapBuffersError::ContextLost) => (),
+            Err(error) => panic!("{error}"),
+        }
     }
 }
 
@@ -135,14 +139,23 @@ pub fn start() -> Result<(), JsValue> {
         .ok_or_else(|| JsValue::from_str("missing #safegl-canvas element"))?
         .dyn_into::<web_sys::HtmlCanvasElement>()?;
 
-    let display = WebDisplay::from_canvas(canvas).map_err(|err| JsValue::from_str(&err.to_string()))?;
-    let application = Application::new(display);
+    let display = WebDisplay::builder(canvas)
+        .antialias(true)
+        .build()
+        .map_err(|err| JsValue::from_str(&err.to_string()))?;
+    let mut application = Application::new(display);
 
     // draw on every animation frame; the closure keeps itself alive
     let frame_callback: Rc<RefCell<Option<Closure<dyn FnMut(f64)>>>> = Rc::new(RefCell::new(None));
     let next_frame = frame_callback.clone();
     *frame_callback.borrow_mut() = Some(Closure::new(move |timestamp_ms: f64| {
-        application.draw((timestamp_ms / 1000.0) as f32);
+        if !application.display.is_context_lost() {
+            application.draw((timestamp_ms / 1000.0) as f32);
+        } else if application.display.is_context_restored() {
+            // the objects of the lost context are gone: they are created again
+            let display = application.display.restore().unwrap();
+            application = Application::new(display);
+        }
         request_animation_frame(next_frame.borrow().as_ref().unwrap());
     }));
     request_animation_frame(frame_callback.borrow().as_ref().unwrap());

@@ -31,6 +31,8 @@ use std::time::Duration;
 pub struct SyncFence {
     context: Rc<Context>,
     id: Option<glow::Fence>,
+    // the number of the fence in its context (`GlState::fences_created`)
+    number: u64,
 }
 
 impl SyncFence {
@@ -62,6 +64,9 @@ impl SyncFence {
         };
 
         let ctxt = self.context.make_current();
+        if ctxt.state.fences_finished >= self.number {
+            return true;
+        }
         let result = unsafe { ctxt.glow.client_wait_sync(sync, gl::SYNC_FLUSH_COMMANDS_BIT, 0) };
         matches!(result, gl::ALREADY_SIGNALED | gl::CONDITION_SATISFIED)
     }
@@ -69,25 +74,32 @@ impl SyncFence {
     /// Blocks until the operations before the fence have finished on the server, or until
     /// `timeout` has passed, and tells which happened. The fence stays usable.
     ///
-    /// This flushes the command queue so that the fence eventually gets signaled. WebGL limits
-    /// the timeout to `GL_MAX_CLIENT_WAIT_TIMEOUT_WEBGL`, which is often 0.
+    /// This flushes the command queue so that the fence eventually gets signaled.
+    ///
+    /// WebGL only signals fences between two tasks of the browser's event loop, and limits the
+    /// timeout to `GL_MAX_CLIENT_WAIT_TIMEOUT_WEBGL`, which is often 0. There, a timeout of zero
+    /// only polls, and a longer one calls `glFinish`, which waits for every command submitted
+    /// so far, like `wait`, and returns `Signaled`.
     pub fn wait_timeout(&self, timeout: Duration) -> SyncWaitResult {
         let sync = match self.id {
             Some(sync) => sync,
             None => return SyncWaitResult::Signaled,
         };
 
-        let ctxt = self.context.make_current();
+        let mut ctxt = self.context.make_current();
+        if ctxt.state.fences_finished >= self.number {
+            return SyncWaitResult::Signaled;
+        }
         let timeout = u64::try_from(timeout.as_nanos()).unwrap_or(u64::MAX);
         let result = unsafe {
             if is_webgl() {
-                let max = ctxt
-                    .glow
-                    .get_parameter_i64(gl::MAX_CLIENT_WAIT_TIMEOUT_WEBGL)
-                    .max(0) as u64;
-                let timeout = timeout.min(max).min(i32::MAX as u64) as i32;
-                ctxt.glow
-                    .client_wait_sync(sync, gl::SYNC_FLUSH_COMMANDS_BIT, timeout)
+                let result = ctxt.glow.client_wait_sync(sync, gl::SYNC_FLUSH_COMMANDS_BIT, 0);
+                if result == gl::TIMEOUT_EXPIRED && timeout != 0 {
+                    finish(&mut ctxt);
+                    gl::ALREADY_SIGNALED
+                } else {
+                    result
+                }
             } else {
                 ctxt.extra.ClientWaitSync(
                     handles::raw_sync(sync),
@@ -125,10 +137,18 @@ impl SyncFence {
     /// WebGL can't block on a fence: if the fence isn't signaled yet, this calls `glFinish`
     /// instead, which waits for every command submitted so far, and the fence is treated as
     /// signaled.
+    ///
+    /// The fences of a lost context have nothing to wait for.
     pub fn wait(mut self) {
-        let sync = self.id.take().unwrap();
+        let sync = match self.id.take() {
+            Some(sync) => sync,
+            None => return,
+        };
 
         let mut ctxt = self.context.make_current();
+        if ctxt.objects_lost() {
+            return;
+        }
         let result = unsafe { client_wait(&mut ctxt, sync) };
         unsafe { delete_fence(&mut ctxt, sync) };
 
@@ -178,6 +198,8 @@ impl Drop for SyncFence {
 #[must_use]
 pub struct LinearSyncFence {
     id: Option<glow::Fence>,
+    // the number of the fence in its context (`GlState::fences_created`)
+    number: u64,
     // the address of the context that created the fence, which identifies it without making the
     // fence not `Send`
     context: usize,
@@ -203,6 +225,7 @@ impl LinearSyncFence {
         Ok(SyncFence {
             context: context.clone(),
             id: self.id.take(),
+            number: self.number,
         })
     }
 }
@@ -218,13 +241,15 @@ impl Drop for LinearSyncFence {
 
 pub unsafe fn new_linear_sync_fence(ctxt: &mut CommandContext<'_>) -> LinearSyncFence {
     // sync objects are core in OpenGL 3.2 and OpenGL ES 3.0
+    ctxt.state.fences_created += 1;
     LinearSyncFence {
+        number: ctxt.state.fences_created,
         context: ctxt.context as *const Context as usize,
-        id: Some(
-            ctxt.glow
-                .fence_sync(glow::SYNC_GPU_COMMANDS_COMPLETE, 0)
-                .expect("glFenceSync failed"),
-        ),
+        // a lost context has no fence, and nothing to wait for
+        id: ctxt
+            .glow
+            .fence_sync(glow::SYNC_GPU_COMMANDS_COMPLETE, 0)
+            .ok(),
     }
 }
 
@@ -234,16 +259,20 @@ pub unsafe fn wait_linear_sync_fence_and_drop(
     mut fence: LinearSyncFence,
     ctxt: &mut CommandContext<'_>,
 ) {
-    let fence = fence.id.take().unwrap();
-    client_wait(ctxt, fence);
-    delete_fence(ctxt, fence);
+    if let Some(fence) = fence.id.take() {
+        if !ctxt.objects_lost() {
+            client_wait(ctxt, fence);
+        }
+        delete_fence(ctxt, fence);
+    }
 }
 
 /// Destroys a fence, from within the commands context.
 #[inline]
 pub unsafe fn destroy_linear_sync_fence(ctxt: &mut CommandContext<'_>, mut fence: LinearSyncFence) {
-    let fence = fence.id.take().unwrap();
-    delete_fence(ctxt, fence);
+    if let Some(fence) = fence.id.take() {
+        delete_fence(ctxt, fence);
+    }
 }
 
 /// Calls `glClientWaitSync` and returns the result.
@@ -270,7 +299,7 @@ unsafe fn client_wait(ctxt: &mut CommandContext<'_>, fence: glow::Fence) -> gl::
 
     if is_webgl() {
         // `glFinish` waits for every command, including the ones before the fence
-        ctxt.glow.finish();
+        finish(ctxt);
         return gl::ALREADY_SIGNALED;
     }
 
@@ -284,6 +313,12 @@ unsafe fn client_wait(ctxt: &mut CommandContext<'_>, fence: glow::Fence) -> gl::
     )
 }
 
+/// Calls `glFinish`, after which every fence created so far is signaled.
+unsafe fn finish(ctxt: &mut CommandContext<'_>) {
+    ctxt.glow.finish();
+    ctxt.state.fences_finished = ctxt.state.fences_created;
+}
+
 /// Deletes a fence.
 ///
 /// # Unsafety
@@ -292,5 +327,7 @@ unsafe fn client_wait(ctxt: &mut CommandContext<'_>, fence: glow::Fence) -> gl::
 ///
 #[inline]
 unsafe fn delete_fence(ctxt: &mut CommandContext<'_>, fence: glow::Fence) {
-    ctxt.glow.delete_sync(fence);
+    if !ctxt.objects_lost() {
+        ctxt.glow.delete_sync(fence);
+    }
 }

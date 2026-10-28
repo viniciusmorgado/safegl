@@ -140,8 +140,12 @@ where
             return Err(CreationError::IndexTypeNotSupported);
         }
 
+        let buffer = Buffer::new(facade, data, BufferType::ElementArrayBuffer, mode)?;
+        let bytes =
+            unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, size_of_val(data)) };
+        buffer.as_slice_any().set_index_size(size_of::<T>(), bytes);
         Ok(IndexBuffer {
-            buffer: Buffer::new(facade, data, BufferType::ElementArrayBuffer, mode)?,
+            buffer,
             primitives: prim,
         })
     }
@@ -216,8 +220,10 @@ where
             return Err(CreationError::IndexTypeNotSupported);
         }
 
+        let buffer = Buffer::empty_array(facade, BufferType::ElementArrayBuffer, len, mode)?;
+        buffer.as_slice_any().set_index_size(size_of::<T>(), &[]);
         Ok(IndexBuffer {
-            buffer: Buffer::empty_array(facade, BufferType::ElementArrayBuffer, len, mode)?,
+            buffer,
             primitives: prim,
         })
     }
@@ -246,8 +252,8 @@ where
     /// Builds an indices source that draws several ranges of the indices with one call
     /// (`glMultiDrawElements`), on desktop OpenGL. The ranges must be in the buffer, and the draw
     /// has no instances.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     #[inline]
     pub fn ranges<'a>(&'a self, ranges: &'a [std::ops::Range<usize>]) -> IndicesSource<'a> {
         IndicesSource::IndexBufferRanges {
@@ -261,8 +267,8 @@ where
 
     /// Like `ranges`, with a value added to the indices of each range
     /// (`glMultiDrawElementsBaseVertex`). Returns `None` if there isn't one value per range.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     #[inline]
     pub fn ranges_with_base_vertices<'a>(
         &'a self,

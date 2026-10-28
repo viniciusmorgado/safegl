@@ -5,6 +5,9 @@ use safegl::{Api, CapabilitiesSource, Surface, Version};
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 #[test]
 fn magnify_nearest_filtering() {
     // ignoring test on travis
@@ -172,7 +175,7 @@ fn anisotropy_in_core_opengl_46() {
 
 /// Draws a texture sampled with `sampler` and returns the result of the draw.
 fn draw_sampled(
-    display: &support::WindowDisplay,
+    display: &support::TestDisplay,
     sampler: safegl::uniforms::Sampler<'_, safegl::Texture2d>,
 ) -> Result<(), safegl::DrawError> {
     let (vb, ib) = support::build_rectangle_vb_ib(display);
@@ -214,7 +217,7 @@ fn anisotropy_needs_support() {
 }
 
 /// Mirroring once is an error where the backend doesn't have it, not a clamp.
-#[cfg(safegl_gl44)]
+#[cfg(any(safegl_gl44, safegl_webgl))]
 #[test]
 fn mirror_clamp_needs_support() {
     use safegl::uniforms::{SamplerNotSupportedError, SamplerWrapFunction};
@@ -244,7 +247,7 @@ fn mirror_clamp_needs_support() {
 
 /// Mirroring once then clamping (`MIRROR_CLAMP_TO_EDGE`) samples the other edge of a texture
 /// one texture away, where clamping samples the near edge.
-#[cfg(safegl_gl44)]
+#[cfg(any(safegl_gl44, safegl_webgl))]
 #[test]
 fn mirror_clamp_samples_the_mirrored_edge() {
     use safegl::uniforms::{MagnifySamplerFilter, MinifySamplerFilter, SamplerWrapFunction};

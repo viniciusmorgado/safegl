@@ -11,7 +11,10 @@ use safegl::{Program, Surface, VertexBuffer};
 
 mod support;
 
-type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
+type Display = support::Backend;
 type Pixel = (u8, u8, u8, u8);
 
 #[derive(Copy, Clone)]
@@ -108,7 +111,7 @@ fn clear_images_of_every_kind() {
 }
 
 /// Stencil and depth-stencil textures are cleared with their stencil index.
-#[cfg(any(safegl_gl43, safegl_gles31))]
+#[cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))]
 #[test]
 fn clear_depth_stencil_images() {
     use safegl::texture::{

@@ -696,6 +696,37 @@ pub unsafe fn reflect_spirv(
     reflection
 }
 
+/// `glGetActiveUniformsiv`: the value of `pname` for each uniform of `indices`.
+///
+/// glow doesn't have it in browsers, where SafeGL makes the program current and calls the
+/// browser's `getActiveUniforms`. WebGL doesn't have `GL_UNIFORM_NAME_LENGTH`, whose values are
+/// zeros there.
+unsafe fn active_uniforms_parameter(
+    ctxt: &mut CommandContext<'_>,
+    program: glow::Program,
+    indices: &[gl::types::GLuint],
+    pname: gl::types::GLenum,
+) -> Vec<gl::types::GLint> {
+    #[cfg(safegl_browser)]
+    {
+        use crate::vertex::TransformFeedback;
+        use crate::TransformFeedbackExt;
+
+        if pname == glow::UNIFORM_NAME_LENGTH {
+            return vec![0; indices.len()];
+        }
+        // `glUseProgram` is invalid while transform feedback records
+        TransformFeedback::pause(ctxt);
+        if ctxt.state.program != Some(program) {
+            ctxt.glow.use_program(Some(program));
+            ctxt.state.program = Some(program);
+        }
+        ctxt.webgl.active_uniforms_of_current_program(indices, pname)
+    }
+    #[cfg(not(safegl_browser))]
+    ctxt.glow.get_active_uniforms_parameter(program, indices, pname)
+}
+
 pub unsafe fn reflect_uniform_blocks(
     ctxt: &mut CommandContext<'_>,
     program: glow::Program,
@@ -756,33 +787,22 @@ pub unsafe fn reflect_uniform_blocks(
             .collect::<Vec<_>>();
 
         // getting the offsets of the members
-        let member_offsets = ctxt.glow.get_active_uniforms_parameter(
-            program,
-            &members_indices,
-            glow::UNIFORM_OFFSET,
-        );
+        let member_offsets =
+            active_uniforms_parameter(ctxt, program, &members_indices, glow::UNIFORM_OFFSET);
 
         // getting the types of the members
         let member_types =
-            ctxt.glow
-                .get_active_uniforms_parameter(program, &members_indices, glow::UNIFORM_TYPE);
+            active_uniforms_parameter(ctxt, program, &members_indices, glow::UNIFORM_TYPE);
 
         // getting the array sizes and strides of the members
         let member_size =
-            ctxt.glow
-                .get_active_uniforms_parameter(program, &members_indices, glow::UNIFORM_SIZE);
-        let member_stride = ctxt.glow.get_active_uniforms_parameter(
-            program,
-            &members_indices,
-            glow::UNIFORM_ARRAY_STRIDE,
-        );
+            active_uniforms_parameter(ctxt, program, &members_indices, glow::UNIFORM_SIZE);
+        let member_stride =
+            active_uniforms_parameter(ctxt, program, &members_indices, glow::UNIFORM_ARRAY_STRIDE);
 
         // getting the length of the names of the members
-        let member_name_len = ctxt.glow.get_active_uniforms_parameter(
-            program,
-            &members_indices,
-            glow::UNIFORM_NAME_LENGTH,
-        );
+        let member_name_len =
+            active_uniforms_parameter(ctxt, program, &members_indices, glow::UNIFORM_NAME_LENGTH);
 
         // getting the names of the members
         let member_names =
