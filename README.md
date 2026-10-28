@@ -317,6 +317,10 @@ Firefox with [geckodriver](https://github.com/mozilla/geckodriver) (or Chrome wi
 cargo test --target wasm32-unknown-unknown --no-default-features --features webgl --tests
 ```
 
+On a machine without a GPU, Firefox draws WebGL with Mesa's software driver
+(`LIBGL_ALWAYS_SOFTWARE=1`); `webdriver.json` gives the test runner the preferences that let
+Firefox use it.
+
 Browsers have no environment: there, `SAFEGL_DISABLE_EXTENSIONS` is read when the tests are
 built. The tests that need native windows or contexts (rebuilding a display, robust contexts,
 caught panics) only run natively.

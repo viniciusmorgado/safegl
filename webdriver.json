@@ -1,0 +1,9 @@
+{
+  "moz:firefoxOptions": {
+    "prefs": {
+      "webgl.force-enabled": true,
+      "webgl.disable-fail-if-major-performance-caveat": true
+    },
+    "args": []
+  }
+}
