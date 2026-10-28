@@ -572,6 +572,43 @@ local cases = {
     pub const F: safegl::texture::UncompressedFloatFormat = safegl::texture::UncompressedFloatFormat::U5U6U5;
   ]], WASM },
 
+  -- transfers of whole levels and of boxes of larger client images
+  { "gl40_has_level_reads", { "gl40" }, nil, [[
+    pub fn f(t: &safegl::texture::Texture3d) -> Result<Vec<Vec<Vec<u8>>>, safegl::ReadError> {
+        t.main_level().read_volume()
+    }
+  ]] },
+  { "gles32_has_no_level_reads", { "gles32" }, "read_volume", [[
+    pub fn f(t: &safegl::texture::Texture3d) -> Result<Vec<Vec<Vec<u8>>>, safegl::ReadError> {
+        t.main_level().read_volume()
+    }
+  ]] },
+  { "gles30_has_box_writes", { "gles30" }, nil, [[
+    pub fn f(t: &safegl::texture::Texture2d, d: &[(u8, u8, u8, u8)]) -> Result<(), safegl::texture::UploadError> {
+        t.main_level().write_box_from((0, 0, 0), (1, 1, 1), d, (2, 2, 1), (1, 1, 0))
+    }
+  ]] },
+  { "gl42_has_compressed_box_writes", { "gl42" }, nil, [[
+    pub fn f(t: &safegl::texture::CompressedTexture2d, d: &[u8]) -> Result<(), safegl::texture::UploadError> {
+        t.main_level().write_compressed_box_from((0, 0, 0), (4, 4, 1), d, (8, 4, 1), (4, 0, 0))
+    }
+  ]] },
+  { "gl41_has_no_compressed_box_writes", { "gl41" }, "write_compressed_box_from", [[
+    pub fn f(t: &safegl::texture::CompressedTexture2d, d: &[u8]) -> Result<(), safegl::texture::UploadError> {
+        t.main_level().write_compressed_box_from((0, 0, 0), (4, 4, 1), d, (8, 4, 1), (4, 0, 0))
+    }
+  ]] },
+  { "gl45_has_box_reads_into_images", { "gl45" }, nil, [[
+    pub fn f(t: &safegl::texture::Texture2d, d: &mut [(u8, u8, u8, u8)]) -> Result<(), safegl::ReadError> {
+        t.main_level().read_box_into((0, 0, 0), (1, 1, 1), d, (2, 2, 1), (1, 1, 0))
+    }
+  ]] },
+  { "gl44_has_no_box_reads_into_images", { "gl44" }, "read_box_into", [[
+    pub fn f(t: &safegl::texture::Texture2d, d: &mut [(u8, u8, u8, u8)]) -> Result<(), safegl::ReadError> {
+        t.main_level().read_box_into((0, 0, 0), (1, 1, 1), d, (2, 2, 1), (1, 1, 0))
+    }
+  ]] },
+
   -- macOS stops at OpenGL 4.1, but `gl46` compiles there and fails when creating the context
   { "gl46_compiles_for_macos", { "gl46" }, nil, [[
     pub use safegl::program::SpirvProgram;
