@@ -299,6 +299,20 @@ MESA_GLES_VERSION_OVERRIDE=3.0 LIBGL_ALWAYS_SOFTWARE=1 cargo test --features gle
 The chapter [OpenGL 4.0 to 4.5 drivers](book/opengl-4.0-4.5.md) describes the configurations that
 simulate drivers of each version without the extensions promoted after it.
 
+The same tests run in a browser with WebGL 2, headless, through
+[wasm-bindgen-test](https://wasm-bindgen.github.io/wasm-bindgen/wasm-bindgen-test/index.html).
+They need the `wasm32-unknown-unknown` target, `wasm-bindgen-cli` at the version of
+`wasm-bindgen` in `Cargo.lock` (it provides the test runner that `.cargo/config.toml` names), and
+Firefox with [geckodriver](https://github.com/mozilla/geckodriver) (or Chrome with chromedriver):
+
+```sh
+cargo test --target wasm32-unknown-unknown --no-default-features --features webgl --tests
+```
+
+Browsers have no environment: there, `SAFEGL_DISABLE_EXTENSIONS` is read when the tests are
+built. The tests that need native windows or contexts (rebuilding a display, robust contexts,
+caught panics) only run natively.
+
 What each level compiles is checked by a [Lua](https://www.lua.org) script, which builds small
 crates against every level, the browser and macOS (`rustup target add wasm32-unknown-unknown
 aarch64-apple-darwin`):
