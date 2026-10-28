@@ -20,3 +20,4 @@
 - [Synchronization](perf-sync.md)
 - [OpenGL 4.6 coverage](opengl-4.6.md)
 - [OpenGL 4.0 to 4.5 drivers](opengl-4.0-4.5.md)
+- [WebGL 2](webgl-2.md)
