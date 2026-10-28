@@ -152,38 +152,46 @@ support::async_test! {
     }
 }
 
-#[cfg(safegl_desktop)]
-#[test]
-fn time_elapsed() {
-    let display = support::build_display();
+support::async_test! {
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    fn time_elapsed() {
+        let display = support::build_display();
 
-    let query = match safegl::draw_parameters::TimeElapsedQuery::new(&display) {
-        Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
-        Ok(q) => q,
-        Err(error) => panic!("{error}"),
-    };
-
-    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
-
-    let texture = support::build_renderable_texture(&display);
-    texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
-
-    {
-        let params = safegl::DrawParameters {
-            time_elapsed_query: Some(&query),
-            ..Default::default()
+        let query = match safegl::draw_parameters::TimeElapsedQuery::new(&display) {
+            Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
+            Ok(q) => q,
+            Err(error) => panic!("{error}"),
         };
 
-        texture
-            .as_surface()
-            .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
-            .unwrap();
+        let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+
+        let texture = support::build_renderable_texture(&display);
+        texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+
+        {
+            let params = safegl::DrawParameters {
+                time_elapsed_query: Some(&query),
+                ..Default::default()
+            };
+
+            texture
+                .as_surface()
+                .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
+                .unwrap();
+        }
+
+        // WebGL gives the result in a later task of the event loop; a GPU that changed its
+        // frequency during the draw gives none
+        support::until(|| query.is_ready()).await;
+        let result = match query.get() {
+            Ok(result) => result,
+            Err(safegl::draw_parameters::QueryResultError::Disjoint) => return,
+            Err(error) => panic!("{error}"),
+        };
+        assert!(result >= 1);
+
+        display.assert_no_error(None);
     }
-
-    let result = query.get().unwrap();
-    assert!(result >= 1);
-
-    display.assert_no_error(None);
 }
 
 #[cfg(any(safegl_desktop, safegl_gles32))]
@@ -423,7 +431,7 @@ fn conditional_render_after_query() {
     display.assert_no_error(None);
 }
 
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 #[test]
 fn time_elapsed_is_64_bits() {
     let display = support::build_display();

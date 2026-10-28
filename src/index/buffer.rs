@@ -252,8 +252,8 @@ where
     /// Builds an indices source that draws several ranges of the indices with one call
     /// (`glMultiDrawElements`), on desktop OpenGL. The ranges must be in the buffer, and the draw
     /// has no instances.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     #[inline]
     pub fn ranges<'a>(&'a self, ranges: &'a [std::ops::Range<usize>]) -> IndicesSource<'a> {
         IndicesSource::IndexBufferRanges {
@@ -267,8 +267,8 @@ where
 
     /// Like `ranges`, with a value added to the indices of each range
     /// (`glMultiDrawElementsBaseVertex`). Returns `None` if there isn't one value per range.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     #[inline]
     pub fn ranges_with_base_vertices<'a>(
         &'a self,

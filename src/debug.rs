@@ -317,7 +317,7 @@ impl TimestampQuery {
         }
 
         // glow picks `glQueryCounter` or `glQueryCounterEXT` depending on which is loaded
-        let id = if ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_disjoint_timer_query {
+        let id = if ctxt.version.0 == Api::Gl || ctxt.extensions.disjoint_timer_query() {
             unsafe {
                 let id = ctxt.glow.create_query().ok()?;
 
@@ -352,7 +352,7 @@ impl TimestampQuery {
         #[cfg(safegl_gl44)]
         <crate::buffer::Buffer<u8> as crate::BufferExt>::unbind_query(&mut ctxt);
 
-        if ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_disjoint_timer_query {
+        if ctxt.version.0 == Api::Gl || ctxt.extensions.disjoint_timer_query() {
             unsafe {
                 ctxt.glow
                     .get_query_parameter_u32(self.id, glow::QUERY_RESULT_AVAILABLE)
@@ -381,19 +381,30 @@ impl TimestampQuery {
     ///
     /// This function doesn't block if `is_ready` returns true.
     ///
-    /// Returns an error if the OpenGL context has been lost, since the timestamp is lost with it.
-    pub fn get(self) -> Result<u64, QueryResultError> {
+    /// Returns an error if the OpenGL context has been lost, since the timestamp is lost with
+    /// it, `QueryResultError::Disjoint` on OpenGL ES and WebGL if the GPU changed its frequency
+    /// or was reset since the last check, and on WebGL `QueryResultError::NotAvailable` while
+    /// `is_ready` returns false: WebGL can't wait for the result.
+    pub fn get(&self) -> Result<u64, QueryResultError> {
         if self.context.is_context_lost() {
             return Err(QueryResultError::ContextLost);
         }
 
-        #[cfg_attr(not(safegl_gl44), allow(unused_mut))]
         let mut ctxt = self.context.make_current();
         // with a query buffer bound, OpenGL would take the destination as an offset in it
         #[cfg(safegl_gl44)]
         <crate::buffer::Buffer<u8> as crate::BufferExt>::unbind_query(&mut ctxt);
+        let available = || unsafe {
+            ctxt.glow
+                .get_query_parameter_u32(self.id, glow::QUERY_RESULT_AVAILABLE)
+                != 0
+        };
+        if crate::version::is_webgl() && !available() {
+            return Err(QueryResultError::NotAvailable);
+        }
+        crate::draw_parameters::check_disjoint(&mut ctxt)?;
 
-        if ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_disjoint_timer_query {
+        if ctxt.version.0 == Api::Gl || ctxt.extensions.disjoint_timer_query() {
             unsafe {
                 Ok(ctxt
                     .glow

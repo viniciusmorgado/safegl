@@ -327,7 +327,7 @@ fn write_depth_stencil() {
         .is_err());
 
     // the stencil index written is the one sampled, where it can be
-    #[cfg(any(safegl_gl43, safegl_gles31))]
+    #[cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))]
     {
         use safegl::texture::DepthStencilTextureMode;
         if texture

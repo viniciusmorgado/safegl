@@ -157,6 +157,7 @@ extra_functions! {
     fn ClearTexImageEXT(texture: GLuint, level: GLint, format: GLenum, type_: GLenum, data: *const c_void) -> ();
     fn ClearTexSubImageEXT(texture: GLuint, level: GLint, xoffset: GLint, yoffset: GLint, zoffset: GLint, width: GLsizei, height: GLsizei, depth: GLsizei, format: GLenum, type_: GLenum, data: *const c_void) -> ();
     fn ClipControl(origin: GLenum, depth: GLenum) -> ();
+    fn ClipControlEXT(origin: GLenum, depth: GLenum) -> ();
     fn CopyImageSubData(srcName: GLuint, srcTarget: GLenum, srcLevel: GLint, srcX: GLint, srcY: GLint, srcZ: GLint, dstName: GLuint, dstTarget: GLenum, dstLevel: GLint, dstX: GLint, dstY: GLint, dstZ: GLint, srcWidth: GLsizei, srcHeight: GLsizei, srcDepth: GLsizei) -> ();
     fn CompressedTexSubImage1D(target: GLenum, level: GLint, xoffset: GLint, width: GLsizei, format: GLenum, imageSize: GLsizei, data: *const c_void) -> ();
     fn DebugMessageCallback(callback: GLDEBUGPROC, userParam: *const c_void) -> ();

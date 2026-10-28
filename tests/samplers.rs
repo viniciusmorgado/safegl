@@ -217,7 +217,7 @@ fn anisotropy_needs_support() {
 }
 
 /// Mirroring once is an error where the backend doesn't have it, not a clamp.
-#[cfg(safegl_gl44)]
+#[cfg(any(safegl_gl44, safegl_webgl))]
 #[test]
 fn mirror_clamp_needs_support() {
     use safegl::uniforms::{SamplerNotSupportedError, SamplerWrapFunction};
@@ -247,7 +247,7 @@ fn mirror_clamp_needs_support() {
 
 /// Mirroring once then clamping (`MIRROR_CLAMP_TO_EDGE`) samples the other edge of a texture
 /// one texture away, where clamping samples the near edge.
-#[cfg(safegl_gl44)]
+#[cfg(any(safegl_gl44, safegl_webgl))]
 #[test]
 fn mirror_clamp_samples_the_mirrored_edge() {
     use safegl::uniforms::{MagnifySamplerFilter, MinifySamplerFilter, SamplerWrapFunction};

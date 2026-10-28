@@ -108,6 +108,135 @@ impl WebGl {
             .unwrap_or_else(|| panic!("{} has no function {}", extension, method))
     }
 
+    /// `glClipControlEXT` (`EXT_clip_control`).
+    pub fn clip_control(&self, origin: u32, depth: u32) {
+        self.call("EXT_clip_control", "clipControlEXT", &[origin.into(), depth.into()]);
+    }
+
+    /// `glDrawArraysInstancedBaseInstance` (`WEBGL_draw_instanced_base_vertex_base_instance`).
+    pub fn draw_arrays_instanced_base_instance(
+        &self,
+        mode: u32,
+        first: i32,
+        count: i32,
+        instances: i32,
+        base_instance: u32,
+    ) {
+        let args = [
+            mode.into(),
+            first.into(),
+            count.into(),
+            instances.into(),
+            base_instance.into(),
+        ];
+        self.call(
+            "WEBGL_draw_instanced_base_vertex_base_instance",
+            "drawArraysInstancedBaseInstanceWEBGL",
+            &args,
+        );
+    }
+
+    /// `glDrawElementsInstancedBaseVertexBaseInstance`
+    /// (`WEBGL_draw_instanced_base_vertex_base_instance`), the indices at `offset` bytes in the
+    /// bound index buffer.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_elements_instanced_base_vertex_base_instance(
+        &self,
+        mode: u32,
+        count: i32,
+        ty: u32,
+        offset: i32,
+        instances: i32,
+        base_vertex: i32,
+        base_instance: u32,
+    ) {
+        let args = [
+            mode.into(),
+            count.into(),
+            ty.into(),
+            offset.into(),
+            instances.into(),
+            base_vertex.into(),
+            base_instance.into(),
+        ];
+        self.call(
+            "WEBGL_draw_instanced_base_vertex_base_instance",
+            "drawElementsInstancedBaseVertexBaseInstanceWEBGL",
+            &args,
+        );
+    }
+
+    /// `glMultiDrawArrays` (`WEBGL_multi_draw`).
+    pub fn multi_draw_arrays(&self, mode: u32, firsts: &[i32], counts: &[i32]) {
+        let args = [
+            mode.into(),
+            js_sys::Int32Array::from(firsts).into(),
+            0.into(),
+            js_sys::Int32Array::from(counts).into(),
+            0.into(),
+            (counts.len() as i32).into(),
+        ];
+        self.call("WEBGL_multi_draw", "multiDrawArraysWEBGL", &args);
+    }
+
+    /// `glMultiDrawElements` (`WEBGL_multi_draw`), the indices at `offsets` bytes in the bound
+    /// index buffer.
+    pub fn multi_draw_elements(&self, mode: u32, counts: &[i32], ty: u32, offsets: &[i32]) {
+        let args = [
+            mode.into(),
+            js_sys::Int32Array::from(counts).into(),
+            0.into(),
+            ty.into(),
+            js_sys::Int32Array::from(offsets).into(),
+            0.into(),
+            (counts.len() as i32).into(),
+        ];
+        self.call("WEBGL_multi_draw", "multiDrawElementsWEBGL", &args);
+    }
+
+    /// `glEnablei` or `glDisablei` (`OES_draw_buffers_indexed`).
+    pub fn enable_indexed(&self, capability: u32, index: u32, enabled: bool) {
+        let method = if enabled { "enableiOES" } else { "disableiOES" };
+        let args = [capability.into(), index.into()];
+        self.call("OES_draw_buffers_indexed", method, &args);
+    }
+
+    /// `glBlendEquationSeparatei` (`OES_draw_buffers_indexed`).
+    pub fn blend_equation_indexed(&self, index: u32, color: u32, alpha: u32) {
+        let args = [index.into(), color.into(), alpha.into()];
+        self.call("OES_draw_buffers_indexed", "blendEquationSeparateiOES", &args);
+    }
+
+    /// `glBlendFuncSeparatei` (`OES_draw_buffers_indexed`): the source and destination factors
+    /// of the colors, then of the alpha.
+    pub fn blend_func_indexed(&self, index: u32, factors: (u32, u32, u32, u32)) {
+        let (a, b, c, d) = factors;
+        let args = [index.into(), a.into(), b.into(), c.into(), d.into()];
+        self.call("OES_draw_buffers_indexed", "blendFuncSeparateiOES", &args);
+    }
+
+    /// `glColorMaski` (`OES_draw_buffers_indexed`).
+    pub fn color_mask_indexed(&self, index: u32, mask: (bool, bool, bool, bool)) {
+        let (r, g, b, a) = mask;
+        let args = [index.into(), r.into(), g.into(), b.into(), a.into()];
+        self.call("OES_draw_buffers_indexed", "colorMaskiOES", &args);
+    }
+
+    /// `glPolygonMode` for both faces (`WEBGL_polygon_mode`).
+    pub fn polygon_mode(&self, mode: u32) {
+        let args = [glow::FRONT_AND_BACK.into(), mode.into()];
+        self.call("WEBGL_polygon_mode", "polygonModeWEBGL", &args);
+    }
+
+    /// `glProvokingVertex` (`WEBGL_provoking_vertex`).
+    pub fn provoking_vertex(&self, convention: u32) {
+        self.call(
+            "WEBGL_provoking_vertex",
+            "provokingVertexWEBGL",
+            &[convention.into()],
+        );
+    }
+
     /// `glPolygonOffsetClampEXT` (`EXT_polygon_offset_clamp`).
     pub fn polygon_offset_clamp(&self, factor: f32, units: f32, clamp: f32) {
         let args = [factor.into(), units.into(), clamp.into()];
@@ -136,6 +265,17 @@ impl WebGl {
                 None => value.as_f64().unwrap_or(0.0) as i32,
             })
             .collect()
+    }
+
+    /// `glGetFragDataIndex` on the current program (`WEBGL_blend_func_extended`): 1 for the
+    /// second color output of dual-source blending, 0 for the others, -1 for none.
+    pub fn frag_data_index_of_current_program(&self, name: &str) -> i32 {
+        let Some(program) = self.current_program() else {
+            return -1;
+        };
+        let args = [JsValue::from(program), JsValue::from_str(name)];
+        let index = self.call("WEBGL_blend_func_extended", "getFragDataIndexWEBGL", &args);
+        index.as_f64().unwrap_or(-1.0) as i32
     }
 
     /// The sample counts of a renderable format for render buffers, the only target of WebGL's

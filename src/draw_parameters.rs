@@ -85,14 +85,14 @@ use crate::DrawError;
 use crate::GlObject;
 use crate::QueryExt;
 use crate::Rect;
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 use crate::ToGlEnum;
 
 #[cfg(safegl_gles32)]
 use std::ops::Range;
 
 pub use self::blend::{Blend, BlendingFunction, LinearBlendingFactor};
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 pub use self::depth::DepthClamp;
 pub use self::depth::{Depth, DepthTest};
 #[cfg(any(safegl_desktop, safegl_gles32))]
@@ -109,8 +109,10 @@ pub use self::query::{QueryBufferMode, QueryBufferValue};
 pub(crate) use self::query::write_query_to_buffer;
 pub use self::query::{AnySamplesPassedQuery, TransformFeedbackPrimitivesWrittenQuery};
 #[cfg(safegl_desktop)]
-pub use self::query::{SamplesPassedQuery, TimeElapsedQuery};
-pub(crate) use self::query::{sync_indexed_queries, RawQuery};
+pub use self::query::SamplesPassedQuery;
+#[cfg(any(safegl_desktop, safegl_webgl))]
+pub use self::query::TimeElapsedQuery;
+pub(crate) use self::query::{check_disjoint, sync_indexed_queries, RawQuery};
 #[cfg(safegl_gl46)]
 #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
 pub use self::query::{PipelineStatistic, PipelineStatisticsQuery, TransformFeedbackOverflowQuery};
@@ -194,8 +196,8 @@ pub enum BackfaceCullingMode {
 /// </svg>
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg(safegl_desktop)]
-#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+#[cfg(any(safegl_desktop, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
 pub enum PolygonMode {
     /// Only draw a single point at each vertex.
     ///
@@ -211,7 +213,7 @@ pub enum PolygonMode {
     Fill,
 }
 
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 impl ToGlEnum for PolygonMode {
     #[inline]
     fn to_glenum(&self) -> gl::types::GLenum {
@@ -333,8 +335,8 @@ impl ToGlEnum for Smooth {
 
 /// The vertex to use for flat shading.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg(safegl_desktop)]
-#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+#[cfg(any(safegl_desktop, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
 pub enum ProvokingVertex {
     /// Use the last vertex of each primitive.
     LastVertex,
@@ -401,8 +403,8 @@ pub struct DrawParameters<'a> {
     /// `DrawError::OutputStateIndexOutOfBounds`. Needs OpenGL 4.0 or OpenGL ES 3.2. Elsewhere,
     /// WebGL included, an entry that differs from `blend` and `color_mask` returns
     /// `DrawError::PerOutputStateNotSupported`.
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))))]
     pub outputs: &'a [OutputState],
 
     /// A bitwise operation that replaces the color written into the color buffers
@@ -462,10 +464,11 @@ pub struct DrawParameters<'a> {
     ///
     /// See `https://www.khronos.org/registry/OpenGL-Refpages/gl4/html/gl_ClipDistance.xhtml`.
     ///
-    /// OpenGL ES needs `GL_EXT_clip_cull_distance`. Without it, and on WebGL, enabling a plane
-    /// returns `DrawError::ClipPlaneIndexOutOfBounds`.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    /// OpenGL ES needs `GL_EXT_clip_cull_distance`, and WebGL `WEBGL_clip_cull_distance`, whose
+    /// shaders write `gl_ClipDistance` with `#extension GL_ANGLE_clip_cull_distance : require`.
+    /// Without them, enabling a plane returns `DrawError::ClipPlaneIndexOutOfBounds`.
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     pub clip_planes_bitmask: u32,
 
     /// Whether or not the GPU should filter out some faces.
@@ -485,10 +488,10 @@ pub struct DrawParameters<'a> {
     ///
     /// See the documentation of `PolygonMode` for more infos.
     ///
-    /// OpenGL ES and WebGL only support `Fill`; other values return
-    /// `DrawError::PolygonModeNotSupported`.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    /// OpenGL ES only supports `Fill`, and WebGL `Line` too with `WEBGL_polygon_mode`; other
+    /// values return `DrawError::PolygonModeNotSupported`.
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     pub polygon_mode: PolygonMode,
 
     /// The multisampling of the draw: whether it is used, how the alpha and the coverage of the
@@ -552,8 +555,8 @@ pub struct DrawParameters<'a> {
 
     /// If set, the time it took for the GPU to execute this draw command is added to the total
     /// stored inside the `TimeElapsedQuery`.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     pub time_elapsed_query: Option<&'a TimeElapsedQuery>,
 
     /// The queries that count the primitives that this draw generates, each of another vertex
@@ -605,11 +608,11 @@ pub struct DrawParameters<'a> {
     /// varyings as `flat`. If this is the case, the value of one of the vertices will be used
     /// for the whole primitive. This variable allows you to specify which vertex.
     ///
-    /// The default value is `LastVertex`, as this is the default in OpenGL. Any other value can
-    /// potentially trigger a `ProvokingVertexNotSupported` error. Most notably OpenGL ES doesn't
-    /// support anything else but `LastVertex`.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    /// The default value is `LastVertex`, as this is the default in OpenGL. `FirstVertex` needs
+    /// desktop OpenGL, `GL_EXT_provoking_vertex` or, on WebGL, `WEBGL_provoking_vertex`,
+    /// otherwise it returns `DrawError::ProvokingVertexNotSupported`.
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     pub provoking_vertex: ProvokingVertex,
 
     /// Hint for the GPU of the bounding box of the geometry.
@@ -649,8 +652,8 @@ pub struct DrawParameters<'a> {
     /// If enabled, shifts the depth value of towards of away from the camera. This is useful for
     /// drawing decals and wireframes, for example.
     ///
-    /// OpenGL ES and WebGL can only offset triangles: enabling `point` or `line` returns
-    /// `DrawError::PolygonOffsetNotSupported`.
+    /// OpenGL ES can only offset triangles, and WebGL lines too with `WEBGL_polygon_mode`:
+    /// enabling `point` or `line` there returns `DrawError::PolygonOffsetNotSupported`.
     pub polygon_offset: PolygonOffset,
 
     /// Largest depth offset that `polygon_offset` may apply (`glPolygonOffsetClamp`), in the
@@ -662,20 +665,25 @@ pub struct DrawParameters<'a> {
     /// shadow acne from pushing surfaces seen at grazing angles so far back that shadows come
     /// loose from the objects that cast them ("peter-panning").
     ///
-    /// Needs OpenGL 4.6, `GL_ARB_polygon_offset_clamp` or `GL_EXT_polygon_offset_clamp`.
-    /// Otherwise a value other than `0.0` returns `DrawError::PolygonOffsetClampNotSupported`.
-    #[cfg(safegl_gl46)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    /// Needs OpenGL 4.6, `GL_ARB_polygon_offset_clamp` or `GL_EXT_polygon_offset_clamp`
+    /// (`EXT_polygon_offset_clamp` on WebGL). Otherwise a value other than `0.0` returns
+    /// `DrawError::PolygonOffsetClampNotSupported`.
+    #[cfg(any(safegl_gl46, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl46, safegl_webgl))))]
     pub polygon_offset_clamp: f32,
 
     /// Clip control origin. The default value is `LowerLeft`.
-    #[cfg(safegl_gl45)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
+    ///
+    /// Needs OpenGL 4.5, `GL_ARB_clip_control` or `GL_EXT_clip_control` (`EXT_clip_control` on
+    /// WebGL), otherwise a value other than the default returns
+    /// `DrawError::ClipControlNotSupported`, like for `clip_control_depth`.
+    #[cfg(any(safegl_gl45, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_webgl))))]
     pub clip_control_origin: ClipControlOrigin,
 
     /// Clip control depth mode. The default value is `NegativeOneToOne`.
-    #[cfg(safegl_gl45)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
+    #[cfg(any(safegl_gl45, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_webgl))))]
     pub clip_control_depth: ClipControlDepth,
 
     /// Index of the first instance of the draw. The default value is 0.
@@ -685,10 +693,11 @@ pub struct DrawParameters<'a> {
     /// `GL_ARB_shader_draw_parameters`), while `gl_InstanceID` still starts at 0. A draw without
     /// per-instance buffers draws one instance.
     ///
-    /// Needs OpenGL 4.2 or `GL_ARB_base_instance`, otherwise a value other than 0 returns
+    /// Needs OpenGL 4.2, `GL_ARB_base_instance`, `GL_EXT_base_instance` or, on WebGL,
+    /// `WEBGL_draw_instanced_base_vertex_base_instance`, otherwise a value other than 0 returns
     /// `DrawError::BaseInstanceNotSupported`.
-    #[cfg(safegl_gl42)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl42)))]
+    #[cfg(any(safegl_gl42, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_webgl))))]
     pub base_instance: u32,
 }
 
@@ -725,8 +734,8 @@ pub struct DrawParameters<'a> {
 /// };
 /// ```
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg(any(safegl_desktop, safegl_gles32))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+#[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))))]
 pub struct OutputState {
     /// How the output is merged with the existing pixel. See `DrawParameters::blend`.
     pub blend: Blend,
@@ -736,7 +745,7 @@ pub struct OutputState {
     pub color_mask: (bool, bool, bool, bool),
 }
 
-#[cfg(any(safegl_desktop, safegl_gles32))]
+#[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
 impl Default for OutputState {
     /// No blending and all components written, like the defaults of `DrawParameters`.
     fn default() -> OutputState {
@@ -899,11 +908,13 @@ pub(crate) fn check_query_contexts(
             .transform_feedback_primitives_written_queries
             .iter()
             .all(|q| ctxt.owns(QueryExt::get_context(*q)));
-    #[cfg(safegl_desktop)]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
     let owned = owned
         && draw_parameters
             .time_elapsed_query
-            .is_none_or(|q| ctxt.owns(QueryExt::get_context(q)))
+            .is_none_or(|q| ctxt.owns(QueryExt::get_context(q)));
+    #[cfg(safegl_desktop)]
+    let owned = owned
         && draw_parameters
             .condition
             .as_ref()
@@ -998,9 +1009,10 @@ pub struct PolygonOffset {
     #[cfg(safegl_desktop)]
     #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     pub point: bool,
-    /// If true, the depth offset is enabled for lines
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    /// If true, the depth offset is enabled for lines: on desktop OpenGL, and on WebGL with
+    /// `WEBGL_polygon_mode`
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     pub line: bool,
     /// If true, the depth offset is enabled for triangles
     pub fill: bool,
@@ -1013,7 +1025,7 @@ impl Default for PolygonOffset {
             units: 0.0,
             #[cfg(safegl_desktop)]
             point: false,
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             line: false,
             fill: false,
         }
@@ -1021,8 +1033,8 @@ impl Default for PolygonOffset {
 }
 
 /// Specifies the clip control origin.
-#[cfg(safegl_gl45)]
-#[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
+#[cfg(any(safegl_gl45, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_webgl))))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClipControlOrigin {
     /// The clip space origin is at the lower-left corner of the viewport. This is the default state.
@@ -1033,8 +1045,8 @@ pub enum ClipControlOrigin {
 }
 
 /// Specifies the clip control depth mode.
-#[cfg(safegl_gl45)]
-#[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
+#[cfg(any(safegl_gl45, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_webgl))))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClipControlDepth {
     /// The near and far clipping planes correspond to Z coordinates of -1 and +1. This is the default state.
@@ -1051,7 +1063,7 @@ impl<'a> Default for DrawParameters<'a> {
             stencil: Default::default(),
             blend: Default::default(),
             color_mask: (true, true, true, true),
-            #[cfg(any(safegl_desktop, safegl_gles32))]
+            #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
             outputs: &[],
             #[cfg(safegl_desktop)]
             logic_op: None,
@@ -1064,9 +1076,9 @@ impl<'a> Default for DrawParameters<'a> {
             point_fade_threshold: 1.0,
             backface_culling: BackfaceCullingMode::CullingDisabled,
             front_face: FrontFace::CounterClockwise,
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             polygon_mode: PolygonMode::Fill,
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             clip_planes_bitmask: 0,
             multisample: Default::default(),
             dithering: true,
@@ -1076,7 +1088,7 @@ impl<'a> Default for DrawParameters<'a> {
             viewports: &[],
             draw_primitives: true,
             samples_passed_query: None,
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             time_elapsed_query: None,
             #[cfg(any(safegl_desktop, safegl_gles32))]
             primitives_generated_queries: &[],
@@ -1090,7 +1102,7 @@ impl<'a> Default for DrawParameters<'a> {
             transform_feedback: None,
             #[cfg(safegl_desktop)]
             smooth: None,
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             provoking_vertex: ProvokingVertex::LastVertex,
             #[cfg(safegl_gles32)]
             primitive_bounding_box: (-1.0..1.0, -1.0..1.0, -1.0..1.0, -1.0..1.0),
@@ -1098,13 +1110,13 @@ impl<'a> Default for DrawParameters<'a> {
             #[cfg(safegl_desktop)]
             patch_default_levels: Default::default(),
             polygon_offset: Default::default(),
-            #[cfg(safegl_gl46)]
+            #[cfg(any(safegl_gl46, safegl_webgl))]
             polygon_offset_clamp: 0.0,
-            #[cfg(safegl_gl45)]
+            #[cfg(any(safegl_gl45, safegl_webgl))]
             clip_control_origin: ClipControlOrigin::LowerLeft,
-            #[cfg(safegl_gl45)]
+            #[cfg(any(safegl_gl45, safegl_webgl))]
             clip_control_depth: ClipControlDepth::NegativeOneToOne,
-            #[cfg(safegl_gl42)]
+            #[cfg(any(safegl_gl42, safegl_webgl))]
             base_instance: 0,
         }
     }
@@ -1136,11 +1148,11 @@ pub fn sync(
     if is_webgl() {
         validate_webgl(draw_parameters)?;
     }
-    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
     validate_outputs(ctxt, draw_parameters)?;
     depth::sync_depth(ctxt, &draw_parameters.depth)?;
     stencil::sync_stencil(ctxt, &draw_parameters.stencil, draw_parameters.front_face);
-    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
     let (blends, masks) = (
         draw_parameters.outputs.iter().map(|output| output.blend),
         draw_parameters
@@ -1148,7 +1160,7 @@ pub fn sync(
             .iter()
             .map(|output| output.color_mask),
     );
-    #[cfg(not(any(safegl_desktop, safegl_gles32)))]
+    #[cfg(not(any(safegl_desktop, safegl_gles32, safegl_webgl)))]
     let (blends, masks) = (std::iter::empty(), std::iter::empty());
     #[cfg(safegl_desktop)]
     sync_logic_op(ctxt, draw_parameters)?;
@@ -1165,9 +1177,9 @@ pub fn sync(
     )?;
     sync_front_face(ctxt, draw_parameters.front_face);
     sync_backface_culling(ctxt, draw_parameters.backface_culling, draw_parameters.front_face);
-    #[cfg(safegl_desktop)]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
     sync_polygon_mode(ctxt, draw_parameters.polygon_mode)?;
-    #[cfg(safegl_desktop)]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
     sync_clip_planes_bitmask(ctxt, draw_parameters.clip_planes_bitmask)?;
     #[cfg(safegl_desktop)]
     sync_multisampling(ctxt, draw_parameters.multisample.enabled)?;
@@ -1201,7 +1213,7 @@ pub fn sync(
     sync_conditional_render(ctxt, draw_parameters.condition)?;
     #[cfg(safegl_desktop)]
     sync_smooth(ctxt, draw_parameters.smooth, primitives_types)?;
-    #[cfg(safegl_desktop)]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
     sync_provoking_vertex(ctxt, draw_parameters.provoking_vertex)?;
     #[cfg(safegl_gles32)]
     sync_primitive_bounding_box(ctxt, &draw_parameters.primitive_bounding_box);
@@ -1213,7 +1225,7 @@ pub fn sync(
         draw_parameters.polygon_offset,
         polygon_offset_clamp(draw_parameters),
     )?;
-    #[cfg(safegl_gl45)]
+    #[cfg(any(safegl_gl45, safegl_webgl))]
     sync_clip_control(
         ctxt,
         draw_parameters.clip_control_origin,
@@ -1229,12 +1241,12 @@ pub(crate) fn blends(draw_parameters: &DrawParameters<'_>) -> bool {
         blend.color != BlendingFunction::AlwaysReplace
             || blend.alpha != BlendingFunction::AlwaysReplace
     };
-    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
     let outputs = draw_parameters
         .outputs
         .iter()
         .any(|output| blends(&output.blend));
-    #[cfg(not(any(safegl_desktop, safegl_gles32)))]
+    #[cfg(not(any(safegl_desktop, safegl_gles32, safegl_webgl)))]
     let outputs = false;
     blends(&draw_parameters.blend) || outputs
 }
@@ -1252,7 +1264,7 @@ fn validate_webgl(draw_parameters: &DrawParameters<'_>) -> Result<(), DrawError>
 
 /// Checks that `DrawParameters::outputs` fits in the draw buffers, and that the backend can
 /// give draw buffers their own state if an entry needs it.
-#[cfg(any(safegl_desktop, safegl_gles32))]
+#[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
 fn validate_outputs(
     ctxt: &context::CommandContext<'_>,
     draw_parameters: &DrawParameters<'_>,
@@ -1271,9 +1283,11 @@ fn validate_outputs(
         output.color_mask != draw_parameters.color_mask
             || blend::BlendState::new(output.blend) != global_blend
     });
-    // `glColorMaski`, `glEnablei` and `glBlend*i` are core in OpenGL 4.0 and OpenGL ES 3.2
+    // `glColorMaski`, `glEnablei` and `glBlend*i` are core in OpenGL 4.0 and OpenGL ES 3.2, and
+    // WebGL has them in `OES_draw_buffers_indexed`
     let supported = ctxt.version.0 == Api::Gl
-        || (ctxt.version >= &Version(Api::GlEs, 3, 2) && !crate::version::is_webgl());
+        || (ctxt.version >= &Version(Api::GlEs, 3, 2) && !crate::version::is_webgl())
+        || (crate::version::is_webgl() && ctxt.extensions.gl_oes_draw_buffers_indexed);
     if overrides && !supported {
         return Err(DrawError::PerOutputStateNotSupported);
     }
@@ -1289,12 +1303,12 @@ pub(crate) fn validate_dual_source_blending(
     draw_parameters: &DrawParameters<'_>,
     draw_buffers: impl FnOnce(&mut context::CommandContext<'_>) -> usize,
 ) -> Result<(), DrawError> {
-    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
     let outputs = draw_parameters
         .outputs
         .iter()
         .any(|output| output.blend.uses_second_source());
-    #[cfg(not(any(safegl_desktop, safegl_gles32)))]
+    #[cfg(not(any(safegl_desktop, safegl_gles32, safegl_webgl)))]
     let outputs = false;
     if !outputs && !draw_parameters.blend.uses_second_source() {
         return Ok(());
@@ -1370,6 +1384,10 @@ fn sync_color_mask(
     let mut indexed = false;
     for (index, m) in outputs.enumerate() {
         if m != mask {
+            // WebGL has `glColorMaski` in `OES_draw_buffers_indexed`
+            #[cfg(safegl_browser)]
+            ctxt.webgl.color_mask_indexed(index as u32, m);
+            #[cfg(not(safegl_browser))]
             unsafe {
                 ctxt.glow
                     .color_mask_draw_buffer(index as u32, m.0, m.1, m.2, m.3);
@@ -1522,28 +1540,40 @@ fn sync_backface_culling(
     }
 }
 
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 fn sync_polygon_mode(
     ctxt: &mut context::CommandContext<'_>,
     polygon_mode: PolygonMode,
 ) -> Result<(), DrawError> {
-    // `glPolygonMode` doesn't exist on OpenGL ES and WebGL, where polygons are always filled
-    if ctxt.version.0 != Api::Gl && polygon_mode != PolygonMode::Fill {
+    // `glPolygonMode` doesn't exist on OpenGL ES, where polygons are always filled; WebGL draws
+    // their edges with `WEBGL_polygon_mode`, which has no points
+    let desktop = ctxt.version.0 == Api::Gl;
+    let webgl = ctxt.extensions.webgl_polygon_mode;
+    let supported = match polygon_mode {
+        PolygonMode::Fill => true,
+        PolygonMode::Line => desktop || webgl,
+        PolygonMode::Point => desktop,
+    };
+    if !supported {
         return Err(DrawError::PolygonModeNotSupported);
     }
 
-    unsafe {
-        let polygon_mode = polygon_mode.to_glenum();
-        if ctxt.state.polygon_mode != polygon_mode {
-            ctxt.glow.polygon_mode(glow::FRONT_AND_BACK, polygon_mode);
-            ctxt.state.polygon_mode = polygon_mode;
+    let polygon_mode = polygon_mode.to_glenum();
+    if ctxt.state.polygon_mode != polygon_mode {
+        if desktop {
+            unsafe { ctxt.glow.polygon_mode(glow::FRONT_AND_BACK, polygon_mode) };
+        } else {
+            // the modes of `WEBGL_polygon_mode` have the values of OpenGL
+            #[cfg(safegl_browser)]
+            ctxt.webgl.polygon_mode(polygon_mode);
         }
+        ctxt.state.polygon_mode = polygon_mode;
     }
 
     Ok(())
 }
 
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 fn sync_clip_planes_bitmask(
     ctxt: &mut context::CommandContext<'_>,
     clip_planes_bitmask: u32,
@@ -1553,14 +1583,16 @@ fn sync_clip_planes_bitmask(
         return Ok(());
     }
     unsafe {
-        // OpenGL ES has clip distances with `GL_EXT_clip_cull_distance`, whose names have the
-        // same values as the core ones
-        let max_clip_planes: gl::types::GLint =
-            if ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_clip_cull_distance {
-                ctxt.glow.get_parameter_i32(glow::MAX_CLIP_DISTANCES)
-            } else {
-                0
-            };
+        // OpenGL ES has clip distances with `GL_EXT_clip_cull_distance`, and WebGL with
+        // `WEBGL_clip_cull_distance`, whose names have the same values as the core ones
+        let max_clip_planes: gl::types::GLint = if ctxt.version.0 == Api::Gl
+            || ctxt.extensions.gl_ext_clip_cull_distance
+            || ctxt.extensions.webgl_clip_cull_distance
+        {
+            ctxt.glow.get_parameter_i32(glow::MAX_CLIP_DISTANCES)
+        } else {
+            0
+        };
         for i in 0..32 {
             if clip_planes_bitmask & (1 << i) != ctxt.state.enabled_clip_planes & (1 << i) {
                 if clip_planes_bitmask & (1 << i) != 0 {
@@ -2111,7 +2143,7 @@ fn sync_queries(
         None => AnySamplesPassedQuery::end_samples_passed_query(ctxt),
     }
 
-    #[cfg(safegl_desktop)]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
     if let Some(time_elapsed_query) = draw_parameters.time_elapsed_query {
         time_elapsed_query.begin_query(ctxt)?;
     } else {
@@ -2274,7 +2306,7 @@ fn sync_smooth(
     Ok(())
 }
 
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 fn sync_provoking_vertex(
     ctxt: &mut context::CommandContext<'_>,
     value: ProvokingVertex,
@@ -2297,6 +2329,11 @@ fn sync_provoking_vertex(
         unsafe {
             ctxt.extra.ProvokingVertexEXT(value);
         }
+        ctxt.state.provoking_vertex = value;
+    } else if ctxt.extensions.webgl_provoking_vertex {
+        // the conventions of `WEBGL_provoking_vertex` have the values of OpenGL
+        #[cfg(safegl_browser)]
+        ctxt.webgl.provoking_vertex(value);
         ctxt.state.provoking_vertex = value;
     } else {
         return Err(DrawError::ProvokingVertexNotSupported);
@@ -2493,12 +2530,12 @@ fn set_flag_enabled(ctxt: &mut context::CommandContext<'_>, cap: gl::types::GLen
     }
 }
 
-#[cfg(safegl_gl46)]
+#[cfg(any(safegl_gl46, safegl_webgl))]
 fn polygon_offset_clamp(draw_parameters: &DrawParameters<'_>) -> f32 {
     draw_parameters.polygon_offset_clamp
 }
 
-#[cfg(not(safegl_gl46))]
+#[cfg(not(any(safegl_gl46, safegl_webgl)))]
 fn polygon_offset_clamp(_: &DrawParameters<'_>) -> f32 {
     0.0
 }
@@ -2508,7 +2545,6 @@ fn sync_polygon_offset(
     offset: PolygonOffset,
     clamp: f32,
 ) -> Result<(), DrawError> {
-    #[cfg(safegl_desktop)]
     sync_polygon_offset_point_line(ctxt, offset)?;
 
     if ctxt.state.polygon_offset != (offset.factor, offset.units)
@@ -2533,34 +2569,48 @@ fn sync_polygon_offset(
     Ok(())
 }
 
-#[cfg(safegl_desktop)]
 fn sync_polygon_offset_point_line(
     ctxt: &mut context::CommandContext<'_>,
     offset: PolygonOffset,
 ) -> Result<(), DrawError> {
-    // `GL_POLYGON_OFFSET_POINT` and `GL_POLYGON_OFFSET_LINE` don't exist on OpenGL ES and WebGL
+    #[cfg(safegl_desktop)]
+    let point = offset.point;
+    #[cfg(not(safegl_desktop))]
+    let point = false;
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    let line = offset.line;
+    #[cfg(not(any(safegl_desktop, safegl_webgl)))]
+    let line = false;
+
+    // `GL_POLYGON_OFFSET_POINT` and `GL_POLYGON_OFFSET_LINE` don't exist on OpenGL ES; WebGL has
+    // `GL_POLYGON_OFFSET_LINE` with `WEBGL_polygon_mode`
     if ctxt.version.0 != Api::Gl {
-        return if offset.point || offset.line {
-            Err(DrawError::PolygonOffsetNotSupported)
-        } else {
-            Ok(())
-        };
+        let line_offsets = ctxt.extensions.webgl_polygon_mode;
+        #[cfg(any(safegl_desktop, safegl_webgl))]
+        if point || (line && !line_offsets) {
+            return Err(DrawError::PolygonOffsetNotSupported);
+        }
+        if line_offsets && line != ctxt.state.enabled_polygon_offset_line {
+            ctxt.state.enabled_polygon_offset_line = line;
+            set_flag_enabled(ctxt, gl::POLYGON_OFFSET_LINE, line);
+        }
+        return Ok(());
     }
 
-    if offset.point != ctxt.state.enabled_polygon_offset_point {
-        ctxt.state.enabled_polygon_offset_point = offset.point;
-        set_flag_enabled(ctxt, gl::POLYGON_OFFSET_POINT, offset.point);
+    if point != ctxt.state.enabled_polygon_offset_point {
+        ctxt.state.enabled_polygon_offset_point = point;
+        set_flag_enabled(ctxt, gl::POLYGON_OFFSET_POINT, point);
     }
 
-    if offset.line != ctxt.state.enabled_polygon_offset_line {
-        ctxt.state.enabled_polygon_offset_line = offset.line;
-        set_flag_enabled(ctxt, gl::POLYGON_OFFSET_LINE, offset.line);
+    if line != ctxt.state.enabled_polygon_offset_line {
+        ctxt.state.enabled_polygon_offset_line = line;
+        set_flag_enabled(ctxt, gl::POLYGON_OFFSET_LINE, line);
     }
 
     Ok(())
 }
 
-#[cfg(safegl_gl46)]
+#[cfg(any(safegl_gl46, safegl_webgl))]
 fn set_polygon_offset_clamp(
     ctxt: &mut context::CommandContext<'_>,
     factor: f32,
@@ -2572,6 +2622,9 @@ fn set_polygon_offset_clamp(
         {
             ctxt.extra.PolygonOffsetClamp(factor, units, clamp);
         } else if ctxt.extensions.gl_ext_polygon_offset_clamp {
+            #[cfg(safegl_browser)]
+            ctxt.webgl.polygon_offset_clamp(factor, units, clamp);
+            #[cfg(not(safegl_browser))]
             ctxt.extra.PolygonOffsetClampEXT(factor, units, clamp);
         } else {
             return Err(DrawError::PolygonOffsetClampNotSupported);
@@ -2581,7 +2634,7 @@ fn set_polygon_offset_clamp(
 }
 
 // below the `gl46` level the clamp is always 0
-#[cfg(not(safegl_gl46))]
+#[cfg(not(any(safegl_gl46, safegl_webgl)))]
 fn set_polygon_offset_clamp(
     _: &mut context::CommandContext<'_>,
     _: f32,
@@ -2591,7 +2644,7 @@ fn set_polygon_offset_clamp(
     unreachable!()
 }
 
-#[cfg(safegl_gl45)]
+#[cfg(any(safegl_gl45, safegl_webgl))]
 fn sync_clip_control(
     ctxt: &mut context::CommandContext<'_>,
     origin: ClipControlOrigin,
@@ -2610,14 +2663,31 @@ fn sync_clip_control(
         return Ok(());
     }
 
-    if ctxt.version >= &Version(Api::Gl, 4, 5) || ctxt.extensions.gl_arb_clip_control {
-        unsafe {
-            ctxt.extra.ClipControl(origin, depth);
-        }
-        ctxt.state.clip_control = (origin, depth);
-    } else {
+    if !unsafe { clip_control(ctxt, origin, depth) } {
         return Err(DrawError::ClipControlNotSupported);
     }
-
+    ctxt.state.clip_control = (origin, depth);
     Ok(())
+}
+
+/// Calls `glClipControl` (OpenGL 4.5, `GL_ARB_clip_control`) or `glClipControlEXT`
+/// (`GL_EXT_clip_control`, `EXT_clip_control` on WebGL). Returns false if the backend has
+/// neither.
+#[cfg(any(safegl_gl45, safegl_webgl))]
+pub(crate) unsafe fn clip_control(
+    ctxt: &context::CommandContext<'_>,
+    origin: gl::types::GLenum,
+    depth: gl::types::GLenum,
+) -> bool {
+    if ctxt.version >= &Version(Api::Gl, 4, 5) || ctxt.extensions.gl_arb_clip_control {
+        ctxt.extra.ClipControl(origin, depth);
+    } else if ctxt.extensions.gl_ext_clip_control {
+        #[cfg(safegl_browser)]
+        ctxt.webgl.clip_control(origin, depth);
+        #[cfg(not(safegl_browser))]
+        ctxt.extra.ClipControlEXT(origin, depth);
+    } else {
+        return false;
+    }
+    true
 }

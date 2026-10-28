@@ -368,6 +368,11 @@ pub enum QueryResultError {
     /// queries available between two tasks of the browser's event loop, such as the next
     /// animation frame, once `is_ready` returns true.
     NotAvailable,
+
+    /// The result of a timer query is meaningless: the GPU changed its frequency or was reset
+    /// during the query (`GL_GPU_DISJOINT_EXT` of `GL_EXT_disjoint_timer_query` and
+    /// `EXT_disjoint_timer_query_webgl2`).
+    Disjoint,
 }
 
 impl fmt::Display for QueryResultError {
@@ -379,12 +384,30 @@ impl fmt::Display for QueryResultError {
             QueryResultError::NotAvailable => {
                 "WebGL makes the result available in a later task of the browser's event loop"
             }
+            QueryResultError::Disjoint => {
+                "The GPU changed its frequency or was reset during the timer query"
+            }
         };
         fmt.write_str(desc)
     }
 }
 
 impl Error for QueryResultError {}
+
+/// Returns `QueryResultError::Disjoint` if the GPU changed its frequency or was reset since this
+/// was last checked, which makes the results of timer queries meaningless, on OpenGL ES and
+/// WebGL. Desktop OpenGL doesn't tell it.
+pub(crate) fn check_disjoint(ctxt: &mut CommandContext<'_>) -> Result<(), QueryResultError> {
+    // `GL_GPU_DISJOINT_EXT`, which reading clears
+    const GPU_DISJOINT: gl::types::GLenum = 0x8FBB;
+    if ctxt.version.0 == Api::GlEs
+        && ctxt.extensions.disjoint_timer_query()
+        && unsafe { ctxt.glow.get_parameter_bool(GPU_DISJOINT) }
+    {
+        return Err(QueryResultError::Disjoint);
+    }
+    Ok(())
+}
 
 impl RawQuery {
     /// Builds a new query. Returns `None` if the backend doesn't support this type.
@@ -448,7 +471,7 @@ impl RawQuery {
                         if ctxt.version >= &Version(Api::GlEs, 3, 2)
                             || ctxt.extensions.gl_ext_geometry_shader
                             || ctxt.extensions.gl_oes_geometry_shader => {}
-                    QueryType::TimeElapsed if ctxt.extensions.gl_ext_disjoint_timer_query => {}
+                    QueryType::TimeElapsed if ctxt.extensions.disjoint_timer_query() => {}
                     _ => return Err(QueryCreationError::NotSupported),
                 };
 
@@ -575,6 +598,9 @@ impl RawQuery {
         #[cfg(safegl_gl44)]
         Buffer::<u8>::unbind_query(&mut ctxt);
         self.check_available(&mut ctxt)?;
+        if matches!(self.ty, QueryType::TimeElapsed) {
+            check_disjoint(&mut ctxt)?;
+        }
 
         unsafe {
             if let Ok(value) = self.raw_get_u64(&mut ctxt) {
@@ -603,7 +629,7 @@ impl RawQuery {
     }
 
     unsafe fn raw_get_u64(&self, ctxt: &mut CommandContext<'_>) -> Result<u64, ()> {
-        if ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_disjoint_timer_query {
+        if ctxt.version.0 == Api::Gl || ctxt.extensions.disjoint_timer_query() {
             Ok(ctxt
                 .glow
                 .get_query_parameter_u64(self.id, glow::QUERY_RESULT))
@@ -1262,16 +1288,17 @@ impl_helper!(SamplesPassedQuery, u64, get_u64);
 ///
 /// The result is 64 bits wide, since 32 bits of nanoseconds overflow after 4.3 seconds.
 ///
-/// OpenGL ES needs `GL_EXT_disjoint_timer_query`, whose results are meaningless when the GPU
-/// changed its frequency or was reset during the query (`GL_GPU_DISJOINT_EXT`).
+/// OpenGL ES needs `GL_EXT_disjoint_timer_query`, and WebGL `EXT_disjoint_timer_query_webgl2`,
+/// whose results are meaningless when the GPU changed its frequency or was reset during the
+/// query (`GL_GPU_DISJOINT_EXT`): `get` returns `QueryResultError::Disjoint` then.
 #[derive(Debug)]
-#[cfg(safegl_desktop)]
-#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+#[cfg(any(safegl_desktop, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
 pub struct TimeElapsedQuery {
     query: RawQuery,
 }
 
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 impl TimeElapsedQuery {
     /// Builds a new query.
     #[inline]
@@ -1283,7 +1310,7 @@ impl TimeElapsedQuery {
     }
 }
 
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 impl_helper!(TimeElapsedQuery, u64, get_u64);
 
 /// A query type that allows you to know whether any sample has been written to the output during

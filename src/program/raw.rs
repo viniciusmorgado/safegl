@@ -9,9 +9,9 @@ use crate::version::Version;
 
 use crate::backend::Facade;
 use crate::context::Context;
-#[cfg(any(safegl_gl43, safegl_gles31))]
+#[cfg(any(safegl_gl43, safegl_gles31, safegl_browser))]
 use crate::vertex::TransformFeedback;
-#[cfg(any(safegl_gl43, safegl_gles31))]
+#[cfg(any(safegl_gl43, safegl_gles31, safegl_browser))]
 use crate::TransformFeedbackExt;
 use crate::ContextExt;
 #[cfg(any(safegl_gl43, safegl_gles31))]
@@ -462,7 +462,15 @@ impl RawProgram {
         }
         self.get_frag_data_location(name)?;
 
-        let ctxt = self.context.make_current();
+        #[cfg_attr(not(safegl_browser), allow(unused_mut))]
+        let mut ctxt = self.context.make_current();
+        // WebGL gives it with `WEBGL_blend_func_extended`, for the current program
+        #[cfg(safegl_browser)]
+        if ctxt.extensions.webgl_blend_func_extended {
+            TransformFeedback::pause(&mut ctxt);
+            self.use_program(&mut ctxt);
+            return u32::try_from(ctxt.webgl.frag_data_index_of_current_program(name)).ok();
+        }
         let name = std::ffi::CString::new(name).ok()?;
         let index = unsafe {
             if ctxt.version.0 == crate::version::Api::Gl {

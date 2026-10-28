@@ -210,21 +210,21 @@ pub struct Limits {
 
     /// Number of clip distances (`GL_MAX_CLIP_DISTANCES`). `None` on OpenGL ES without
     /// `GL_EXT_clip_cull_distance`.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     pub max_clip_distances: Option<gl::types::GLint>,
 
     /// Number of cull distances (`GL_MAX_CULL_DISTANCES`). `None` without OpenGL 4.5,
     /// `GL_ARB_cull_distance` or `GL_EXT_clip_cull_distance`.
-    #[cfg(any(safegl_gl45, safegl_gles30))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_gles30))))]
+    #[cfg(any(safegl_gl45, safegl_gles30, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_gles30, safegl_webgl))))]
     pub max_cull_distances: Option<gl::types::GLint>,
 
     /// Number of clip and cull distances used together
     /// (`GL_MAX_COMBINED_CLIP_AND_CULL_DISTANCES`). `None` without OpenGL 4.5,
     /// `GL_ARB_cull_distance` or `GL_EXT_clip_cull_distance`.
-    #[cfg(any(safegl_gl45, safegl_gles30))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_gles30))))]
+    #[cfg(any(safegl_gl45, safegl_gles30, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_gles30, safegl_webgl))))]
     pub max_combined_clip_and_cull_distances: Option<gl::types::GLint>,
 
     /// Smallest and largest size of points (`GL_POINT_SIZE_RANGE` on desktop OpenGL,
@@ -285,7 +285,7 @@ pub struct Limits {
 
     /// Draw buffers that dual-source blending can write (`GL_MAX_DUAL_SOURCE_DRAW_BUFFERS`).
     /// `None` without dual-source blending: on OpenGL ES without `GL_EXT_blend_func_extended`,
-    /// and on WebGL.
+    /// and on WebGL without `WEBGL_blend_func_extended`.
     pub max_dual_source_draw_buffers: Option<gl::types::GLint>,
 
     /// Width and height of renderbuffers (`GL_MAX_RENDERBUFFER_SIZE`).
@@ -681,10 +681,11 @@ pub unsafe fn get_limits(
     let debug = version >= &Version(Api::Gl, 4, 3)
         || version >= &Version(Api::GlEs, 3, 2)
         || extensions.gl_khr_debug;
-    #[cfg(any(safegl_gl45, safegl_gles30))]
+    #[cfg(any(safegl_gl45, safegl_gles30, safegl_webgl))]
     let cull_distance = version >= &Version(Api::Gl, 4, 5)
         || extensions.gl_arb_cull_distance
-        || extensions.gl_ext_clip_cull_distance;
+        || extensions.gl_ext_clip_cull_distance
+        || extensions.webgl_clip_cull_distance;
 
     Limits {
         vertex: get_stage(
@@ -923,14 +924,16 @@ pub unsafe fn get_limits(
         },
         subpixel_bits: gl.get_parameter_i32(gl::SUBPIXEL_BITS),
 
-        #[cfg(safegl_desktop)]
+        #[cfg(any(safegl_desktop, safegl_webgl))]
         max_clip_distances: optional(
-            desktop || extensions.gl_ext_clip_cull_distance,
+            desktop
+                || extensions.gl_ext_clip_cull_distance
+                || extensions.webgl_clip_cull_distance,
             gl::MAX_CLIP_DISTANCES,
         ),
-        #[cfg(any(safegl_gl45, safegl_gles30))]
+        #[cfg(any(safegl_gl45, safegl_gles30, safegl_webgl))]
         max_cull_distances: optional(cull_distance, gl::MAX_CULL_DISTANCES),
-        #[cfg(any(safegl_gl45, safegl_gles30))]
+        #[cfg(any(safegl_gl45, safegl_gles30, safegl_webgl))]
         max_combined_clip_and_cull_distances: optional(
             cull_distance,
             gl::MAX_COMBINED_CLIP_AND_CULL_DISTANCES,
@@ -989,7 +992,9 @@ pub unsafe fn get_limits(
         #[cfg(safegl_gl42)]
         max_image_samples: optional(desktop && features.images, gl::MAX_IMAGE_SAMPLES),
         max_dual_source_draw_buffers: optional(
-            desktop || extensions.gl_ext_blend_func_extended,
+            desktop
+                || extensions.gl_ext_blend_func_extended
+                || extensions.webgl_blend_func_extended,
             gl::MAX_DUAL_SOURCE_DRAW_BUFFERS,
         ),
 

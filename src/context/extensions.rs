@@ -238,3 +238,11 @@ extensions! {
     "WEBGL_render_shared_exponent" => webgl_render_shared_exponent,
     "WEBGL_stencil_texturing" => webgl_stencil_texturing,
 }
+
+impl ExtensionsList {
+    /// Returns true if the backend has the timer queries of OpenGL ES
+    /// (`GL_EXT_disjoint_timer_query`) or of WebGL (`EXT_disjoint_timer_query_webgl2`).
+    pub(crate) fn disjoint_timer_query(&self) -> bool {
+        self.gl_ext_disjoint_timer_query || self.ext_disjoint_timer_query_webgl2
+    }
+}

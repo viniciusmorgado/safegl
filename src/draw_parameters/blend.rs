@@ -483,6 +483,17 @@ pub fn sync_blending(
 
     for (index, state) in &overrides {
         let index = *index as u32;
+        // WebGL has the functions in `OES_draw_buffers_indexed`
+        #[cfg(safegl_browser)]
+        if state.enabled {
+            ctxt.webgl.enable_indexed(glow::BLEND, index, true);
+            ctxt.webgl
+                .blend_equation_indexed(index, state.equation.0, state.equation.1);
+            ctxt.webgl.blend_func_indexed(index, state.func);
+        } else {
+            ctxt.webgl.enable_indexed(glow::BLEND, index, false);
+        }
+        #[cfg(not(safegl_browser))]
         unsafe {
             if state.enabled {
                 ctxt.glow.enable_draw_buffer(glow::BLEND, index);

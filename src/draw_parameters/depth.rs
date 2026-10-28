@@ -43,8 +43,8 @@ pub struct Depth {
     /// Sets whether the depth values of samples should be clamped to `0.0` and `1.0`.
     ///
     /// The default value is `NoClamp`.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     pub clamp: DepthClamp,
 }
 
@@ -55,7 +55,7 @@ impl Default for Depth {
             test: DepthTest::Overwrite,
             write: false,
             range: (0.0, 1.0),
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             clamp: DepthClamp::NoClamp,
         }
     }
@@ -145,8 +145,8 @@ impl DepthTest {
 
 /// Specifies whether the depth value of samples should be clamped to `0.0` or `1.0`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg(safegl_desktop)]
-#[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+#[cfg(any(safegl_desktop, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
 pub enum DepthClamp {
     /// Do not clamp. Samples with values outside of the `[0.0, 1.0]` range will be discarded.
     ///
@@ -155,7 +155,7 @@ pub enum DepthClamp {
 
     /// Clamp the depth values. All samples will always be drawn.
     ///
-    /// This value is only supported on OpenGL.
+    /// Needs desktop OpenGL, or `GL_EXT_depth_clamp` (`EXT_depth_clamp` on WebGL).
     Clamp,
 
     /// Depth values inferior to `0.0` will be clamped to `0.0`.
@@ -171,7 +171,7 @@ pub enum DepthClamp {
 
 pub fn sync_depth(ctxt: &mut CommandContext<'_>, depth: &Depth) -> Result<(), DrawError> {
     // depth clamp
-    #[cfg(safegl_desktop)]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
     {
         let state = &mut *ctxt.state;
         match (
@@ -183,7 +183,8 @@ pub fn sync_depth(ctxt: &mut CommandContext<'_>, depth: &Depth) -> Result<(), Dr
             (DepthClamp::Clamp, &mut true, &mut true) => (),
 
             (DepthClamp::NoClamp, near, far) => {
-                if ctxt.version.0 == Api::Gl {
+                // OpenGL ES and WebGL clamp with `GL_EXT_depth_clamp`
+                if ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_depth_clamp {
                     unsafe { ctxt.glow.disable(glow::DEPTH_CLAMP) };
                     *near = false;
                     *far = false;
@@ -193,7 +194,8 @@ pub fn sync_depth(ctxt: &mut CommandContext<'_>, depth: &Depth) -> Result<(), Dr
             }
 
             (DepthClamp::Clamp, near, far) => {
-                if ctxt.version.0 == Api::Gl {
+                // OpenGL ES and WebGL clamp with `GL_EXT_depth_clamp`
+                if ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_depth_clamp {
                     unsafe { ctxt.glow.enable(glow::DEPTH_CLAMP) };
                     *near = true;
                     *far = true;

@@ -810,7 +810,7 @@ blending_test!(
     (255, 255, 255, 255)
 );
 
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 /// A program that colors each triangle with the `value.y` of its provoking vertex.
 fn provoking_vertex_program(
     display: &support::Backend,
@@ -831,7 +831,7 @@ fn provoking_vertex_program(
     safegl::Program::from_source(display, &vertex, &fragment, None).unwrap()
 }
 
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 #[test]
 fn provoking_vertex_last() {
     let display = support::build_display();
@@ -886,7 +886,7 @@ fn provoking_vertex_last() {
     display.assert_no_error(None);
 }
 
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 #[test]
 fn provoking_vertex_first() {
     let display = support::build_display();
@@ -947,7 +947,7 @@ fn provoking_vertex_first() {
     display.assert_no_error(None);
 }
 
-#[cfg(safegl_desktop)]
+#[cfg(any(safegl_desktop, safegl_webgl))]
 #[test]
 fn depth_clamp_all() {
     let display = support::build_display();

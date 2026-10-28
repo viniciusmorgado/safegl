@@ -1,7 +1,7 @@
 use crate::DrawError;
 
 use crate::uniforms::{SamplerBehavior, SamplerNotSupportedError, SamplerWrapFunction};
-#[cfg(any(safegl_desktop, safegl_gles32))]
+#[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
 use crate::version::{Api, Version};
 
 use crate::context::CommandContext;
@@ -192,7 +192,7 @@ fn is_wrap_function_supported(ctxt: &CommandContext<'_>, function: SamplerWrapFu
     match function {
         #[cfg(any(safegl_desktop, safegl_gles32))]
         SamplerWrapFunction::BorderClamp => is_border_clamp_supported(ctxt),
-        #[cfg(safegl_gl44)]
+        #[cfg(any(safegl_gl44, safegl_webgl))]
         SamplerWrapFunction::MirrorClamp => {
             ctxt.version >= &Version(Api::Gl, 4, 4)
                 || ctxt.extensions.gl_arb_texture_mirror_clamp_to_edge

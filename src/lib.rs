@@ -161,8 +161,8 @@ pub use crate::context::{
     FormatSupport, FormatTarget, ImageCompatibility, ImageFormatClass, SimultaneousUse,
     StageSupport, ViewClass,
 };
-#[cfg(any(safegl_desktop, safegl_gles32))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+#[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))))]
 pub use crate::draw_parameters::OutputState;
 #[cfg(safegl_desktop)]
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
@@ -1529,19 +1529,19 @@ pub enum DrawError {
 
     /// Drawing ranges of vertices or indices with one call (`index::NoIndicesRanges`,
     /// `IndexBuffer::ranges`) needs desktop OpenGL.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     DrawRangesNotSupported,
 
     /// A range of vertices or indices drawn with one call is outside the vertices source or the
     /// index buffer.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     DrawRangeOutOfBounds,
 
     /// Ranges of vertices or indices drawn with one call can't have several instances.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     InstancedDrawRangesNotSupported,
 
     /// Indirect draws aren't supported by the backend: they need OpenGL 4.0 or OpenGL ES 3.1.
@@ -1573,9 +1573,9 @@ pub enum DrawError {
     LineWidthNotSupported,
 
     /// `DrawParameters::base_instance` isn't 0, and the backend doesn't support base instances
-    /// (OpenGL 4.2 or `GL_ARB_base_instance`).
-    #[cfg(safegl_gl42)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl42)))]
+    /// (see `DrawParameters::base_instance`).
+    #[cfg(any(safegl_gl42, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl42, safegl_webgl))))]
     BaseInstanceNotSupported,
 
     /// `DrawParameters::base_instance` isn't 0 for a draw that can't take it: the commands of
@@ -1697,13 +1697,13 @@ pub enum DrawError {
     SmoothingNotSupported,
 
     /// The requested provoking vertex is not supported by the backend.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     ProvokingVertexNotSupported,
 
     /// Depth clamping isn't supported by the backend.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     DepthClampNotSupported,
 
     /// One of the blending parameters is not supported by the backend.
@@ -1716,13 +1716,13 @@ pub enum DrawError {
     PrimitiveRestartIndexNotSupported,
 
     /// Changing the clip volume definition (origin and depth mode) is not supported by the backend.
-    #[cfg(safegl_gl45)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
+    #[cfg(any(safegl_gl45, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_webgl))))]
     ClipControlNotSupported,
 
     /// Tried to enable a clip plane that does not exist.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     ClipPlaneIndexOutOfBounds,
 
     /// Tried to sample more textures than the backend has texture units.
@@ -1734,8 +1734,8 @@ pub enum DrawError {
     InsufficientImageUnits,
 
     /// A polygon mode other than `Fill` was requested, but the backend doesn't support it.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     PolygonModeNotSupported,
 
     /// Disabling multisampling isn't supported by the backend.
@@ -1744,8 +1744,8 @@ pub enum DrawError {
     MultisamplingNotSupported,
 
     /// Offsetting the depth of points or lines isn't supported by the backend.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     PolygonOffsetNotSupported,
 
     /// Conditional rendering isn't supported by the backend.
@@ -1849,19 +1849,19 @@ pub enum DrawError {
 
     /// Giving outputs their own blending or color mask (`DrawParameters::outputs`) isn't
     /// supported by the backend.
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))))]
     PerOutputStateNotSupported,
 
     /// `DrawParameters::outputs` has more entries than the backend has draw buffers.
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
+    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))))]
     OutputStateIndexOutOfBounds,
 
     /// Clamping the depth offset (`DrawParameters::polygon_offset_clamp`) isn't supported by the
     /// backend.
-    #[cfg(safegl_gl46)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl46)))]
+    #[cfg(any(safegl_gl46, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl46, safegl_webgl))))]
     PolygonOffsetClampNotSupported,
 
     /// A uniform block, shader storage block or atomic counter buffer needs a binding point
@@ -2008,11 +2008,11 @@ impl fmt::Display for DrawError {
             #[cfg(any(safegl_desktop, safegl_gles31))]
             IndirectDrawWithTransformFeedback =>
                 "OpenGL ES doesn't draw indirectly while transform feedback records",
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             DrawRangesNotSupported => "Drawing ranges with one call is not supported by the backend",
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             DrawRangeOutOfBounds => "A drawn range is outside the vertices or the indices",
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             InstancedDrawRangesNotSupported => "Drawn ranges can't have several instances",
             TransformFeedbackBuffersMissing =>
                 "The transform feedback object lacks buffers of its program",
@@ -2038,7 +2038,7 @@ impl fmt::Display for DrawError {
                 "The depth range is outside of the `(0, 1)` range, or reversed on WebGL",
             LineWidthNotSupported =>
                 "The line width isn't positive, or is above 1 pixel on desktop OpenGL",
-            #[cfg(safegl_gl42)]
+            #[cfg(any(safegl_gl42, safegl_webgl))]
             BaseInstanceNotSupported =>
                 "The backend doesn't support drawing from a base instance",
             #[cfg(safegl_gl42)]
@@ -2090,10 +2090,10 @@ impl fmt::Display for DrawError {
             #[cfg(safegl_desktop)]
             SmoothingNotSupported =>
                 "Trying to use smoothing, but this is not supported by the backend",
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             ProvokingVertexNotSupported =>
                 "Trying to set the provoking vertex, but this is not supported by the backend",
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             DepthClampNotSupported =>
                 "The depth clamp mode is not supported by the backend",
             BlendingParameterNotSupported =>
@@ -2101,10 +2101,10 @@ impl fmt::Display for DrawError {
             #[cfg(safegl_desktop)]
             PrimitiveRestartIndexNotSupported =>
                 "Restarting primitives at a chosen index is not supported by the backend",
-            #[cfg(safegl_gl45)]
+            #[cfg(any(safegl_gl45, safegl_webgl))]
             ClipControlNotSupported =>
                 "Changing the clip volume definition (origin and depth mode) is not supported by the backend",
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             ClipPlaneIndexOutOfBounds =>
                 "Tried to enable a clip plane that does not exist.",
             InsufficientTextureUnits =>
@@ -2112,13 +2112,13 @@ impl fmt::Display for DrawError {
             #[cfg(any(safegl_gl42, safegl_gles31))]
             InsufficientImageUnits =>
                 "Tried to use more image uniforms that the implementation has support for",
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             PolygonModeNotSupported =>
                 "A polygon mode other than `Fill` is not supported by the backend",
             #[cfg(safegl_desktop)]
             MultisamplingNotSupported =>
                 "Disabling multisampling is not supported by the backend",
-            #[cfg(safegl_desktop)]
+            #[cfg(any(safegl_desktop, safegl_webgl))]
             PolygonOffsetNotSupported =>
                 "Offsetting the depth of points or lines is not supported by the backend",
             #[cfg(safegl_desktop)]
@@ -2163,13 +2163,13 @@ impl fmt::Display for DrawError {
             #[cfg(any(safegl_desktop, safegl_gles31))]
             SampleMaskNotSupported =>
                 "Masking samples is not supported by the backend",
-            #[cfg(any(safegl_desktop, safegl_gles32))]
+            #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
             PerOutputStateNotSupported =>
                 "Giving outputs their own blending or color mask is not supported by the backend",
-            #[cfg(any(safegl_desktop, safegl_gles32))]
+            #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
             OutputStateIndexOutOfBounds =>
                 "There are more output states than draw buffers",
-            #[cfg(safegl_gl46)]
+            #[cfg(any(safegl_gl46, safegl_webgl))]
             PolygonOffsetClampNotSupported =>
                 "Clamping the depth offset is not supported by the backend",
             BufferBindingOutOfRange { .. } =>

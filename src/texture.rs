@@ -164,8 +164,8 @@ pub use self::view::TextureViewError;
 #[cfg(any(safegl_desktop, safegl_gles30))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles30))))]
 pub use self::parameters::{Swizzle, SwizzleSource};
-#[cfg(any(safegl_gl43, safegl_gles31))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
+#[cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))))]
 pub use self::parameters::{DepthStencilTextureMode, DepthStencilTextureModeError};
 pub use self::pixel::PixelValue;
 #[cfg(any(safegl_desktop, safegl_gles32))]

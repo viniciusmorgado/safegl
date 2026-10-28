@@ -813,13 +813,14 @@ impl Context {
 
     /// Returns the time of the GPU in nanoseconds, when it has received every previous command
     /// but not necessarily run them (`GL_TIMESTAMP`), or `None` on OpenGL ES without
-    /// `GL_EXT_disjoint_timer_query`. `debug::TimestampQuery` gives the time when the commands
-    /// have run, and the two use the same clock.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    /// `GL_EXT_disjoint_timer_query`, and on WebGL without `EXT_disjoint_timer_query_webgl2`.
+    /// `debug::TimestampQuery` gives the time when the commands have run, and the two use the
+    /// same clock.
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     pub fn gpu_timestamp(&self) -> Option<u64> {
         let ctxt = self.make_current();
-        if ctxt.version.0 != Api::Gl && !ctxt.extensions.gl_ext_disjoint_timer_query {
+        if ctxt.version.0 != Api::Gl && !ctxt.extensions.disjoint_timer_query() {
             return None;
         }
         Some(unsafe { ctxt.glow.get_parameter_i64(gl::TIMESTAMP) } as u64)

@@ -97,9 +97,14 @@ unsafe fn restore_capabilities(ctxt: &mut CommandContext<'_>) {
         if state.enabled_depth_clamp_near == state.enabled_depth_clamp_far {
             set(ctxt, gl::DEPTH_CLAMP, state.enabled_depth_clamp_near);
         }
+    } else if ctxt.extensions.gl_ext_depth_clamp {
+        set(ctxt, gl::DEPTH_CLAMP, state.enabled_depth_clamp_near);
     }
 
-    if desktop || ctxt.extensions.gl_ext_clip_cull_distance {
+    if desktop
+        || ctxt.extensions.gl_ext_clip_cull_distance
+        || ctxt.extensions.webgl_clip_cull_distance
+    {
         let max_clip_distances = ctxt.glow.get_parameter_i32(gl::MAX_CLIP_DISTANCES).max(0);
         for i in 0..max_clip_distances.min(32) as u32 {
             set(
@@ -331,7 +336,17 @@ unsafe fn restore_fixed_function(ctxt: &mut CommandContext<'_>) {
         ctxt.extra.ProvokingVertex(state.provoking_vertex);
     } else if ctxt.extensions.gl_ext_provoking_vertex {
         ctxt.extra.ProvokingVertexEXT(state.provoking_vertex);
+    } else if ctxt.extensions.webgl_provoking_vertex {
+        #[cfg(safegl_browser)]
+        ctxt.webgl.provoking_vertex(state.provoking_vertex);
     }
+
+    // set below, once `state` isn't borrowed anymore
+    let offset_line = state.enabled_polygon_offset_line;
+    #[cfg(safegl_browser)]
+    let polygon_mode = state.polygon_mode;
+    #[cfg(any(safegl_gl45, safegl_webgl))]
+    let clip_control = state.clip_control;
 
     if ctxt.version >= &Version(Api::Gl, 4, 6) || ctxt.extensions.gl_arb_polygon_offset_clamp {
         ctxt.extra
@@ -369,9 +384,13 @@ unsafe fn restore_fixed_function(ctxt: &mut CommandContext<'_>) {
             .PrimitiveBoundingBoxEXT(bb.0, bb.1, bb.2, bb.3, bb.4, bb.5, bb.6, bb.7);
     }
 
-    #[cfg(safegl_gl45)]
-    if ctxt.version >= &Version(Api::Gl, 4, 5) || ctxt.extensions.gl_arb_clip_control {
-        ctxt.extra
-            .ClipControl(state.clip_control.0, state.clip_control.1);
+    // the polygon mode and the offset of lines of `WEBGL_polygon_mode`
+    if !desktop && ctxt.extensions.webgl_polygon_mode {
+        #[cfg(safegl_browser)]
+        ctxt.webgl.polygon_mode(polygon_mode);
+        set(ctxt, gl::POLYGON_OFFSET_LINE, offset_line);
     }
+
+    #[cfg(any(safegl_gl45, safegl_webgl))]
+    crate::draw_parameters::clip_control(ctxt, clip_control.0, clip_control.1);
 }

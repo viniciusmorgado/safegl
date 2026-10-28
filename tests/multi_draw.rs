@@ -1,7 +1,7 @@
 //! Several ranges of vertices or indices drawn with one call, and the draw parameters that
 //! shaders read (`gl_DrawID`, `gl_BaseVertex`, `gl_BaseInstance`).
 
-#![cfg(safegl_desktop)]
+#![cfg(any(safegl_desktop, safegl_webgl))]
 
 #[macro_use]
 extern crate safegl;
@@ -140,8 +140,9 @@ fn ranges_of_vertices() {
 
 #[test]
 fn ranges_of_indices() {
+    // OpenGL ES doesn't draw ranges, WebGL draws them with `WEBGL_multi_draw` or one by one
     let display = support::build_display();
-    if support::is_gles(&display) {
+    if support::is_gles(&display) && !cfg!(target_arch = "wasm32") {
         return;
     }
     let vertices = thirds(&display);
@@ -172,10 +173,17 @@ fn ranges_of_indices() {
     .unwrap();
     let ranges = [0..6, 0..6];
     let source = quad.ranges_with_base_vertices(&ranges, &[0, 8]).unwrap();
-    assert_eq!(
-        draw(&display, &vertices, source, &program).unwrap(),
-        [RED, BLACK, RED]
-    );
+    // browsers draw base vertices with `WEBGL_draw_instanced_base_vertex_base_instance`
+    let base_vertices = !cfg!(target_arch = "wasm32")
+        || support::extensions(&display).webgl_draw_instanced_base_vertex_base_instance;
+    match draw(&display, &vertices, source, &program) {
+        Ok(pixels) => {
+            assert!(base_vertices);
+            assert_eq!(pixels, [RED, BLACK, RED]);
+        }
+        Err(DrawError::DrawRangesNotSupported) => assert!(!base_vertices),
+        Err(error) => panic!("{error}"),
+    }
     assert!(quad.ranges_with_base_vertices(&ranges, &[0]).is_none());
 
     display.assert_no_error(None);

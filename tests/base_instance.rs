@@ -1,5 +1,5 @@
 //! `DrawParameters::base_instance`, added to the start of the per-instance slices.
-#![cfg(safegl_gl42)]
+#![cfg(any(safegl_gl42, safegl_webgl))]
 
 #[macro_use]
 extern crate safegl;
