@@ -98,3 +98,50 @@ fn formats_without_mipmaps() {
 
     display.assert_no_error(None);
 }
+
+/// A texture with fewer levels than down to 1x1 is complete, also without texture storage:
+/// sampling its last level reads it, and generating its mipmaps stops there.
+#[test]
+fn fewer_levels_than_the_full_chain() {
+    use safegl::uniforms::{MagnifySamplerFilter, MinifySamplerFilter};
+    use safegl::Surface;
+
+    let display = support::build_display();
+    let texture = Texture2d::empty_with_mipmaps(&display, MipmapsOption::EmptyMipmapsMax(1), 4, 4)
+        .unwrap();
+    assert_eq!(texture.get_mipmap_levels(), 2);
+    texture.as_surface().clear_color(1.0, 0.0, 0.0, 1.0);
+    safegl::framebuffer::SimpleFrameBuffer::new(&display, texture.mipmap(1).unwrap())
+        .unwrap()
+        .clear_color(0.0, 1.0, 0.0, 1.0);
+
+    // the level of detail of a 1x1 target sampling the 4x4 texture is 2, clamped to the level 1
+    let target = Texture2d::empty(&display, 1, 1).unwrap();
+    let (vb, ib) = support::build_rectangle_vb_ib(&display);
+    let program = support::program_from_legacy(
+        &display,
+        "#version 110\nattribute vec2 position;\nvarying vec2 uv;\n\
+         void main() { uv = position * 0.5 + 0.5; gl_Position = vec4(position, 0.0, 1.0); }",
+        "#version 110\nuniform sampler2D tex;\nvarying vec2 uv;\n\
+         void main() { gl_FragColor = texture2D(tex, uv); }",
+    )
+    .unwrap();
+    let sampler = texture
+        .sampled()
+        .minify_filter(MinifySamplerFilter::NearestMipmapNearest)
+        .magnify_filter(MagnifySamplerFilter::Nearest);
+    target
+        .as_surface()
+        .draw(
+            &vb,
+            &ib,
+            &program,
+            &uniform! { tex: sampler },
+            &Default::default(),
+        )
+        .unwrap();
+    let pixels: Vec<Vec<(u8, u8, u8, u8)>> = target.read().unwrap();
+    assert_eq!(pixels[0][0], (0, 255, 0, 255));
+
+    display.assert_no_error(None);
+}

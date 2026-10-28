@@ -1094,8 +1094,15 @@ where
         }
 
         // `glTexImage*` allocates one level: without texture storage, the other levels are
-        // allocated one by one, empty, so that the texture is complete
+        // allocated one by one, empty, and the last level is the one that the texture has, so
+        // that it is complete with fewer levels than down to 1x1, and that mipmap generation
+        // stops there
         let has_storage = storage_internal_format.is_some() && is_tex_storage_supported(&ctxt);
+        if texture_levels > 1 && !has_storage {
+            let max_level = texture_levels - 1;
+            ctxt.glow
+                .tex_parameter_i32(bind_point, glow::TEXTURE_MAX_LEVEL, max_level);
+        }
         if texture_levels > 1 && !should_generate_mipmaps && !has_storage {
             let compressed = data.as_ref().map(|&(c, _)| c).filter(|c| c.is_compressed());
             allocate_upper_levels(
@@ -1117,6 +1124,12 @@ where
         id
     };
 
+    let has_storage = storage_internal_format.is_some() && is_tex_storage_supported(&ctxt);
+    let mipmap_max = match texture_levels {
+        1 => 0,
+        levels if !has_storage => levels as u32 - 1,
+        _ => 1000,
+    };
     Ok(TextureAny {
         context: facade.get_context().clone(),
         id,
@@ -1129,8 +1142,9 @@ where
         owned: true,
         latest_shader_write: Rc::new(Cell::new(0)),
         swizzle: Cell::new(Some([gl::RED, gl::GREEN, gl::BLUE, gl::ALPHA])),
-        // the defaults of OpenGL, or the range set above for textures without mipmaps
-        mipmap_range: Cell::new(Some((0, if texture_levels > 1 { 1000 } else { 0 }))),
+        // the defaults of OpenGL, or the range set above for textures without mipmaps or
+        // texture storage
+        mipmap_range: Cell::new(Some((0, mipmap_max))),
         depth_stencil_mode: Cell::new(Some(gl::DEPTH_COMPONENT)),
         fixed_sample_locations,
     })
