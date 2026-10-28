@@ -19,6 +19,7 @@ use crate::gl;
 use crate::handles::RawName;
 #[cfg(safegl_gl44)]
 use crate::image_format::{ClientFormat, TextureFormat, TextureFormatRequest};
+use crate::image_format::{ClientFormatAny, CompressedFormat, CompressedSrgbFormat};
 use crate::texture::any::{fits, image_extent};
 use crate::texture::TextureAnyMipmap;
 #[cfg(safegl_gl44)]
@@ -498,9 +499,10 @@ impl_copy_image_target_for_render_buffer!(
 enum CopyClass {
     /// An uncompressed color format with texels of this many bits.
     Uncompressed(u32),
-    /// A compressed format with 4x4 blocks of this many bytes, and the formats it is
+    /// A compressed format with blocks of this many texels and bytes, and the formats it is
     /// compatible with (the internal format of its non-sRGB variant).
     Compressed {
+        block: (u32, u32),
         block_bytes: u32,
         family: gl::types::GLenum,
     },
@@ -546,9 +548,26 @@ fn compressed_class(internal_format: gl::types::GLenum) -> Option<CopyClass> {
         gl::COMPRESSED_SIGNED_R11_EAC => (8, gl::COMPRESSED_SIGNED_R11_EAC),
         gl::COMPRESSED_RG11_EAC => (16, gl::COMPRESSED_RG11_EAC),
         gl::COMPRESSED_SIGNED_RG11_EAC => (16, gl::COMPRESSED_SIGNED_RG11_EAC),
-        _ => return None,
+        // ASTC, of any block size, whose sRGB variant has the same blocks
+        format => {
+            let (block_width, block_height, block_bytes) =
+                ClientFormatAny::from_internal_compressed_format(format)?.block_size()?;
+            let family = match ClientFormatAny::from_internal_compressed_format(format)? {
+                ClientFormatAny::CompressedFormat(CompressedFormat::Astc(size))
+                | ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::Astc(size)) => {
+                    CompressedFormat::Astc(size).to_glenum()
+                }
+                _ => return None,
+            };
+            return Some(CopyClass::Compressed {
+                block: (block_width, block_height),
+                block_bytes: block_bytes as u32,
+                family,
+            });
+        }
     };
     Some(CopyClass::Compressed {
+        block: (4, 4),
         block_bytes,
         family,
     })
@@ -743,18 +762,22 @@ pub fn copy_image<'a, 'b>(
         (Some(a), Some(b)) if a == b => size,
         (
             Some(CopyClass::Compressed {
+                block,
                 block_bytes,
                 family: _,
             }),
             Some(CopyClass::Uncompressed(bits)),
-        ) if block_bytes * 8 == bits => (size.0.div_ceil(4), size.1.div_ceil(4), size.2),
+        ) if block_bytes * 8 == bits => {
+            (size.0.div_ceil(block.0), size.1.div_ceil(block.1), size.2)
+        }
         (
             Some(CopyClass::Uncompressed(bits)),
             Some(CopyClass::Compressed {
+                block,
                 block_bytes,
                 family: _,
             }),
-        ) if block_bytes * 8 == bits => (size.0 * 4, size.1 * 4, size.2),
+        ) if block_bytes * 8 == bits => (size.0 * block.0, size.1 * block.1, size.2),
         _ => return Err(CopyImageError::IncompatibleFormats),
     };
 

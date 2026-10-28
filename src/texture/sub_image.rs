@@ -152,8 +152,8 @@ impl<'a> TextureAnyMipmap<'a> {
     /// Reads the compressed blocks of a box of this mipmap level of a compressed texture
     /// (`glGetCompressedTextureSubImage`), as they are stored.
     ///
-    /// The box must start on the blocks of the format (4 × 4 texels for the formats of SafeGL)
-    /// and end on them or on the edge of the level, or `ReadError::MisalignedBlocks` is
+    /// The box must start on the blocks of the format (see `CompressedFormat::block_size`) and
+    /// end on them or on the edge of the level, or `ReadError::MisalignedBlocks` is
     /// returned. Returns `ReadError::OutputFormatNotSupported` if the texture isn't compressed in
     /// a format that SafeGL knows. See `read_box` for the requirements.
     #[cfg_attr(docsrs, doc(cfg(safegl_gl45)))]
@@ -167,13 +167,6 @@ impl<'a> TextureAnyMipmap<'a> {
         if !fits(offset, size, extent) {
             return Err(ReadError::OutOfBounds);
         }
-        let aligned = |offset: u32, size: u32, extent: u32| {
-            offset % 4 == 0 && (size % 4 == 0 || offset + size == extent)
-        };
-        if !aligned(offset.0, size.0, extent.0) || !aligned(offset.1, size.1, extent.1) {
-            return Err(ReadError::MisalignedBlocks);
-        }
-
         let mut ctxt = TextureExt::get_context(texture).make_current();
         prepare(self, &mut ctxt)?;
         let format = unsafe {
@@ -189,8 +182,20 @@ impl<'a> TextureAnyMipmap<'a> {
                 gl::TEXTURE_INTERNAL_FORMAT,
             ) as gl::types::GLenum
         };
-        let bytes = ClientFormatAny::from_internal_compressed_format(format)
-            .and_then(|format| format.get_buffer_size(size.0, Some(size.1), None, Some(size.2)))
+        let format = ClientFormatAny::from_internal_compressed_format(format)
+            .ok_or(ReadError::OutputFormatNotSupported)?;
+        let (block_width, block_height, _) =
+            format.block_size().ok_or(ReadError::OutputFormatNotSupported)?;
+        let aligned = |offset: u32, size: u32, extent: u32, block: u32| {
+            offset % block == 0 && (size % block == 0 || offset + size == extent)
+        };
+        if !aligned(offset.0, size.0, extent.0, block_width)
+            || !aligned(offset.1, size.1, extent.1, block_height)
+        {
+            return Err(ReadError::MisalignedBlocks);
+        }
+        let bytes = format
+            .get_buffer_size(size.0, Some(size.1), None, Some(size.2))
             .ok_or(ReadError::OutputFormatNotSupported)?;
         let mut data = vec![0u8; bytes];
         unsafe {

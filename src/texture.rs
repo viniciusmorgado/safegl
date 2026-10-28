@@ -179,7 +179,8 @@ pub use self::ty_support::is_texture_2d_multisample_array_supported;
 #[cfg(any(safegl_desktop, safegl_gles31))]
 pub use self::ty_support::is_texture_2d_multisample_supported;
 pub use crate::image_format::{ClientFormat, TextureFormat};
-pub use crate::image_format::{CompressedFormat, DepthFormat, DepthStencilFormat, StencilFormat};
+pub use crate::image_format::{AstcBlockSize, CompressedFormat, DepthFormat, DepthStencilFormat};
+pub use crate::image_format::StencilFormat;
 pub use crate::image_format::{CompressedSrgbFormat, SrgbFormat};
 pub use crate::image_format::{
     UncompressedFloatFormat, UncompressedIntFormat, UncompressedUintFormat,
@@ -1017,7 +1018,8 @@ pub enum UploadError {
     MisalignedBlocks,
 
     /// Uploading this way isn't supported by the backend: boxes of compressed client images
-    /// need OpenGL 4.2 or `GL_ARB_compressed_texture_pixel_storage`.
+    /// need OpenGL 4.2 or `GL_ARB_compressed_texture_pixel_storage`, and the regions of ETC1 and
+    /// PVRTC textures can't be written: only their whole levels.
     NotSupported,
 }
 
