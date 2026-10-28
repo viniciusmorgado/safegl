@@ -1,5 +1,6 @@
 //! Framebuffers whose attachments are whole texture levels with their layers.
 
+use std::ops::Range;
 use std::rc::Rc;
 
 use smallvec::SmallVec;
@@ -129,7 +130,9 @@ impl<'a> LayeredDepthStencil<'a> {
 }
 
 /// A framebuffer whose attachments are whole texture levels with their layers: the layers of
-/// array textures, the faces of cube maps and cube map arrays, or the slices of 3D textures.
+/// array textures, the faces of cube maps and cube map arrays, or the slices of 3D textures. A
+/// multiview framebuffer (`LayeredFrameBuffer::multiview`) attaches views instead, layers of 2D
+/// array textures that each draw renders to at once.
 ///
 /// A geometry shader chooses the layer of each primitive by writing `gl_Layer` (the face of a
 /// cube map is `gl_Layer % 6`), so that a single draw renders, for instance, the six faces of a
@@ -150,17 +153,23 @@ pub struct LayeredFrameBuffer<'a> {
     // attachment of the constructors that don't take names, which is at location 0
     color_attachments: Vec<(Option<String>, fbo::LayeredAttachment<'a>)>,
     depth_stencil_attachments: fbo::DepthStencilAttachments<fbo::LayeredAttachment<'a>>,
+    // the first view and the number of views of a multiview framebuffer
+    views: Option<(u32, u32)>,
 }
 
 impl<'a> LayeredFrameBuffer<'a> {
     /// Returns true if the backend supports layered framebuffers: desktop OpenGL, OpenGL ES 3.2
     /// or `GL_EXT_geometry_shader`.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     pub fn is_supported<F: ?Sized + Facade>(facade: &F) -> bool {
         fbo::is_layered_supported(&facade.get_context().make_current())
     }
 
     /// Creates a framebuffer with a single layered color attachment, written by the fragment
     /// output at location 0.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     pub fn new<F, C>(facade: &F, color: C) -> Result<LayeredFrameBuffer<'a>, ValidationError>
     where
         F: ?Sized + Facade,
@@ -170,10 +179,13 @@ impl<'a> LayeredFrameBuffer<'a> {
             facade,
             vec![(None, color.to_layered_color_attachment())],
             LayeredDepthStencil::None,
+            None,
         )
     }
 
     /// Creates a framebuffer with a layered color attachment and a layered depth buffer.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     pub fn with_depth_buffer<F, C, D>(
         facade: &F,
         color: C,
@@ -188,10 +200,13 @@ impl<'a> LayeredFrameBuffer<'a> {
             facade,
             vec![(None, color.to_layered_color_attachment())],
             LayeredDepthStencil::Depth(depth.to_layered_depth_attachment()),
+            None,
         )
     }
 
     /// Creates a framebuffer with a layered color attachment and a layered stencil buffer.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     pub fn with_stencil_buffer<F, C, S>(
         facade: &F,
         color: C,
@@ -206,11 +221,14 @@ impl<'a> LayeredFrameBuffer<'a> {
             facade,
             vec![(None, color.to_layered_color_attachment())],
             LayeredDepthStencil::Stencil(stencil.to_layered_stencil_attachment()),
+            None,
         )
     }
 
     /// Creates a framebuffer with a layered color attachment and a layered depth-stencil
     /// buffer.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     pub fn with_depth_stencil_buffer<F, C, D>(
         facade: &F,
         color: C,
@@ -225,10 +243,13 @@ impl<'a> LayeredFrameBuffer<'a> {
             facade,
             vec![(None, color.to_layered_color_attachment())],
             LayeredDepthStencil::DepthStencil(depth_stencil.to_layered_depth_stencil_attachment()),
+            None,
         )
     }
 
     /// Creates a framebuffer with only a layered depth buffer, such as a shadow cube map.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     pub fn depth_only<F, D>(facade: &F, depth: D) -> Result<LayeredFrameBuffer<'a>, ValidationError>
     where
         F: ?Sized + Facade,
@@ -238,11 +259,14 @@ impl<'a> LayeredFrameBuffer<'a> {
             facade,
             Vec::new(),
             LayeredDepthStencil::Depth(depth.to_layered_depth_attachment()),
+            None,
         )
     }
 
     /// Creates a framebuffer with several layered color attachments, each written by the
     /// fragment output of the given name, and the given depth and stencil attachments.
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     pub fn with_outputs<F, I, C>(
         facade: &F,
         outputs: I,
@@ -257,14 +281,104 @@ impl<'a> LayeredFrameBuffer<'a> {
             .into_iter()
             .map(|(name, color)| (Some(name), color.to_layered_color_attachment()))
             .collect();
-        Self::new_impl(facade, colors, depth_stencil)
+        Self::new_impl(facade, colors, depth_stencil, None)
+    }
+
+    /// Returns true if the backend has multiview framebuffers: `GL_OVR_multiview2`, or
+    /// `OVR_multiview2` on WebGL.
+    pub fn is_multiview_supported<F: ?Sized + Facade>(facade: &F) -> bool {
+        fbo::is_multiview_supported(&facade.get_context().make_current())
+    }
+
+    /// Creates a multiview framebuffer (`GL_OVR_multiview2`), whose attachments are the layers
+    /// `views` of levels of 2D array textures: each draw renders to every view, once per view,
+    /// with `gl_ViewID_OVR` set to the index of the view in the vertex shader, which declares
+    /// the number of views with `layout(num_views = N) in;`. Stereo rendering draws a scene for
+    /// both eyes this way.
+    ///
+    /// Returns `ValidationError::MultiviewNotSupported` without the extension,
+    /// `MultiviewTextureNotSupported` if an attachment isn't a 2D array texture, and
+    /// `ViewsOutOfRange` if the views are fewer than two (implementations don't draw a single
+    /// view alike: attach the layer instead), more than `GL_MAX_VIEWS_OVR`, or more than the
+    /// layers of an attachment. Drawing with a program that declares another number of views,
+    /// or none, returns `DrawError::ViewsMismatch`.
+    pub fn multiview<F, C>(
+        facade: &F,
+        color: C,
+        depth_stencil: LayeredDepthStencil<'a>,
+        views: Range<u32>,
+    ) -> Result<LayeredFrameBuffer<'a>, ValidationError>
+    where
+        F: ?Sized + Facade,
+        C: ToLayeredColorAttachment<'a>,
+    {
+        Self::new_impl(
+            facade,
+            vec![(None, color.to_layered_color_attachment())],
+            depth_stencil,
+            Some(views),
+        )
+    }
+
+    /// Creates a multiview framebuffer with several color attachments, each written by the
+    /// fragment output of the given name. See `multiview`.
+    pub fn multiview_with_outputs<F, I, C>(
+        facade: &F,
+        outputs: I,
+        depth_stencil: LayeredDepthStencil<'a>,
+        views: Range<u32>,
+    ) -> Result<LayeredFrameBuffer<'a>, ValidationError>
+    where
+        F: ?Sized + Facade,
+        I: IntoIterator<Item = (&'a str, C)>,
+        C: ToLayeredColorAttachment<'a>,
+    {
+        let colors = outputs
+            .into_iter()
+            .map(|(name, color)| (Some(name), color.to_layered_color_attachment()))
+            .collect();
+        Self::new_impl(facade, colors, depth_stencil, Some(views))
+    }
+
+    /// Returns the number of views of a multiview framebuffer, `None` for the others.
+    pub fn views(&self) -> Option<u32> {
+        self.views.map(|(_, count)| count)
+    }
+
+    /// The attachments with `colors`, layered or multiview.
+    fn attachments(
+        &self,
+        colors: SmallVec<[(u32, fbo::LayeredAttachment<'a>); 5]>,
+    ) -> fbo::FramebufferAttachments<'a> {
+        Self::fbo_attachments(colors, self.depth_stencil_attachments, self.views)
+    }
+
+    fn fbo_attachments(
+        colors: SmallVec<[(u32, fbo::LayeredAttachment<'a>); 5]>,
+        depth_stencil: fbo::DepthStencilAttachments<fbo::LayeredAttachment<'a>>,
+        views: Option<(u32, u32)>,
+    ) -> fbo::FramebufferAttachments<'a> {
+        let attachments = fbo::FramebufferSpecificAttachments {
+            colors,
+            depth_stencil,
+        };
+        match views {
+            None => fbo::FramebufferAttachments::Layered(attachments),
+            Some((base_view, views)) => fbo::FramebufferAttachments::Multiview {
+                attachments,
+                base_view,
+                views,
+            },
+        }
     }
 
     fn new_impl<F: ?Sized + Facade>(
         facade: &F,
         colors: Vec<(Option<&str>, LayeredColorAttachment<'a>)>,
         depth_stencil: LayeredDepthStencil<'a>,
+        views: Option<Range<u32>>,
     ) -> Result<LayeredFrameBuffer<'a>, ValidationError> {
+        let views = views.map(|views| (views.start, views.end.saturating_sub(views.start)));
         let color_attachments = colors
             .into_iter()
             .map(|(name, color)| (name.map(str::to_owned), fbo::LayeredAttachment(color.0)))
@@ -279,11 +393,8 @@ impl<'a> LayeredFrameBuffer<'a> {
             .collect::<SmallVec<_>>();
         let mut ctxt = facade.get_context().make_current();
         let example_attachments =
-            fbo::FramebufferAttachments::Layered(fbo::FramebufferSpecificAttachments {
-                colors: example_colors,
-                depth_stencil: depth_stencil_attachments,
-            })
-            .validate(&mut ctxt)?;
+            Self::fbo_attachments(example_colors, depth_stencil_attachments, views)
+                .validate(&mut ctxt)?;
         fbo::FramebuffersContainer::check_complete(&mut ctxt, &example_attachments)?;
         drop(ctxt);
 
@@ -292,6 +403,7 @@ impl<'a> LayeredFrameBuffer<'a> {
             example_attachments,
             color_attachments,
             depth_stencil_attachments,
+            views,
         })
     }
 
@@ -343,14 +455,10 @@ impl<'a> LayeredFrameBuffer<'a> {
         }
 
         // the same attachments were validated when the framebuffer was created
-        Ok(
-            fbo::FramebufferAttachments::Layered(fbo::FramebufferSpecificAttachments {
-                colors,
-                depth_stencil: self.depth_stencil_attachments,
-            })
+        Ok(self
+            .attachments(colors)
             .validate(&mut self.context.make_current())
-            .expect("the attachments of the framebuffer were validated when it was created"),
-        )
+            .expect("the attachments of the framebuffer were validated when it was created"))
     }
 }
 

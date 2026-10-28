@@ -1170,8 +1170,6 @@ pub trait Surface {
     }
 
     /// Copies a rectangle of pixels from layer 0 of a layered framebuffer to this surface.
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     #[inline]
     fn blit_from_layered_framebuffer(
         &self,
@@ -1292,8 +1290,6 @@ pub trait Surface {
     ///
     /// Every surface of SafeGL implements it; the default implementation, for other surfaces,
     /// returns `BlitError::UnsupportedSource`.
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     fn blit_buffers_from_layered_framebuffer(
         &self,
         source: &framebuffer::LayeredFrameBuffer<'_>,
@@ -1431,6 +1427,10 @@ pub enum BlitError {
 
     /// The source has no color buffer to copy, like an empty framebuffer.
     NoColorBuffer,
+
+    /// The source or the target is a multiview framebuffer with several views, which blits
+    /// can't read or write (`GL_OVR_multiview2`).
+    Multiview,
 }
 
 impl fmt::Display for BlitError {
@@ -1458,6 +1458,7 @@ impl fmt::Display for BlitError {
             }
             BlitError::SameSourceAndTarget => "OpenGL ES can't blit a buffer to itself",
             BlitError::NoColorBuffer => "The source has no color buffer to copy",
+            BlitError::Multiview => "Blits can't read or write several views",
         };
         fmt.write_str(desc)
     }
@@ -1977,6 +1978,21 @@ pub enum DrawError {
     /// The draw blends into a color attachment of 32-bit floats, which OpenGL ES and WebGL only
     /// do with `GL_EXT_float_blend` (`EXT_float_blend` on WebGL).
     FloatBlendNotSupported,
+
+    /// The number of views that the vertex shader declares (`layout(num_views = N) in;`) isn't
+    /// the number of views of the multiview framebuffer (`GL_OVR_multiview2`): a multiview
+    /// framebuffer is drawn by programs that declare its views, and the other framebuffers by
+    /// programs that declare none.
+    ViewsMismatch {
+        /// The views of the multiview framebuffer, `None` for the other framebuffers.
+        framebuffer: Option<u32>,
+        /// The views that the program declares.
+        program: Option<u32>,
+    },
+
+    /// A draw to several views of a multiview framebuffer can't capture transform feedback nor
+    /// be timed by a `TimeElapsedQuery` (`GL_OVR_multiview2`).
+    MultiviewRestricted,
 }
 
 impl Error for DrawError {
@@ -2206,6 +2222,10 @@ impl fmt::Display for DrawError {
                 "WebGL restarts primitives at the largest index value, which the indices may hold",
             ContextLost => "The context was lost during the draw",
             FloatBlendNotSupported => "The backend can't blend into 32-bit float attachments",
+            ViewsMismatch { .. } =>
+                "The program doesn't declare the number of views of the framebuffer",
+            MultiviewRestricted =>
+                "Draws to several views can't capture transform feedback nor be timed",
         };
         match self {
             UniformTypeMismatch {
@@ -2213,6 +2233,10 @@ impl fmt::Display for DrawError {
                 ref expected,
             } => write!(fmt, "{}: `{}` is a {:?}", desc, name, expected),
             UniformBufferToValue { name } => write!(fmt, "{}: {}", desc, name,),
+            ViewsMismatch {
+                framebuffer,
+                program,
+            } => write!(fmt, "{}: {:?} views, the program declares {:?}", desc, framebuffer, program),
             UniformValueToBlock { name } => write!(fmt, "{}: {}", desc, name,),
             BufferBindingOutOfRange { name } => write!(fmt, "{}: {}", desc, name,),
             SharedBindingPoint { name } => write!(fmt, "{}: `{}`", desc, name),
@@ -2583,8 +2607,6 @@ impl Surface for Frame {
         )
     }
 
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     fn blit_buffers_from_layered_framebuffer(
         &self,
         source: &framebuffer::LayeredFrameBuffer<'_>,

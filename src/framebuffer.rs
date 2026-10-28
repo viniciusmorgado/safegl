@@ -73,6 +73,10 @@ primitive to a layer by writing `gl_Layer`, so that one draw renders into all of
 the six faces of a shadow cube map. It needs desktop OpenGL or OpenGL ES 3.2 (the `gles32`
 level), and `GL_EXT_geometry_shader` on OpenGL ES below 3.2.
 
+A multiview `LayeredFrameBuffer` (`LayeredFrameBuffer::multiview`) attaches views, layers of 2D
+array textures, that each draw renders to at once, such as the two eyes of stereo rendering. It
+needs `GL_OVR_multiview2` (`OVR_multiview2` on WebGL), at every level.
+
 */
 use smallvec::SmallVec;
 use std::rc::Rc;
@@ -115,11 +119,8 @@ pub use crate::fbo::{ClearBufferData, ClearBufferError};
 use crate::uniforms::MagnifySamplerFilter;
 
 mod default_fb;
-#[cfg(any(safegl_desktop, safegl_gles32))]
 mod layered;
 
-#[cfg(any(safegl_desktop, safegl_gles32))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
 pub use self::layered::{
     LayeredColorAttachment, LayeredDepthAttachment, LayeredDepthStencil,
     LayeredDepthStencilAttachment, LayeredFrameBuffer, LayeredStencilAttachment,
@@ -700,8 +701,6 @@ impl<'a> Surface for SimpleFrameBuffer<'a> {
         )
     }
 
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     fn blit_buffers_from_layered_framebuffer(
         &self,
         source: &crate::framebuffer::LayeredFrameBuffer<'_>,
@@ -1253,8 +1252,6 @@ impl<'a> Surface for MultiOutputFrameBuffer<'a> {
         )
     }
 
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     fn blit_buffers_from_layered_framebuffer(
         &self,
         source: &crate::framebuffer::LayeredFrameBuffer<'_>,
@@ -1608,8 +1605,6 @@ impl Surface for EmptyFrameBuffer {
         )
     }
 
-    #[cfg(any(safegl_desktop, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
     fn blit_buffers_from_layered_framebuffer(
         &self,
         source: &crate::framebuffer::LayeredFrameBuffer<'_>,

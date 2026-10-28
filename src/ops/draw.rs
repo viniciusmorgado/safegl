@@ -296,6 +296,35 @@ where
         }
     }
 
+    // the views of a multiview framebuffer are drawn by a program that declares as many, and a
+    // program that declares views only draws to a multiview framebuffer of as many; the draws
+    // to several views can't capture transform feedback nor be timed (`GL_OVR_multiview2`)
+    let views = match framebuffer {
+        FramebufferTarget::Attachments(attachments) => attachments.get_views(),
+        _ => None,
+    };
+    let declared_views = match program {
+        DrawProgram::Program(program) => program.declared_views(),
+        #[cfg(any(safegl_gl41, safegl_gles31))]
+        DrawProgram::Pipeline(_) => Err(()),
+    };
+    // the views of the programs whose source SafeGL doesn't have are unknown
+    if let Ok(declared) = declared_views {
+        if declared != views {
+            return Err(DrawError::ViewsMismatch {
+                framebuffer: views,
+                program: declared,
+            });
+        }
+    }
+    #[cfg(any(safegl_desktop, safegl_webgl))]
+    let timed = draw_parameters.time_elapsed_query.is_some();
+    #[cfg(not(any(safegl_desktop, safegl_webgl)))]
+    let timed = false;
+    if views > Some(1) && (timed || draw_parameters.transform_feedback.is_some()) {
+        return Err(DrawError::MultiviewRestricted);
+    }
+
     // sampling a level that the draw renders to is a feedback loop: undefined on OpenGL, and an
     // error on WebGL; texture barriers make it defined when each texel is read before it is
     // written (`texture_barrier`)

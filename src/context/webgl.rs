@@ -108,6 +108,30 @@ impl WebGl {
             .unwrap_or_else(|| panic!("{} has no function {}", extension, method))
     }
 
+    /// `glFramebufferTextureMultiviewOVR` (`OVR_multiview2`): attaches the views of the level
+    /// `level` of the 2D array texture bound to `GL_TEXTURE_2D_ARRAY` to the draw framebuffer.
+    pub fn framebuffer_texture_multiview(
+        &self,
+        attachment: u32,
+        level: u32,
+        base_view: u32,
+        views: u32,
+    ) {
+        let texture = self
+            .gl
+            .get_parameter(glow::TEXTURE_BINDING_2D_ARRAY)
+            .unwrap_or(JsValue::NULL);
+        let args = [
+            glow::DRAW_FRAMEBUFFER.into(),
+            attachment.into(),
+            texture,
+            level.into(),
+            base_view.into(),
+            views.into(),
+        ];
+        self.call("OVR_multiview2", "framebufferTextureMultiviewOVR", &args);
+    }
+
     /// `glClipControlEXT` (`EXT_clip_control`).
     pub fn clip_control(&self, origin: u32, depth: u32) {
         self.call("EXT_clip_control", "clipControlEXT", &[origin.into(), depth.into()]);

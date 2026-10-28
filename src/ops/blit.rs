@@ -36,6 +36,15 @@ pub fn blit(
         return Err(BlitError::LinearFilterOnDepthStencil);
     }
 
+    // multiview framebuffers can't be read, and are written by draws and clears
+    let multiview = |framebuffer: &FramebufferTarget<'_>| match framebuffer {
+        FramebufferTarget::Attachments(attachments) => attachments.get_views() > Some(1),
+        _ => false,
+    };
+    if multiview(&source) || multiview(&target) {
+        return Err(BlitError::Multiview);
+    }
+
     // a framebuffer object of SafeGL is read from its first color attachment; the read buffer
     // of other framebuffers is theirs
     let source_read_buffer = match source {

@@ -38,7 +38,7 @@ use crate::program::reflection::{Attribute, TransformFeedbackBuffer};
 use crate::program::reflection::{OutputPrimitives, Uniform, UniformBlock};
 use crate::program::reflection::{ShaderStage, SubroutineData};
 use crate::program::raw::check_program_link_errors;
-use crate::program::shader::{check_shader, start_shader, Shader};
+use crate::program::shader::{check_shader, declared_views, start_shader, Shader};
 #[cfg(safegl_gl46)]
 use crate::program::shader::build_spirv_shader;
 
@@ -53,6 +53,9 @@ pub struct Program {
     uses_point_size: bool,
     // the stages of a separable program, 0 for the others
     separable_stages: gl::types::GLbitfield,
+    // the number of views that the vertex shader declares (`GL_OVR_multiview2`), `None` for
+    // the programs whose source SafeGL doesn't have
+    declared_views: Option<Option<u32>>,
 }
 
 impl Program {
@@ -151,6 +154,7 @@ impl Program {
             outputs_srgb,
             uses_point_size,
             separable_stages: 0,
+            declared_views: None,
         })
     }
 
@@ -215,6 +219,7 @@ impl Program {
             (vertex_shader, ShaderType::Vertex),
             (fragment_shader, ShaderType::Fragment),
         ];
+        let declared_views = declared_views(vertex_shader);
         let has_geometry_shader = geometry_shader.is_some();
         let has_tessellation_control_shader = tessellation_control_shader.is_some();
         let has_tessellation_evaluation_shader = tessellation_evaluation_shader.is_some();
@@ -253,6 +258,7 @@ impl Program {
                 has_tessellation_evaluation_shader,
                 outputs_srgb,
                 uses_point_size,
+                declared_views,
             },
         })
     }
@@ -271,6 +277,7 @@ impl Program {
             outputs_srgb,
             uses_point_size,
             separable_stages: stages,
+            declared_views: None,
         }
     }
 
@@ -279,6 +286,13 @@ impl Program {
     #[cfg(any(safegl_gl41, safegl_gles31))]
     pub(crate) fn separable_stages(&self) -> gl::types::GLbitfield {
         self.separable_stages
+    }
+
+    /// The number of views that the vertex shader declares (`GL_OVR_multiview2`), `None` if it
+    /// declares none, and `Err(())` if SafeGL doesn't know: for binaries, SPIR-V modules and
+    /// the programs of program pipelines.
+    pub(crate) fn declared_views(&self) -> Result<Option<u32>, ()> {
+        self.declared_views.ok_or(())
     }
 
     /// Returns the program, which knows its uniform values.
@@ -739,6 +753,7 @@ enum PendingState {
         has_tessellation_evaluation_shader: bool,
         outputs_srgb: bool,
         uses_point_size: bool,
+        declared_views: Option<u32>,
     },
     /// The program was built at once.
     Built(Program),
@@ -774,6 +789,7 @@ impl PendingProgram {
                 has_tessellation_evaluation_shader,
                 outputs_srgb,
                 uses_point_size,
+                declared_views,
             } => {
                 let linked = unsafe {
                     let mut ctxt = self.context.make_current();
@@ -809,6 +825,7 @@ impl PendingProgram {
                     outputs_srgb,
                     uses_point_size,
                     separable_stages: 0,
+                    declared_views: Some(declared_views),
                 })
             }
         }

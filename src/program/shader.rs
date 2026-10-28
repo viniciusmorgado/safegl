@@ -318,8 +318,8 @@ pub struct FragmentOutput {
 ///
 /// Only declarations at global scope count, so the `out` parameters of functions are left out.
 /// Arrays whose size isn't a number get a size of 1.
-pub fn fragment_outputs(source: &str) -> Vec<FragmentOutput> {
-    // the source without comments nor preprocessor lines
+/// The source of a shader without its comments nor its preprocessor lines.
+fn code_without_comments(source: &str) -> String {
     let mut code = String::with_capacity(source.len());
     let mut chars = source.chars().peekable();
     let mut line_start = true;
@@ -357,6 +357,11 @@ pub fn fragment_outputs(source: &str) -> Vec<FragmentOutput> {
         }
     }
 
+    code
+}
+
+/// The declarations at global scope of code without comments.
+fn global_declarations(code: &str) -> Vec<String> {
     // the declarations at global scope: the text between `;` and `}` at a depth of 0
     let mut declarations = Vec::new();
     let mut depth = 0u32;
@@ -376,6 +381,34 @@ pub fn fragment_outputs(source: &str) -> Vec<FragmentOutput> {
             _ => (),
         }
     }
+
+    declarations
+}
+
+/// Returns the number of views that the source of a vertex shader declares with
+/// `layout(num_views = N) in;` (`GL_OVR_multiview2`), if it declares one.
+pub fn declared_views(source: &str) -> Option<u32> {
+    let code = code_without_comments(source);
+    global_declarations(&code).iter().find_map(|declaration| {
+        let start = declaration.find("layout")?;
+        let after = &declaration[start + "layout".len()..];
+        let open = after.find('(').filter(|&open| after[..open].trim().is_empty())?;
+        let close = after.find(')')?;
+        if after[close + 1..].trim() != "in" {
+            return None;
+        }
+        after[open + 1..close].split(',').find_map(|qualifier| {
+            let mut parts = qualifier.splitn(2, '=');
+            match parts.next().map(str::trim) {
+                Some("num_views") => parts.next()?.trim().parse().ok(),
+                _ => None,
+            }
+        })
+    })
+}
+
+pub fn fragment_outputs(source: &str) -> Vec<FragmentOutput> {
+    let declarations = global_declarations(&code_without_comments(source));
 
     let mut outputs = Vec::new();
     for declaration in declarations {
@@ -454,7 +487,7 @@ pub fn fragment_outputs(source: &str) -> Vec<FragmentOutput> {
 
 #[cfg(test)]
 mod tests {
-    use super::{fragment_outputs, FragmentOutput};
+    use super::{declared_views, fragment_outputs, FragmentOutput};
 
     fn output(name: &str, location: Option<u32>, size: u32) -> FragmentOutput {
         FragmentOutput {
@@ -494,5 +527,18 @@ mod tests {
                 output("extra", None, 1),
             ]
         );
+    }
+
+    #[test]
+    fn views_of_vertex_shaders() {
+        let source = "#version 300 es\n#extension GL_OVR_multiview2 : require\n\
+                      // layout(num_views = 4) in;\n\
+                      layout(num_views = 2) in;\nin vec2 position;\n\
+                      void main() { gl_Position = vec4(position, 0.0, 1.0); }";
+        assert_eq!(declared_views(source), Some(2));
+        let source = "#version 330\nlayout (num_views=3) in;\nvoid main() {}";
+        assert_eq!(declared_views(source), Some(3));
+        let source = "#version 330\nlayout(location = 0) in vec2 position;\nvoid main() {}";
+        assert_eq!(declared_views(source), None);
     }
 }

@@ -2204,7 +2204,6 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
         };
         if !attachment.is_empty() {
             (writeln!(dest, "
-                    #[cfg(any(safegl_desktop, safegl_gles32))]
                     impl<'t> crate::framebuffer::ToLayered{attachment}Attachment<'t> for {name}Mipmap<'t> {{
                         #[inline]
                         fn to_layered_{method}_attachment(self) -> crate::framebuffer::Layered{attachment}Attachment<'t> {{
@@ -2212,7 +2211,6 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                         }}
                     }}
 
-                    #[cfg(any(safegl_desktop, safegl_gles32))]
                     impl<'t> crate::framebuffer::ToLayered{attachment}Attachment<'t> for &'t {name} {{
                         #[inline]
                         fn to_layered_{method}_attachment(self) -> crate::framebuffer::Layered{attachment}Attachment<'t> {{

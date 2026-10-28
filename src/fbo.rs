@@ -89,6 +89,14 @@ pub enum FramebufferAttachments<'a> {
     /// Each attachment is a layer of images.
     Layered(FramebufferSpecificAttachments<LayeredAttachment<'a>>),
 
+    /// Each attachment is the views `base_view..base_view + views` of a level of a 2D array
+    /// texture, which draws render to at once (`GL_OVR_multiview2`).
+    Multiview {
+        attachments: FramebufferSpecificAttachments<LayeredAttachment<'a>>,
+        base_view: u32,
+        views: u32,
+    },
+
     /// An empty framebuffer.
     Empty {
         width: u32,
@@ -152,6 +160,12 @@ impl<'a> LayeredAttachment<'a> {
             _ => self.0.get_depth().unwrap_or(1),
         }
     }
+}
+
+/// Returns true if the backend has multiview framebuffers (`GL_OVR_multiview2`, or
+/// `OVR_multiview2` on WebGL).
+pub fn is_multiview_supported(ctxt: &CommandContext<'_>) -> bool {
+    ctxt.extensions.gl_ovr_multiview2
 }
 
 /// Returns true if the backend can attach whole textures with layers to framebuffers
@@ -238,7 +252,10 @@ impl<'a> FramebufferAttachments<'a> {
         // OpenGL objects can only be used with the context that created them
         let owned = match self {
             FramebufferAttachments::Regular(ref a) => a.all(|a| a.belongs_to(context)),
-            FramebufferAttachments::Layered(ref a) => a.all(|a| a.belongs_to(context)),
+            FramebufferAttachments::Layered(ref a)
+            | FramebufferAttachments::Multiview { attachments: ref a, .. } => {
+                a.all(|a| a.belongs_to(context))
+            }
             FramebufferAttachments::Empty { .. } => true,
         };
         if !owned {
@@ -251,7 +268,10 @@ impl<'a> FramebufferAttachments<'a> {
                 RegularAttachment::Texture(image) => Some(image.get_texture()),
                 RegularAttachment::RenderBuffer(_) => None,
             }),
-            FramebufferAttachments::Layered(ref a) => a.collect(|a| Some(a.0.get_texture())),
+            FramebufferAttachments::Layered(ref a)
+            | FramebufferAttachments::Multiview { attachments: ref a, .. } => {
+                a.collect(|a| Some(a.0.get_texture()))
+            }
             FramebufferAttachments::Empty { .. } => SmallVec::new(),
         };
         let mut validated = self.validate_attachments(ctxt)?;
@@ -271,7 +291,15 @@ impl<'a> FramebufferAttachments<'a> {
                 FramebufferAttachments::validate_regular(ctxt, a)
             }
             FramebufferAttachments::Layered(a) => {
-                FramebufferAttachments::validate_layered(ctxt, a)
+                FramebufferAttachments::validate_layered(ctxt, a, None)
+            }
+            FramebufferAttachments::Multiview {
+                attachments,
+                base_view,
+                views,
+            } => {
+                let views = Some((base_view, views));
+                FramebufferAttachments::validate_layered(ctxt, attachments, views)
             }
 
             FramebufferAttachments::Empty {
@@ -332,6 +360,7 @@ impl<'a> FramebufferAttachments<'a> {
                         color_kinds: SmallVec::new(),
                         dimensions: (width, height),
                         layers,
+                        views: None,
                         depth_buffer_bits: None,
                         stencil_buffer_bits: None,
                         float32_colors: false,
@@ -351,10 +380,47 @@ impl<'a> FramebufferAttachments<'a> {
             colors,
             depth_stencil,
         }: FramebufferSpecificAttachments<LayeredAttachment<'a>>,
+        views: Option<(u32, u32)>,
     ) -> Result<ValidatedAttachments<'a>, ValidationError> {
         let context: &Context = ctxt.context;
 
-        if !is_layered_supported(ctxt) {
+        if let Some((base_view, count)) = views {
+            if !is_multiview_supported(ctxt) {
+                return Err(ValidationError::MultiviewNotSupported);
+            }
+            // the views are layers of 2D array textures
+            let mut attachments = colors.iter().map(|(_, attachment)| attachment);
+            let mut depth_stencil_attachments = SmallVec::<[&LayeredAttachment<'a>; 2]>::new();
+            match depth_stencil {
+                DepthStencilAttachments::None => (),
+                DepthStencilAttachments::DepthAttachment(ref a)
+                | DepthStencilAttachments::StencilAttachment(ref a)
+                | DepthStencilAttachments::DepthStencilAttachment(ref a) => {
+                    depth_stencil_attachments.push(a)
+                }
+                DepthStencilAttachments::DepthAndStencilAttachments(ref a, ref b) => {
+                    depth_stencil_attachments.extend([a, b])
+                }
+            }
+            if !attachments
+                .by_ref()
+                .chain(depth_stencil_attachments.iter().copied())
+                .all(|a| a.0.get_texture().get_bind_point() == gl::TEXTURE_2D_ARRAY)
+            {
+                return Err(ValidationError::MultiviewTextureNotSupported);
+            }
+            let max_views = unsafe { ctxt.glow.get_parameter_i32(gl::MAX_VIEWS_OVR) };
+            let fits = colors
+                .iter()
+                .map(|(_, attachment)| attachment)
+                .chain(depth_stencil_attachments.iter().copied())
+                .all(|a| base_view.checked_add(count).is_some_and(|end| end <= a.layers()));
+            // a single view isn't drawn the same way everywhere: Firefox refuses the programs
+            // that declare one view, and Mesa the ones that declare none
+            if count < 2 || count > max_views.max(0) as u32 || !fits {
+                return Err(ValidationError::ViewsOutOfRange);
+            }
+        } else if !is_layered_supported(ctxt) {
             return Err(ValidationError::LayeredFramebuffersNotSupported);
         }
 
@@ -386,6 +452,10 @@ impl<'a> FramebufferAttachments<'a> {
                     count(b);
                 }
             }
+        }
+
+        if let Some((_, count)) = views {
+            layers = Some(count);
         }
 
         macro_rules! handle_tex {
@@ -434,6 +504,7 @@ impl<'a> FramebufferAttachments<'a> {
                     layer: None,
                     level: $tex.get_level(),
                     cubemap_layer: None,
+                    views,
                 }
             }};
         }
@@ -517,6 +588,7 @@ impl<'a> FramebufferAttachments<'a> {
             color_kinds,
             dimensions,
             layers,
+            views: views.map(|(_, count)| count),
             depth_buffer_bits: depth_bits,
             stencil_buffer_bits: stencil_bits,
             float32_colors,
@@ -580,6 +652,7 @@ impl<'a> FramebufferAttachments<'a> {
                     layer: Some($tex.get_layer()),
                     level: $tex.get_level(),
                     cubemap_layer: $tex.get_cubemap_layer(),
+                    views: None,
                 }
             }};
         }
@@ -719,6 +792,7 @@ impl<'a> FramebufferAttachments<'a> {
             color_kinds,
             dimensions,
             layers: None,
+            views: None,
             depth_buffer_bits: depth_bits,
             stencil_buffer_bits: stencil_bits,
             float32_colors,
@@ -749,6 +823,8 @@ pub struct ValidatedAttachments<'a> {
     color_kinds: SmallVec<[(u32, TextureKind); 4]>,
     dimensions: (u32, u32),
     layers: Option<u32>,
+    // the number of views of a multiview framebuffer (`GL_OVR_multiview2`)
+    views: Option<u32>,
     depth_buffer_bits: Option<u16>,
     stencil_buffer_bits: Option<u16>,
     // whether a color attachment has a format of 32-bit floats
@@ -808,6 +884,12 @@ impl<'a> ValidatedAttachments<'a> {
     #[inline]
     pub fn get_layers(&self) -> Option<u32> {
         self.layers
+    }
+
+    /// Returns the number of views of a multiview framebuffer, `None` for the others.
+    #[inline]
+    pub fn get_views(&self) -> Option<u32> {
+        self.views
     }
 
     /// Returns the dimensions that the framebuffer will have if you use these attachments.
@@ -884,6 +966,16 @@ pub enum ValidationError {
     /// `F9F9F9`, or on OpenGL ES and WebGL a format that needs an extension, such as the float
     /// formats without `GL_EXT_color_buffer_float`.
     FormatNotRenderable,
+
+    /// Multiview framebuffers need `GL_OVR_multiview2` (`OVR_multiview2` on WebGL).
+    MultiviewNotSupported,
+
+    /// The attachments of multiview framebuffers must be levels of 2D array textures.
+    MultiviewTextureNotSupported,
+
+    /// The views of a multiview framebuffer are more than the layers of an attachment, more than
+    /// `GL_MAX_VIEWS_OVR`, or fewer than two: a single layer is attached on its own instead.
+    ViewsOutOfRange,
 }
 
 /// Returns true if `texture` has a format of 32-bit floats.
@@ -927,6 +1019,11 @@ impl fmt::Display for ValidationError {
             LayeredFramebuffersNotSupported => "Layered framebuffers are not supported",
             LayerTargetsMismatch => "The layered color attachments are textures of different kinds",
             FormatNotRenderable => "An attached texture has a format that can't be rendered to",
+            MultiviewNotSupported => "Multiview framebuffers are not supported",
+            MultiviewTextureNotSupported => {
+                "The attachments of multiview framebuffers must be 2D array textures"
+            }
+            ViewsOutOfRange => "The views are out of the range of the attachments or the backend",
         };
         match self {
             TooManyColorAttachments {
@@ -976,6 +1073,9 @@ enum RawAttachment {
         level: u32,
         // layer of the cubemap, if this is a cubemap
         cubemap_layer: Option<CubeLayer>,
+        // the first view and the number of views of a multiview attachment of a 2D array
+        // texture, whose `layer` is `None`
+        views: Option<(u32, u32)>,
     },
 
     /// A renderbuffer with its ID.
@@ -1256,6 +1356,7 @@ impl FramebuffersContainer {
                     layer: Some(image.get_layer()),
                     level: image.get_level(),
                     cubemap_layer: image.get_cubemap_layer(),
+                    views: None,
                 },
                 (image.get_width(), image.get_height().unwrap_or(1)),
             ),
@@ -1301,6 +1402,7 @@ impl FramebuffersContainer {
             color_kinds,
             dimensions,
             layers: None,
+            views: None,
             depth_buffer_bits: None,
             stencil_buffer_bits: None,
             float32_colors: false,
@@ -1949,6 +2051,43 @@ unsafe fn attach_layered_es(
     }
 }
 
+/// Attaches the views `base_view..base_view + views` of a level of a 2D array texture
+/// (`GL_OVR_multiview2`), which `validate_layered` checked.
+unsafe fn attach_multiview(
+    ctxt: &mut CommandContext<'_>,
+    slot: gl::types::GLenum,
+    id: glow::Framebuffer,
+    texture: glow::Texture,
+    level: u32,
+    base_view: u32,
+    views: u32,
+) {
+    bind_framebuffer(ctxt, Some(id), true, false);
+    if cfg!(safegl_browser) {
+        // WebGL takes the texture object, which is the one bound
+        #[cfg(safegl_browser)]
+        {
+            let unit = ctxt.state.active_texture as usize;
+            if ctxt.state.texture_units[unit].texture != Some(texture) {
+                ctxt.glow.bind_texture(gl::TEXTURE_2D_ARRAY, Some(texture));
+                ctxt.state.texture_units[unit].texture = Some(texture);
+            }
+            ctxt.webgl.framebuffer_texture_multiview(slot, level, base_view, views);
+        }
+    } else {
+        use crate::handles::RawName;
+
+        ctxt.extra.FramebufferTextureMultiviewOVR(
+            gl::DRAW_FRAMEBUFFER,
+            slot,
+            texture.raw_name(),
+            level as gl::types::GLint,
+            base_view as gl::types::GLint,
+            views as gl::types::GLsizei,
+        );
+    }
+}
+
 unsafe fn attach(
     ctxt: &mut CommandContext<'_>,
     slot: gl::types::GLenum,
@@ -1959,9 +2098,17 @@ unsafe fn attach(
         RawAttachment::Texture {
             texture: tex_id,
             level,
+            views: Some((base_view, views)),
+            ..
+        } => attach_multiview(ctxt, slot, id, tex_id, level, base_view, views),
+
+        RawAttachment::Texture {
+            texture: tex_id,
+            level,
             layer,
             bind_point,
             cubemap_layer,
+            views: None,
         } => {
             match bind_point {
                 // these textures can't be layered
