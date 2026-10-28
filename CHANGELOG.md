@@ -888,8 +888,9 @@ Fixes:
   - link locations whose name starts with `webgl_` or `_webgl_`, or is longer than 1024 bytes:
     `ProgramCreationError::InvalidLinkLocation`.
 - A draw that samples a level of a texture that it renders to returns the new
-  `DrawError::FeedbackLoop`, on every API, outside of the levels given to `set_mipmap_range`:
-  WebGL refused the draw, and OpenGL left its result undefined.
+  `DrawError::FeedbackLoop`, outside of the levels given to `set_mipmap_range`, except where
+  texture barriers make it defined (OpenGL 4.5, `GL_ARB_texture_barrier`,
+  `GL_NV_texture_barrier`): WebGL refused the draw, and OpenGL left its result undefined.
 - On WebGL, depth textures sampled without a depth comparison use nearest filters, since WebGL
   can't filter them: they read as zero with linear filters.
 - On WebGL, `SyncFence::wait_timeout` with a timeout calls `glFinish` and returns `Signaled`,

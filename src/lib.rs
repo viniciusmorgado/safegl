@@ -1954,7 +1954,10 @@ pub enum DrawError {
 
     /// A texture that the draw samples has a level attached to the framebuffer drawn to, in the
     /// levels that the sampling reads (`set_mipmap_range`): the draw would read what it writes.
-    /// WebGL refuses it, and OpenGL leaves the result undefined.
+    /// WebGL refuses it, and OpenGL leaves the result undefined, except with texture barriers
+    /// (OpenGL 4.5, `GL_ARB_texture_barrier` or `GL_NV_texture_barrier`), which make it defined
+    /// when each texel is read before it is written: there, the draw is allowed (see
+    /// `texture::texture_barrier`).
     FeedbackLoop,
 
     /// `DrawParameters::primitive_restart` is `Disabled`, but the index buffer may hold the

@@ -279,8 +279,12 @@ where
     bind_programs(&mut ctxt, &program, &uniforms, &mut fences)?;
 
     // sampling a level that the draw renders to is a feedback loop: undefined on OpenGL, and an
-    // error on WebGL
-    if let FramebufferTarget::Attachments(attachments) = framebuffer {
+    // error on WebGL; texture barriers make it defined when each texel is read before it is
+    // written (`texture_barrier`)
+    let texture_barriers = ctxt.version >= &Version(Api::Gl, 4, 5)
+        || ctxt.extensions.gl_arb_texture_barrier
+        || ctxt.extensions.gl_nv_texture_barrier;
+    if let (FramebufferTarget::Attachments(attachments), false) = (framebuffer, texture_barriers) {
         if attachments.attaches_any(&ctxt.sampled_textures) {
             return Err(DrawError::FeedbackLoop);
         }

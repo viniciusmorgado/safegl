@@ -13,9 +13,17 @@ mod support;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_test::wasm_bindgen_test as test;
 
+/// Returns true if the backend has texture barriers, which make feedback loops defined.
+fn texture_barriers(display: &support::Backend) -> bool {
+    let extensions = support::extensions(display);
+    support::gl_at_least(display, 4, 5)
+        || extensions.gl_arb_texture_barrier
+        || extensions.gl_nv_texture_barrier
+}
+
 /// Sampling a level that the draw renders to would read what it writes: it is an error, which
-/// WebGL raises and OpenGL leaves undefined. Limiting the sampled levels to the others renders
-/// a level from another one.
+/// WebGL raises and OpenGL leaves undefined, except with texture barriers. Limiting the sampled
+/// levels to the others renders a level from another one.
 #[test]
 fn sampled_level_rendered_to() {
     let display = support::build_display();
@@ -56,9 +64,19 @@ fn sampled_level_rendered_to() {
     };
 
     // the levels 0 and 1 are sampled
-    assert!(matches!(draw(), Err(DrawError::FeedbackLoop)));
+    if !texture_barriers(&display) {
+        assert!(matches!(draw(), Err(DrawError::FeedbackLoop)));
+    }
 
-    // only the level 0 is
+    // only the level 0 is; a level attached outside of the range of a texture created without
+    // texture storage makes the framebuffer incomplete
+    let storage = support::gl_at_least(&display, 4, 2)
+        || support::is_gles(&display)
+        || support::extensions(&display).gl_arb_texture_storage;
+    if !storage {
+        display.assert_no_error(None);
+        return;
+    }
     texture.set_mipmap_range(0, 0).unwrap();
     draw().unwrap();
     let texels: Vec<Vec<(u8, u8, u8, u8)>> = level
@@ -102,7 +120,11 @@ fn sampled_depth_attachment() {
         &uniform! { tex: &depth },
         &Default::default(),
     );
-    assert!(matches!(result, Err(DrawError::FeedbackLoop)));
+    if texture_barriers(&display) {
+        result.unwrap();
+    } else {
+        assert!(matches!(result, Err(DrawError::FeedbackLoop)));
+    }
 
     display.assert_no_error(None);
 }
