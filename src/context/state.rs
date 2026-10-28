@@ -391,6 +391,13 @@ pub struct GlState {
     /// We maintain a counter that is incremented at each draw call.
     pub next_draw_call_id: u64,
 
+    /// The number of fences created so far, which numbers them.
+    pub fences_created: u64,
+
+    /// The number of the latest fence created before the latest `glFinish`: the fences up to it
+    /// are signaled. WebGL only shows it to its fences between two tasks of the event loop.
+    pub fences_finished: u64,
+
     /// Incremented by `restore_state`: the programs forget the uniform values and block bindings
     /// that they cached before, since code outside of SafeGL may have changed them.
     pub uniform_values_generation: u64,
@@ -618,6 +625,8 @@ impl Default for GlState {
             clip_control: (gl::LOWER_LEFT, gl::NEGATIVE_ONE_TO_ONE),
 
             next_draw_call_id: 1,
+            fences_created: 0,
+            fences_finished: 0,
             uniform_values_generation: 0,
             latest_memory_barrier_vertex_attrib_array: 1,
             latest_memory_barrier_element_array: 1,

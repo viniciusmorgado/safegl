@@ -976,10 +976,11 @@ impl Context {
     /// You normally don't need to call this function manually, except for debugging purposes.
     #[inline]
     pub fn finish(&self) {
-        let ctxt = self.make_current();
+        let mut ctxt = self.make_current();
         unsafe {
             ctxt.glow.finish();
         }
+        ctxt.state.fences_finished = ctxt.state.fences_created;
     }
 
     /// Calls `glFlush()`. This starts executing the commands that you have issued if it is not
