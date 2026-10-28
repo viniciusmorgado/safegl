@@ -50,12 +50,17 @@ macro_rules! extensions {
 
 /// The extensions that the context must treat as missing, from the space-separated names of
 /// `SAFEGL_DISABLE_EXTENSIONS`, so that tests run the paths of drivers without them on drivers
-/// that can't hide them (Mesa can't disable some extensions). Only debug builds read it.
+/// that can't hide them (Mesa can't disable some extensions). Only debug builds read it: from the
+/// environment of the program, or, in browsers, which have no environment, from the environment
+/// of the build.
 fn hidden_extensions() -> Vec<String> {
     if !cfg!(debug_assertions) {
         return Vec::new();
     }
-    std::env::var("SAFEGL_DISABLE_EXTENSIONS")
+    let names = std::env::var("SAFEGL_DISABLE_EXTENSIONS")
+        .ok()
+        .or_else(|| option_env!("SAFEGL_DISABLE_EXTENSIONS").map(str::to_owned));
+    names
         .map(|names| names.split_whitespace().map(str::to_owned).collect())
         .unwrap_or_default()
 }
