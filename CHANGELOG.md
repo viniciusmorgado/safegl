@@ -616,6 +616,14 @@ Additions:
   `write_compressed_box_from` does it with compressed blocks (OpenGL 4.2 or
   `GL_ARB_compressed_texture_pixel_storage`, `UploadError::NotSupported` otherwise), and
   `read_box_into` reads a box into a box of a larger client image (OpenGL 4.5).
+- `Context::format_info` gives every answer of `GL_ARB_internalformat_query2`: the preferred
+  format, the components (`FormatComponents`, `ComponentType`), the largest number of texels,
+  layered framebuffers, the client formats that read, upload and download a format best, manual
+  mipmap generation, the color encoding (`ColorEncoding`), sRGB reads and writes, sampling in
+  each stage (`StageSupport`), shadow and gather sampling, image units (`ImageFormatClass`,
+  `ImageCompatibility`), sampling while depth and stencil are tested or written
+  (`SimultaneousUse`), compressed blocks, buffer and texture clears, and texture views
+  (`ViewClass`).
 
 Fixes:
 
