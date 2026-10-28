@@ -607,6 +607,15 @@ Additions:
 - `Content::alignment` gives the alignment that pointers to a buffer content need.
 - Debug builds read `SAFEGL_DISABLE_EXTENSIONS`, a list of extension names that the context
   treats as missing, so that tests run the paths of drivers without them.
+- `TextureAnyMipmap::read_volume` reads the level of any texture that isn't multisampled at every
+  desktop level (`glGetTexImage`), where it needed OpenGL 4.5: depth, stencil, depth-stencil,
+  integer, compressed (decompressed) and non-renderable formats included, the faces of cube maps
+  one by one. Signed integer 2D textures get `read_as` and `read_to_pixel_buffer_as`.
+- `TextureAnyMipmap::write_box_from` writes a box of a larger client image to a level without
+  copying it out first (row length, image height and skips of the pixel store), at every level;
+  `write_compressed_box_from` does it with compressed blocks (OpenGL 4.2 or
+  `GL_ARB_compressed_texture_pixel_storage`, `UploadError::NotSupported` otherwise), and
+  `read_box_into` reads a box into a box of a larger client image (OpenGL 4.5).
 
 Fixes:
 
@@ -825,6 +834,13 @@ Fixes:
   (NVIDIA gives the size of the whole cube map for each face).
 - Draws of ranges use `DrawParameters::base_instance`, drawing the ranges one by one.
 - Render buffers can be outputs of `MultiOutputFrameBuffer`, where they reached `panic!()`.
+- Reads through framebuffers of images that can't be rendered to (compressed, `F9F9F9`, formats
+  that OpenGL ES doesn't render) return `ReadError::NotRenderable` instead of zeros. On desktop
+  OpenGL, the whole-texture reads of 2D textures (`read`, `read_as`, `read_to_pixel_buffer`) read
+  the level with `glGetTexImage`, so compressed and `F9F9F9` textures are read.
+- `restore_state` resets every pixel store parameter that other code may change (row lengths,
+  image heights, skips, compressed block parameters, byte orders), where it only reset the
+  alignments.
 
 ## [0.2.0]
 
