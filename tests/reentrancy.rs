@@ -5,10 +5,15 @@
 extern crate safegl;
 
 use safegl::uniforms::{UniformValue, Uniforms};
-use safegl::{CapabilitiesSource, Surface};
+use safegl::Surface;
+#[cfg(not(target_arch = "wasm32"))]
+use safegl::CapabilitiesSource;
 use std::cell::RefCell;
 
 mod support;
+
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
 
 #[test]
 fn safegl_inside_exec_in_context() {
@@ -38,7 +43,7 @@ implement_any_bit_pattern!(Value, v);
 
 /// Uniforms that create the texture they give the first time they are visited.
 struct LazyUniforms<'d> {
-    display: &'d support::WindowDisplay,
+    display: &'d support::TestDisplay,
     texture: RefCell<Option<Box<safegl::Texture2d>>>,
 }
 
@@ -88,6 +93,8 @@ fn safegl_inside_uniforms() {
     display.assert_no_error(None);
 }
 
+// the panic is caught, which needs panics that unwind (not in browsers)
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn panicking_debug_callback() {
     if !support::contexts_check_errors() {

@@ -5,6 +5,9 @@ use safegl::Surface;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 // Checks the float to byte conversion conforms to the OpenGL specification
 #[inline]
 fn f2b_check_rha(first: (u8, u8, u8, u8), last: (u8, u8, u8, u8)) {

@@ -1,4 +1,6 @@
 //! Moving a display to another window and OpenGL context with `Display::rebuild`.
+// browsers have no windows to move to
+#![cfg(not(target_arch = "wasm32"))]
 
 #[macro_use]
 extern crate safegl;
@@ -11,6 +13,9 @@ use safegl::glutin::context::{ContextApi, Version};
 use safegl::Surface;
 
 mod support;
+
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
 
 /// Draws the red pipeline of the support module into a new texture, through a framebuffer
 /// object, and returns its first pixel.

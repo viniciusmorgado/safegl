@@ -5,6 +5,9 @@ use safegl::{Api, CapabilitiesSource, Surface, Version};
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 #[test]
 fn magnify_nearest_filtering() {
     // ignoring test on travis
@@ -172,7 +175,7 @@ fn anisotropy_in_core_opengl_46() {
 
 /// Draws a texture sampled with `sampler` and returns the result of the draw.
 fn draw_sampled(
-    display: &support::WindowDisplay,
+    display: &support::TestDisplay,
     sampler: safegl::uniforms::Sampler<'_, safegl::Texture2d>,
 ) -> Result<(), safegl::DrawError> {
     let (vb, ib) = support::build_rectangle_vb_ib(display);

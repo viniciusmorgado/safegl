@@ -16,6 +16,9 @@ use safegl::{GlObject, Rect, Surface, Texture2d};
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 type Pixel = (u8, u8, u8, u8);
 
 fn rect(left: u32, bottom: u32, width: u32, height: u32) -> Rect {

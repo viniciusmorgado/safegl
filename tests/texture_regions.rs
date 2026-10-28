@@ -9,6 +9,9 @@ use safegl::{Rect, Surface};
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 type Rgba = (u8, u8, u8, u8);
 
 /// A client image of `width × height × depth` texels whose texels are all different.

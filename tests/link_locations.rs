@@ -10,7 +10,10 @@ use safegl::{CapabilitiesSource, Program, Surface, VertexBuffer};
 
 mod support;
 
-type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
+type Display = support::Backend;
 
 #[derive(Copy, Clone)]
 struct Vertex {

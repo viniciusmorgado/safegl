@@ -5,6 +5,9 @@ use safegl::Surface;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 #[cfg(safegl_desktop)]
 #[test]
 fn query_sequence() {

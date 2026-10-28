@@ -6,6 +6,9 @@ use safegl::Surface;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 #[test]
 fn color_mask() {
     let display = support::build_display();
@@ -810,7 +813,7 @@ blending_test!(
 #[cfg(safegl_desktop)]
 /// A program that colors each triangle with the `value.y` of its provoking vertex.
 fn provoking_vertex_program(
-    display: &safegl::Display<safegl::glutin::surface::WindowSurface>,
+    display: &support::Backend,
 ) -> safegl::Program {
     let header = if support::is_gles(display) {
         "#version 300 es\nprecision highp float;\n"

@@ -5,6 +5,9 @@ use safegl::buffer::{Buffer, BufferMode, BufferType, Content};
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 struct Values {
     count: u32,
     values: [u32],

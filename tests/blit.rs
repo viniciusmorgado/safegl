@@ -7,6 +7,9 @@ use safegl::{BlitMask, BlitTarget, Rect, Surface};
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 #[test]
 fn blit_texture_to_window() {
     let display = support::build_display();

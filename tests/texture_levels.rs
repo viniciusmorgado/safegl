@@ -16,6 +16,9 @@ use safegl::{ReadError, Surface};
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 type Volume<P> = Vec<Vec<Vec<P>>>;
 
 /// Returns true on desktop OpenGL, which reads levels with `glGetTexImage`.

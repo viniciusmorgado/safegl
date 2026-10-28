@@ -6,6 +6,9 @@ use safegl::Surface;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 #[test]
 fn transform_feedback() {
     let display = support::build_display();
@@ -137,7 +140,7 @@ fn transform_feedback() {
 }
 
 /// Builds a program that captures `output_val` from the positions of the vertices.
-fn capturing_program(display: &safegl::Display<safegl::glutin::surface::WindowSurface>) -> safegl::Program {
+fn capturing_program(display: &support::Backend) -> safegl::Program {
     let (vertex_shader, fragment_shader) = if support::is_gles(display) {
         (
             "#version 300 es\nin vec2 position;\nout vec2 output_val;\nvoid main() { output_val = position; gl_Position = vec4(0.0, 0.0, 0.0, 1.0); }",

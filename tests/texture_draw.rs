@@ -6,6 +6,9 @@ use safegl::Surface;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 macro_rules! create_program {
     ($display:expr, $glsl_ty:expr, $glsl_value:expr) => {{
         let header = if support::is_gles(&$display) {

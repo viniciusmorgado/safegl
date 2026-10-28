@@ -11,6 +11,9 @@ use safegl::Surface;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 #[derive(Copy, Clone)]
 struct Vertex {
     position: [f32; 2],
@@ -246,11 +249,7 @@ fn subroutine_bindings_explicit_location() {
 
 // Start of more complex tests with multiple uniforms and such.
 
-fn build_program_complex<
-    T: glutin::surface::SurfaceTypeTrait + glutin::surface::ResizeableSurface + 'static,
->(
-    display: &safegl::Display<T>,
-) -> safegl::Program {
+fn build_program_complex(display: &support::Backend) -> safegl::Program {
     let program = program!(display,
         150 => {
             vertex: "

@@ -15,6 +15,9 @@ use safegl::CapabilitiesSource;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 const SIZE: u32 = 4;
 
 #[test]

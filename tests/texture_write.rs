@@ -3,6 +3,9 @@ extern crate safegl;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 #[test]
 fn texture_2d_write() {
     let display = support::build_display();

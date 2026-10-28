@@ -3,6 +3,9 @@ extern crate safegl;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 #[test]
 #[should_panic]
 fn empty_pixel_buffer() {

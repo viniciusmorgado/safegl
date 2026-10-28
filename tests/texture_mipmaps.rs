@@ -7,6 +7,9 @@ use safegl::texture::{MipmapsOption, RawImage2d, Texture2d, TextureCreationError
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 fn checkerboard() -> RawImage2d<'static, u8> {
     // a 2x2 image of black and white texels, whose 1x1 mipmap is grey
     RawImage2d::from_raw_rgba(

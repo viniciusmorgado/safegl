@@ -5,6 +5,9 @@ use safegl::Surface;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 #[test]
 fn uniform_buffer_creation() {
     let display = support::build_display();
@@ -309,12 +312,12 @@ fn persistent_block_race_condition() {
     let texture = support::build_renderable_texture(&display);
     let mut target = texture.as_surface();
     target.clear_color(0.0, 0.0, 0.0, 0.0);
-    for _ in 0..1000 {
+    for i in 0..1000 {
         {
             let mut mapping = buffer.map();
-            mapping.color.0 = rand::random();
-            mapping.color.1 = rand::random();
-            mapping.color.2 = rand::random();
+            mapping.color.0 = (i % 7) as f32 / 7.0;
+            mapping.color.1 = (i % 5) as f32 / 5.0;
+            mapping.color.2 = (i % 3) as f32 / 3.0;
         }
 
         target

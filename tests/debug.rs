@@ -5,6 +5,10 @@ extern crate safegl;
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+#[allow(unused_imports)]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 #[cfg(any(safegl_gl43, safegl_gles32))]
 mod debug_output {
     use super::support;

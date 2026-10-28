@@ -13,7 +13,11 @@ use safegl::{DrawError, Program, Surface, VertexBuffer};
 
 mod support;
 
-type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
+#[cfg(target_arch = "wasm32")]
+#[allow(unused_imports)]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
+type Display = support::Backend;
 type Pixel = (u8, u8, u8, u8);
 
 #[derive(Copy, Clone)]

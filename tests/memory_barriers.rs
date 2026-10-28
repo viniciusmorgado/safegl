@@ -14,7 +14,10 @@ use safegl::{Surface, Texture2d, VertexBuffer};
 
 mod support;
 
-type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
+type Display = support::Backend;
 
 /// A compute shader with `source` after the `#version` line, or `None` without compute shaders.
 fn compute_shader(display: &Display, source: &str) -> Option<ComputeShader> {

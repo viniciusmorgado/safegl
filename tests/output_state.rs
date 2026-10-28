@@ -13,9 +13,12 @@ use safegl::{
 
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
 const SIZE: u32 = 16;
 
-type Display = safegl::Display<safegl::glutin::surface::WindowSurface>;
+type Display = support::Backend;
 
 #[derive(Copy, Clone)]
 struct Vertex {
