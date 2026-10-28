@@ -769,3 +769,75 @@ fn program_point_size_follows_the_program() {
 
     display.assert_no_error(None);
 }
+
+/// The clip control flips the origin of the viewport (`UpperLeft`) and maps the depths from 0
+/// instead of -1 (`ZeroToOne`), which clips what is in front of 0.
+#[cfg(safegl_gl45)]
+#[test]
+fn clip_control() {
+    use safegl::draw_parameters::{ClipControlDepth, ClipControlOrigin};
+
+    let display = support::build_display();
+    if support::is_gles(&display) {
+        return;
+    }
+    let program = support::program_from_legacy(
+        &display,
+        "attribute vec2 position; uniform float depth;
+        void main() { gl_Position = vec4(position, depth, 1.0); }",
+        "void main() { gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0); }",
+    )
+    .unwrap();
+    // two triangles over the lower half of the target
+    let lower: Vec<Vertex> = [[-1.0, -1.0], [1.0, -1.0], [-1.0, 0.0], [1.0, 0.0]]
+        .iter()
+        .map(|&position| Vertex { position })
+        .collect();
+    let lower = VertexBuffer::new(&display, &lower).unwrap();
+    // the bottom and top rows, and whether the draw is supported
+    let draw = |origin, depth_mode, depth: f32| {
+        let target = Texture2d::empty(&display, 4, 4).unwrap();
+        target.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+        let parameters = DrawParameters {
+            clip_control_origin: origin,
+            clip_control_depth: depth_mode,
+            ..Default::default()
+        };
+        let result = target.as_surface().draw(
+            &lower,
+            NoIndices(PrimitiveType::TriangleStrip),
+            &program,
+            &uniform! { depth: depth },
+            &parameters,
+        );
+        match result {
+            Ok(()) => {
+                let pixels: Vec<Vec<(u8, u8, u8, u8)>> = target.read().unwrap();
+                Some((pixels[0][0].1, pixels[3][0].1))
+            }
+            Err(safegl::DrawError::ClipControlNotSupported) => None,
+            Err(error) => panic!("{error:?}"),
+        }
+    };
+
+    // the default clip control draws everywhere
+    let normal = draw(ClipControlOrigin::LowerLeft, ClipControlDepth::NegativeOneToOne, -0.5);
+    assert_eq!(normal, Some((255, 0)));
+    // the flipped origin draws the lower half at the top, where it is supported
+    let flipped = draw(ClipControlOrigin::UpperLeft, ClipControlDepth::NegativeOneToOne, -0.5);
+    let Some(flipped) = flipped else {
+        assert!(
+            !support::gl_at_least(&display, 4, 5)
+                && !support::extensions(&display).gl_arb_clip_control
+        );
+        return;
+    };
+    assert_eq!(flipped, (0, 255));
+    // depths from 0: -0.5 is clipped, 0.5 isn't
+    let from_zero = draw(ClipControlOrigin::LowerLeft, ClipControlDepth::ZeroToOne, -0.5);
+    assert_eq!(from_zero, Some((0, 0)));
+    let inside = draw(ClipControlOrigin::LowerLeft, ClipControlDepth::ZeroToOne, 0.5);
+    assert_eq!(inside, Some((255, 0)));
+
+    display.assert_no_error(None);
+}

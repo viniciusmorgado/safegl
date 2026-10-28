@@ -241,3 +241,96 @@ fn mirror_clamp_needs_support() {
     }
     display.assert_no_error(None);
 }
+
+/// Mirroring once then clamping (`MIRROR_CLAMP_TO_EDGE`) samples the other edge of a texture
+/// one texture away, where clamping samples the near edge.
+#[cfg(safegl_gl44)]
+#[test]
+fn mirror_clamp_samples_the_mirrored_edge() {
+    use safegl::uniforms::{MagnifySamplerFilter, MinifySamplerFilter, SamplerWrapFunction};
+
+    let display = support::build_display();
+    let extensions = support::extensions(&display);
+    if !(support::gl_at_least(&display, 4, 4)
+        || extensions.gl_arb_texture_mirror_clamp_to_edge
+        || extensions.gl_ext_texture_mirror_clamp_to_edge)
+    {
+        return;
+    }
+    // red then green
+    let texture = safegl::Texture2d::new(
+        &display,
+        vec![vec![(255u8, 0u8, 0u8, 255u8), (0, 255, 0, 255)]],
+    )
+    .unwrap();
+    let program = support::program_from_legacy(
+        &display,
+        "attribute vec2 position; void main() { gl_Position = vec4(position, 0.0, 1.0); }",
+        // one texture to the left of it, mirrored onto its right edge
+        "uniform sampler2D tex; void main() { gl_FragColor = texture2D(tex, vec2(-1.75, 0.5)); }",
+    )
+    .unwrap();
+    let (vb, ib) = support::build_rectangle_vb_ib(&display);
+    let sample = |wrap| {
+        let output = support::build_renderable_texture(&display);
+        let sampler = texture
+            .sampled()
+            .wrap_function(wrap)
+            .minify_filter(MinifySamplerFilter::Nearest)
+            .magnify_filter(MagnifySamplerFilter::Nearest);
+        output
+            .as_surface()
+            .draw(&vb, &ib, &program, &uniform! { tex: sampler }, &Default::default())
+            .unwrap();
+        let pixels: Vec<Vec<(u8, u8, u8, u8)>> = output.read().unwrap();
+        pixels[0][0]
+    };
+    assert_eq!(sample(SamplerWrapFunction::MirrorClamp), (0, 255, 0, 255));
+    assert_eq!(sample(SamplerWrapFunction::Clamp), (255, 0, 0, 255));
+    display.assert_no_error(None);
+}
+
+/// Cube map arrays are sampled by direction and layer (`samplerCubeArray`, GLSL 4.00).
+#[cfg(safegl_desktop)]
+#[test]
+fn cube_map_arrays_are_sampled() {
+    use safegl::framebuffer::SimpleFrameBuffer;
+    use safegl::texture::{CubeLayer, CubemapArray};
+
+    let display = support::build_display();
+    if support::is_gles(&display) || !support::glsl_supported(&display, 400, 0) {
+        return;
+    }
+    let cubes = match CubemapArray::empty(&display, 2, 2) {
+        Ok(cubes) => cubes,
+        Err(_) => return,
+    };
+    for layer in 0..2 {
+        for face in [CubeLayer::PositiveX, CubeLayer::NegativeX] {
+            let image = cubes.main_level().layer(layer).unwrap().image(face);
+            let green = if layer == 1 && face == CubeLayer::PositiveX { 1.0 } else { 0.0 };
+            SimpleFrameBuffer::new(&display, image)
+                .unwrap()
+                .clear_color(1.0 - green, green, 0.0, 1.0);
+        }
+    }
+    let program = safegl::Program::from_source(
+        &display,
+        "#version 400\nin vec2 position;\nvoid main() { gl_Position = vec4(position, 0.0, 1.0); }",
+        "#version 400
+        uniform samplerCubeArray cubes;
+        out vec4 color;
+        void main() { color = texture(cubes, vec4(1.0, 0.0, 0.0, 1.0)); }",
+        None,
+    )
+    .unwrap();
+    let (vb, ib) = support::build_rectangle_vb_ib(&display);
+    let output = support::build_renderable_texture(&display);
+    output
+        .as_surface()
+        .draw(&vb, &ib, &program, &uniform! { cubes: &cubes }, &Default::default())
+        .unwrap();
+    let pixels: Vec<Vec<(u8, u8, u8, u8)>> = output.read().unwrap();
+    assert_eq!(pixels[0][0], (0, 255, 0, 255));
+    display.assert_no_error(None);
+}
