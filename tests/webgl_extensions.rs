@@ -126,7 +126,7 @@ fn shader_extensions_are_enabled() {
 }
 
 /// With `EXT_color_buffer_float`, 32-bit float textures are render targets: a clear writes values
-/// outside of [0, 1] that read back exactly.
+/// outside of [0, 1] that read back exactly. Without it, they can't be attached.
 #[test]
 fn float_render_targets() {
     let display = support::build_display();
@@ -141,11 +141,15 @@ fn float_render_targets() {
 
     let renderable = support::extensions(&display).gl_ext_color_buffer_float;
     let framebuffer = safegl::framebuffer::SimpleFrameBuffer::new(&display, &texture);
-    assert_eq!(framebuffer.is_ok(), renderable);
-    if let Ok(mut framebuffer) = framebuffer {
-        framebuffer.clear_color(0.5, 2.0, -1.0, 1.0);
+    if renderable {
+        framebuffer.unwrap().clear_color(0.5, 2.0, -1.0, 1.0);
         let texels: Vec<Vec<(f32, f32, f32, f32)>> = texture.read_as().unwrap();
         assert_eq!(texels[3][3], (0.5, 2.0, -1.0, 1.0));
+    } else {
+        assert_eq!(
+            framebuffer.err(),
+            Some(safegl::framebuffer::ValidationError::FormatNotRenderable)
+        );
     }
 
     display.assert_no_error(None);

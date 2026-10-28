@@ -68,6 +68,7 @@ use crate::TextureExt;
 use crate::framebuffer::InvalidateAttachments;
 use crate::framebuffer::RenderBufferAny;
 use crate::texture::CubeLayer;
+use crate::image_format::TextureFormatRequest;
 use crate::texture::TextureAny;
 use crate::texture::TextureAnyImage;
 use crate::texture::TextureAnyMipmap;
@@ -399,7 +400,7 @@ impl<'a> FramebufferAttachments<'a> {
             }};
 
             ($tex:ident, $dim:ident, $samples:ident) => {{
-                // TODO: check that internal format is renderable
+                check_renderable(context, $tex.get_texture())?;
                 match &mut $samples {
                     &mut Some(samples) => {
                         if samples != $tex.get_samples().unwrap_or(0) {
@@ -542,7 +543,7 @@ impl<'a> FramebufferAttachments<'a> {
             }};
 
             ($tex:ident, $dim:ident, $samples:ident) => {{
-                // TODO: check that internal format is renderable
+                check_renderable(context, $tex.get_texture())?;
                 match &mut $samples {
                     &mut Some(samples) => {
                         if samples != $tex.get_samples().unwrap_or(0) {
@@ -586,7 +587,7 @@ impl<'a> FramebufferAttachments<'a> {
             }};
 
             ($rb:ident, $dim:ident, $samples:ident) => {{
-                // TODO: check that internal format is renderable
+                // render buffers are only created with formats that can be rendered to
                 let dimensions = $rb.get_dimensions();
 
                 match &mut $samples {
@@ -842,6 +843,22 @@ pub enum ValidationError {
     /// The layered color attachments aren't all textures of the same kind, such as 2D array
     /// textures, cube maps or 3D textures.
     LayerTargetsMismatch,
+
+    /// An attached texture has a format that the backend can't render to: a compressed format,
+    /// `F9F9F9`, or on OpenGL ES and WebGL a format that needs an extension, such as the float
+    /// formats without `GL_EXT_color_buffer_float`.
+    FormatNotRenderable,
+}
+
+/// Returns `FormatNotRenderable` if `texture` has a format that the backend can't render to,
+/// which would make the framebuffer incomplete.
+fn check_renderable(context: &Context, texture: &TextureAny) -> Result<(), ValidationError> {
+    match texture.get_requested_format() {
+        TextureFormatRequest::Specific(format) if !format.is_renderable(context) => {
+            Err(ValidationError::FormatNotRenderable)
+        }
+        _ => Ok(()),
+    }
 }
 
 impl fmt::Display for ValidationError {
@@ -865,6 +882,7 @@ impl fmt::Display for ValidationError {
             ContextMismatch => "An attachment belongs to another context than the framebuffer",
             LayeredFramebuffersNotSupported => "Layered framebuffers are not supported",
             LayerTargetsMismatch => "The layered color attachments are textures of different kinds",
+            FormatNotRenderable => "An attached texture has a format that can't be rendered to",
         };
         match self {
             TooManyColorAttachments {

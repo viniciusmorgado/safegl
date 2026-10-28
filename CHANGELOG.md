@@ -867,6 +867,10 @@ Fixes:
 - `restore_state` resets every pixel store parameter that other code may change (row lengths,
   image heights, skips, compressed block parameters, byte orders), where it only reset the
   alignments.
+- Framebuffers refuse the textures whose format can't be rendered to (compressed, `F9F9F9`, or
+  on OpenGL ES and WebGL the formats that need an extension, such as the float formats without
+  `GL_EXT_color_buffer_float`) with the new `ValidationError::FormatNotRenderable`, also when the
+  driver would accept them through an extension that SafeGL treats as missing.
 - Programs with uniform blocks are created in browsers, where they panicked: glow doesn't have
   `glGetActiveUniformsiv` there, and SafeGL calls the browser's `getActiveUniforms`.
 - Shaders whose `#version` comes after blank lines or indentation compile in browsers, which
