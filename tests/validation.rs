@@ -43,7 +43,8 @@ fn pixel(texture: &Texture2d) -> (u8, u8, u8, u8) {
 fn incomplete_framebuffer() {
     let display = support::build_display();
 
-    // shared-exponent textures can't be rendered to
+    // shared-exponent textures can't be rendered to, which SafeGL knows before OpenGL finds the
+    // framebuffer incomplete
     let texture = Texture2d::empty_with_format(
         &display,
         UncompressedFloatFormat::F9F9F9,
@@ -54,7 +55,7 @@ fn incomplete_framebuffer() {
     .unwrap();
     assert!(matches!(
         SimpleFrameBuffer::new(&display, &texture),
-        Err(ValidationError::Incomplete { .. })
+        Err(ValidationError::FormatNotRenderable)
     ));
     display.assert_no_error(None);
 }
