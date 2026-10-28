@@ -616,6 +616,9 @@ Additions:
   `write_compressed_box_from` does it with compressed blocks (OpenGL 4.2 or
   `GL_ARB_compressed_texture_pixel_storage`, `UploadError::NotSupported` otherwise), and
   `read_box_into` reads a box into a box of a larger client image (OpenGL 4.5).
+- The book chapter [OpenGL 4.0 to 4.5 drivers](book/opengl-4.0-4.5.md) tells, for every
+  extension that OpenGL 4.1 to 4.6 made core, the SafeGL API, its levels, what SafeGL checks at
+  runtime and does without it, and the tests that cover it.
 - `Context::format_info` gives every answer of `GL_ARB_internalformat_query2`: the preferred
   format, the components (`FormatComponents`, `ComponentType`), the largest number of texels,
   layered framebuffers, the client formats that read, upload and download a format best, manual
