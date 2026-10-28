@@ -91,15 +91,13 @@ fn program_linking_error() {
         "#version 330\n"
     };
 
-    // the vertex shader outputs `v` as a `vec2` and the fragment shader reads it as a `vec4`,
+    // the uniform `u` is a `float` in the vertex shader and a `vec4` in the fragment shader,
     // which only the linker can find out (browsers check that every function called is defined
-    // when they compile)
+    // when they compile, and some drivers link outputs and inputs of different sizes)
     let program = safegl::Program::from_source(
         &display,
-        &format!(
-            "{header}out vec2 v;\nvoid main() {{ v = vec2(0.0); gl_Position = vec4(0.0); }}"
-        ),
-        &format!("{header}in vec4 v;\nout vec4 color;\nvoid main() {{ color = v; }}"),
+        &format!("{header}uniform float u;\nvoid main() {{ gl_Position = vec4(u); }}"),
+        &format!("{header}uniform vec4 u;\nout vec4 color;\nvoid main() {{ color = u; }}"),
         None,
     );
 
