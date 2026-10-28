@@ -125,6 +125,10 @@ pub struct Context {
     /// Whether the debug messages go to the message log of the context instead of a callback.
     debug_output_log: bool,
 
+    /// Whether the callback gets the errors of `glGetError` after each operation, on WebGL,
+    /// which has no debug output.
+    debug_output_polls_errors: bool,
+
     /// The number of debug groups pushed by `push_debug_group` and not popped yet.
     debug_group_depth: Cell<u32>,
 
@@ -283,6 +287,10 @@ impl Context {
 
 impl<'a> Drop for CommandContext<'a> {
     fn drop(&mut self) {
+        if self.context.debug_output_polls_errors && !thread::panicking() {
+            self.report_polled_error();
+        }
+
         // the debug callback panicked during the commands
         if let Some(payload) = self.context.debug_callback_panic.take() {
             if !thread::panicking() {
@@ -298,6 +306,36 @@ impl<'a> CommandContext<'a> {
     #[inline]
     pub fn owns(&self, context: &Context) -> bool {
         std::ptr::eq(self.context, context)
+    }
+
+    /// Returns true if the context is known to be lost: its objects are gone, so they aren't
+    /// deleted, and in browsers the restored context would refuse them.
+    #[inline]
+    pub fn objects_lost(&self) -> bool {
+        self.state.lost_context
+    }
+
+    /// Gives the error that the operation raised, if any, to the debug callback, as a message
+    /// of high severity from the API: WebGL has no debug output. The error is kept for
+    /// `glGetError`, which `Context::assert_no_error` calls.
+    fn report_polled_error(&mut self) {
+        // `GL_CONTEXT_LOST_WEBGL` tells the loss of the context, which isn't an error
+        const CONTEXT_LOST_WEBGL: gl::types::GLenum = 0x9242;
+        let error = unsafe { self.glow.get_error() };
+        if error == gl::NO_ERROR || error == CONTEXT_LOST_WEBGL {
+            return;
+        }
+        if self.state.polled_error == gl::NO_ERROR {
+            self.state.polled_error = error;
+        }
+        let message = crate::gl_error_name(error);
+        let report = self.report_debug_output_errors.get();
+        if let Ok(mut callback) = self.context.debug_callback.try_borrow_mut() {
+            if let Some(callback) = callback.as_mut() {
+                let (source, ty) = (debug::Source::Api, debug::MessageType::Error);
+                callback(source, ty, debug::Severity::High, error, report, message);
+            }
+        }
     }
 }
 
@@ -377,6 +415,7 @@ impl Context {
             } => (Some(callback), synchronous),
         };
 
+        let polls_errors = is_webgl() && debug_callback.is_some();
         let context = Rc::new(Context {
             glow,
             extra,
@@ -391,6 +430,7 @@ impl Context {
             debug_output_synchronous: synchronous,
             debug_output_errors_only: errors_only,
             debug_output_log: log,
+            debug_output_polls_errors: polls_errors,
             debug_group_depth: Cell::new(0),
             generation: Cell::new(0),
             report_debug_output_errors,
@@ -1271,6 +1311,12 @@ fn check_gl_compatibility(gl: &glow::Context, version: &Version) -> Result<(), I
 /// The messages come from OpenGL 4.3, OpenGL ES 3.2 or `GL_KHR_debug`, which SafeGL turns on in
 /// every context. Drivers below them that only have `GL_ARB_debug_output` may keep the messages
 /// of contexts that aren't debug contexts, and nothing can turn them on there.
+///
+/// WebGL has no debug output: with a callback (`DebugMessageOnError`, `PrintAll`, `Custom`), the
+/// callback gets the error of `glGetError` after each operation, as a message of high severity
+/// from the API whose id is the error. Each `glGetError` waits for the browser, which slows down
+/// every operation, which is why release builds use `Ignore` by default. The messages of the
+/// default callbacks go to the browser's console.
 pub enum DebugCallbackBehavior {
     /// Don't do anything. This is the default behavior in release.
     Ignore,
@@ -1336,16 +1382,29 @@ fn default_debug_callback(
     };
 
     if report_debug_output_errors {
-        eprint!(
-            "Debug message with high or medium severity: `{}`.\n\
+        // browsers have no standard error: the message goes to their console, with its stack
+        #[cfg(safegl_browser)]
+        web_sys::console::error_1(
+            &format!(
+                "Debug message with high or medium severity: `{}`.\n\
                  Please report this error: https://github.com/viniciusmorgado/safegl/issues",
-            message
+                message
+            )
+            .into(),
         );
+        #[cfg(not(safegl_browser))]
+        {
+            eprint!(
+                "Debug message with high or medium severity: `{}`.\n\
+                     Please report this error: https://github.com/viniciusmorgado/safegl/issues",
+                message
+            );
 
-        #[cfg(feature = "backtrace")]
-        print_backtrace();
+            #[cfg(feature = "backtrace")]
+            print_backtrace();
 
-        eprintln!("\n");
+            eprintln!("\n");
+        }
     }
 }
 
@@ -1390,7 +1449,7 @@ fn printall_debug_callback(
     _: bool,
     message: &str,
 ) {
-    eprintln!(
+    let text = format!(
         "Source: {src:?}\t\tSeverity: {sev:?}\t\tType: {ty:?}\t\tId: {id}\n{msg}",
         src = source,
         sev = severity,
@@ -1398,6 +1457,11 @@ fn printall_debug_callback(
         id = id,
         msg = message
     );
+    // browsers have no standard error: the message goes to their console
+    #[cfg(safegl_browser)]
+    web_sys::console::log_1(&text.into());
+    #[cfg(not(safegl_browser))]
+    eprintln!("{}", text);
 }
 
 /// Initializes `GL_KHR_debug`, `GL_ARB_debug`, or a similar extension so that the debug output

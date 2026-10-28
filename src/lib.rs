@@ -2638,16 +2638,28 @@ impl Error for IncompatibleOpenGl {}
 fn get_gl_error(ctxt: &mut context::CommandContext<'_>) -> Option<&'static str> {
     use glow::HasContext;
 
-    match unsafe { ctxt.glow.get_error() } {
-        glow::NO_ERROR => None,
-        glow::INVALID_ENUM => Some("GL_INVALID_ENUM"),
-        glow::INVALID_VALUE => Some("GL_INVALID_VALUE"),
-        glow::INVALID_OPERATION => Some("GL_INVALID_OPERATION"),
-        glow::INVALID_FRAMEBUFFER_OPERATION => Some("GL_INVALID_FRAMEBUFFER_OPERATION"),
-        glow::OUT_OF_MEMORY => Some("GL_OUT_OF_MEMORY"),
-        glow::STACK_UNDERFLOW => Some("GL_STACK_UNDERFLOW"),
-        glow::STACK_OVERFLOW => Some("GL_STACK_OVERFLOW"),
-        glow::CONTEXT_LOST => Some("GL_CONTEXT_LOST"),
-        _ => Some("Unknown glGetError return value"),
+    // the error that the debug output of WebGL read after an operation comes first
+    let polled = std::mem::replace(&mut ctxt.state.polled_error, glow::NO_ERROR);
+    match polled {
+        glow::NO_ERROR => match unsafe { ctxt.glow.get_error() } {
+            glow::NO_ERROR => None,
+            error => Some(gl_error_name(error)),
+        },
+        error => Some(gl_error_name(error)),
+    }
+}
+
+/// The name of a value of `glGetError`.
+fn gl_error_name(error: gl::types::GLenum) -> &'static str {
+    match error {
+        glow::INVALID_ENUM => "GL_INVALID_ENUM",
+        glow::INVALID_VALUE => "GL_INVALID_VALUE",
+        glow::INVALID_OPERATION => "GL_INVALID_OPERATION",
+        glow::INVALID_FRAMEBUFFER_OPERATION => "GL_INVALID_FRAMEBUFFER_OPERATION",
+        glow::OUT_OF_MEMORY => "GL_OUT_OF_MEMORY",
+        glow::STACK_UNDERFLOW => "GL_STACK_UNDERFLOW",
+        glow::STACK_OVERFLOW => "GL_STACK_OVERFLOW",
+        glow::CONTEXT_LOST => "GL_CONTEXT_LOST",
+        _ => "Unknown glGetError return value",
     }
 }

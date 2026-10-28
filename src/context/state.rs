@@ -15,6 +15,10 @@ pub struct GlState {
     /// `GL_UNKNOWN_CONTEXT_RESET` when something else told it.
     pub reset_status: gl::types::GLenum,
 
+    /// The error that the debug output read with `glGetError` after an operation, on WebGL,
+    /// which `glGetError` returns next; `GL_NO_ERROR` if none.
+    pub polled_error: gl::types::GLenum,
+
     /// Whether GL_BLEND is enabled
     pub enabled_blend: bool,
 
@@ -511,6 +515,7 @@ impl Default for GlState {
         GlState {
             lost_context: false,
             reset_status: gl::NO_ERROR,
+            polled_error: gl::NO_ERROR,
 
             enabled_blend: false,
             enabled_cull_face: false,
