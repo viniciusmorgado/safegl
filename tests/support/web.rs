@@ -42,7 +42,7 @@ impl Drop for TestDisplay {
             .flatten()
             .and_then(|gl| gl.dyn_into::<web_sys::WebGl2RenderingContext>().ok())
             .and_then(|gl| gl.get_extension("WEBGL_lose_context").ok().flatten())
-            .and_then(|extension| extension.dyn_into::<web_sys::WebglLoseContext>().ok());
+            .map(|extension| extension.unchecked_into::<web_sys::WebglLoseContext>());
         if let Some(lose) = lose {
             lose.lose_context();
         }
