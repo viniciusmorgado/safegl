@@ -195,6 +195,32 @@ jobs:
       - name: Run the tests
         run: xvfb-run -a sh -c "env ${{ matrix.env }} cargo test --no-fail-fast --features ${{ matrix.level }}"
 
+  firefox:
+    name: Tests in Firefox (WebGL 2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: firefox
+
+      # the test runner must be the version of wasm-bindgen that the crate resolves to
+      - name: Install the test runner of wasm-bindgen
+        run: |
+          cargo generate-lockfile
+          version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')
+          cargo install wasm-bindgen-cli --version "$version" --locked
+
+      # Firefox and geckodriver come with the runner image; the tests run headless
+      - name: Run the tests in Firefox
+        env:
+          GECKODRIVER: ${{ env.GECKOWEBDRIVER }}/geckodriver
+          WASM_BINDGEN_TEST_TIMEOUT: "300"
+        run: cargo test --no-fail-fast --target wasm32-unknown-unknown --no-default-features --features webgl --tests
+
   windows:
     name: Windows x86_64
     runs-on: windows-latest
