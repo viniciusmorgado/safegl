@@ -205,10 +205,15 @@ mod regions;
 mod sub_image;
 
 /// Puts the row length, image height and skips of client images back to their default, for
-/// both uploads and downloads.
+/// both uploads and downloads. Reads have an image height and skipped images on desktop OpenGL
+/// only.
 pub(crate) unsafe fn reset_client_layouts(ctxt: &mut crate::context::CommandContext<'_>) {
     regions::UNPACK.reset(ctxt);
-    regions::PACK.reset(ctxt);
+    if ctxt.version.0 == crate::version::Api::Gl {
+        regions::PACK.reset(ctxt);
+    } else {
+        regions::PACK.reset_rows(ctxt);
+    }
 }
 #[cfg(safegl_gl43)]
 mod view;

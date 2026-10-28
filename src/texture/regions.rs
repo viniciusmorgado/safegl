@@ -55,6 +55,14 @@ impl ClientLayout {
         ctxt.glow.pixel_store_i32(self.skip_images, offset.2 as i32);
     }
 
+    /// Puts the row length and the skipped pixels and rows back to their default, which are the
+    /// parameters of reads on OpenGL ES and WebGL.
+    pub(crate) unsafe fn reset_rows(&self, ctxt: &mut CommandContext<'_>) {
+        for pname in [self.row_length, self.skip_pixels, self.skip_rows] {
+            ctxt.glow.pixel_store_i32(pname, 0);
+        }
+    }
+
     /// Puts the parameters back to their default, tightly packed images.
     pub(crate) unsafe fn reset(&self, ctxt: &mut CommandContext<'_>) {
         for pname in [
