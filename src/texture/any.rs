@@ -107,6 +107,10 @@ pub struct TextureAny {
     /// been checked yet. The inner Result is Err if the format has been checked but is unknown.
     actual_format: Cell<Option<Result<InternalFormat, GetFormatError>>>,
 
+    /// The internal format that SafeGL created the texture with, sized or not, or 0 for the
+    /// textures that it didn't create.
+    created_format: gl::types::GLenum,
+
     /// Type and dimensions of the texture.
     ty: Dimensions,
 
@@ -1200,6 +1204,7 @@ where
         id,
         requested_format: format,
         actual_format: Cell::new(None),
+        created_format: storage_internal_format.unwrap_or(teximg_internal_format),
         ty,
         levels: texture_levels as u32,
         generate_mipmaps: should_generate_mipmaps,
@@ -1399,6 +1404,7 @@ pub fn new_texture_view(
         id,
         requested_format: format,
         actual_format: Cell::new(None),
+        created_format: view_format,
         ty,
         levels: levels.len() as u32,
         generate_mipmaps: false,
@@ -1433,6 +1439,7 @@ pub unsafe fn from_id<F: Facade + ?Sized>(
         id,
         requested_format: format,
         actual_format: Cell::new(None),
+        created_format: 0,
         ty,
         levels: mipmap_levels,
         generate_mipmaps: should_generate_mipmaps,
@@ -1509,6 +1516,12 @@ impl TextureAny {
             Dimensions::Texture3d { depth, .. } => Some(depth),
             _ => None,
         }
+    }
+
+    /// The internal format that SafeGL created the texture with, sized or not, or 0 for the
+    /// textures that it didn't create.
+    pub(crate) fn created_format(&self) -> gl::types::GLenum {
+        self.created_format
     }
 
     /// Returns the initial requested format.

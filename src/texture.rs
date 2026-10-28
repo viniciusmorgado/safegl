@@ -218,6 +218,13 @@ pub(crate) unsafe fn reset_client_layouts(ctxt: &mut crate::context::CommandCont
 }
 #[cfg(safegl_gl43)]
 mod view;
+#[cfg(safegl_browser)]
+mod web_image;
+#[cfg(safegl_browser)]
+#[cfg_attr(docsrs, doc(cfg(safegl_browser)))]
+pub use self::web_image::{WebImageError, WebImageOptions, WebImageSource};
+#[cfg(safegl_browser)]
+pub(crate) use self::web_image::reset_options as reset_web_image_options;
 mod pixel;
 mod ty_support;
 
@@ -992,6 +999,14 @@ pub enum UploadError {
     /// The region is outside of the texture, or its dimensions don't match the data.
     OutOfBounds,
 
+    /// The browser refused the image written with `write_web_image`, with this message: an
+    /// image of another origin without the permission of its server, or an image that hasn't
+    /// loaded.
+    ImageRefused {
+        /// The message of the browser.
+        message: String,
+    },
+
     /// The data doesn't have the size that the region needs in its format.
     DataSizeMismatch {
         /// The size in bytes that the region needs.
@@ -1029,6 +1044,9 @@ impl fmt::Display for UploadError {
             UploadError::OutOfBounds => fmt.write_str(
                 "The region is outside of the texture, or its dimensions don't match the data",
             ),
+            UploadError::ImageRefused { message } => {
+                write!(fmt, "The browser refused the image: {}", message)
+            }
             UploadError::DataSizeMismatch { expected, obtained } => write!(
                 fmt,
                 "The data has {} bytes, but the region needs {}",

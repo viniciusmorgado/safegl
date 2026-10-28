@@ -700,6 +700,13 @@ Additions:
   draws to several views can't capture transform feedback nor be timed
   (`DrawError::MultiviewRestricted`) nor be blitted (`BlitError::Multiview`). The layered
   framebuffer types are at every level for it; layered rendering keeps its levels.
+- In browsers, `Texture2d` and `SrgbTexture2d` are built from the images of the browser
+  (`from_web_image`) and written from them (`write_web_image`, also on the levels of
+  `TextureAnyMipmap`): image, canvas and video elements, image bitmaps, image data and offscreen
+  canvases, through the `WebImageSource` trait. `WebImageOptions` sets the flip, the
+  premultiplication and the color conversion of the image, which don't outlive the write, and
+  `restore_state` resets them. An image the browser refuses (another origin without CORS, not
+  loaded) is `UploadError::ImageRefused`, with the message of the browser.
 - `WebDisplay::builder(canvas)` creates the WebGL 2 context with its attributes: alpha,
   antialiasing, depth, stencil, premultiplied alpha, preserved drawing buffer, power preference
   (`PowerPreference`), failure on a major performance caveat, and desynchronized presentation.

@@ -250,7 +250,7 @@ path = "examples/standalone/spirv/main.rs"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { version = "0.2", optional = true }
 js-sys = { version = "0.3", optional = true }
-web-sys = { version = "0.3", optional = true, features = ["console", "Event", "EventTarget", "HtmlCanvasElement", "WebGl2RenderingContext", "WebGlContextAttributes", "WebGlPowerPreference", "WebGlProgram"] }
+web-sys = { version = "0.3", optional = true, features = ["console", "Event", "EventTarget", "HtmlCanvasElement", "HtmlImageElement", "HtmlVideoElement", "ImageBitmap", "ImageData", "OffscreenCanvas", "WebGl2RenderingContext", "WebGlContextAttributes", "WebGlPowerPreference", "WebGlProgram"] }
 
 # the tests in browsers: `cargo test --target wasm32-unknown-unknown --no-default-features
 # --features webgl`, run by `wasm-bindgen-test-runner` (see `.cargo/config.toml`)
@@ -258,4 +258,4 @@ web-sys = { version = "0.3", optional = true, features = ["console", "Event", "E
 wasm-bindgen-test = "0.3"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
-web-sys = { version = "0.3", features = ["Document", "Element", "HtmlCanvasElement", "WebGl2RenderingContext", "WebGlContextAttributes", "WebglLoseContext", "Window"] }
+web-sys = { version = "0.3", features = ["CanvasRenderingContext2d", "Document", "Element", "HtmlCanvasElement", "ImageData", "WebGl2RenderingContext", "WebGlContextAttributes", "WebglLoseContext", "Window"] }

@@ -267,6 +267,11 @@ impl WebGl {
         self.call("EXT_polygon_offset_clamp", "polygonOffsetClampEXT", &args);
     }
 
+    /// The browser's context.
+    pub fn context(&self) -> &WebGl2RenderingContext {
+        &self.gl
+    }
+
     /// The program that `glUseProgram` made current.
     fn current_program(&self) -> Option<WebGlProgram> {
         let program = self.gl.get_parameter(glow::CURRENT_PROGRAM).ok()?;

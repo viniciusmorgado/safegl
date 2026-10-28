@@ -244,6 +244,9 @@ unsafe fn restore_bindings(ctxt: &mut CommandContext<'_>) {
             ctxt.glow.pixel_store_i32(pname, 0);
         }
     }
+    // the conversions of the images of browsers
+    #[cfg(safegl_browser)]
+    crate::texture::reset_web_image_options(ctxt.glow);
 }
 
 unsafe fn restore_fixed_function(ctxt: &mut CommandContext<'_>) {
