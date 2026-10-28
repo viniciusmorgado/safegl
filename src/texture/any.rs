@@ -542,6 +542,19 @@ where
     P: Send + Clone + 'a,
     F: Facade,
 {
+    // compressed data gives its format to the textures of any compressed format, which then
+    // have that format
+    let format = match (format, data.as_ref().map(|&(client, _)| client)) {
+        (TextureFormatRequest::AnyCompressed, Some(ClientFormatAny::CompressedFormat(f))) => {
+            TextureFormatRequest::Specific(TextureFormat::CompressedFormat(f))
+        }
+        (
+            TextureFormatRequest::AnyCompressedSrgb,
+            Some(ClientFormatAny::CompressedSrgbFormat(f)),
+        ) => TextureFormatRequest::Specific(TextureFormat::CompressedSrgbFormat(f)),
+        (format, _) => format,
+    };
+
     // getting the width, height, depth, array_size, samples from the type
     let (width, height, depth, array_size, samples) = extract_dimensions(ty);
     let (is_client_compressed, data_bufsize) = match data {
@@ -589,9 +602,6 @@ where
         }
         TextureFormatRequest::Specific(TextureFormat::CompressedSrgbFormat(format)) => {
             Some(ClientFormatAny::CompressedSrgbFormat(format))
-        }
-        TextureFormatRequest::AnyCompressed | TextureFormatRequest::AnyCompressedSrgb => {
-            data.as_ref().map(|&(client, _)| client).filter(|c| c.is_compressed())
         }
         _ => None,
     };
