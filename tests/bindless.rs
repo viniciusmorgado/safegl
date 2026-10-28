@@ -75,10 +75,10 @@ fn bindless_uniforms() {
         magnify_filter: MagnifySamplerFilter::Nearest,
         ..Default::default()
     };
-    let handle = TextureHandle::new(&texture, &nearest);
+    let handle = TextureHandle::new(&texture, &nearest).unwrap();
     assert_eq!(draw(&display, &sample, handle).unwrap(), (255, 0, 0, 255));
     // the same sampler gives the same handle
-    let again = TextureHandle::new(&texture, &nearest);
+    let again = TextureHandle::new(&texture, &nearest).unwrap();
     assert_eq!(draw(&display, &sample, again).unwrap(), (255, 0, 0, 255));
 
     // the type of the uniform is checked against the texture
@@ -101,7 +101,7 @@ fn bindless_uniforms() {
         "color = vec4(float(texture(tex, vec2(0.5)).r) / 255.0, 0.0, 0.0, 1.0);",
     )
     .unwrap();
-    let linear = TextureHandle::new(&unsigned, &SamplerBehavior::default());
+    let linear = TextureHandle::new(&unsigned, &SamplerBehavior::default()).unwrap();
     assert_eq!(draw(&display, &integer, linear).unwrap(), (7, 0, 0, 255));
 
     display.assert_no_error(None);

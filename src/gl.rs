@@ -65,6 +65,12 @@ pub const INT64_NV: GLenum = 0x140E;
 pub const MAX_CLIENT_WAIT_TIMEOUT_WEBGL: GLenum = 0x9247;
 pub const TEXTURE_FREE_MEMORY_ATI: GLenum = 0x87FC;
 pub const UNSIGNED_INT64_NV: GLenum = 0x140F;
+// the view classes of the ETC2 and EAC formats
+pub const VIEW_CLASS_EAC_R11: GLenum = 0x9383;
+pub const VIEW_CLASS_EAC_RG11: GLenum = 0x9384;
+pub const VIEW_CLASS_ETC2_RGB: GLenum = 0x9385;
+pub const VIEW_CLASS_ETC2_RGBA: GLenum = 0x9386;
+pub const VIEW_CLASS_ETC2_EAC_RGBA: GLenum = 0x9387;
 // GL_ARB_gpu_shader_int64
 pub const INT64_ARB: GLenum = 0x140E;
 pub const INT64_VEC2_ARB: GLenum = 0x8FE9;
@@ -180,6 +186,8 @@ extra_functions! {
     fn GetTextureSubImage(texture: GLuint, level: GLint, xoffset: GLint, yoffset: GLint, zoffset: GLint, width: GLsizei, height: GLsizei, depth: GLsizei, format: GLenum, type_: GLenum, bufSize: GLsizei, pixels: *mut c_void) -> ();
     fn GetnCompressedTexImage(target: GLenum, lod: GLint, bufSize: GLsizei, pixels: *mut c_void) -> ();
     fn GetnCompressedTexImageARB(target: GLenum, lod: GLint, bufSize: GLsizei, img: *mut c_void) -> ();
+    fn GetInternalformati64v(target: GLenum, internalformat: GLenum, pname: GLenum, count: GLsizei, params: *mut GLint64) -> ();
+    fn GetnTexImageARB(target: GLenum, level: GLint, format: GLenum, type_: GLenum, bufSize: GLsizei, img: *mut c_void) -> ();
     fn GetFragDataIndex(program: GLuint, name: *const GLchar) -> GLint;
     fn GetFragDataIndexEXT(program: GLuint, name: *const GLchar) -> GLint;
     fn GetGraphicsResetStatus() -> GLenum;
@@ -272,6 +280,7 @@ extra_functions! {
     fn SamplerParameterIuivOES(sampler: GLuint, pname: GLenum, param: *const GLuint) -> ();
     fn ShaderBinary(count: GLsizei, shaders: *const GLuint, binaryformat: GLenum, binary: *const c_void, length: GLsizei) -> ();
     fn SpecializeShader(shader: GLuint, pEntryPoint: *const GLchar, numSpecializationConstants: GLuint, pConstantIndex: *const GLuint, pConstantValue: *const GLuint) -> ();
+    fn SpecializeShaderARB(shader: GLuint, pEntryPoint: *const GLchar, numSpecializationConstants: GLuint, pConstantIndex: *const GLuint, pConstantValue: *const GLuint) -> ();
     fn TexBufferEXT(target: GLenum, internalformat: GLenum, buffer: GLuint) -> ();
     fn TexBufferRange(target: GLenum, internalformat: GLenum, buffer: GLuint, offset: GLintptr, size: GLsizeiptr) -> ();
     fn TexBufferRangeEXT(target: GLenum, internalformat: GLenum, buffer: GLuint, offset: GLintptr, size: GLsizeiptr) -> ();

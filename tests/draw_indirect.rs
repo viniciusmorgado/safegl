@@ -305,3 +305,20 @@ fn indirect_draws_with_transform_feedback_on_opengl_es() {
 
     display.assert_no_error(None);
 }
+
+/// A buffer without commands draws nothing, without needing multidraw.
+// the source of a whole buffer of commands is the one of multidraw, from the gl43 level
+#[cfg(safegl_gl43)]
+#[test]
+fn an_empty_buffer_draws_nothing() {
+    let display = support::build_display();
+    let commands = match DrawCommandsNoIndicesBuffer::empty(&display, 0) {
+        Ok(commands) => commands,
+        Err(safegl::buffer::BufferCreationError::BufferTypeNotSupported) => return,
+        Err(error) => panic!("{error:?}"),
+    };
+    let source = commands.with_primitive_type(PrimitiveType::TriangleStrip);
+    assert_eq!(drawn_thirds(&display, source).unwrap(), [false; 3]);
+
+    display.assert_no_error(None);
+}

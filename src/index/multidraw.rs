@@ -51,7 +51,9 @@ pub struct DrawCommandNoIndices {
     pub instance_count: raw::c_uint,
     /// First vertex to draw in the vertices source.
     pub first_index: raw::c_uint,
-    /// Numero of the first instance to draw.
+    /// Number of the first instance to draw. It must be 0 below OpenGL 4.2 without
+    /// `GL_ARB_base_instance` (and on OpenGL ES without `GL_EXT_base_instance`): like the other
+    /// values of commands, which the GPU can write, SafeGL doesn't check it.
     pub base_instance: raw::c_uint,
 }
 
@@ -82,7 +84,9 @@ pub struct DrawCommandIndices {
     pub first_index: raw::c_uint,
     /// Value to add to each index, which can be negative.
     pub base_vertex: raw::c_int,
-    /// Numero of the first instance to draw.
+    /// Number of the first instance to draw. It must be 0 below OpenGL 4.2 without
+    /// `GL_ARB_base_instance` (and on OpenGL ES without `GL_EXT_base_instance`): like the other
+    /// values of commands, which the GPU can write, SafeGL doesn't check it.
     pub base_instance: raw::c_uint,
 }
 

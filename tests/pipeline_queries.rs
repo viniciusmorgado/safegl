@@ -67,12 +67,16 @@ fn program(display: &Display) -> Program {
 }
 
 /// The query of `statistic`, or `None` if the backend doesn't have pipeline statistics, which
-/// desktop OpenGL 4.6 has.
+/// desktop OpenGL 4.6 has, and lower drivers through the extension.
 fn statistic(display: &Display, statistic: PipelineStatistic) -> Option<PipelineStatisticsQuery> {
     match PipelineStatisticsQuery::new(display, statistic) {
         Ok(query) => Some(query),
         Err(QueryCreationError::NotSupported) => {
-            assert!(support::is_gles(display));
+            assert!(
+                support::is_gles(display)
+                    || !(support::gl_at_least(display, 4, 6)
+                        || support::extensions(display).gl_arb_pipeline_statistics_query)
+            );
             None
         }
     }
@@ -82,7 +86,11 @@ fn overflow(display: &Display) -> Option<TransformFeedbackOverflowQuery> {
     match TransformFeedbackOverflowQuery::new(display) {
         Ok(query) => Some(query),
         Err(QueryCreationError::NotSupported) => {
-            assert!(support::is_gles(display));
+            assert!(
+                support::is_gles(display)
+                    || !(support::gl_at_least(display, 4, 6)
+                        || support::extensions(display).gl_arb_transform_feedback_overflow_query)
+            );
             None
         }
     }

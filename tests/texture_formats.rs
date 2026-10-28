@@ -9,7 +9,9 @@ use safegl::texture::{
     MipmapsOption, Texture2d, TextureCreationError, UncompressedFloatFormat, UncompressedIntFormat,
     UncompressedUintFormat, UnsignedTexture2d,
 };
-use safegl::{CapabilitiesSource, Surface};
+#[cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))]
+use safegl::Surface;
+use safegl::CapabilitiesSource;
 
 mod support;
 
@@ -158,17 +160,29 @@ fn render_buffers() {
     display.assert_no_error(None);
 }
 
+#[cfg(any(safegl_gl41, safegl_gles30, safegl_webgl))]
 #[test]
 fn rgb565() {
     let display = support::build_display();
-    let texture = Texture2d::empty_with_format(
+    let texture = match Texture2d::empty_with_format(
         &display,
         UncompressedFloatFormat::U5U6U5,
         MipmapsOption::NoMipmap,
         SIZE,
         SIZE,
-    )
-    .unwrap();
+    ) {
+        Ok(texture) => texture,
+        // desktop OpenGL has RGB565 from 4.1, and lower drivers through the extension
+        Err(TextureCreationError::FormatNotSupported) => {
+            assert!(
+                !support::is_gles(&display)
+                    && !support::gl_at_least(&display, 4, 1)
+                    && !support::extensions(&display).gl_arb_es2_compatibility
+            );
+            return;
+        }
+        Err(error) => panic!("{error:?}"),
+    };
 
     // RGB565 is color-renderable, and its extreme values are exact
     texture.as_surface().clear_color(1.0, 0.0, 1.0, 1.0);

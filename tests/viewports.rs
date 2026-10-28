@@ -29,6 +29,12 @@ const SIZE: u32 = 8;
 /// A program whose geometry shader sends the triangle to the viewports 0 to 3, each in its own
 /// color, or to the viewport `index` only if it isn't negative. `None` without viewport arrays.
 fn program(display: &Display) -> Option<Program> {
+    program_reading(display, false)
+}
+
+/// Like `program`, with a fragment shader that reads `gl_ViewportIndex` itself if
+/// `read_index`, which needs GLSL 4.30 or `GL_ARB_fragment_layer_viewport`.
+fn program_reading(display: &Display, read_index: bool) -> Option<Program> {
     display.get_capabilities().limits.max_viewports?;
     const VERTEX: &str = "
         in vec2 position;
@@ -51,7 +57,11 @@ fn program(display: &Display) -> Option<Program> {
             EndPrimitive();
         }";
     const FRAGMENT: &str = "
+        #ifndef READ_INDEX
         flat in int viewport;
+        #else
+        #define viewport gl_ViewportIndex
+        #endif
         out vec4 color;
         void main() {
             vec4 colors[4] = vec4[4](
@@ -64,11 +74,24 @@ fn program(display: &Display) -> Option<Program> {
         }";
     // below OpenGL 4.1, `GL_ARB_viewport_array` gives `gl_ViewportIndex` to GLSL 4.00
     let header = if support::glsl_supported(display, 410, 0) {
-        "#version 410 core\n"
+        "#version 410 core\n".to_owned()
     } else {
-        "#version 400 core\n#extension GL_ARB_viewport_array : require\n"
+        "#version 400 core\n#extension GL_ARB_viewport_array : require\n".to_owned()
     };
-    let [vertex, geometry, fragment] = [VERTEX, GEOMETRY, FRAGMENT].map(|s| format!("{header}{s}"));
+    // fragment shaders read it from GLSL 4.30, or with `GL_ARB_fragment_layer_viewport`
+    let fragment_header = if read_index {
+        let extension = "GL_ARB_fragment_layer_viewport";
+        let available = support::has_extension(display, extension);
+        let mut header = support::glsl_header(display, 430, &[(extension, available)])?;
+        if !support::glsl_supported(display, 430, 0) {
+            header.push_str("#extension GL_ARB_viewport_array : require\n");
+        }
+        header + "#define READ_INDEX\n"
+    } else {
+        header.clone()
+    };
+    let [vertex, geometry] = [VERTEX, GEOMETRY].map(|s| format!("{header}{s}"));
+    let fragment = format!("{fragment_header}{FRAGMENT}");
     let program = program!(display,
         400 => {
             vertex: &vertex,
@@ -290,5 +313,27 @@ fn viewport_array_errors() {
         Err(DrawError::InvalidViewport)
     ));
 
+    display.assert_no_error(None);
+}
+
+/// Fragment shaders read the viewport of their primitive in `gl_ViewportIndex`.
+#[test]
+fn fragment_shaders_read_the_viewport_index() {
+    let display = support::build_display();
+    let Some(program) = program_reading(&display, true) else {
+        return;
+    };
+    let viewports = quadrants();
+    let parameters = DrawParameters {
+        viewports: &viewports,
+        ..Default::default()
+    };
+    let pixels = draw(&display, &program, -1, &parameters).unwrap();
+
+    let (low, high) = (0, SIZE as usize - 1);
+    assert_eq!(pixels[low][low], RED);
+    assert_eq!(pixels[low][high], GREEN);
+    assert_eq!(pixels[high][low], BLUE);
+    assert_eq!(pixels[high][high], WHITE);
     display.assert_no_error(None);
 }

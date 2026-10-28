@@ -738,7 +738,11 @@ fn image_format_classes() {
     use safegl::GlObject;
 
     let display = support::build_display();
-    if support::is_gles(&display) {
+    // the compatibility of image formats comes with images: OpenGL 4.2 or the extension
+    if support::is_gles(&display)
+        || !(support::gl_at_least(&display, 4, 2)
+            || support::extensions(&display).gl_arb_shader_image_load_store)
+    {
         return;
     }
     let texture = Texture2d::empty_with_format(
@@ -773,5 +777,41 @@ fn image_format_classes() {
         Err(ImageUnitError::BadFormatClass(32, 64))
     ));
 
+    display.assert_no_error(None);
+}
+
+/// A sample count that the format doesn't have is an error instead of an OpenGL error, and the
+/// counts of 2D multisample arrays are listed with those of 2D multisample textures.
+#[cfg(any(safegl_desktop, safegl_gles31))]
+#[test]
+fn multisample_sample_counts() {
+    use safegl::texture::{
+        Texture2dMultisample, TextureCreationError, TextureFormat, UncompressedFloatFormat,
+    };
+    use safegl::CapabilitiesSource;
+
+    let display = support::build_display();
+    match Texture2dMultisample::empty(&display, 4, 4, 4096) {
+        Err(TextureCreationError::DimensionsNotSupported)
+        | Err(TextureCreationError::TypeNotSupported) => (),
+        other => panic!("{:?}", other.map(|_| ())),
+    }
+    // multisample arrays exist from OpenGL ES 3.2
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    match safegl::texture::Texture2dMultisampleArray::empty(&display, 4, 4, 2, 4096) {
+        Err(TextureCreationError::DimensionsNotSupported)
+        | Err(TextureCreationError::TypeNotSupported) => (),
+        other => panic!("{:?}", other.map(|_| ())),
+    }
+    // the largest count of the format works
+    let rgba8 = TextureFormat::UncompressedFloat(UncompressedFloatFormat::U8U8U8U8);
+    if let Some(info) = display.get_capabilities().internal_formats_textures.get(&rgba8) {
+        if let Some(&max) = info.multisamples.as_ref().and_then(|s| s.iter().max()) {
+            Texture2dMultisample::empty(&display, 4, 4, max as u32).unwrap();
+        }
+        if !support::is_gles(&display) && support::gl_at_least(&display, 4, 2) {
+            assert!(info.array_multisamples.as_ref().is_some_and(|s| !s.is_empty()));
+        }
+    }
     display.assert_no_error(None);
 }

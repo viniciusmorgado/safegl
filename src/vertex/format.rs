@@ -2,7 +2,9 @@ use std::borrow::Cow;
 use std::mem;
 
 #[cfg(any(safegl_desktop, safegl_gles30))]
-use crate::version::{Api, Version};
+use crate::version::Api;
+#[cfg(any(safegl_gl41, safegl_gles30))]
+use crate::version::Version;
 use crate::vertex::Attribute;
 use crate::CapabilitiesSource;
 
@@ -102,65 +104,65 @@ pub enum AttributeType {
     /// 4x4 matrix of `f32`s
     F32x4x4,
     /// Warning: using `f64`s can be very slow.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
     F64,
     /// Warning: using `f64`s can be very slow.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
     F64F64,
     /// Warning: using `f64`s can be very slow.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
     F64F64F64,
     /// Warning: using `f64`s can be very slow.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
     F64F64F64F64,
     /// 2x2 matrix of `f64`s
     /// Warning: using `f64`s can be very slow.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
     F64x2x2,
     /// 2x3 matrix of `f64`s
     /// Warning: using `f64`s can be very slow.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
     F64x2x3,
     /// 2x3 matrix of `f64`s
     /// Warning: using `f64`s can be very slow.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
     F64x2x4,
     /// 3x2 matrix of `f64`s
     /// Warning: using `f64`s can be very slow.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
     F64x3x2,
     /// 3x3 matrix of `f64`s
     /// Warning: using `f64`s can be very slow.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
     F64x3x3,
     /// 3x4 matrix of `f64`s
     /// Warning: using `f64`s can be very slow.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
     F64x3x4,
     /// 4x2 matrix of `f64`s
     /// Warning: using `f64`s can be very slow.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
     F64x4x2,
     /// 4x3 matrix of `f64`s
     /// Warning: using `f64`s can be very slow.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
     F64x4x3,
     /// 4x4 matrix of `f64`s
     /// Warning: using `f64`s can be very slow.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(safegl_gl41)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
     F64x4x4,
     /// From MSB to LSB: two bits for the alpha, ten bits for the blue, ten bits for the green,
     /// ten bits for the red.
@@ -175,14 +177,14 @@ pub enum AttributeType {
     /// Three floating points values turned into unsigned integers./
     ///
     /// Corresponds to `GL_UNSIGNED_INT_10F_11F_11F_REV`.
-    #[cfg(safegl_desktop)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
+    #[cfg(safegl_gl44)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
     F10F11F11UnsignedIntReversed,
     /// Fixed floating points. A 16bits signed value followed by the 16bits unsigned exponent.
     ///
     /// Corresponds to `GL_FIXED`.
-    #[cfg(any(safegl_desktop, safegl_gles30))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles30))))]
+    #[cfg(any(safegl_gl41, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles30))))]
     FixedFloatI16U16,
     /// Four normalized `u8`s in the order blue, green, red, alpha, read as `(r, g, b, a)`, like
     /// the colors of Direct3D (`GL_BGRA` of `GL_UNSIGNED_BYTE`). The attribute must be a `vec4`.
@@ -265,7 +267,7 @@ impl AttributeType {
                     || caps.get_extensions().gl_nv_vertex_attrib_integer_64bit
             }
 
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             &AttributeType::F64
             | &AttributeType::F64F64
             | &AttributeType::F64F64F64
@@ -299,7 +301,7 @@ impl AttributeType {
             | &AttributeType::F16x4x4 => true,
 
             // `GL_FIXED` is core in OpenGL ES 2.0 and OpenGL 4.1
-            #[cfg(any(safegl_desktop, safegl_gles30))]
+            #[cfg(any(safegl_gl41, safegl_gles30))]
             &AttributeType::FixedFloatI16U16 => {
                 caps.get_version().0 == Api::GlEs
                     || caps.get_version() >= &Version(Api::Gl, 4, 1)
@@ -315,7 +317,7 @@ impl AttributeType {
             | &AttributeType::U2U10U10U10ReversedBgra => caps.get_version().0 == Api::Gl,
 
             // core in OpenGL 4.4, and not part of OpenGL ES
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl44)]
             &AttributeType::F10F11F11UnsignedIntReversed => {
                 caps.get_version() >= &Version(Api::Gl, 4, 4)
                     || caps.get_extensions().gl_arb_vertex_type_10f_11f_11f_rev
@@ -392,31 +394,31 @@ impl AttributeType {
             AttributeType::F32x4x2 => 8 * mem::size_of::<f32>(),
             AttributeType::F32x4x3 => 12 * mem::size_of::<f32>(),
             AttributeType::F32x4x4 => 16 * mem::size_of::<f32>(),
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64 => 1 * mem::size_of::<f64>(),
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64F64 => 2 * mem::size_of::<f64>(),
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64F64F64 => 3 * mem::size_of::<f64>(),
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64F64F64F64 => 4 * mem::size_of::<f64>(),
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64x2x2 => 4 * mem::size_of::<f64>(),
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64x2x3 => 6 * mem::size_of::<f64>(),
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64x2x4 => 8 * mem::size_of::<f64>(),
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64x3x2 => 6 * mem::size_of::<f64>(),
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64x3x3 => 9 * mem::size_of::<f64>(),
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64x3x4 => 12 * mem::size_of::<f64>(),
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64x4x2 => 8 * mem::size_of::<f64>(),
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64x4x3 => 12 * mem::size_of::<f64>(),
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64x4x4 => 16 * mem::size_of::<f64>(),
             AttributeType::I2I10I10I10Reversed => 4,
             AttributeType::U2U10U10U10Reversed => 4,
@@ -424,9 +426,9 @@ impl AttributeType {
             AttributeType::U8U8U8U8Bgra
             | AttributeType::I2I10I10I10ReversedBgra
             | AttributeType::U2U10U10U10ReversedBgra => 4,
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl44)]
             AttributeType::F10F11F11UnsignedIntReversed => 4,
-            #[cfg(any(safegl_desktop, safegl_gles30))]
+            #[cfg(any(safegl_gl41, safegl_gles30))]
             AttributeType::FixedFloatI16U16 => 4,
         }
     }
@@ -500,31 +502,31 @@ impl AttributeType {
             AttributeType::F32x4x2 => 8,
             AttributeType::F32x4x3 => 12,
             AttributeType::F32x4x4 => 16,
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64 => 1,
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64F64 => 2,
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64F64F64 => 3,
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64F64F64F64 => 4,
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64x2x2 => 4,
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64x2x3 => 6,
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64x2x4 => 8,
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64x3x2 => 6,
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64x3x3 => 9,
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64x3x4 => 12,
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64x4x2 => 8,
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64x4x3 => 12,
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl41)]
             AttributeType::F64x4x4 => 16,
             AttributeType::I2I10I10I10Reversed => 4,
             AttributeType::U2U10U10U10Reversed => 4,
@@ -532,9 +534,9 @@ impl AttributeType {
             AttributeType::U8U8U8U8Bgra
             | AttributeType::I2I10I10I10ReversedBgra
             | AttributeType::U2U10U10U10ReversedBgra => 4,
-            #[cfg(safegl_desktop)]
+            #[cfg(safegl_gl44)]
             AttributeType::F10F11F11UnsignedIntReversed => 3,
-            #[cfg(any(safegl_desktop, safegl_gles30))]
+            #[cfg(any(safegl_gl41, safegl_gles30))]
             AttributeType::FixedFloatI16U16 => 1,
         }
     }

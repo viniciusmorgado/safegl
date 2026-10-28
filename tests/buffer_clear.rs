@@ -15,8 +15,12 @@ fn cleared(display: &Display, result: Result<(), ClearBufferError>) -> bool {
     match result {
         Ok(()) => true,
         Err(ClearBufferError::NotSupported) => {
-            // desktop OpenGL 4.3 has it
-            assert!(support::is_gles(display));
+            // desktop OpenGL 4.3 has it, and lower drivers through the extension
+            assert!(
+                support::is_gles(display)
+                    || !(support::gl_at_least(display, 4, 3)
+                        || support::extensions(display).gl_arb_clear_buffer_object)
+            );
             false
         }
     }

@@ -30,7 +30,11 @@ macro_rules! extensions {
                 )+
             };
 
+            let hidden = hidden_extensions();
             for extension in strings.iter() {
+                if hidden.iter().any(|name| name == extension) {
+                    continue;
+                }
                 match &extension[..] {
                     $(
                         $string => extensions.$field = true,
@@ -44,6 +48,18 @@ macro_rules! extensions {
     }
 }
 
+/// The extensions that the context must treat as missing, from the space-separated names of
+/// `SAFEGL_DISABLE_EXTENSIONS`, so that tests run the paths of drivers without them on drivers
+/// that can't hide them (Mesa can't disable some extensions). Only debug builds read it.
+fn hidden_extensions() -> Vec<String> {
+    if !cfg!(debug_assertions) {
+        return Vec::new();
+    }
+    std::env::var("SAFEGL_DISABLE_EXTENSIONS")
+        .map(|names| names.split_whitespace().map(str::to_owned).collect())
+        .unwrap_or_default()
+}
+
 extensions! {
     "GL_AMD_depth_clamp_separate" => gl_amd_depth_clamp_separate,
     "GL_AMD_query_buffer_object" => gl_amd_query_buffer_object,
@@ -53,6 +69,7 @@ extensions! {
     "GL_ARB_clear_texture" => gl_arb_clear_texture,
     "GL_ARB_clip_control" => gl_arb_clip_control,
     "GL_ARB_cull_distance" => gl_arb_cull_distance,
+    "GL_ARB_compressed_texture_pixel_storage" => gl_arb_compressed_texture_pixel_storage,
     "GL_ARB_compute_shader" => gl_arb_compute_shader,
     "GL_ARB_conditional_render_inverted" => gl_arb_conditional_render_inverted,
     "GL_ARB_copy_image" => gl_arb_copy_image,

@@ -113,6 +113,12 @@ pub enum ReadError {
     /// The box to read from a compressed texture doesn't start on the blocks of its format, or
     /// doesn't end on them or on the edge of the image.
     MisalignedBlocks,
+
+    /// The image can't be read through a framebuffer, because its format can't be rendered to:
+    /// compressed formats, `F9F9F9`, and the formats that OpenGL ES doesn't render. Desktop
+    /// OpenGL reads whole levels of every format with `TextureAnyMipmap::read_volume`, and the
+    /// whole-texture reads of 2D textures use it there.
+    NotRenderable,
 }
 
 impl fmt::Display for ReadError {
@@ -141,6 +147,8 @@ impl fmt::Display for ReadError {
                 "Reading this way is not supported by the backend",
             MisalignedBlocks =>
                 "The box to read doesn't fit the blocks of the compressed format",
+            NotRenderable =>
+                "The image can't be read through a framebuffer, since it can't be rendered to",
         };
         fmt.write_str(desc)
     }
@@ -238,6 +246,12 @@ where
     match source {
         Source::Attachment(attachment) => {
             unsafe { FramebuffersContainer::bind_framebuffer_for_reading(&mut ctxt, attachment) };
+            // a framebuffer of an image that can't be rendered to is incomplete, and reading
+            // from it raises an error and returns nothing
+            let status = unsafe { ctxt.glow.check_framebuffer_status(gl::READ_FRAMEBUFFER) };
+            if status != gl::FRAMEBUFFER_COMPLETE {
+                return Err(ReadError::NotRenderable);
+            }
         }
         Source::DefaultFramebuffer(read_buffer) => {
             // selecting a buffer that the default framebuffer doesn't have, such as the front
@@ -489,6 +503,32 @@ unsafe fn set_pack_alignment(ctxt: &mut CommandContext<'_>, row_bytes: usize) {
         ctxt.glow
             .pixel_store_i32(glow::PACK_ALIGNMENT, alignment as gl::types::GLint);
     }
+}
+
+/// The client format whose pixels have `format` and `ty` in transfers, normalized or integer,
+/// if SafeGL has one.
+#[cfg(safegl_gl43)]
+pub(crate) fn client_format_from_gl_enums(
+    format: gl::types::GLenum,
+    ty: gl::types::GLenum,
+) -> Option<ClientFormat> {
+    use ClientFormat::*;
+    [
+        U8, U8U8, U8U8U8, U8U8U8U8, I8, I8I8, I8I8I8, I8I8I8I8, U16, U16U16, U16U16U16,
+        U16U16U16U16, I16, I16I16, I16I16I16, I16I16I16I16, U32, U32U32, U32U32U32,
+        U32U32U32U32, I32, I32I32, I32I32I32, I32I32I32I32, U3U3U2, U5U6U5, U4U4U4U4, U5U5U5U1,
+        U1U5U5U5Reversed, U10U10U10U2, F16, F16F16, F16F16F16, F16F16F16F16, F32, F32F32,
+        F32F32F32, F32F32F32F32,
+    ]
+    .into_iter()
+    .find(|client| {
+        let integer = matches!(
+            format,
+            gl::RED_INTEGER | gl::RG_INTEGER | gl::RGB_INTEGER | gl::RGBA_INTEGER
+        );
+        let packed = matches!(client, U3U3U2 | U5U6U5 | U4U4U4U4 | U5U5U5U1 | U1U5U5U5Reversed);
+        (!integer || !packed) && client_format_to_gl_enum(client, integer) == (format, ty)
+    })
 }
 
 fn client_format_to_gl_enum(

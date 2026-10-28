@@ -556,3 +556,33 @@ fn write_compressed_blocks() {
 
     display.assert_no_error(None);
 }
+
+/// The compressed data of a cube map holds its six faces, which OpenGL reads one by one.
+#[test]
+fn read_compressed_cubemap() {
+    use safegl::texture::{CompressedCubemap, CompressedFormat, CompressedMipmapsOption};
+
+    let display = support::build_display();
+    // compressed data can only be read on desktop OpenGL
+    if support::is_gles(&display) {
+        return;
+    }
+    let cubemap = match CompressedCubemap::empty_with_format(
+        &display,
+        CompressedFormat::S3tcDxt1NoAlpha,
+        CompressedMipmapsOption::NoMipmap,
+        8,
+    ) {
+        Ok(cubemap) => cubemap,
+        // without S3TC
+        Err(safegl::texture::TextureCreationError::FormatNotSupported) => return,
+        Err(e) => panic!("{e:?}"),
+    };
+
+    // 2x2 blocks of 8 bytes per face
+    let (format, data) = cubemap.read_compressed_data().unwrap();
+    assert_eq!(format, CompressedFormat::S3tcDxt1NoAlpha);
+    assert_eq!(data.len(), 6 * 2 * 2 * 8);
+
+    display.assert_no_error(None);
+}

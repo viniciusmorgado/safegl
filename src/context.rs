@@ -45,7 +45,11 @@ pub use self::capabilities::{Capabilities, ReleaseBehavior, ResetNotificationStr
 pub use self::extensions::ExtensionsList;
 #[cfg(safegl_gl43)]
 #[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
-pub use self::format_info::{FormatInfo, FormatInfoNotSupportedError, FormatSupport, FormatTarget};
+pub use self::format_info::{
+    ColorEncoding, ComponentType, FormatComponents, FormatInfo, FormatInfoNotSupportedError,
+    FormatSupport, FormatTarget, ImageCompatibility, ImageFormatClass, SimultaneousUse,
+    StageSupport, ViewClass,
+};
 #[cfg(any(safegl_gl43, safegl_gles32))]
 pub use self::debug_output::DebugGroup;
 #[cfg(any(safegl_gl43, safegl_gles32))]
@@ -1140,7 +1144,7 @@ impl Drop for Context {
 
             // disabling callback
             if ctxt.state.enabled_debug_output != Some(false) {
-                if ctxt.version >= &Version(Api::Gl, 4, 5) || ctxt.extensions.gl_khr_debug {
+                if ctxt.version >= &Version(Api::Gl, 4, 3) || ctxt.extensions.gl_khr_debug {
                     ctxt.glow.disable(glow::DEBUG_OUTPUT);
                 } else if ctxt.extensions.gl_arb_debug_output {
                     ctxt.extra.DebugMessageCallbackARB(None, ptr::null());
@@ -1241,6 +1245,10 @@ fn check_gl_compatibility(gl: &glow::Context, version: &Version) -> Result<(), I
 /// them, the NVIDIA driver runs OpenGL commands on a worker thread, which waits for the vertical
 /// synchronization by spinning: a program that does little else shows a CPU core busy. Set the
 /// `__GL_THREADED_OPTIMIZATIONS=0` environment variable, or `__GL_YIELD=USLEEP`, to avoid it.
+///
+/// The messages come from OpenGL 4.3, OpenGL ES 3.2 or `GL_KHR_debug`, which SafeGL turns on in
+/// every context. Drivers below them that only have `GL_ARB_debug_output` may keep the messages
+/// of contexts that aren't debug contexts, and nothing can turn them on there.
 pub enum DebugCallbackBehavior {
     /// Don't do anything. This is the default behavior in release.
     Ignore,
@@ -1462,7 +1470,7 @@ fn init_debug_callback(context: &Context) {
     unsafe {
         let mut ctxt = context.make_current();
 
-        if ctxt.version >= &Version(Api::Gl, 4, 5)
+        if ctxt.version >= &Version(Api::Gl, 4, 3)
             || ctxt.version >= &Version(Api::GlEs, 3, 2)
             || ctxt.extensions.gl_khr_debug
             || ctxt.extensions.gl_arb_debug_output
@@ -1472,7 +1480,7 @@ fn init_debug_callback(context: &Context) {
                 ctxt.state.enabled_debug_output_synchronous = true;
             }
 
-            if ctxt.version >= &Version(Api::Gl, 4, 5)
+            if ctxt.version >= &Version(Api::Gl, 4, 3)
                 || ctxt.version >= &Version(Api::GlEs, 3, 2)
                 || (ctxt.version.0 == Api::Gl && ctxt.extensions.gl_khr_debug)
             {

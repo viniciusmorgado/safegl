@@ -72,3 +72,72 @@ fn basic() {
 
     display.assert_no_error(None);
 }
+
+/// Atomic counters on a driver below OpenGL 4.2 that has them through the extension, where the
+/// buffer of each counter is found without the program interface query of OpenGL 4.3.
+#[test]
+fn through_the_extension() {
+    let display = support::build_display();
+    let extensions = support::extensions(&display);
+    let header = match support::glsl_header(
+        &display,
+        420,
+        &[(
+            "GL_ARB_shader_atomic_counters",
+            extensions.gl_arb_shader_atomic_counters,
+        )],
+    ) {
+        Some(header) => header,
+        None => return,
+    };
+    let (vb, ib) = support::build_rectangle_vb_ib(&display);
+    let program = safegl::Program::from_source(
+        &display,
+        &format!(
+            "{header}
+            in vec2 position;
+
+            void main() {{
+                gl_Position = vec4(position, 0.0, 1.0);
+            }}
+        "
+        ),
+        &format!(
+            "{header}
+            out vec4 f_color;
+
+            layout(binding = 2, offset = 0) uniform atomic_uint counter;
+
+            void main() {{
+                f_color = vec4(0.0, 0.0, 0.0, 1.0);
+                atomicCounterIncrement(counter);
+            }}
+        "
+        ),
+        None,
+    )
+    .unwrap();
+
+    let buffer = safegl::buffer::Buffer::new(
+        &display,
+        &5u32,
+        safegl::buffer::BufferType::AtomicCounterBuffer,
+        safegl::buffer::BufferMode::Default,
+    )
+    .unwrap();
+
+    let texture = safegl::Texture2d::empty(&display, 16, 16).unwrap();
+    texture
+        .as_surface()
+        .draw(
+            &vb,
+            &ib,
+            &program,
+            &uniform! { counter: &buffer },
+            &Default::default(),
+        )
+        .unwrap();
+
+    assert_eq!(buffer.read().unwrap(), 16 * 16 + 5);
+    display.assert_no_error(None);
+}

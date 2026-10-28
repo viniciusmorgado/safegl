@@ -206,10 +206,11 @@ pub unsafe fn reflect_uniforms(
         .glow
         .get_program_parameter_i32(program, glow::ACTIVE_UNIFORMS);
 
+    // the buffers of atomic counters are queried through the program interface where it exists,
+    // and through `glGetActiveAtomicCounterBufferiv` of the extension otherwise
     let query_atomic_counters = ctxt.version >= &Version(Api::Gl, 4, 2)
         || ctxt.version >= &Version(Api::GlEs, 3, 1)
-        || (ctxt.extensions.gl_arb_program_interface_query
-            && ctxt.extensions.gl_arb_shader_atomic_counters);
+        || ctxt.extensions.gl_arb_shader_atomic_counters;
     let mut active_atomic_counters: gl::types::GLint = 0;
     if query_atomic_counters {
         active_atomic_counters = ctxt
@@ -851,7 +852,8 @@ pub unsafe fn reflect_transform_feedback(
     // the NVIDIA driver only lists the buffers of these qualifiers there, and the varyings given
     // when linking are reflected below
     if ctxt.version >= &Version(Api::Gl, 4, 4)
-        || (ctxt.extensions.gl_arb_enhanced_layouts
+        || (ctxt.version.0 == Api::Gl
+            && ctxt.extensions.gl_arb_enhanced_layouts
             && ctxt.extensions.gl_arb_program_interface_query)
     {
         if let Some(buffers) = reflect_transform_feedback_interface(ctxt, program) {
@@ -1677,31 +1679,31 @@ fn glenum_to_attribute_type(value: gl::types::GLenum) -> Option<AttributeType> {
         gl::FLOAT_MAT3x4 => AttributeType::F32x3x4,
         gl::FLOAT_MAT4x2 => AttributeType::F32x4x2,
         gl::FLOAT_MAT4x3 => AttributeType::F32x4x3,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE => AttributeType::F64,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_VEC2 => AttributeType::F64F64,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_VEC3 => AttributeType::F64F64F64,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_VEC4 => AttributeType::F64F64F64F64,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_MAT2 => AttributeType::F64x2x2,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_MAT3 => AttributeType::F64x3x3,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_MAT4 => AttributeType::F64x4x4,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_MAT2x3 => AttributeType::F64x2x3,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_MAT2x4 => AttributeType::F64x2x4,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_MAT3x2 => AttributeType::F64x3x2,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_MAT3x4 => AttributeType::F64x3x4,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_MAT4x2 => AttributeType::F64x4x2,
-        #[cfg(safegl_desktop)]
+        #[cfg(safegl_gl41)]
         gl::DOUBLE_MAT4x3 => AttributeType::F64x4x3,
         #[cfg(safegl_desktop)]
         gl::INT64_ARB => AttributeType::I64,

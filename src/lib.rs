@@ -156,7 +156,11 @@ pub use crate::context::{
 };
 #[cfg(safegl_gl43)]
 #[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
-pub use crate::context::{FormatInfo, FormatInfoNotSupportedError, FormatSupport, FormatTarget};
+pub use crate::context::{
+    ColorEncoding, ComponentType, FormatComponents, FormatInfo, FormatInfoNotSupportedError,
+    FormatSupport, FormatTarget, ImageCompatibility, ImageFormatClass, SimultaneousUse,
+    StageSupport, ViewClass,
+};
 #[cfg(any(safegl_desktop, safegl_gles32))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
 pub use crate::draw_parameters::OutputState;
@@ -1557,6 +1561,13 @@ pub enum DrawError {
     #[cfg_attr(docsrs, doc(cfg(safegl_gl42)))]
     BaseInstanceNotSupported,
 
+    /// `DrawParameters::base_instance` isn't 0 for a draw that can't take it: the commands of
+    /// multidraw buffers give their own base instance (`base_instance` of each command), and
+    /// captured vertices (`CapturedVertices`) are drawn without one.
+    #[cfg(safegl_gl42)]
+    #[cfg_attr(docsrs, doc(cfg(safegl_gl42)))]
+    BaseInstanceNotApplicable,
+
     /// A multidraw reads its number of commands from a buffer, and the backend doesn't support it
     /// (OpenGL 4.6 or `GL_ARB_indirect_parameters`).
     #[cfg(safegl_gl46)]
@@ -1747,6 +1758,10 @@ pub enum DrawError {
         name: String,
     },
 
+    /// The sampler of a texture uniform has a wrap function, a border color or an anisotropy
+    /// that the backend doesn't have.
+    SamplerNotSupported(uniforms::SamplerNotSupportedError),
+
     /// A rectangle texture is sampled with a sampler that repeats or mirrors it, or that
     /// filters it with mipmaps, which rectangle textures don't have: they can only be clamped
     /// (`SamplerWrapFunction::Clamp` or `BorderClamp`) and filtered with `Nearest` or `Linear`.
@@ -1921,6 +1936,7 @@ impl Error for DrawError {
         use self::DrawError::*;
         match *self {
             UniformBlockLayoutMismatch { ref err, .. } => Some(err),
+            SamplerNotSupported(ref err) => Some(err),
             _ => None,
         }
     }
@@ -1977,6 +1993,9 @@ impl fmt::Display for DrawError {
             #[cfg(safegl_gl42)]
             BaseInstanceNotSupported =>
                 "The backend doesn't support drawing from a base instance",
+            #[cfg(safegl_gl42)]
+            BaseInstanceNotApplicable =>
+                "A base instance is given to a draw of commands or of captured vertices",
             #[cfg(safegl_gl46)]
             DrawCountNotSupported =>
                 "The backend doesn't support reading the number of draw commands from a buffer",
@@ -2069,6 +2088,8 @@ impl fmt::Display for DrawError {
             #[cfg(any(safegl_desktop, safegl_gles32))]
             BorderColorMismatch { .. } =>
                 "The border color of a sampler isn't of the kind of its texture",
+            SamplerNotSupported(_) =>
+                "The sampler of a texture uses a function that the backend doesn't have",
             #[cfg(safegl_desktop)]
             RectangleTextureSampler { .. } =>
                 "A rectangle texture is sampled with a wrap function or a filter it doesn't have",

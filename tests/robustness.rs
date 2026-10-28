@@ -13,16 +13,28 @@ mod support;
 
 /// A display whose context has `robustness`, or `None` if the driver can't create one.
 fn display_with(robustness: Robustness) -> Option<support::WindowDisplay> {
-    support::context_apis().into_iter().find_map(|api| {
+    let display = support::context_apis().into_iter().find_map(|api| {
         let attributes =
             safegl::backend::glutin::context_attributes_builder(api).with_robustness(robustness);
         support::try_build_display_with(attributes).map(|display| display.unwrap())
-    })
+    })?;
+    // the robustness of a context is only known with OpenGL 4.5 or a robustness extension: a
+    // driver without them doesn't make robust contexts, and Mesa makes them anyway when tests
+    // hide the extensions
+    let extensions = support::extensions(&display);
+    let known = support::is_gles(&display)
+        || support::gl_at_least(&display, 4, 5)
+        || extensions.gl_khr_robustness
+        || extensions.gl_arb_robustness;
+    known.then_some(display)
 }
 
 #[test]
 fn context_is_not_lost() {
     let display = support::build_display();
+    // out-of-bounds accesses are only defined in robust contexts
+    let capabilities = display.get_capabilities();
+    assert!(!capabilities.robust_buffer_access || capabilities.robustness);
 
     assert!(!display.is_context_lost());
     #[cfg(any(safegl_gl45, safegl_gles32))]
@@ -61,6 +73,14 @@ fn robust_context_without_reset_notification() {
     let capabilities = display.get_capabilities();
 
     assert!(capabilities.robustness);
+    // the behavior of out-of-bounds accesses is defined from OpenGL 4.3 or its extensions
+    let extensions = support::extensions(&display);
+    if support::gl_at_least(&display, 4, 3)
+        || extensions.gl_arb_robust_buffer_access_behavior
+        || extensions.gl_khr_robust_buffer_access_behavior
+    {
+        assert!(capabilities.robust_buffer_access);
+    }
     assert_eq!(
         capabilities.reset_notification,
         ResetNotificationStrategy::NoResetNotification
@@ -101,4 +121,16 @@ fn context_without_error_checking_draws() {
             assert_eq!(pixel, &(255, 0, 0, 255));
         }
     }
+}
+
+/// Contexts flush their commands when another context is made current, unless they are created
+/// to do nothing; the query is core in OpenGL 4.5.
+#[test]
+fn contexts_flush_when_released() {
+    let display = support::build_display();
+    assert_eq!(
+        display.get_capabilities().release_behavior,
+        safegl::ReleaseBehavior::Flush
+    );
+    display.assert_no_error(None);
 }

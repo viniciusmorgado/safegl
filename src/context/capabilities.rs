@@ -50,6 +50,12 @@ pub struct Capabilities {
     /// True if out-of-bound access on the GPU side can't result in crashes.
     pub robustness: bool,
 
+    /// True if the out-of-bounds accesses of shaders and draws to buffers are well defined: they
+    /// read values within the buffer or zeros, and their writes are discarded or stay within
+    /// the buffer. A robust context (`robustness`) has it with OpenGL 4.3, OpenGL ES 3.2,
+    /// `GL_ARB_robust_buffer_access_behavior` or `GL_KHR_robust_buffer_access_behavior`.
+    pub robust_buffer_access: bool,
+
     /// What the context does when the GPU is reset (`GL_RESET_NOTIFICATION_STRATEGY`):
     /// `LoseContextOnReset` means that the context can be lost.
     pub reset_notification: ResetNotificationStrategy,
@@ -181,9 +187,15 @@ pub struct Capabilities {
 
 /// Information about an internal format.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct FormatInfos {
-    /// Possible values for multisampling. `None` if unknown.
+    /// Possible values for multisampling: of render buffers, or of 2D multisample textures.
+    /// `None` if unknown.
     pub multisamples: Option<Vec<gl::types::GLint>>,
+
+    /// Possible values for multisampling of 2D multisample array textures. `None` for render
+    /// buffers, and if unknown.
+    pub array_multisamples: Option<Vec<gl::types::GLint>>,
 }
 
 /// What a context does when the GPU is reset (`GL_RESET_NOTIFICATION_STRATEGY`), which a context
@@ -262,6 +274,20 @@ pub unsafe fn get_capabilities(
             || version >= &Version(Api::GlEs, 3, 1)
             || extensions.gl_arb_vertex_attrib_binding);
 
+    // desktop OpenGL reports robust access in the context flags, with the extensions too;
+    // OpenGL ES below 3.2 has its own query
+    let robustness = if version >= &Version(Api::Gl, 4, 5)
+        || version >= &Version(Api::GlEs, 3, 2)
+        || (version.0 == Api::Gl && (extensions.gl_arb_robustness || extensions.gl_khr_robustness))
+    {
+        let val = gl.get_parameter_i32(glow::CONTEXT_FLAGS) as gl::types::GLenum;
+        (val & glow::CONTEXT_FLAG_ROBUST_ACCESS_BIT) != 0
+    } else if extensions.gl_khr_robustness || extensions.gl_ext_robustness {
+        gl.get_parameter_bool(gl::CONTEXT_ROBUST_ACCESS)
+    } else {
+        false
+    };
+
     Capabilities {
         supported_glsl_versions: { get_supported_glsl(gl, version, extensions) },
 
@@ -273,17 +299,13 @@ pub unsafe fn get_capabilities(
 
         forward_compatible,
 
-        robustness: if version >= &Version(Api::Gl, 4, 5)
-            || version >= &Version(Api::GlEs, 3, 2)
-            || (version.0 == Api::Gl && extensions.gl_arb_robustness)
-        {
-            let val = gl.get_parameter_i32(glow::CONTEXT_FLAGS) as gl::types::GLenum;
-            (val & glow::CONTEXT_FLAG_ROBUST_ACCESS_BIT) != 0
-        } else if extensions.gl_khr_robustness || extensions.gl_ext_robustness {
-            gl.get_parameter_bool(gl::CONTEXT_ROBUST_ACCESS)
-        } else {
-            false
-        },
+        robustness,
+
+        robust_buffer_access: robustness
+            && (version >= &Version(Api::Gl, 4, 3)
+                || version >= &Version(Api::GlEs, 3, 2)
+                || extensions.gl_arb_robust_buffer_access_behavior
+                || extensions.gl_khr_robust_buffer_access_behavior),
 
         reset_notification: if version >= &Version(Api::Gl, 4, 5)
             || version >= &Version(Api::GlEs, 3, 2)
@@ -315,13 +337,16 @@ pub unsafe fn get_capabilities(
             false
         },
 
-        release_behavior: if extensions.gl_khr_context_flush_control {
+        // the behavior is core in OpenGL 4.5; a value that the specification doesn't have is
+        // taken as the default flush instead of trusted
+        release_behavior: if version >= &Version(Api::Gl, 4, 5)
+            || extensions.gl_khr_context_flush_control
+        {
             let val = gl.get_parameter_i32(glow::CONTEXT_RELEASE_BEHAVIOR);
 
             match val as gl::types::GLenum {
                 gl::NONE => ReleaseBehavior::None,
-                gl::CONTEXT_RELEASE_BEHAVIOR_FLUSH => ReleaseBehavior::Flush,
-                _ => unreachable!(),
+                _ => ReleaseBehavior::Flush,
             }
         } else {
             ReleaseBehavior::Flush
@@ -764,47 +789,47 @@ pub fn get_internal_format(
         DummyCaps(version, extensions)
     };
 
-    unsafe {
-        let target = if renderbuffer {
-            glow::RENDERBUFFER
-        } else {
-            glow::TEXTURE_2D_MULTISAMPLE
-        };
+    // the sample counts of a format for a target, which OpenGL 4.2 and
+    // `GL_ARB_internalformat_query` list for render buffers and multisample textures, and
+    // OpenGL ES for render buffers from 3.0, 2D multisample textures from 3.1 and arrays from 3.2;
+    // WebGL only accepts `SAMPLES`, not `NUM_SAMPLE_COUNTS`, so the list can't be sized
+    let samples = |target: gl::types::GLenum, listed: bool| unsafe {
+        if !(listed && format.is_renderable(&dummy) && !is_webgl()) {
+            return None;
+        }
+        let mut num = [0];
+        let internal_format = format.to_glenum();
+        let count = glow::NUM_SAMPLE_COUNTS;
+        gl.get_internal_format_i32_slice(target, internal_format, count, &mut num);
+        let mut formats = vec![0; num[0].max(0) as usize];
+        if !formats.is_empty() {
+            gl.get_internal_format_i32_slice(target, internal_format, glow::SAMPLES, &mut formats);
+        }
+        Some(formats)
+    };
+    let desktop = version >= &Version(Api::Gl, 4, 2) || extensions.gl_arb_internalformat_query;
 
-        // WebGL only accepts `SAMPLES`, not `NUM_SAMPLE_COUNTS`, so the list can't be sized
-        let samples = if format.is_renderable(&dummy)
-            && !is_webgl()
-            && ((version >= &Version(Api::GlEs, 3, 0) && renderbuffer)
-                || version >= &Version(Api::Gl, 4, 2)
-                || extensions.gl_arb_internalformat_query)
-        {
-            let mut num = [0];
-            gl.get_internal_format_i32_slice(
-                target,
-                format.to_glenum(),
-                glow::NUM_SAMPLE_COUNTS,
-                &mut num,
-            );
-            let num = num[0];
-
-            if num >= 1 {
-                let mut formats = vec![0; num as usize];
-                gl.get_internal_format_i32_slice(
-                    target,
-                    format.to_glenum(),
-                    glow::SAMPLES,
-                    &mut formats,
-                );
-                Some(formats)
-            } else {
-                Some(Vec::new())
-            }
-        } else {
-            None
-        };
-
+    if renderbuffer {
         FormatInfos {
-            multisamples: samples,
+            multisamples: samples(
+                glow::RENDERBUFFER,
+                desktop || version >= &Version(Api::GlEs, 3, 0),
+            ),
+            array_multisamples: None,
+        }
+    } else {
+        FormatInfos {
+            multisamples: samples(
+                glow::TEXTURE_2D_MULTISAMPLE,
+                desktop || version >= &Version(Api::GlEs, 3, 1),
+            ),
+            array_multisamples: samples(
+                glow::TEXTURE_2D_MULTISAMPLE_ARRAY,
+                desktop
+                    || version >= &Version(Api::GlEs, 3, 2)
+                    || (version >= &Version(Api::GlEs, 3, 1)
+                        && extensions.gl_oes_texture_storage_multisample_2d_array),
+            ),
         }
     }
 }

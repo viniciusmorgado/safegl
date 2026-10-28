@@ -111,7 +111,10 @@ SafeGL reports as errors; leave it out to avoid compiling the `backtrace` crate.
 
 Every command of the OpenGL 4.6 core profile, and every functionality of GLSL 4.60, is mapped to
 the SafeGL API that gives it, or to the command that SafeGL calls instead, in the chapter
-[OpenGL 4.6 coverage](book/opengl-4.6.md) of the book.
+[OpenGL 4.6 coverage](book/opengl-4.6.md) of the book. The chapter
+[OpenGL 4.0 to 4.5 drivers](book/opengl-4.0-4.5.md) tells, for every extension that OpenGL 4.1 to
+4.6 made core, what SafeGL checks and does on drivers below the version of the extension, and how
+the tests simulate them.
 
 Everything that isn't listed here compiles at every level: buffers, textures and framebuffers of
 the OpenGL ES 3.0 set, vertex and index buffers, programs with vertex and fragment shaders,
@@ -276,6 +279,9 @@ Environment variables select the context that the tests use:
 - `SAFEGL_ROBUSTNESS`: create the contexts with robust buffer access (`robust`), with robust
   buffer access and lost on GPU resets (`lose`), or without error checking (`no_error`), to run
   the suite in these contexts.
+- `SAFEGL_DISABLE_EXTENSIONS`: a space-separated list of extension names that the context treats
+  as missing (debug builds only), to run the paths of drivers without them on drivers that have
+  them.
 
 Tests of features that the context lacks return early, while every other error fails them. Mesa's
 software renderer runs the whole suite (`LIBGL_ALWAYS_SOFTWARE=1`, plus
@@ -289,6 +295,9 @@ shader that OpenGL ES rejects, and its linker then crashes. `MESA_GL_VERSION_OVE
 MESA_GL_VERSION_OVERRIDE=4.0 MESA_GLSL_VERSION_OVERRIDE=400 LIBGL_ALWAYS_SOFTWARE=1 cargo test
 MESA_GLES_VERSION_OVERRIDE=3.0 LIBGL_ALWAYS_SOFTWARE=1 cargo test --features gles30
 ```
+
+The chapter [OpenGL 4.0 to 4.5 drivers](book/opengl-4.0-4.5.md) describes the configurations that
+simulate drivers of each version without the extensions promoted after it.
 
 What each level compiles is checked by a [Lua](https://www.lua.org) script, which builds small
 crates against every level, the browser and macOS (`rustup target add wasm32-unknown-unknown

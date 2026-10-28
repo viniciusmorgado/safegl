@@ -207,6 +207,38 @@ unsafe fn restore_bindings(ctxt: &mut CommandContext<'_>) {
     );
     ctxt.glow
         .pixel_store_i32(gl::PACK_ALIGNMENT, ctxt.state.pixel_store_pack_alignment);
+
+    // SafeGL relies on the default layout of client images, which other code may change: the
+    // row length, image height and skips (OpenGL ES 3.0 and desktop OpenGL), the compressed
+    // block parameters (OpenGL 4.2 or `GL_ARB_compressed_texture_pixel_storage`) and the byte
+    // order (desktop OpenGL)
+    crate::texture::reset_client_layouts(ctxt);
+    if ctxt.version >= &Version(Api::Gl, 4, 2)
+        || ctxt.extensions.gl_arb_compressed_texture_pixel_storage
+    {
+        for pname in [
+            gl::UNPACK_COMPRESSED_BLOCK_WIDTH,
+            gl::UNPACK_COMPRESSED_BLOCK_HEIGHT,
+            gl::UNPACK_COMPRESSED_BLOCK_DEPTH,
+            gl::UNPACK_COMPRESSED_BLOCK_SIZE,
+            gl::PACK_COMPRESSED_BLOCK_WIDTH,
+            gl::PACK_COMPRESSED_BLOCK_HEIGHT,
+            gl::PACK_COMPRESSED_BLOCK_DEPTH,
+            gl::PACK_COMPRESSED_BLOCK_SIZE,
+        ] {
+            ctxt.glow.pixel_store_i32(pname, 0);
+        }
+    }
+    if ctxt.version.0 == Api::Gl {
+        for pname in [
+            gl::UNPACK_SWAP_BYTES,
+            gl::UNPACK_LSB_FIRST,
+            gl::PACK_SWAP_BYTES,
+            gl::PACK_LSB_FIRST,
+        ] {
+            ctxt.glow.pixel_store_i32(pname, 0);
+        }
+    }
 }
 
 unsafe fn restore_fixed_function(ctxt: &mut CommandContext<'_>) {

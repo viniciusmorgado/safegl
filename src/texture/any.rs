@@ -305,6 +305,217 @@ unsafe fn generate_mipmaps(ctxt: &CommandContext<'_>, bind_point: gl::types::GLe
     ctxt.glow.generate_mipmap(bind_point);
 }
 
+/// Returns `DimensionsNotSupported` if a multisample texture of `internal_format` can't have
+/// `samples` samples: more than the largest count of the format, which OpenGL 4.2,
+/// `GL_ARB_internalformat_query` and OpenGL ES 3.1 list, or than the limit of the kind of the
+/// format (color, depth and stencil, or integer) otherwise. The driver would raise an error.
+#[cfg(any(safegl_desktop, safegl_gles31))]
+fn check_samples(
+    context: &Context,
+    target: gl::types::GLenum,
+    internal_format: gl::types::GLenum,
+    format: TextureFormatRequest,
+    samples: u32,
+) -> Result<(), TextureCreationError> {
+    let version = context.get_opengl_version();
+    let extensions = context.get_extensions();
+    // OpenGL ES lists the samples of multisample arrays from 3.2 or with their extension
+    let listed = !crate::version::is_webgl()
+        && (version >= &Version(Api::Gl, 4, 2)
+            || extensions.gl_arb_internalformat_query
+            || version >= &Version(Api::GlEs, 3, 1))
+        && (target == gl::TEXTURE_2D_MULTISAMPLE
+            || version.0 == Api::Gl
+            || version >= &Version(Api::GlEs, 3, 2)
+            || extensions.gl_oes_texture_storage_multisample_2d_array);
+
+    let max = if listed {
+        let ctxt = context.make_current();
+        unsafe {
+            let mut count = [0];
+            ctxt.glow.get_internal_format_i32_slice(
+                target,
+                internal_format,
+                glow::NUM_SAMPLE_COUNTS,
+                &mut count,
+            );
+            if count[0] > 0 {
+                let mut counts = vec![0; count[0] as usize];
+                ctxt.glow.get_internal_format_i32_slice(
+                    target,
+                    internal_format,
+                    glow::SAMPLES,
+                    &mut counts,
+                );
+                counts.into_iter().max().unwrap_or(0)
+            } else {
+                0
+            }
+        }
+    } else {
+        use crate::texture::TextureFormat as F;
+        let limits = &context.get_capabilities().limits;
+        let limit = match format {
+            TextureFormatRequest::AnyDepth
+            | TextureFormatRequest::AnyStencil
+            | TextureFormatRequest::AnyDepthStencil
+            | TextureFormatRequest::Specific(
+                F::DepthFormat(_) | F::StencilFormat(_) | F::DepthStencilFormat(_),
+            ) => limits.max_depth_texture_samples,
+            TextureFormatRequest::AnyIntegral
+            | TextureFormatRequest::AnyUnsigned
+            | TextureFormatRequest::Specific(
+                F::UncompressedIntegral(_) | F::UncompressedUnsigned(_),
+            ) => limits.max_integer_samples,
+            _ => limits.max_color_texture_samples,
+        };
+        limit.unwrap_or(0)
+    };
+
+    if samples == 0 || samples as gl::types::GLint > max {
+        return Err(TextureCreationError::DimensionsNotSupported);
+    }
+    Ok(())
+}
+
+/// The targets of the images of a level of a texture bound at `bind_point`: the six faces of a
+/// cube map, and the bind point itself otherwise.
+pub(crate) fn image_targets(bind_point: gl::types::GLenum) -> Vec<gl::types::GLenum> {
+    if bind_point == gl::TEXTURE_CUBE_MAP {
+        (0..6).map(|face| gl::TEXTURE_CUBE_MAP_POSITIVE_X + face).collect()
+    } else {
+        vec![bind_point]
+    }
+}
+
+/// Allocates the levels from 1 to `levels - 1` of a texture whose level 0 was allocated with
+/// `glTexImage*`, which allocates a single level, so that a texture without texture storage is
+/// complete. The levels are empty.
+///
+/// `size` is the width, the height and the depth or number of layers of level 0, as the texture
+/// type gives them. The levels of compressed data are allocated with zeroed blocks, since the
+/// compressed formats of client data can't be allocated without data everywhere.
+unsafe fn allocate_upper_levels(
+    ctxt: &CommandContext<'_>,
+    bind_point: gl::types::GLenum,
+    levels: u32,
+    internal_format: gl::types::GLenum,
+    size: (u32, Option<u32>, Option<u32>),
+    (client_format, client_type): (gl::types::GLenum, gl::types::GLenum),
+    compressed: Option<ClientFormatAny>,
+) {
+    let (width, height, depth) = size;
+    let halve = |size: u32, level: u32| cmp::max(1, size >> level) as gl::types::GLsizei;
+    // layers keep their number at every level
+    let layered_height = bind_point == gl::TEXTURE_1D_ARRAY;
+    let layered_depth =
+        bind_point == gl::TEXTURE_2D_ARRAY || bind_point == gl::TEXTURE_CUBE_MAP_ARRAY;
+    let block_bytes = compressed.and_then(|c| c.get_buffer_size(4, Some(4), None, None));
+
+    for level in 1..levels {
+        let w = halve(width, level);
+        let h = match height {
+            Some(h) if layered_height => h as gl::types::GLsizei,
+            Some(h) => halve(h, level),
+            None => 1,
+        };
+        let d = match depth {
+            Some(d) if layered_depth || layered_height => d as gl::types::GLsizei,
+            Some(d) => halve(d, level),
+            None => 1,
+        };
+        let level = level as i32;
+        // zeroed 4x4 blocks covering the level
+        let blocks = block_bytes.map(|bytes| {
+            let blocks_w = (w as usize).div_ceil(4);
+            let blocks_h = if bind_point == gl::TEXTURE_1D || layered_height {
+                1
+            } else {
+                (h as usize).div_ceil(4)
+            };
+            vec![0u8; bytes * blocks_w * blocks_h * d as usize]
+        });
+
+        if bind_point == gl::TEXTURE_1D {
+            match blocks {
+                Some(ref zeroes) => ctxt.glow.compressed_tex_image_1d(
+                    bind_point,
+                    level,
+                    internal_format as i32,
+                    w,
+                    0,
+                    zeroes.len() as i32,
+                    zeroes,
+                ),
+                None => ctxt.glow.tex_image_1d(
+                    bind_point,
+                    level,
+                    internal_format as i32,
+                    w,
+                    0,
+                    client_format,
+                    client_type,
+                    glow::PixelUnpackData::Slice(None),
+                ),
+            }
+        } else if bind_point == gl::TEXTURE_3D || layered_depth {
+            match blocks {
+                Some(ref zeroes) => ctxt.glow.compressed_tex_image_3d(
+                    bind_point,
+                    level,
+                    internal_format as i32,
+                    w,
+                    h,
+                    d,
+                    0,
+                    zeroes.len() as i32,
+                    zeroes,
+                ),
+                None => ctxt.glow.tex_image_3d(
+                    bind_point,
+                    level,
+                    internal_format as i32,
+                    w,
+                    h,
+                    d,
+                    0,
+                    client_format,
+                    client_type,
+                    glow::PixelUnpackData::Slice(None),
+                ),
+            }
+        } else {
+            // 2D, 1D arrays (whose layers are the height) and the faces of cube maps
+            let h = if layered_height { d } else { h };
+            for target in image_targets(bind_point) {
+                match blocks {
+                    Some(ref zeroes) => ctxt.glow.compressed_tex_image_2d(
+                        target,
+                        level,
+                        internal_format as i32,
+                        w,
+                        h,
+                        0,
+                        zeroes.len() as i32,
+                        zeroes,
+                    ),
+                    None => ctxt.glow.tex_image_2d(
+                        target,
+                        level,
+                        internal_format as i32,
+                        w,
+                        h,
+                        0,
+                        client_format,
+                        client_type,
+                        glow::PixelUnpackData::Slice(None),
+                    ),
+                }
+            }
+        }
+    }
+}
+
 /// Builds a new texture.
 pub fn new_texture<'a, F: ?Sized, P>(
     facade: &F,
@@ -421,6 +632,18 @@ where
             ));
     if should_generate_mipmaps && !can_generate_mipmaps {
         return Err(TextureCreationError::MipmapsNotSupported);
+    }
+
+    // the sample count must be one that the format has
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    if let Some(samples) = samples {
+        check_samples(
+            facade.get_context(),
+            bind_point,
+            storage_internal_format.unwrap_or(teximg_internal_format),
+            format,
+            samples,
+        )?;
     }
 
     // OpenGL ES can only create multisample textures with `glTexStorage*Multisample`
@@ -700,17 +923,20 @@ where
                     data_raw,
                 );
             } else {
-                ctxt.glow.tex_image_2d(
-                    bind_point,
-                    0,
-                    teximg_internal_format as i32,
-                    width,
-                    height,
-                    0,
-                    client_format as u32,
-                    client_type,
-                    glow::PixelUnpackData::Slice(data_raw),
-                );
+                // the six faces of a cube map are separate images
+                for target in image_targets(bind_point) {
+                    ctxt.glow.tex_image_2d(
+                        target,
+                        0,
+                        teximg_internal_format as i32,
+                        width,
+                        height,
+                        0,
+                        client_format as u32,
+                        client_type,
+                        glow::PixelUnpackData::Slice(data_raw),
+                    );
+                }
             }
         } else if bind_point == gl::TEXTURE_2D_MULTISAMPLE {
             assert!(data_raw.is_none());
@@ -865,6 +1091,22 @@ where
             }
         } else {
             unreachable!();
+        }
+
+        // `glTexImage*` allocates one level: without texture storage, the other levels are
+        // allocated one by one, empty, so that the texture is complete
+        let has_storage = storage_internal_format.is_some() && is_tex_storage_supported(&ctxt);
+        if texture_levels > 1 && !should_generate_mipmaps && !has_storage {
+            let compressed = data.as_ref().map(|&(c, _)| c).filter(|c| c.is_compressed());
+            allocate_upper_levels(
+                &ctxt,
+                bind_point,
+                texture_levels as u32,
+                teximg_internal_format,
+                (width, height, depth.or(array_size)),
+                (client_format, client_type),
+                compressed,
+            );
         }
 
         // only generate mipmaps for color textures
@@ -1354,7 +1596,8 @@ impl TextureAny {
             && (ctxt.version.0 == Api::Gl || ctxt.version >= &Version(Api::GlEs, 3, 1))
         {
             unsafe {
-                let bind_point = self.bind_to_current(ctxt);
+                // the parameters of a cube map are those of its faces
+                let bind_point = image_targets(self.bind_to_current(ctxt))[0];
                 let depth_bits: gl::types::GLint =
                     ctxt.glow
                         .get_tex_level_parameter_i32(bind_point, 0, glow::TEXTURE_DEPTH_SIZE);
@@ -2103,18 +2346,21 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
 
         unsafe {
             let bind_point = texture.bind_to_current(&mut ctxt);
+            // the images of a level of a cube map are its faces, which are queried and read
+            // one by one
+            let targets = image_targets(bind_point);
 
             let is_compressed =
                 ctxt.glow
-                    .get_tex_level_parameter_i32(bind_point, level, glow::TEXTURE_COMPRESSED);
+                    .get_tex_level_parameter_i32(targets[0], level, glow::TEXTURE_COMPRESSED);
             if is_compressed != 0 {
-                let buffer_size = ctxt.glow.get_tex_level_parameter_i32(
-                    bind_point,
+                let queried_size = ctxt.glow.get_tex_level_parameter_i32(
+                    targets[0],
                     level,
                     glow::TEXTURE_COMPRESSED_IMAGE_SIZE,
                 );
                 let internal_format = ctxt.glow.get_tex_level_parameter_i32(
-                    bind_point,
+                    targets[0],
                     level,
                     glow::TEXTURE_INTERNAL_FORMAT,
                 );
@@ -2123,7 +2369,20 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
                     internal_format as gl::types::GLenum,
                 ) {
                     Some(known_format) => {
-                        let mut buf = vec![0u8; buffer_size as usize];
+                        // the size of a face is that of its 4x4 blocks: NVIDIA gives the size
+                        // of the whole cube map for each face
+                        let image_size = if targets.len() > 1 {
+                            let block = known_format
+                                .get_buffer_size(4, Some(4), None, None)
+                                .unwrap_or(0);
+                            let blocks_w = (self.width as usize).div_ceil(4);
+                            let blocks_h = (self.height.unwrap_or(1) as usize).div_ceil(4);
+                            (block * blocks_w * blocks_h) as gl::types::GLint
+                        } else {
+                            queried_size
+                        };
+                        let buffer_size = image_size as usize * targets.len();
+                        let mut buf = vec![0u8; buffer_size];
 
                         BufferAny::unbind_pixel_pack(&mut ctxt);
 
@@ -2143,16 +2402,18 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
                         }
 
                         // the robust entry points never write past the end of the buffer
-                        let size = buf.len() as gl::types::GLsizei;
-                        let data = buf.as_mut_ptr() as *mut _;
-                        if ctxt.version >= &Version(Api::Gl, 4, 5) {
-                            ctxt.extra
-                                .GetnCompressedTexImage(bind_point, level, size, data);
-                        } else if ctxt.extensions.gl_arb_robustness {
-                            ctxt.extra
-                                .GetnCompressedTexImageARB(bind_point, level, size, data);
-                        } else {
-                            ctxt.extra.GetCompressedTexImage(bind_point, level, data);
+                        let size = image_size as gl::types::GLsizei;
+                        for (target, image) in
+                            targets.iter().zip(buf.chunks_exact_mut(image_size as usize))
+                        {
+                            let data = image.as_mut_ptr() as *mut _;
+                            if ctxt.version >= &Version(Api::Gl, 4, 5) {
+                                ctxt.extra.GetnCompressedTexImage(*target, level, size, data);
+                            } else if ctxt.extensions.gl_arb_robustness {
+                                ctxt.extra.GetnCompressedTexImageARB(*target, level, size, data);
+                            } else {
+                                ctxt.extra.GetCompressedTexImage(*target, level, data);
+                            }
                         }
                         Some((known_format, buf))
                     }
@@ -2592,5 +2853,86 @@ pub(crate) fn prepare_for_access(
                 ctxt.state.latest_memory_barrier_texture_update = ctxt.state.next_draw_call_id;
             }
         }
+    }
+}
+
+/// Size of a mipmap as `glClearTexSubImage` and `glCopyImageSubData` address it: the layers of
+/// array textures and the faces of cubemaps count along the last used dimension.
+pub(crate) fn image_extent(mipmap: &TextureAnyMipmap<'_>) -> (u32, u32, u32) {
+    let width = mipmap.get_width();
+    let height = mipmap.get_height().unwrap_or(1);
+    match mipmap.get_texture().dimensions() {
+        Dimensions::Texture1dArray { array_size, .. } => (width, array_size, 1),
+        Dimensions::Texture2dArray { array_size, .. }
+        | Dimensions::Texture2dMultisampleArray { array_size, .. } => (width, height, array_size),
+        Dimensions::Texture3d { .. } => (width, height, mipmap.get_depth().unwrap_or(1)),
+        Dimensions::Cubemap { .. } => (width, height, 6),
+        Dimensions::CubemapArray { array_size, .. } => (width, height, array_size * 6),
+        _ => (width, height, 1),
+    }
+}
+
+/// Whether the box at `offset` of `size` fits in `extent`.
+pub(crate) fn fits(
+    offset: (u32, u32, u32),
+    size: (u32, u32, u32),
+    extent: (u32, u32, u32),
+) -> bool {
+    let fits = |offset: u32, size: u32, extent: u32| {
+        offset.checked_add(size).is_some_and(|end| end <= extent)
+    };
+    fits(offset.0, size.0, extent.0)
+        && fits(offset.1, size.1, extent.1)
+        && fits(offset.2, size.2, extent.2)
+}
+
+
+impl<'a> TextureAnyMipmap<'a> {
+    /// Reads the whole level of a 2D or rectangle texture: with `glGetTexImage` on desktop
+    /// OpenGL, which reads every format, and through a framebuffer otherwise.
+    pub(crate) fn read_2d<T, P>(&self) -> Result<T, ReadError>
+    where
+        T: Texture2dDataSink<P>,
+        P: PixelValue,
+    {
+        let (width, height) = (self.get_width(), self.get_height().unwrap_or(1));
+        #[cfg(safegl_desktop)]
+        if self.texture.context.get_opengl_version().0 == Api::Gl {
+            let data = self.read_level::<P>()?;
+            return Ok(T::from_raw(Cow::Owned(data), width, height));
+        }
+        let rect = Rect {
+            left: 0,
+            bottom: 0,
+            width,
+            height,
+        };
+        self.first_layer().into_image(None).unwrap().raw_read(&rect)
+    }
+
+    /// Reads the whole level of a 2D or rectangle texture into a pixel buffer, like `read_2d`.
+    pub(crate) fn read_2d_to_pixel_buffer<P>(&self) -> Result<PixelBuffer<P>, ReadError>
+    where
+        P: PixelValue,
+    {
+        let (width, height) = (self.get_width(), self.get_height().unwrap_or(1));
+        let texels = width as usize * height as usize;
+        let buffer = PixelBuffer::new_empty(&self.texture.context, texels);
+        #[cfg(safegl_desktop)]
+        if self.texture.context.get_opengl_version().0 == Api::Gl {
+            self.read_level_to_pixel_buffer(&buffer)?;
+            return Ok(buffer);
+        }
+        let rect = Rect {
+            left: 0,
+            bottom: 0,
+            width,
+            height,
+        };
+        self.first_layer()
+            .into_image(None)
+            .unwrap()
+            .raw_read_to_pixel_buffer(&rect, &buffer)?;
+        Ok(buffer)
     }
 }

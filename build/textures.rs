@@ -1344,19 +1344,18 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                 /// `ReadError::ContextLost` if the context has been lost.
                 #[inline]
                 pub fn read<T>(&self) -> Result<T, ReadError> where T: Texture2dDataSink<f32> {{
-                    let rect = Rect {{ left: 0, bottom: 0, width: self.get_width(),
-                                       height: self.get_height().unwrap_or(1) }};
-                    self.0.main_level().first_layer().into_image(None).unwrap().raw_read(&rect)
+                    self.0.main_level().read_2d()
                 }}
             "#
         ))
         .unwrap();
     }
 
-    // writing the `read` functions
-    // TODO: implement for other types too
-    if (dimensions == TextureDimensions::Texture2d
-        || dimensions == TextureDimensions::TextureRectangle)
+    // writing the `read` functions of 2D textures; the levels of every texture are read with
+    // `read_volume` on desktop OpenGL
+    let is_2d = dimensions == TextureDimensions::Texture2d
+        || dimensions == TextureDimensions::TextureRectangle;
+    if is_2d
         && (ty == TextureType::Regular
             || ty == TextureType::Srgb
             || ty == TextureType::Unsigned
@@ -1399,6 +1398,16 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
             "#
         ))
         .unwrap();
+    }
+
+    // signed integers have no `(u8, u8, u8, u8)` reads, which are of normalized values
+    if is_2d
+        && (ty == TextureType::Regular
+            || ty == TextureType::Srgb
+            || ty == TextureType::Unsigned
+            || ty == TextureType::Integral
+            || is_compressed)
+    {
 
         (write!(dest, r#"
                 /// Reads the content of the texture to RAM in the pixel format `P`, for example
@@ -1408,15 +1417,15 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                 /// operations (for example, while you're drawing).
                 /// Use `read_to_pixel_buffer_as` instead.
                 ///
-                /// On OpenGL ES, which can only read one pixel format for each kind of texture,
-                /// the pixels are converted on the CPU. Returns
-                /// `ReadError::OutputFormatNotSupported` if `P` can't hold the values of the
-                /// texture, like floats for an integral texture on OpenGL ES.
+                /// Desktop OpenGL reads every format (`glGetTexImage`), compressed ones
+                /// decompressed. On OpenGL ES, which reads through a framebuffer and can only
+                /// read one pixel format for each kind of texture, the pixels are converted on
+                /// the CPU. Returns `ReadError::OutputFormatNotSupported` if `P` can't hold the
+                /// values of the texture, like floats for an integral texture, and
+                /// `ReadError::NotRenderable` on OpenGL ES for formats it can't render to.
                 #[inline]
                 pub fn read_as<T, P>(&self) -> Result<T, ReadError> where T: Texture2dDataSink<P>, P: PixelValue {{
-                    let rect = Rect {{ left: 0, bottom: 0, width: self.get_width(),
-                                       height: self.get_height().unwrap_or(1) }};
-                    self.0.main_level().first_layer().into_image(None).unwrap().raw_read(&rect)
+                    self.0.main_level().read_2d()
                 }}
             "#)).unwrap();
 
@@ -1431,13 +1440,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                 /// CPU.
                 #[inline]
                 pub fn read_to_pixel_buffer_as<P>(&self) -> Result<PixelBuffer<P>, ReadError> where P: PixelValue {{
-                    let rect = Rect {{ left: 0, bottom: 0, width: self.get_width(),
-                                       height: self.get_height().unwrap_or(1) }};
-                    let pb = PixelBuffer::new_empty(self.0.get_context(),
-                                                    rect.width as usize * rect.height as usize);
-                    self.0.main_level().first_layer().into_image(None).unwrap()
-                          .raw_read_to_pixel_buffer(&rect, &pb)?;
-                    Ok(pb)
+                    self.0.main_level().read_2d_to_pixel_buffer()
                 }}
             "#)).unwrap();
     }

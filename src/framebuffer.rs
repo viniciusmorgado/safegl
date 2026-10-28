@@ -789,9 +789,9 @@ impl<'a> MultiOutputFrameBuffer<'a> {
 
     /// Creates a new `MultiOutputFrameBuffer`.
     ///
-    /// # Panic
     ///
-    /// Panics if all attachments don't have the same dimensions.
+    /// Attachments of different dimensions are allowed: draws cover the area that all of them
+    /// have.
     #[inline]
     pub fn new<F: ?Sized, I, A>(
         facade: &F,
@@ -807,9 +807,9 @@ impl<'a> MultiOutputFrameBuffer<'a> {
 
     /// Creates a `MultiOutputFrameBuffer` with a depth buffer.
     ///
-    /// # Panic
     ///
-    /// Panics if all attachments don't have the same dimensions.
+    /// Attachments of different dimensions are allowed: draws cover the area that all of them
+    /// have.
     #[inline]
     pub fn with_depth_buffer<F: ?Sized, D, I, A>(
         facade: &F,
@@ -833,9 +833,9 @@ impl<'a> MultiOutputFrameBuffer<'a> {
 
     /// Creates a `MultiOutputFrameBuffer` with a depth buffer, and a stencil buffer.
     ///
-    /// # Panic
     ///
-    /// Panics if all attachments don't have the same dimensions.
+    /// Attachments of different dimensions are allowed: draws cover the area that all of them
+    /// have.
     #[inline]
     pub fn with_depth_and_stencil_buffer<A, F: ?Sized, I, D, S>(
         facade: &F,
@@ -861,9 +861,9 @@ impl<'a> MultiOutputFrameBuffer<'a> {
 
     /// Creates a `MultiOutputFrameBuffer` with a stencil buffer, but no depth buffer.
     ///
-    /// # Panic
     ///
-    /// Panics if all attachments don't have the same dimensions.
+    /// Attachments of different dimensions are allowed: draws cover the area that all of them
+    /// have.
     #[inline]
     pub fn with_stencil_buffer<A, F: ?Sized, I, S>(
         facade: &F,
@@ -887,9 +887,9 @@ impl<'a> MultiOutputFrameBuffer<'a> {
 
     /// Creates a `MultiOutputFrameBuffer` with a depth-stencil buffer.
     ///
-    /// # Panic
     ///
-    /// Panics if all attachments don't have the same dimensions.
+    /// Attachments of different dimensions are allowed: draws cover the area that all of them
+    /// have.
     #[inline]
     pub fn with_depth_stencil_buffer<A, F: ?Sized, I, D>(
         facade: &F,
@@ -926,13 +926,13 @@ impl<'a> MultiOutputFrameBuffer<'a> {
         let color = color
             .into_iter()
             .map(|(name, tex)| {
-                let atch = tex.to_color_attachment();
-                let atch = if let ColorAttachment::Texture(t) = atch {
-                    t
-                } else {
-                    panic!()
+                let atch = match tex.to_color_attachment() {
+                    ColorAttachment::Texture(tex) => fbo::RegularAttachment::Texture(tex),
+                    ColorAttachment::RenderBuffer(buffer) => {
+                        fbo::RegularAttachment::RenderBuffer(buffer)
+                    }
                 };
-                (name.to_owned(), fbo::RegularAttachment::Texture(atch))
+                (name.to_owned(), atch)
             })
             .collect::<Vec<_>>();
 
@@ -1367,10 +1367,8 @@ impl<'a> EmptyFrameBuffer {
 
     /// Creates a `EmptyFrameBuffer`.
     ///
-    /// # Panic
-    ///
-    /// Panics if `layers` or `samples` is equal to `Some(0)`.
-    ///
+    /// Returns `ValidationError::EmptyFramebufferUnsupportedDimensions` if a dimension is 0
+    /// (`layers` or `samples` equal to `Some(0)` included) or above the limits of the backend.
     #[inline]
     pub fn new<F: ?Sized>(
         facade: &F,

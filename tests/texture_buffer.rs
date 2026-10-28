@@ -154,3 +154,35 @@ fn wrong_type() {
 
     display.assert_no_error(None);
 }
+
+/// Buffer textures of three 32-bit components, which only desktop OpenGL has.
+#[cfg(safegl_desktop)]
+#[test]
+fn rgb32_texels() {
+    let display = support::build_display();
+    if support::is_gles(&display) {
+        return;
+    }
+    let data = [(0.25f32, 0.5f32, 0.75f32), (1.0, 0.0, 1.0)];
+    let texture: BufferTexture<(f32, f32, f32)> =
+        match BufferTexture::new(&display, &data, BufferTextureType::Float) {
+            Ok(texture) => texture,
+            Err(e) => panic!("{:?}", e),
+        };
+    let program = support::program_from_legacy(
+        &display,
+        "attribute vec2 position; void main() { gl_Position = vec4(position, 0.0, 1.0); }",
+        "uniform samplerBuffer tex;
+        void main() { gl_FragColor = vec4(texelFetch(tex, 1).rgb, 1.0); }",
+    )
+    .unwrap();
+    let (vb, ib) = support::build_rectangle_vb_ib(&display);
+    let output = support::build_renderable_texture(&display);
+    output
+        .as_surface()
+        .draw(&vb, &ib, &program, &uniform! { tex: &texture }, &Default::default())
+        .unwrap();
+    let pixels: Vec<Vec<(u8, u8, u8, u8)>> = output.read().unwrap();
+    assert_eq!(pixels[0][0], (255, 0, 255, 255));
+    display.assert_no_error(None);
+}

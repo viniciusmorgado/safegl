@@ -9,7 +9,7 @@ use crate::version::Version;
 use std::error::Error;
 use std::fmt;
 
-use crate::texture::any::TextureAny;
+use crate::texture::any::{image_targets, TextureAny};
 use crate::GlObject;
 use crate::TextureExt;
 
@@ -219,7 +219,8 @@ pub fn get_format(
                 .glow
                 .get_texture_level_parameter_i32(id, 0, glow::TEXTURE_DEPTH_TYPE);
         } else {
-            let bind_point = texture.bind_to_current(ctxt);
+            // the parameters of a cube map are those of its faces
+            let bind_point = image_targets(texture.bind_to_current(ctxt))[0];
             red_sz = ctxt
                 .glow
                 .get_tex_level_parameter_i32(bind_point, 0, glow::TEXTURE_RED_SIZE);
@@ -274,7 +275,7 @@ pub fn get_format(
             // stencil textures have neither color nor depth components
             (_, gl::NONE, _, _, _, _, _, _, _, gl::NONE) => {
                 let stencil_sz = unsafe {
-                    let bind_point = texture.bind_to_current(ctxt);
+                    let bind_point = image_targets(texture.bind_to_current(ctxt))[0];
                     ctxt.glow
                         .get_tex_level_parameter_i32(bind_point, 0, glow::TEXTURE_STENCIL_SIZE)
                 };
