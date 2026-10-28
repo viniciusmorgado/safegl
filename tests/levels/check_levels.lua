@@ -315,8 +315,11 @@ local cases = {
         let _ = safegl::Program::from_source(display, "", "", Some(""));
     }
   ]] },
-  { "gles31_has_no_layered_framebuffers", { "gles31" }, "LayeredFrameBuffer", [[
-    pub use safegl::framebuffer::LayeredFrameBuffer;
+  -- the type exists at every level for multiview framebuffers, without layered rendering
+  { "gles31_has_no_layered_framebuffers", { "gles31" }, "named `new` found for struct `LayeredFrameBuffer", [[
+    pub fn f<'a>(d: &impl safegl::backend::Facade, t: &'a safegl::texture::Texture2dArray) {
+        let _ = safegl::framebuffer::LayeredFrameBuffer::new(d, t);
+    }
   ]] },
   { "gles30_has_no_sample_positions", { "gles30" }, "sample_positions", [[
     pub fn f(f: &safegl::Frame) { let _ = f.sample_positions(); }
@@ -572,6 +575,70 @@ local cases = {
     pub const F: safegl::texture::UncompressedFloatFormat = safegl::texture::UncompressedFloatFormat::U5U6U5;
   ]], WASM },
 
+  -- the extensions of WebGL 2 widen the gates of the desktop functionalities that they give
+  { "webgl_has_draw_extensions", { "webgl" }, nil, [[
+    use safegl::draw_parameters::{ClipControlDepth, ClipControlOrigin, DepthClamp, PolygonMode, ProvokingVertex};
+    pub fn f<'a>(q: &'a safegl::draw_parameters::TimeElapsedQuery, o: &'a [safegl::OutputState])
+        -> safegl::DrawParameters<'a> {
+        safegl::DrawParameters {
+            clip_control_origin: ClipControlOrigin::UpperLeft,
+            clip_control_depth: ClipControlDepth::ZeroToOne,
+            depth: safegl::Depth { clamp: DepthClamp::Clamp, ..Default::default() },
+            polygon_mode: PolygonMode::Line,
+            polygon_offset: safegl::draw_parameters::PolygonOffset { line: true, ..Default::default() },
+            polygon_offset_clamp: 1.0,
+            provoking_vertex: ProvokingVertex::FirstVertex,
+            clip_planes_bitmask: 1,
+            base_instance: 1,
+            outputs: o,
+            time_elapsed_query: Some(q),
+            ..Default::default()
+        }
+    }
+  ]], WASM },
+  { "webgl_has_no_point_offsets", { "webgl" }, "no field named `point`", [[
+    pub fn f() -> safegl::draw_parameters::PolygonOffset {
+        safegl::draw_parameters::PolygonOffset { point: true, ..Default::default() }
+    }
+  ]], WASM },
+  { "webgl_has_no_conditional_rendering", { "webgl" }, "ConditionalRendering", [[
+    pub use safegl::draw_parameters::ConditionalRendering;
+  ]], WASM },
+  { "webgl_has_draw_ranges_and_timestamps", { "webgl" }, nil, [[
+    pub fn f<'a>(c: &safegl::backend::Context, r: &'a [std::ops::Range<usize>]) -> safegl::index::IndicesSource<'a> {
+        let _ = c.gpu_timestamp();
+        safegl::index::NoIndicesRanges(safegl::index::PrimitiveType::Points, r).into()
+    }
+  ]], WASM },
+  { "webgl_has_extension_formats_and_samplers", { "webgl" }, nil, [[
+    pub const F: safegl::texture::CompressedFormat = safegl::texture::CompressedFormat::Etc2Rgb8;
+    pub const W: safegl::uniforms::SamplerWrapFunction = safegl::uniforms::SamplerWrapFunction::MirrorClamp;
+    pub use safegl::texture::DepthStencilTextureMode;
+  ]], WASM },
+  { "webgl_has_web_images", { "webgl" }, nil, [[
+    pub fn f(d: &impl safegl::backend::Facade, i: &web_sys::ImageData)
+        -> Result<safegl::Texture2d, safegl::texture::WebImageError> {
+        safegl::Texture2d::from_web_image(d, i, safegl::texture::MipmapsOption::NoMipmap, Default::default())
+    }
+  ]], WASM, { "web-sys = { version = \"0.3\", features = [\"ImageData\"] }" } },
+  { "webgl_has_multiview_without_layered_rendering", { "webgl" }, "named `new` found for struct `LayeredFrameBuffer", [[
+    pub fn f<'a>(d: &impl safegl::backend::Facade, t: &'a safegl::texture::Texture2dArray) {
+        let _ = safegl::framebuffer::LayeredFrameBuffer::multiview(d, t, Default::default(), 0..2);
+        let _ = safegl::framebuffer::LayeredFrameBuffer::new(d, t);
+    }
+  ]], WASM },
+  { "gles30_has_multiview_and_pending_programs", { "gles30" }, nil, [[
+    pub fn f<'a>(d: &impl safegl::backend::Facade, t: &'a safegl::texture::Texture2dArray, s: &str)
+        -> Result<safegl::PendingProgram, safegl::ProgramCreationError> {
+        let _ = safegl::framebuffer::LayeredFrameBuffer::multiview(d, t, Default::default(), 0..2);
+        safegl::Program::new_pending(d, safegl::program::ProgramCreationInput::SourceCode {
+            vertex_shader: s, tessellation_control_shader: None, tessellation_evaluation_shader: None,
+            geometry_shader: None, fragment_shader: s, transform_feedback_varyings: None,
+            outputs_srgb: true, uses_point_size: false, locations: Default::default(),
+        })
+    }
+  ]] },
+
   -- transfers of whole levels and of boxes of larger client images
   { "gl40_has_level_reads", { "gl40" }, nil, [[
     pub fn f(t: &safegl::texture::Texture3d) -> Result<Vec<Vec<Vec<u8>>>, safegl::ReadError> {
@@ -637,6 +704,8 @@ local failures, skipped, passed = {}, {}, 0
 
 for _, case in ipairs(cases) do
   local name, features, fail, code, target = case[1], case[2], case[3], case[4], case[5]
+  -- more dependencies of the crate, as lines of its `[dependencies]`
+  local dependencies = table.concat(case[6] or {}, "\n")
   if next(selected) == nil or selected[name] then
     if target and not installed[target] then
       skipped[#skipped + 1] = name .. " (target " .. target .. " not installed)"
@@ -654,9 +723,10 @@ publish = false
 
 [dependencies]
 safegl = { path = %q, default-features = false, features = [%s] }
+%s
 
 [workspace]
-]]):format(name:gsub("_", "-"), root, table.concat(feature_list, ", ")))
+]]):format(name:gsub("_", "-"), root, table.concat(feature_list, ", "), dependencies))
       write(dir .. "/Cargo.lock", lock)
       write(dir .. "/src/lib.rs", "#![allow(dead_code, unused_imports)]\n" .. code .. "\n")
 
