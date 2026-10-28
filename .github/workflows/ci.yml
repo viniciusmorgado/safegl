@@ -214,13 +214,12 @@ jobs:
           version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')
           cargo install wasm-bindgen-cli --version "$version" --locked
 
-      # the runner has no GPU: Firefox draws WebGL with Mesa's software driver, whose OpenGL and
-      # EGL libraries the image may lack; `webdriver.json` lets Firefox use it for WebGL
-      - name: Install Mesa
+      # the runner has no GPU nor display: Firefox draws WebGL with Mesa's software driver, and
+      # even headless it only creates WebGL contexts with a display, which Xvfb gives
+      - name: Install Mesa and Xvfb
         run: |
           sudo apt-get update
-          sudo apt-get install -y libegl1 libegl-mesa0 libgl1-mesa-dri mesa-utils
-          eglinfo -B || true
+          sudo apt-get install -y libegl1 libegl-mesa0 libgl1-mesa-dri xvfb
 
       # Firefox and geckodriver come with the runner image, which gives the directory of
       # geckodriver in the GECKOWEBDRIVER variable of the machine (not of the workflow, so the
@@ -234,7 +233,7 @@ jobs:
           if [ ! -x "$GECKODRIVER" ]; then GECKODRIVER="$(command -v geckodriver)"; fi
           echo "geckodriver: $GECKODRIVER ($("$GECKODRIVER" --version | head -1))"
           export GECKODRIVER
-          cargo test --no-fail-fast --target wasm32-unknown-unknown --no-default-features --features webgl --tests
+          xvfb-run -a cargo test --no-fail-fast --target wasm32-unknown-unknown --no-default-features --features webgl --tests
 
   windows:
     name: Windows x86_64
