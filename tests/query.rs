@@ -74,72 +74,78 @@ fn samples_passed() {
     display.assert_no_error(None);
 }
 
-#[test]
-fn any_samples_passed() {
-    let display = support::build_display();
+support::async_test! {
+    fn any_samples_passed() {
+        let display = support::build_display();
 
-    let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false) {
-        Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
-        Ok(q) => q,
-    };
-
-    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
-
-    let texture = support::build_renderable_texture(&display);
-    texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
-
-    {
-        let params = safegl::DrawParameters {
-            samples_passed_query: Some((&query).into()),
-            ..Default::default()
+        let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false) {
+            Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
+            Ok(q) => q,
         };
 
-        texture
-            .as_surface()
-            .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
-            .unwrap();
+        let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+
+        let texture = support::build_renderable_texture(&display);
+        texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+
+        {
+            let params = safegl::DrawParameters {
+                samples_passed_query: Some((&query).into()),
+                ..Default::default()
+            };
+
+            texture
+                .as_surface()
+                .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
+                .unwrap();
+        }
+
+        // WebGL gives the result in a later task of the event loop
+        support::until(|| query.is_ready()).await;
+        assert!(query.get().unwrap());
+
+        let query2 = safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false).unwrap();
+        assert!(!query2.get().unwrap());
+
+        display.assert_no_error(None);
     }
-
-    assert!(query.get().unwrap());
-
-    let query2 = safegl::draw_parameters::AnySamplesPassedQuery::new(&display, false).unwrap();
-    assert!(!query2.get().unwrap());
-
-    display.assert_no_error(None);
 }
 
-#[test]
-fn any_samples_passed_conservative() {
-    let display = support::build_display();
+support::async_test! {
+    fn any_samples_passed_conservative() {
+        let display = support::build_display();
 
-    let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, true) {
-        Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
-        Ok(q) => q,
-    };
-
-    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
-
-    let texture = support::build_renderable_texture(&display);
-    texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
-
-    {
-        let params = safegl::DrawParameters {
-            samples_passed_query: Some((&query).into()),
-            ..Default::default()
+        let query = match safegl::draw_parameters::AnySamplesPassedQuery::new(&display, true) {
+            Err(safegl::draw_parameters::QueryCreationError::NotSupported) => return,
+            Ok(q) => q,
         };
 
-        texture
-            .as_surface()
-            .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
-            .unwrap();
+        let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+
+        let texture = support::build_renderable_texture(&display);
+        texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+
+        {
+            let params = safegl::DrawParameters {
+                samples_passed_query: Some((&query).into()),
+                ..Default::default()
+            };
+
+            texture
+                .as_surface()
+                .draw(&vb, &ib, &program, &safegl::uniforms::EmptyUniforms, &params)
+                .unwrap();
+        }
+
+        // WebGL gives the result in a later task of the event loop
+        support::until(|| query.is_ready()).await;
+        assert!(query.get().unwrap());
+
+        let query2 = safegl::draw_parameters::AnySamplesPassedQuery::new(&display, true).unwrap();
+        assert!(!query2.get().unwrap());
+
+        display.assert_no_error(None);
     }
-
-    assert!(query.get().unwrap());
-
-    let query2 = safegl::draw_parameters::AnySamplesPassedQuery::new(&display, true).unwrap();
-    assert!(!query2.get().unwrap());
-
-    display.assert_no_error(None);
 }
 
 #[cfg(safegl_desktop)]

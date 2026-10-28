@@ -94,3 +94,26 @@ pub fn disabled_extensions() -> String {
         .unwrap_or_default()
         .to_owned()
 }
+
+/// Waits for the next task of the browser's event loop, in which WebGL updates the results of
+/// queries and the status of fences.
+pub async fn next_task() {
+    let promise = js_sys::Promise::new(&mut |resolve, _| {
+        web_sys::window()
+            .unwrap()
+            .set_timeout_with_callback(&resolve)
+            .unwrap();
+    });
+    wasm_bindgen_futures::JsFuture::from(promise).await.unwrap();
+}
+
+/// Waits, task after task of the event loop, until `ready` returns true, for at most ten
+/// seconds.
+#[allow(dead_code)]
+pub async fn until(ready: impl Fn() -> bool) {
+    let start = js_sys::Date::now();
+    while !ready() {
+        assert!(js_sys::Date::now() - start < 10_000.0, "never ready");
+        next_task().await;
+    }
+}

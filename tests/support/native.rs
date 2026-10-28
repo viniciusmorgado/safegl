@@ -389,3 +389,17 @@ pub type TestDisplay = WindowDisplay;
 pub fn disabled_extensions() -> String {
     env::var("SAFEGL_DISABLE_EXTENSIONS").unwrap_or_default()
 }
+
+/// Runs a test of `async_test!` to completion: `until` doesn't wait outside of browsers.
+#[allow(dead_code)]
+pub fn block_on<F: std::future::Future>(future: F) -> F::Output {
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    match std::pin::pin!(future).poll(&mut context) {
+        std::task::Poll::Ready(output) => output,
+        std::task::Poll::Pending => unreachable!("only browsers wait for the next task"),
+    }
+}
+
+/// Returns at once: outside of browsers, the results of queries and fences can be waited for.
+#[allow(dead_code)]
+pub async fn until(_ready: impl Fn() -> bool) {}

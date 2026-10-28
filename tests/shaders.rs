@@ -91,11 +91,15 @@ fn program_linking_error() {
         "#version 330\n"
     };
 
-    // `position` is declared but defined in no shader, which only the linker can find out
+    // the vertex shader outputs `v` as a `vec2` and the fragment shader reads it as a `vec4`,
+    // which only the linker can find out (browsers check that every function called is defined
+    // when they compile)
     let program = safegl::Program::from_source(
         &display,
-        &format!("{header}vec4 position();\nvoid main() {{ gl_Position = position(); }}"),
-        &format!("{header}out vec4 color;\nvoid main() {{ color = vec4(1.0); }}"),
+        &format!(
+            "{header}out vec2 v;\nvoid main() {{ v = vec2(0.0); gl_Position = vec4(0.0); }}"
+        ),
+        &format!("{header}in vec4 v;\nout vec4 color;\nvoid main() {{ color = v; }}"),
         None,
     );
 

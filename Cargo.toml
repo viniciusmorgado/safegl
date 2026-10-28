@@ -256,4 +256,6 @@ web-sys = { version = "0.3", optional = true, features = ["HtmlCanvasElement", "
 # --features webgl`, run by `wasm-bindgen-test-runner` (see `.cargo/config.toml`)
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
 web-sys = { version = "0.3", features = ["Document", "Element", "HtmlCanvasElement", "WebGl2RenderingContext", "WebGlContextAttributes", "WebglLoseContext", "Window"] }

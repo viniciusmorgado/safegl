@@ -17,6 +17,29 @@ mod web;
 #[cfg(target_arch = "wasm32")]
 pub use web::*;
 
+/// Defines a test whose body waits, with `support::until(|| ready).await`, for the results of
+/// queries and fences, which WebGL only gives in a later task of the browser's event loop: an
+/// `async` test in browsers, and elsewhere a test run to completion at once, since there the
+/// results can be waited for.
+#[allow(unused_macros)]
+macro_rules! async_test {
+    ($(#[$attribute:meta])* fn $name:ident() $body:block) => {
+        #[cfg(not(target_arch = "wasm32"))]
+        $(#[$attribute])*
+        #[test]
+        fn $name() {
+            support::block_on(async $body)
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        $(#[$attribute])*
+        #[wasm_bindgen_test::wasm_bindgen_test]
+        async fn $name() $body
+    };
+}
+#[allow(unused_imports)]
+pub(crate) use async_test;
+
 /// Returns true if the context compiles GLSL `desktop` on desktop OpenGL, or GLSL `es` ES on
 /// OpenGL ES, written like `#version` numbers (430, 310).
 ///
@@ -318,7 +341,9 @@ pub fn modern_glsl(display: &Backend, source: &str, fragment: bool) -> String {
     } else {
         "#version 330\n"
     });
-    if fragment {
+    // the shaders that declare their own output don't get another one, which would need a
+    // location on OpenGL ES
+    if fragment && source.contains("gl_FragColor") {
         out.push_str("out vec4 support_frag_color;\n");
     }
     for line in source.lines() {

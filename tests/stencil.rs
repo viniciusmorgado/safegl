@@ -7,7 +7,7 @@ use safegl::draw_parameters::{Depth, DepthTest, Stencil, StencilOperation, Stenc
 use safegl::framebuffer::{DepthStencilRenderBuffer, SimpleFrameBuffer};
 use safegl::index::{NoIndices, PrimitiveType};
 use safegl::texture::DepthStencilFormat;
-use safegl::{DrawParameters, Surface, Texture2d, VertexBuffer};
+use safegl::{DrawError, DrawParameters, Surface, Texture2d, VertexBuffer};
 
 mod support;
 
@@ -73,24 +73,33 @@ impl Target {
         stencil: Stencil,
         depth: Depth,
     ) -> bool {
+        self.try_draw_with(display, triangle, stencil, depth)
+            .unwrap()
+    }
+
+    fn try_draw_with(
+        &self,
+        display: &Display,
+        triangle: &VertexBuffer<Vertex>,
+        stencil: Stencil,
+        depth: Depth,
+    ) -> Result<bool, DrawError> {
         let (_, _, program) = support::build_fullscreen_red_pipeline(display);
         let mut framebuffer = self.framebuffer(display);
         framebuffer.clear_color(0.0, 0.0, 0.0, 0.0);
-        framebuffer
-            .draw(
-                triangle,
-                NoIndices(PrimitiveType::TrianglesList),
-                &program,
-                &uniform! {},
-                &DrawParameters {
-                    stencil,
-                    depth,
-                    ..Default::default()
-                },
-            )
-            .unwrap();
+        framebuffer.draw(
+            triangle,
+            NoIndices(PrimitiveType::TrianglesList),
+            &program,
+            &uniform! {},
+            &DrawParameters {
+                stencil,
+                depth,
+                ..Default::default()
+            },
+        )?;
         let pixels: Vec<Vec<(u8, u8, u8, u8)>> = self.color.read().unwrap();
-        pixels[2][2] == (255, 0, 0, 255)
+        Ok(pixels[2][2] == (255, 0, 0, 255))
     }
 
     /// Returns whether the stencil buffer holds `value`, by drawing with an equality test.
@@ -274,7 +283,8 @@ fn faces() {
     assert!(target.draw(&display, &counter_clockwise, stencil));
     assert!(!target.draw(&display, &clockwise, stencil));
 
-    // each face has its own reference value, write mask and operations
+    // each face has its own reference value, write mask and operations; WebGL refuses faces with
+    // different reference values or masks
     let stencil = Stencil {
         reference_value_clockwise: 0x0f,
         write_mask_clockwise: 0x03,
@@ -285,6 +295,29 @@ fn faces() {
         ..Default::default()
     };
     target.clear_stencil(&display, 0);
+    if cfg!(target_arch = "wasm32") {
+        let result = target.try_draw_with(&display, &clockwise, stencil, Default::default());
+        assert!(matches!(result, Err(DrawError::StencilFacesMismatch)));
+
+        // the operations can differ
+        let stencil = Stencil {
+            reference_value_clockwise: 0x0f,
+            write_mask_clockwise: 0x33,
+            depth_pass_operation_clockwise: StencilOperation::Replace,
+            reference_value_counter_clockwise: 0x0f,
+            write_mask_counter_clockwise: 0x33,
+            depth_pass_operation_counter_clockwise: StencilOperation::Invert,
+            ..Default::default()
+        };
+        target.draw(&display, &clockwise, stencil);
+        assert!(target.holds(&display, 0x03));
+        target.clear_stencil(&display, 0);
+        target.draw(&display, &counter_clockwise, stencil);
+        assert!(target.holds(&display, 0x33));
+
+        display.assert_no_error(None);
+        return;
+    }
     target.draw(&display, &clockwise, stencil);
     assert!(target.holds(&display, 0x03));
     target.clear_stencil(&display, 0);
