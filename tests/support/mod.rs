@@ -339,6 +339,18 @@ pub fn extensions(display: &safegl::Display<WindowSurface>) -> safegl::Extension
     *display.get_context().get_extensions()
 }
 
+/// Returns true if the driver has the extension `name`, like `GL_ARB_derivative_control`, for
+/// the extensions that only shaders use, which SafeGL doesn't list. The extensions that
+/// `SAFEGL_DISABLE_EXTENSIONS` hides are missing, like for SafeGL.
+pub fn has_extension(display: &safegl::Display<WindowSurface>, name: &str) -> bool {
+    use safegl::glow::HasContext;
+    let hidden = env::var("SAFEGL_DISABLE_EXTENSIONS").unwrap_or_default();
+    if hidden.split_whitespace().any(|hidden| hidden == name) {
+        return false;
+    }
+    unsafe { display.glow_context().supported_extensions().contains(name) }
+}
+
 /// Returns true if the display uses OpenGL ES, for the few tests of features it doesn't have.
 pub fn is_gles(display: &safegl::Display<WindowSurface>) -> bool {
     display.get_opengl_version().0 == safegl::Api::GlEs

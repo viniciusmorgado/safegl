@@ -29,13 +29,29 @@ fn program(
     declarations: &str,
     body: &str,
 ) -> Option<Program> {
-    if !support::glsl_supported(display, desktop, es) {
-        return None;
-    }
+    program_with(display, (desktop, &[]), es, declarations, body)
+}
+
+/// Like `program`, with the GLSL extensions that give the functionality of the desktop version
+/// to lower drivers.
+fn program_with(
+    display: &Display,
+    (desktop, extensions): (u32, &[&str]),
+    es: u32,
+    declarations: &str,
+    body: &str,
+) -> Option<Program> {
     let header = if support::is_gles(display) {
+        if !support::glsl_supported(display, 0, es) {
+            return None;
+        }
         format!("#version {es} es\nprecision highp float;\n")
     } else {
-        format!("#version {desktop} core\n")
+        let extensions: Vec<(&str, bool)> = extensions
+            .iter()
+            .map(|&name| (name, support::has_extension(display, name)))
+            .collect();
+        support::glsl_header(display, desktop, &extensions)?
     };
     let vertex = format!(
         "{header}in vec2 position;\nvoid main() {{ gl_Position = vec4(position, 0.0, 1.0); }}"
@@ -214,9 +230,9 @@ fn block_arrays() {
 #[test]
 fn arrays_of_arrays() {
     let display = support::build_display();
-    let Some(program) = program(
+    let Some(program) = program_with(
         &display,
-        430,
+        (430, &["GL_ARB_arrays_of_arrays"]),
         310,
         "uniform float grid[2][3];",
         "color = vec4(grid[0][0] + grid[0][2], grid[1][1], grid[1][2], 1.0);",

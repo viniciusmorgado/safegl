@@ -44,12 +44,19 @@ const VERTEX: &str = "
 ";
 
 /// A program with the vertex shader of the tests and a fragment shader that writes `color`,
-/// both GLSL `version`, or `None` if the context doesn't have this version.
-fn program(display: &Display, version: u32, fragment: &str) -> Option<Program> {
-    if support::is_gles(display) || !support::glsl_supported(display, version, 0) {
-        return None;
-    }
-    let header = format!("#version {version} core\n");
+/// both GLSL `version`, or a lower GLSL 4.x version with the `extensions` that give the same
+/// functionality on drivers below `version`, or `None` if the context has neither.
+fn program(
+    display: &Display,
+    version: u32,
+    extensions: &[&str],
+    fragment: &str,
+) -> Option<Program> {
+    let extensions: Vec<(&str, bool)> = extensions
+        .iter()
+        .map(|&name| (name, support::has_extension(display, name)))
+        .collect();
+    let header = support::glsl_header(display, version, &extensions)?;
     let fragment = format!("{header}in vec2 v_uv;\nout vec4 color;\n{fragment}");
     Some(Program::from_source(display, &format!("{header}{VERTEX}"), &fragment, None).unwrap())
 }
@@ -104,7 +111,14 @@ fn shader_group_vote() {
     let Some(program) = program(
         &display,
         460,
-        "void main() {
+        &["GL_ARB_shader_group_vote"],
+        // the functions of the extension have a suffix
+        "#if __VERSION__ < 460
+        #define allInvocations allInvocationsARB
+        #define anyInvocation anyInvocationARB
+        #define allInvocationsEqual allInvocationsEqualARB
+        #endif
+        void main() {
             bool all_true = allInvocations(true);
             bool any_false = anyInvocation(false);
             bool equal = allInvocationsEqual(true);
@@ -125,8 +139,15 @@ fn atomic_counter_operations() {
         program(
             &display,
             460,
+            &["GL_ARB_shader_atomic_counter_ops", "GL_ARB_shader_atomic_counters"],
             &format!(
-                "layout(binding = 0, offset = 0) uniform atomic_uint counter;\n\
+                // the functions of the extension have a suffix
+                "#if __VERSION__ < 460\n\
+                 #define atomicCounterAdd atomicCounterAddARB\n\
+                 #define atomicCounterSubtract atomicCounterSubtractARB\n\
+                 #define atomicCounterMax atomicCounterMaxARB\n\
+                 #endif\n\
+                 layout(binding = 0, offset = 0) uniform atomic_uint counter;\n\
                  void main() {{ {operation}; color = vec4(0.0, 1.0, 0.0, 1.0); }}"
             ),
         )
@@ -164,6 +185,7 @@ fn derivative_control() {
     let Some(program) = program(
         &display,
         450,
+        &["GL_ARB_derivative_control"],
         "void main() {
             bool fine = dFdxFine(gl_FragCoord.x) == 1.0 && dFdyFine(gl_FragCoord.y) == 1.0;
             bool coarse = dFdxCoarse(gl_FragCoord.x) == 1.0 && dFdyCoarse(gl_FragCoord.y) == 1.0;
@@ -183,6 +205,7 @@ fn helper_invocations() {
     let Some(program) = program(
         &display,
         450,
+        &["GL_ARB_ES3_1_compatibility"],
         "void main() { color = gl_HelperInvocation ? vec4(1.0) : vec4(0.0, 1.0, 0.0, 1.0); }",
     ) else {
         return;
@@ -198,6 +221,7 @@ fn texture_queries() {
     let Some(program) = program(
         &display,
         450,
+        &["GL_ARB_texture_query_levels", "GL_ARB_shader_texture_image_samples"],
         "uniform sampler2D tex;
         uniform sampler2DMS multisampled;
         void main() {
@@ -229,6 +253,7 @@ fn gather_with_offsets() {
     let Some(program) = program(
         &display,
         400,
+        &[],
         "uniform sampler2D tex;
         void main() {
             const ivec2 offsets[4] = ivec2[4](ivec2(0), ivec2(1, 0), ivec2(0, 1), ivec2(1));
@@ -260,6 +285,7 @@ fn interpolation_functions() {
     let Some(program) = program(
         &display,
         400,
+        &[],
         "void main() {
             // without multisampling, every sample is at the center of the pixel
             bool center = distance(interpolateAtOffset(v_uv, vec2(0.0)), v_uv) < 1e-5;
@@ -283,6 +309,7 @@ fn sample_built_ins() {
     let Some(program) = program(
         &display,
         400,
+        &[],
         "void main() {
             // using `gl_SampleID` shades each sample, whose bit alone is in the mask
             bool mask = gl_SampleMaskIn[0] == (1 << gl_SampleID);
@@ -385,6 +412,7 @@ fn double_precision() {
     let Some(program) = program(
         &display,
         400,
+        &[],
         "uniform double value;
         uniform dvec2 pair;
         void main() {
@@ -411,6 +439,7 @@ fn explicit_uniform_locations() {
     let Some(program) = program(
         &display,
         430,
+        &["GL_ARB_explicit_uniform_location"],
         "layout(location = 3) uniform vec4 tint;
         layout(location = 7) uniform float scale;
         void main() { color = tint * scale; }",
@@ -437,6 +466,7 @@ fn conservative_depth() {
     let Some(program) = program(
         &display,
         420,
+        &["GL_ARB_conservative_depth"],
         "layout(depth_greater) out float gl_FragDepth;
         void main() {
             gl_FragDepth = gl_FragCoord.z + 0.25;
@@ -475,7 +505,8 @@ fn early_fragment_tests() {
     let display = support::build_display();
     let Some(counting) = program(
         &display,
-        430,
+        420,
+        &["GL_ARB_shader_image_load_store", "GL_ARB_shader_atomic_counters"],
         "layout(early_fragment_tests) in;
         layout(binding = 0, offset = 0) uniform atomic_uint counter;
         void main() {
@@ -485,7 +516,7 @@ fn early_fragment_tests() {
     ) else {
         return;
     };
-    let plain = program(&display, 430, "void main() { color = vec4(1.0); }").unwrap();
+    let plain = program(&display, 400, &[], "void main() { color = vec4(1.0); }").unwrap();
     let counter = Buffer::new(
         &display,
         &0u32,
@@ -538,6 +569,12 @@ fn atomic_exchange_on_float_images() {
     let Some(program) = program(
         &display,
         450,
+        // float exchanges come with GLSL 4.50, and the binding of images with GLSL 4.20
+        &[
+            "GL_ARB_ES3_1_compatibility",
+            "GL_ARB_shader_image_load_store",
+            "GL_ARB_shading_language_420pack",
+        ],
         "layout(r32f, binding = 0) uniform image2D image;
         void main() {
             if (ivec2(gl_FragCoord.xy) == ivec2(0)) {
@@ -570,5 +607,163 @@ fn atomic_exchange_on_float_images() {
     ));
     let data: Vec<Vec<(f32, f32, f32, f32)>> = image.read_as().unwrap();
     assert_eq!(data[0][0].0, 2.5);
+    display.assert_no_error(None);
+}
+
+/// The level of detail that a sampling would use (`textureQueryLod`, GLSL 4.00): a 4x4 texture
+/// drawn over 4x4 pixels is sampled at its level 0.
+#[test]
+fn texture_query_lod() {
+    let display = support::build_display();
+    let Some(program) = program(
+        &display,
+        400,
+        &[],
+        "uniform sampler2D tex;
+        void main() {
+            vec2 lod = textureQueryLod(tex, v_uv);
+            color = abs(lod.x) < 0.01 ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0);
+        }",
+    ) else {
+        return;
+    };
+    let texture = Texture2d::empty_with_format(
+        &display,
+        UncompressedFloatFormat::U8U8U8U8,
+        MipmapsOption::EmptyMipmaps,
+        4,
+        4,
+    )
+    .unwrap();
+    let uniforms = uniform! { depth: 0.0f32, tex: &texture };
+    assert_green(&draw(&display, &program, &uniforms));
+    display.assert_no_error(None);
+}
+
+/// The bit functions, `fma` and `precise` of GLSL 4.00.
+#[test]
+fn bit_functions_and_fused_operations() {
+    let display = support::build_display();
+    let Some(program) = program(
+        &display,
+        400,
+        &[],
+        "void main() {
+            bool bits = bitfieldExtract(0xf0u, 4, 4) == 0xfu
+                && bitfieldInsert(0u, 3u, 2, 2) == 12u
+                && bitfieldReverse(1u) == 0x80000000u
+                && bitCount(7u) == 3
+                && findLSB(8) == 3
+                && findMSB(8) == 3;
+            uint carry;
+            bool extended = uaddCarry(0xffffffffu, 1u, carry) == 0u && carry == 1u;
+            precise float fused = fma(2.0, 3.0, 1.0);
+            color = bits && extended && fused == 7.0 ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0);
+        }",
+    ) else {
+        return;
+    };
+    assert_green(&draw(&display, &program, &uniform! { depth: 0.0f32 }));
+    display.assert_no_error(None);
+}
+
+/// The packing functions of GLSL 4.20 (`GL_ARB_shading_language_packing` below).
+#[test]
+fn packing_functions() {
+    let display = support::build_display();
+    let Some(program) = program(
+        &display,
+        420,
+        &["GL_ARB_shading_language_packing"],
+        "void main() {
+            bool halves = unpackHalf2x16(packHalf2x16(vec2(1.5, -2.0))) == vec2(1.5, -2.0);
+            bool snorm = unpackSnorm2x16(packSnorm2x16(vec2(1.0, -1.0))) == vec2(1.0, -1.0);
+            bool unorm = unpackUnorm4x8(packUnorm4x8(vec4(0.0, 1.0, 0.0, 1.0)))
+                == vec4(0.0, 1.0, 0.0, 1.0);
+            color = halves && snorm && unorm ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0);
+        }",
+    ) else {
+        return;
+    };
+    assert_green(&draw(&display, &program, &uniform! { depth: 0.0f32 }));
+    display.assert_no_error(None);
+}
+
+/// Initializer lists, `.length()` on arrays and vectors, and swizzles of scalars, of GLSL 4.20
+/// (`GL_ARB_shading_language_420pack` below).
+#[test]
+fn shading_language_420pack() {
+    let display = support::build_display();
+    let Some(program) = program(
+        &display,
+        420,
+        &["GL_ARB_shading_language_420pack"],
+        "void main() {
+            const float values[3] = { 1.0, 2.0, 3.0 };
+            vec3 vector = { 0.0, 1.0, 0.0 };
+            float one = 1.0;
+            bool lengths = values.length() == 3 && vector.length() == 3;
+            bool swizzle = one.xx == vec2(1.0);
+            color = lengths && swizzle && values[2] == 3.0
+                ? vec4(vector, one)
+                : vec4(1.0);
+        }",
+    ) else {
+        return;
+    };
+    assert_green(&draw(&display, &program, &uniform! { depth: 0.0f32 }));
+    display.assert_no_error(None);
+}
+
+/// The size of images (`imageSize`, GLSL 4.30 or `GL_ARB_shader_image_size`) and the samples of
+/// multisample images (`imageSamples`, GLSL 4.50 or `GL_ARB_shader_texture_image_samples`).
+#[cfg(safegl_gl42)]
+#[test]
+fn image_size_and_samples() {
+    let display = support::build_display();
+    let Some(size) = program(
+        &display,
+        430,
+        &[
+            "GL_ARB_shader_image_size",
+            "GL_ARB_shader_image_load_store",
+            "GL_ARB_shading_language_420pack",
+        ],
+        "layout(rgba8, binding = 0) readonly uniform image2D image;
+        void main() {
+            color = imageSize(image) == ivec2(4, 2) ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0);
+        }",
+    ) else {
+        return;
+    };
+    let image = Texture2d::empty(&display, 4, 2).unwrap();
+    let unit = image
+        .image_unit(ImageUnitFormat::RGBA8)
+        .unwrap()
+        .set_access(ImageUnitAccess::Read);
+    assert_green(&draw(&display, &size, &uniform! { depth: 0.0f32, image: unit }));
+
+    let Some(samples) = program(
+        &display,
+        450,
+        &[
+            "GL_ARB_shader_texture_image_samples",
+            "GL_ARB_shader_image_load_store",
+            "GL_ARB_shading_language_420pack",
+        ],
+        "layout(rgba8, binding = 0) readonly uniform image2DMS image;
+        void main() {
+            color = imageSamples(image) == 4 ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0);
+        }",
+    ) else {
+        return;
+    };
+    let multisampled = Texture2dMultisample::empty(&display, 4, 4, 4).unwrap();
+    let unit = match multisampled.image_unit(ImageUnitFormat::RGBA8) {
+        Ok(unit) => unit.set_access(ImageUnitAccess::Read),
+        // multisample images need the limit of their samples
+        Err(_) => return,
+    };
+    assert_green(&draw(&display, &samples, &uniform! { depth: 0.0f32, image: unit }));
     display.assert_no_error(None);
 }

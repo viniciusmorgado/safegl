@@ -35,8 +35,16 @@ fn program(display: &Display, layers: u32, read_layer: bool) -> Option<Program> 
     if !LayeredFrameBuffer::is_supported(display) || !support::glsl_supported(display, 400, 320) {
         return None;
     }
-    // the fragment shader reads `gl_Layer` since GLSL 4.30 and GLSL ES 3.20
-    if read_layer && !support::glsl_supported(display, 430, 320) {
+    // the fragment shader reads `gl_Layer` since GLSL 4.30 (or with the extension) and GLSL ES
+    // 3.20
+    let read_layer_header = if read_layer && !support::is_gles(display) {
+        let extension = "GL_ARB_fragment_layer_viewport";
+        let available = support::has_extension(display, extension);
+        Some(support::glsl_header(display, 430, &[(extension, available)])?)
+    } else {
+        None
+    };
+    if read_layer && support::is_gles(display) && !support::glsl_supported(display, 0, 320) {
         return None;
     }
     let geometry = format!(
@@ -66,11 +74,8 @@ fn program(display: &Display, layers: u32, read_layer: bool) -> Option<Program> 
         in vec2 position;
         uniform float depth;
         void main() { gl_Position = vec4(position, depth, 1.0); }";
-    let desktop = if read_layer {
-        "#version 430 core\n"
-    } else {
-        "#version 400 core\n"
-    };
+    let desktop = read_layer_header.unwrap_or_else(|| "#version 400 core\n".to_owned());
+    let desktop = desktop.as_str();
     let es = "#version 320 es\nprecision highp float;\n";
     let [dv, dg, df, ev, eg, ef] = [
         (desktop, vertex),
