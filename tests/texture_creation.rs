@@ -777,6 +777,10 @@ fn compressed_texture_with_partial_blocks() {
         Ok(texture) => assert_eq!(texture.get_width(), 6),
         // without S3TC
         Err(safegl::texture::TextureCreationError::FormatNotSupported) => (),
+        // WebGL needs a level 0 of whole blocks
+        Err(safegl::texture::TextureCreationError::DimensionsNotSupported) => {
+            assert!(cfg!(target_arch = "wasm32"))
+        }
         Err(e) => panic!("{:?}", e),
     }
 

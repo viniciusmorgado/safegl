@@ -1696,6 +1696,36 @@ impl ClientFormatAny {
         self.is_pvrtc() || *self == ClientFormatAny::CompressedFormat(CompressedFormat::Etc1Rgb8)
     }
 
+    /// Returns true for the S3TC, RGTC and BPTC formats, whose extensions of WebGL need levels 0
+    /// whose width and height are whole blocks.
+    pub fn needs_whole_blocks_on_webgl(&self) -> bool {
+        match self {
+            ClientFormatAny::CompressedFormat(format) => matches!(
+                format,
+                CompressedFormat::RgtcFormatU
+                    | CompressedFormat::RgtcFormatI
+                    | CompressedFormat::RgtcFormatUU
+                    | CompressedFormat::RgtcFormatII
+                    | CompressedFormat::BptcUnorm4
+                    | CompressedFormat::BptcSignedFloat3
+                    | CompressedFormat::BptcUnsignedFloat3
+                    | CompressedFormat::S3tcDxt1NoAlpha
+                    | CompressedFormat::S3tcDxt1Alpha
+                    | CompressedFormat::S3tcDxt3Alpha
+                    | CompressedFormat::S3tcDxt5Alpha
+            ),
+            ClientFormatAny::CompressedSrgbFormat(format) => matches!(
+                format,
+                CompressedSrgbFormat::Bptc
+                    | CompressedSrgbFormat::S3tcDxt1NoAlpha
+                    | CompressedSrgbFormat::S3tcDxt1Alpha
+                    | CompressedSrgbFormat::S3tcDxt3Alpha
+                    | CompressedSrgbFormat::S3tcDxt5Alpha
+            ),
+            _ => false,
+        }
+    }
+
     /// Returns true for the PVRTC formats.
     fn is_pvrtc(&self) -> bool {
         matches!(

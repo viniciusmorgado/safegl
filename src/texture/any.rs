@@ -582,6 +582,26 @@ where
     {
         return Err(TextureCreationError::DimensionsNotSupported);
     }
+    // the S3TC, RGTC and BPTC extensions of WebGL need a level 0 of whole blocks
+    let compressed = match format {
+        TextureFormatRequest::Specific(TextureFormat::CompressedFormat(format)) => {
+            Some(ClientFormatAny::CompressedFormat(format))
+        }
+        TextureFormatRequest::Specific(TextureFormat::CompressedSrgbFormat(format)) => {
+            Some(ClientFormatAny::CompressedSrgbFormat(format))
+        }
+        TextureFormatRequest::AnyCompressed | TextureFormatRequest::AnyCompressedSrgb => {
+            data.as_ref().map(|&(client, _)| client).filter(|c| c.is_compressed())
+        }
+        _ => None,
+    };
+    let whole_blocks = |size: Option<u32>| size.is_none_or(|size| size % 4 == 0);
+    if cfg!(safegl_browser)
+        && compressed.is_some_and(|f| f.needs_whole_blocks_on_webgl())
+        && !(whole_blocks(Some(width)) && whole_blocks(height))
+    {
+        return Err(TextureCreationError::DimensionsNotSupported);
+    }
 
     let should_generate_mipmaps = mipmaps.should_generate();
     let texture_levels = mipmaps.num_levels(width, height, depth) as gl::types::GLsizei;
