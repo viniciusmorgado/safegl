@@ -694,6 +694,17 @@ impl Context {
         self.capabilities().no_error
     }
 
+    /// Marks the context lost for good, with an unknown reset status if it wasn't known lost:
+    /// the browser restored its WebGL context, which belongs to a new context now.
+    #[cfg(safegl_browser)]
+    pub(crate) fn mark_lost(&self) {
+        let mut state = self.state.borrow_mut();
+        if !state.lost_context {
+            state.lost_context = true;
+            state.reset_status = gl::UNKNOWN_CONTEXT_RESET;
+        }
+    }
+
     /// Returns true if the context has been lost and needs to be recreated.
     ///
     /// # Implementation
