@@ -349,10 +349,18 @@ pub(crate) fn write_query_to_buffer<T: QueryBufferValue>(
 }
 
 /// Error that can happen when getting the result of a query.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum QueryResultError {
     /// The OpenGL context has been lost, so the result of the query is lost too.
     ContextLost,
+
+    /// The result isn't available yet, and WebGL can't wait for it: it makes the results of
+    /// queries available between two tasks of the browser's event loop, such as the next
+    /// animation frame, once `is_ready` returns true.
+    NotAvailable,
 }
 
 impl fmt::Display for QueryResultError {
@@ -360,6 +368,9 @@ impl fmt::Display for QueryResultError {
         let desc = match *self {
             QueryResultError::ContextLost => {
                 "The OpenGL context has been lost, so the result of the query is lost too"
+            }
+            QueryResultError::NotAvailable => {
+                "WebGL makes the result available in a later task of the browser's event loop"
             }
         };
         fmt.write_str(desc)
@@ -502,6 +513,7 @@ impl RawQuery {
 
         #[cfg(safegl_gl44)]
         Buffer::<u8>::unbind_query(&mut ctxt);
+        self.check_available(&mut ctxt)?;
 
         unsafe {
             Ok(ctxt
@@ -547,6 +559,7 @@ impl RawQuery {
 
         #[cfg(safegl_gl44)]
         Buffer::<u8>::unbind_query(&mut ctxt);
+        self.check_available(&mut ctxt)?;
 
         unsafe {
             if let Ok(value) = self.raw_get_u64(&mut ctxt) {
@@ -558,6 +571,20 @@ impl RawQuery {
                 .get_query_parameter_u32(self.id, glow::QUERY_RESULT);
             Ok(value as u64)
         }
+    }
+
+    /// Returns `QueryResultError::NotAvailable` on WebGL if the result isn't available, since
+    /// WebGL can't wait for it.
+    fn check_available(&self, ctxt: &mut CommandContext<'_>) -> Result<(), QueryResultError> {
+        let available = || unsafe {
+            ctxt.glow
+                .get_query_parameter_u32(self.id, glow::QUERY_RESULT_AVAILABLE)
+                != 0
+        };
+        if crate::version::is_webgl() && !available() {
+            return Err(QueryResultError::NotAvailable);
+        }
+        Ok(())
     }
 
     unsafe fn raw_get_u64(&self, ctxt: &mut CommandContext<'_>) -> Result<u64, ()> {
@@ -1080,9 +1107,11 @@ macro_rules! impl_helper {
             /// conditional rendering, or stored and checked during the next frame.
             ///
             /// Returns an error if the OpenGL context has been lost, since the result is lost
-            /// with it.
+            /// with it, and, on WebGL, `QueryResultError::NotAvailable` while `is_ready` returns
+            /// false: WebGL can't wait for the result, which it makes available in a later task
+            /// of the browser's event loop.
             #[inline]
-            pub fn get(self) -> Result<$ret, QueryResultError> {
+            pub fn get(&self) -> Result<$ret, QueryResultError> {
                 self.query.$get_fn()
             }
 
