@@ -334,6 +334,7 @@ impl<'a> FramebufferAttachments<'a> {
                         layers,
                         depth_buffer_bits: None,
                         stencil_buffer_bits: None,
+                        float32_colors: false,
                         textures: Vec::new(),
                         marker: PhantomData,
                     })
@@ -463,6 +464,7 @@ impl<'a> FramebufferAttachments<'a> {
         let mut samples = None; // contains `0` if not multisampling and `None` if unknown
 
         let mut color_kinds = SmallVec::new();
+        let mut float32_colors = false;
         for &(index, LayeredAttachment(ref attachment)) in colors.iter() {
             if index >= max_color_attachments as u32 {
                 return Err(ValidationError::TooManyColorAttachments {
@@ -471,6 +473,7 @@ impl<'a> FramebufferAttachments<'a> {
                 });
             }
             color_kinds.push((index, attachment.get_texture().kind()));
+            float32_colors |= is_float32(attachment.get_texture());
             raw_attachments
                 .color
                 .push((index, handle_tex!(attachment, dimensions, samples)));
@@ -516,6 +519,7 @@ impl<'a> FramebufferAttachments<'a> {
             layers,
             depth_buffer_bits: depth_bits,
             stencil_buffer_bits: stencil_bits,
+            float32_colors,
             textures: Vec::new(),
             marker: PhantomData,
         })
@@ -654,6 +658,7 @@ impl<'a> FramebufferAttachments<'a> {
         let mut samples = None; // contains `0` if not multisampling and `None` if unknown
 
         let mut color_kinds = SmallVec::new();
+        let mut float32_colors = false;
         for &(index, ref attachment) in colors.iter() {
             if index >= max_color_attachments as u32 {
                 return Err(ValidationError::TooManyColorAttachments {
@@ -661,11 +666,14 @@ impl<'a> FramebufferAttachments<'a> {
                     obtained: index as usize,
                 });
             }
-            let kind = match attachment {
-                RegularAttachment::Texture(tex) => tex.get_texture().kind(),
-                RegularAttachment::RenderBuffer(rb) => rb.kind(),
+            let (kind, float32) = match attachment {
+                RegularAttachment::Texture(tex) => {
+                    (tex.get_texture().kind(), is_float32(tex.get_texture()))
+                }
+                RegularAttachment::RenderBuffer(rb) => (rb.kind(), rb.get_format().is_float32()),
             };
             color_kinds.push((index, kind));
+            float32_colors |= float32;
             raw_attachments
                 .color
                 .push((index, handle_atch!(attachment, dimensions, samples)));
@@ -713,6 +721,7 @@ impl<'a> FramebufferAttachments<'a> {
             layers: None,
             depth_buffer_bits: depth_bits,
             stencil_buffer_bits: stencil_bits,
+            float32_colors,
             textures: Vec::new(),
             marker: PhantomData,
         })
@@ -742,6 +751,8 @@ pub struct ValidatedAttachments<'a> {
     layers: Option<u32>,
     depth_buffer_bits: Option<u16>,
     stencil_buffer_bits: Option<u16>,
+    // whether a color attachment has a format of 32-bit floats
+    float32_colors: bool,
     // the attached textures
     textures: Vec<&'a TextureAny>,
     marker: PhantomData<&'a ()>,
@@ -754,6 +765,12 @@ impl<'a> ValidatedAttachments<'a> {
         for texture in &self.textures {
             texture.prepare_for_access(ctxt, crate::TextureAccess::Framebuffer);
         }
+    }
+
+    /// Returns true if a color attachment has a format of 32-bit floats, which OpenGL ES and
+    /// WebGL only blend into with `GL_EXT_float_blend`.
+    pub fn has_float32_colors(&self) -> bool {
+        self.float32_colors
     }
 
     /// Returns true if a level of the `textures` given is attached, with the levels of each one,
@@ -867,6 +884,14 @@ pub enum ValidationError {
     /// `F9F9F9`, or on OpenGL ES and WebGL a format that needs an extension, such as the float
     /// formats without `GL_EXT_color_buffer_float`.
     FormatNotRenderable,
+}
+
+/// Returns true if `texture` has a format of 32-bit floats.
+fn is_float32(texture: &TextureAny) -> bool {
+    match texture.get_requested_format() {
+        TextureFormatRequest::Specific(format) => format.is_float32(),
+        _ => false,
+    }
 }
 
 /// Returns `FormatNotRenderable` if `texture` has a format that the backend can't render to,
@@ -1278,6 +1303,7 @@ impl FramebuffersContainer {
             layers: None,
             depth_buffer_bits: None,
             stencil_buffer_bits: None,
+            float32_colors: false,
             textures: Vec::new(),
             marker: PhantomData,
         };

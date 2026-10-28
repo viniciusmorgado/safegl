@@ -1751,6 +1751,14 @@ impl TextureExt for TextureAny {
     }
 
     #[inline]
+    fn is_float32(&self) -> bool {
+        match self.requested_format {
+            TextureFormatRequest::Specific(format) => format.is_float32(),
+            _ => false,
+        }
+    }
+
+    #[inline]
     fn sampled_levels(&self) -> (u32, u32) {
         self.mipmap_range()
     }

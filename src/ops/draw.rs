@@ -282,6 +282,17 @@ where
     // binding the program and uniforms
     bind_programs(&mut ctxt, &program, &uniforms, &mut fences)?;
 
+    // OpenGL ES and WebGL only blend into 32-bit float targets with `GL_EXT_float_blend`
+    if let FramebufferTarget::Attachments(attachments) = framebuffer {
+        if ctxt.version.0 == Api::GlEs
+            && !ctxt.extensions.gl_ext_float_blend
+            && attachments.has_float32_colors()
+            && draw_parameters::blends(draw_parameters)
+        {
+            return Err(DrawError::FloatBlendNotSupported);
+        }
+    }
+
     // sampling a level that the draw renders to is a feedback loop: undefined on OpenGL, and an
     // error on WebGL; texture barriers make it defined when each texel is read before it is
     // written (`texture_barrier`)

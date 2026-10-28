@@ -504,6 +504,11 @@ trait TextureExt {
         false
     }
 
+    /// Returns true if the texture has a format of 32-bit floats.
+    fn is_float32(&self) -> bool {
+        false
+    }
+
     /// The levels that sampling the texture reads, from the first to the second included.
     fn sampled_levels(&self) -> (u32, u32) {
         (0, u32::MAX)
@@ -1968,6 +1973,10 @@ pub enum DrawError {
     /// The context was lost while the draw was creating an object that it needs. Draws on a
     /// context known to be lost do nothing instead.
     ContextLost,
+
+    /// The draw blends into a color attachment of 32-bit floats, which OpenGL ES and WebGL only
+    /// do with `GL_EXT_float_blend` (`EXT_float_blend` on WebGL).
+    FloatBlendNotSupported,
 }
 
 impl Error for DrawError {
@@ -2196,6 +2205,7 @@ impl fmt::Display for DrawError {
             PrimitiveRestartAlwaysOn =>
                 "WebGL restarts primitives at the largest index value, which the indices may hold",
             ContextLost => "The context was lost during the draw",
+            FloatBlendNotSupported => "The backend can't blend into 32-bit float attachments",
         };
         match self {
             UniformTypeMismatch {

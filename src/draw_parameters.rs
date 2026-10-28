@@ -1223,6 +1223,22 @@ pub fn sync(
     Ok(())
 }
 
+/// Returns true if the draw blends, in an output at least.
+pub(crate) fn blends(draw_parameters: &DrawParameters<'_>) -> bool {
+    let blends = |blend: &Blend| {
+        blend.color != BlendingFunction::AlwaysReplace
+            || blend.alpha != BlendingFunction::AlwaysReplace
+    };
+    #[cfg(any(safegl_desktop, safegl_gles32))]
+    let outputs = draw_parameters
+        .outputs
+        .iter()
+        .any(|output| blends(&output.blend));
+    #[cfg(not(any(safegl_desktop, safegl_gles32)))]
+    let outputs = false;
+    blends(&draw_parameters.blend) || outputs
+}
+
 /// Checks the parameters that WebGL refuses where OpenGL ES accepts them, before anything is
 /// synchronized: WebGL would raise `GL_INVALID_OPERATION` and draw nothing.
 fn validate_webgl(draw_parameters: &DrawParameters<'_>) -> Result<(), DrawError> {

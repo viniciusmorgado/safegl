@@ -464,9 +464,9 @@ impl UncompressedFloatFormat {
     where
         C: CapabilitiesSource,
     {
-        // this is the only format that is never renderable
+        // shared exponents are only rendered to on WebGL, with `WEBGL_render_shared_exponent`
         if matches!(self, UncompressedFloatFormat::F9F9F9) {
-            return false;
+            return context.get_extensions().webgl_render_shared_exponent;
         }
 
         // checking whether it's supported, so that we don't return `true` by accident
@@ -508,6 +508,16 @@ impl UncompressedFloatFormat {
             | UncompressedFloatFormat::F32F32F32F32
             | UncompressedFloatFormat::F11F11F10 => {
                 version >= &Version(Api::GlEs, 3, 2) || extensions.gl_ext_color_buffer_float
+            }
+            // the signed normalized formats with `GL_EXT_render_snorm`, of 16 bits with
+            // `GL_EXT_texture_norm16` too
+            UncompressedFloatFormat::I8
+            | UncompressedFloatFormat::I8I8
+            | UncompressedFloatFormat::I8I8I8I8 => extensions.gl_ext_render_snorm,
+            UncompressedFloatFormat::I16
+            | UncompressedFloatFormat::I16I16
+            | UncompressedFloatFormat::I16I16I16I16 => {
+                extensions.gl_ext_render_snorm && extensions.gl_ext_texture_norm16
             }
             _ => false,
         }
@@ -1560,6 +1570,20 @@ impl TextureFormat {
             TextureFormat::StencilFormat(format) => format.is_supported_for_renderbuffers(c),
             TextureFormat::DepthStencilFormat(format) => format.is_supported(c),
         }
+    }
+
+    /// Returns true for the formats of 32-bit floats, which OpenGL ES and WebGL only filter with
+    /// `GL_OES_texture_float_linear` and only blend into with `GL_EXT_float_blend`.
+    pub(crate) fn is_float32(&self) -> bool {
+        matches!(
+            self,
+            TextureFormat::UncompressedFloat(
+                UncompressedFloatFormat::F32
+                    | UncompressedFloatFormat::F32F32
+                    | UncompressedFloatFormat::F32F32F32
+                    | UncompressedFloatFormat::F32F32F32F32
+            )
+        )
     }
 
     /// Returns true if the format is color-renderable, depth-renderable, depth-stencil-renderable

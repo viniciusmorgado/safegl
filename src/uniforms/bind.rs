@@ -1039,15 +1039,20 @@ where
     let unfiltered_depth = crate::version::is_webgl()
         && texture.is_depth()
         && sampler.map_or(true, |sampler| sampler.depth_texture_comparison.is_none());
+    // OpenGL ES and WebGL only filter 32-bit floats with `GL_OES_texture_float_linear`
+    let unfiltered = unfiltered_depth
+        || (ctxt.version.0 == crate::version::Api::GlEs
+            && !ctxt.extensions.gl_oes_texture_float_linear
+            && texture.is_float32());
     let sampler = if sampler.is_none()
-        && ((texture.is_integer() && !texture.has_integer_filters()) || unfiltered_depth)
+        && ((texture.is_integer() && !texture.has_integer_filters()) || unfiltered)
     {
         Some(SamplerBehavior::default())
     } else {
         sampler
     };
     let sampler = sampler.map(|mut sampler| {
-        if texture.is_integer() || unfiltered_depth {
+        if texture.is_integer() || unfiltered {
             sampler.magnify_filter = MagnifySamplerFilter::Nearest;
             sampler.minify_filter = match sampler.minify_filter {
                 MinifySamplerFilter::Nearest | MinifySamplerFilter::Linear => {

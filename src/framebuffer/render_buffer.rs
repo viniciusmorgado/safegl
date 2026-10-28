@@ -418,6 +418,7 @@ pub struct RenderBufferAny {
     height: u32,
     samples: Option<u32>,
     kind: TextureKind,
+    format: image_format::TextureFormat,
 }
 
 impl RenderBufferAny {
@@ -502,8 +503,15 @@ impl RenderBufferAny {
                 height,
                 samples,
                 kind,
+                format: texture_format,
             })
         }
+    }
+
+    /// Returns the format of the render buffer.
+    #[inline]
+    pub fn get_format(&self) -> image_format::TextureFormat {
+        self.format
     }
 
     /// Returns the dimensions of the render buffer.
