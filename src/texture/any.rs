@@ -692,10 +692,14 @@ where
 
         BufferAny::unbind_pixel_unpack(&mut ctxt);
 
+        // the objects of a lost context are gone, whether the browser creates them or not
+        if ctxt.objects_lost() {
+            return Err(TextureCreationError::ContextLost);
+        }
         let id = ctxt
             .glow
             .create_texture()
-            .expect("failed to create a texture");
+            .map_err(|_| TextureCreationError::ContextLost)?;
 
         {
             ctxt.glow.bind_texture(bind_point, Some(id));
@@ -1799,7 +1803,9 @@ impl Drop for TextureAny {
 
         if self.owned {
             unsafe {
-                ctxt.glow.delete_texture(self.id);
+                if !ctxt.objects_lost() {
+                    ctxt.glow.delete_texture(self.id);
+                }
             }
         }
     }

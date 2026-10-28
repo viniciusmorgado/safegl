@@ -47,6 +47,10 @@ pub fn blit(
 
     unsafe {
         let mut ctxt = context.make_current();
+        // the commands of a lost context do nothing
+        if ctxt.state.lost_context {
+            return Ok(());
+        }
 
         // FIXME: we don't draw on it
         let source = FramebuffersContainer::get_framebuffer_for_drawing(&mut ctxt, source);

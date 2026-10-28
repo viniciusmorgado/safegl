@@ -305,17 +305,21 @@ pub struct TimestampQuery {
 }
 
 impl TimestampQuery {
-    /// Creates a new `TimestampQuery`. Returns `None` if the backend doesn't support it.
+    /// Creates a new `TimestampQuery`. Returns `None` if the backend doesn't support it, or if
+    /// the context is lost.
     pub fn new<F: ?Sized>(facade: &F) -> Option<TimestampQuery>
     where
         F: Facade,
     {
         let ctxt = facade.get_context().make_current();
+        if ctxt.objects_lost() {
+            return None;
+        }
 
         // glow picks `glQueryCounter` or `glQueryCounterEXT` depending on which is loaded
         let id = if ctxt.version.0 == Api::Gl || ctxt.extensions.gl_ext_disjoint_timer_query {
             unsafe {
-                let id = ctxt.glow.create_query().expect("glGenQueries failed");
+                let id = ctxt.glow.create_query().ok()?;
 
                 ctxt.glow.query_counter(id, glow::TIMESTAMP);
 
@@ -416,7 +420,9 @@ impl Drop for TimestampQuery {
         // also deletes the queries whose result was never read
         let ctxt = self.context.make_current();
         unsafe {
-            ctxt.glow.delete_query(self.id);
+            if !ctxt.objects_lost() {
+                ctxt.glow.delete_query(self.id);
+            }
         }
     }
 }

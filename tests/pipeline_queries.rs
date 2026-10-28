@@ -82,6 +82,7 @@ fn statistic(display: &Display, statistic: PipelineStatistic) -> Option<Pipeline
             );
             None
         }
+        Err(error) => panic!("{error}"),
     }
 }
 
@@ -96,6 +97,7 @@ fn overflow(display: &Display) -> Option<TransformFeedbackOverflowQuery> {
             );
             None
         }
+        Err(error) => panic!("{error}"),
     }
 }
 

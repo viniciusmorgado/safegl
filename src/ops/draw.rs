@@ -101,6 +101,10 @@ where
 
     // OpenGL objects can only be used with the context that created them
     check_contexts(&ctxt, &program, &indices, draw_parameters)?;
+    // the commands of a lost context do nothing
+    if ctxt.state.lost_context {
+        return Ok(());
+    }
     #[cfg(safegl_gl46)]
     check_draw_count(&ctxt, &indices)?;
     #[cfg(any(safegl_desktop, safegl_gles31))]

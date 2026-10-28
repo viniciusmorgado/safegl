@@ -1964,6 +1964,10 @@ pub enum DrawError {
     /// largest value of its index type, at which WebGL always restarts primitives. See
     /// `DrawParameters::primitive_restart`.
     PrimitiveRestartAlwaysOn,
+
+    /// The context was lost while the draw was creating an object that it needs. Draws on a
+    /// context known to be lost do nothing instead.
+    ContextLost,
 }
 
 impl Error for DrawError {
@@ -2191,6 +2195,7 @@ impl fmt::Display for DrawError {
                 "A texture that the draw samples is attached to the framebuffer drawn to",
             PrimitiveRestartAlwaysOn =>
                 "WebGL restarts primitives at the largest index value, which the indices may hold",
+            ContextLost => "The context was lost during the draw",
         };
         match self {
             UniformTypeMismatch {

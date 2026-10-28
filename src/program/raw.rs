@@ -120,7 +120,7 @@ impl RawProgram {
         let shaders_ids = shaders.into_iter().map(|s| s.get_id()).collect::<Vec<_>>();
 
         let id = unsafe {
-            let id = create_program(&mut ctxt);
+            let id = create_program(&mut ctxt)?;
 
             // attaching shaders
             for &sh in shaders_ids.iter() {
@@ -297,7 +297,7 @@ impl RawProgram {
         let mut ctxt = facade.get_context().make_current();
 
         let id = unsafe {
-            let id = create_program(&mut ctxt);
+            let id = create_program(&mut ctxt)?;
 
             ctxt.glow.program_binary(
                 id,
@@ -970,17 +970,24 @@ impl Drop for RawProgram {
                 self.uniform_values.flush_subroutine_uniforms();
             }
 
-            ctxt.glow.delete_program(self.id);
+            if !ctxt.objects_lost() {
+                ctxt.glow.delete_program(self.id);
+            }
         }
     }
 }
 
-/// Builds an empty program from within the GL context.
-unsafe fn create_program(ctxt: &mut CommandContext<'_>) -> glow::Program {
-    match ctxt.glow.create_program() {
-        Ok(id) => id,
-        Err(_) => panic!("glCreateProgram failed"),
+/// Builds an empty program from within the GL context, which fails when the context is lost.
+unsafe fn create_program(
+    ctxt: &mut CommandContext<'_>,
+) -> Result<glow::Program, ProgramCreationError> {
+    // the objects of a lost context are gone, whether the browser creates them or not
+    if ctxt.objects_lost() {
+        return Err(ProgramCreationError::ContextLost);
     }
+    ctxt.glow
+        .create_program()
+        .map_err(|_| ProgramCreationError::ContextLost)
 }
 
 unsafe fn check_program_link_errors(

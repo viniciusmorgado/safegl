@@ -164,10 +164,16 @@ impl ToGlEnum for QueryType {
 }
 
 /// Error that can happen when creating a query object.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[derive(Copy, Clone, Debug)]
+#[non_exhaustive]
 pub enum QueryCreationError {
     /// The given query type is not supported.
     NotSupported,
+
+    /// The context is lost: nothing can be created in it.
+    ContextLost,
 }
 
 impl fmt::Display for QueryCreationError {
@@ -175,6 +181,7 @@ impl fmt::Display for QueryCreationError {
         use self::QueryCreationError::*;
         let desc = match *self {
             NotSupported => "The given query type is not supported",
+            ContextLost => "The context is lost",
         };
         fmt.write_str(desc)
     }
@@ -387,6 +394,10 @@ impl RawQuery {
     {
         let context = facade.get_context().clone();
         let ctxt = facade.get_context().make_current();
+        // the objects of a lost context are gone, whether the browser creates them or not
+        if ctxt.objects_lost() {
+            return Err(QueryCreationError::ContextLost);
+        }
 
         // FIXME: handle Timestamp separately
 
@@ -423,7 +434,9 @@ impl RawQuery {
                     _ => return Err(QueryCreationError::NotSupported),
                 };
 
-                ctxt.glow.create_query().expect("glGenQueries failed")
+                ctxt.glow
+                    .create_query()
+                    .map_err(|_| QueryCreationError::ContextLost)?
             } else {
                 // OpenGL ES 3.0, plus the queries of geometry shaders and of
                 // `GL_EXT_disjoint_timer_query`
@@ -439,7 +452,9 @@ impl RawQuery {
                     _ => return Err(QueryCreationError::NotSupported),
                 };
 
-                ctxt.glow.create_query().expect("glGenQueries failed")
+                ctxt.glow
+                    .create_query()
+                    .map_err(|_| QueryCreationError::ContextLost)?
             }
         };
 
@@ -748,7 +763,9 @@ impl Drop for RawQuery {
         }
 
         unsafe {
-            ctxt.glow.delete_query(self.id);
+            if !ctxt.objects_lost() {
+                ctxt.glow.delete_query(self.id);
+            }
         }
     }
 }

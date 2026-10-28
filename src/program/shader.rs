@@ -44,7 +44,9 @@ impl Drop for Shader {
         let ctxt = self.context.make_current();
 
         unsafe {
-            ctxt.glow.delete_shader(self.id);
+            if !ctxt.objects_lost() {
+                ctxt.glow.delete_shader(self.id);
+            }
         }
     }
 }
@@ -89,9 +91,14 @@ where
             return Err(ProgramCreationError::ShaderTypeNotSupported);
         }
 
+        // the type is supported, so only a lost context fails, whether the browser creates the
+        // shader or not
+        if ctxt.objects_lost() {
+            return Err(ProgramCreationError::ContextLost);
+        }
         let shader = match ctxt.glow.create_shader(shader_type) {
             Ok(shader) => shader,
-            Err(_) => return Err(ProgramCreationError::ShaderTypeNotSupported),
+            Err(_) => return Err(ProgramCreationError::ContextLost),
         };
 
         ctxt.glow.shader_source(shader, &version_first(source_code));

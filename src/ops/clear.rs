@@ -24,6 +24,10 @@ pub fn clear(
 ) {
     unsafe {
         let mut ctxt = context.make_current();
+        // the commands of a lost context do nothing
+        if ctxt.state.lost_context {
+            return;
+        }
 
         let fbo_id =
             fbo::FramebuffersContainer::get_framebuffer_for_drawing(&mut ctxt, framebuffer);

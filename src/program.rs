@@ -252,6 +252,9 @@ pub enum ProgramCreationError {
     /// Locations of fragment outputs can't be given before linking: OpenGL ES needs
     /// `GL_EXT_blend_func_extended`, and WebGL can't. Declare them with `layout(location = N)`.
     LinkLocationsNotSupported,
+
+    /// The context is lost: nothing can be created in it.
+    ContextLost,
 }
 
 impl fmt::Display for ProgramCreationError {
@@ -285,6 +288,7 @@ impl fmt::Display for ProgramCreationError {
             LinkLocationsNotSupported => {
                 "Fragment output locations can't be given before linking by the backend"
             }
+            ContextLost => "The context is lost",
         };
         match *self {
             CompilationError(ref s, _) => write!(fmt, "{}: {}", desc, s),

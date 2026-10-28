@@ -204,10 +204,14 @@ impl<'a> SimpleFrameBuffer<'a> {
     /// The framebuffer object belongs to SafeGL, which deletes it with its attachments. Code
     /// outside SafeGL must not delete it or change its attachments, and must be followed by
     /// [`Context::restore_state`](crate::context::Context::restore_state) if it binds it.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the context is lost, where no framebuffer object can be created.
     pub fn get_framebuffer_object(&self) -> glow::Framebuffer {
         let mut ctxt = self.context.make_current();
         fbo::FramebuffersContainer::get_framebuffer_for_drawing(&mut ctxt, self.get_attachments())
-            .expect("a framebuffer with attachments always has a framebuffer object")
+            .expect("the context is lost")
     }
 
     /// Discards the content of the attachments selected by `which`

@@ -17,10 +17,13 @@ pub struct SamplerObject {
 }
 
 impl SamplerObject {
-    /// Builds a new sampler object.
-    pub fn new(ctxt: &mut CommandContext<'_>, behavior: &SamplerBehavior) -> SamplerObject {
+    /// Builds a new sampler object, which fails when the context is lost.
+    pub fn new(
+        ctxt: &mut CommandContext<'_>,
+        behavior: &SamplerBehavior,
+    ) -> Result<SamplerObject, DrawError> {
         // sampler objects are core in OpenGL 3.3 and OpenGL ES 3.0
-        let sampler = unsafe { ctxt.glow.create_sampler().expect("glGenSamplers failed") };
+        let sampler = unsafe { ctxt.glow.create_sampler() }.map_err(|_| DrawError::ContextLost)?;
 
         unsafe {
             ctxt.glow.sampler_parameter_i32(
@@ -94,10 +97,10 @@ impl SamplerObject {
             }
         }
 
-        SamplerObject {
+        Ok(SamplerObject {
             id: sampler,
             destroyed: false,
-        }
+        })
     }
 
     ///
@@ -106,7 +109,9 @@ impl SamplerObject {
         self.destroyed = true;
 
         unsafe {
-            ctxt.glow.delete_sampler(self.id);
+            if !ctxt.objects_lost() {
+                ctxt.glow.delete_sampler(self.id);
+            }
         }
     }
 }
@@ -236,7 +241,7 @@ pub fn get_sampler(
 
     // builds a new sampler
     check_support(ctxt, behavior).map_err(DrawError::SamplerNotSupported)?;
-    let sampler = SamplerObject::new(ctxt, behavior);
+    let sampler = SamplerObject::new(ctxt, behavior)?;
     let id = sampler.get_id();
     ctxt.samplers.insert(*behavior, sampler);
     Ok(id)

@@ -1165,7 +1165,7 @@ impl FramebuffersContainer {
             FramebufferTarget::Raw(framebuffer) => framebuffer,
             FramebufferTarget::Attachments(attachments) => {
                 attachments.prepare_for_framebuffer_access(ctxt);
-                Some(FramebuffersContainer::get_framebuffer(ctxt, attachments))
+                FramebuffersContainer::get_framebuffer(ctxt, attachments)
             }
         }
     }
@@ -1517,7 +1517,10 @@ impl FramebuffersContainer {
         ctxt: &mut CommandContext<'_>,
         attachments: &ValidatedAttachments<'_>,
     ) -> Result<(), ValidationError> {
-        FramebuffersContainer::get_framebuffer(ctxt, attachments);
+        // a lost context has nothing to check: its commands do nothing
+        if FramebuffersContainer::get_framebuffer(ctxt, attachments).is_none() {
+            return Ok(());
+        }
         let status = ctxt.framebuffer_objects.framebuffers.borrow()[&attachments.raw].status;
         if status == gl::FRAMEBUFFER_COMPLETE {
             Ok(())
@@ -1526,20 +1529,26 @@ impl FramebuffersContainer {
         }
     }
 
+    /// Returns the framebuffer object of `attachments`, created if needed, or `None` if the
+    /// context is lost: the commands then go to the default framebuffer, where they do nothing.
     fn get_framebuffer(
         ctxt: &mut CommandContext<'_>,
         attachments: &ValidatedAttachments<'_>,
-    ) -> glow::Framebuffer {
+    ) -> Option<glow::Framebuffer> {
         // TODO: use entries API
         let mut framebuffers = ctxt.framebuffer_objects.framebuffers.borrow_mut();
         if let Some(value) = framebuffers.get(&attachments.raw) {
-            return value.id;
+            return Some(value.id);
         }
 
-        let new_fbo = FrameBufferObject::new(ctxt, &attachments.raw);
+        // the objects of a lost context are gone, whether the browser creates them or not
+        if ctxt.objects_lost() {
+            return None;
+        }
+        let new_fbo = FrameBufferObject::new(ctxt, &attachments.raw)?;
         let new_fbo_id = new_fbo.id;
         framebuffers.insert(attachments.raw.clone(), new_fbo);
-        new_fbo_id
+        Some(new_fbo_id)
     }
 }
 
@@ -1567,7 +1576,10 @@ impl FrameBufferObject {
     ///
     /// Panics if anything wrong or not supported is detected with the raw attachments.
     ///
-    fn new(mut ctxt: &mut CommandContext<'_>, attachments: &RawAttachments) -> FrameBufferObject {
+    fn new(
+        mut ctxt: &mut CommandContext<'_>,
+        attachments: &RawAttachments,
+    ) -> Option<FrameBufferObject> {
         if attachments.color.len() > ctxt.capabilities.max_draw_buffers as usize {
             panic!(
                 "Trying to attach {} color buffers, but the hardware only supports {}",
@@ -1580,14 +1592,9 @@ impl FrameBufferObject {
         let id = unsafe {
             if ctxt.version >= &Version(Api::Gl, 4, 5) || ctxt.extensions.gl_arb_direct_state_access
             {
-                ctxt.glow
-                    .create_named_framebuffer()
-                    .expect("failed to create a framebuffer object")
+                ctxt.glow.create_named_framebuffer().ok()?
             } else {
-                let id = ctxt
-                    .glow
-                    .create_framebuffer()
-                    .expect("failed to create a framebuffer object");
+                let id = ctxt.glow.create_framebuffer().ok()?;
                 bind_framebuffer(&mut ctxt, Some(id), true, false);
                 id
             }
@@ -1740,11 +1747,11 @@ impl FrameBufferObject {
             }
         };
 
-        FrameBufferObject {
+        Some(FrameBufferObject {
             id,
             current_read_buffer: gl::BACK,
             status,
-        }
+        })
     }
 
     /// Destroys the FBO. Must be called, or things will leak.
@@ -1759,7 +1766,9 @@ impl FrameBufferObject {
         }
 
         // deleting
-        unsafe { ctxt.glow.delete_framebuffer(self.id) };
+        if !ctxt.objects_lost() {
+            unsafe { ctxt.glow.delete_framebuffer(self.id) }
+        }
     }
 }
 

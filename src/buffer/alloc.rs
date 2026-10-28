@@ -1604,6 +1604,11 @@ where
         assert!(mem::size_of_val(data) == size);
     }
 
+    // the objects of a lost context are gone, whether the browser creates them or not
+    if ctxt.objects_lost() {
+        return Err(BufferCreationError::ContextLost);
+    }
+
     // creating the id of the buffer
     let id =
         if ctxt.version >= &Version(Api::Gl, 4, 5) || ctxt.extensions.gl_arb_direct_state_access {
@@ -1611,7 +1616,7 @@ where
         } else {
             ctxt.glow.create_buffer()
         }
-        .expect("glGenBuffers failed");
+        .map_err(|_| BufferCreationError::ContextLost)?;
 
     // raw pointer to data
     let data_ptr = if let Some(data) = data {
@@ -2248,7 +2253,9 @@ unsafe fn destroy_buffer(ctxt: &mut CommandContext<'_>, id: glow::Buffer) {
         }
     }
 
-    ctxt.glow.delete_buffer(id);
+    if !ctxt.objects_lost() {
+        ctxt.glow.delete_buffer(id);
+    }
 }
 
 /// Flushes a range of a mapped buffer.

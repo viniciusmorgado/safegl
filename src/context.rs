@@ -1115,10 +1115,17 @@ impl ContextExt for Context {
 
         // SafeGL can't issue commands while it is already issuing some: from a debug callback
         // or a destructor that runs in the middle of a command
-        let state = self.state.try_borrow_mut().expect(
+        let mut state = self.state.try_borrow_mut().expect(
             "SafeGL was called while it was already issuing OpenGL commands, for example from a \
              debug callback",
         );
+
+        // browsers tell at once when they lose the context, whose commands then do nothing and
+        // can't create objects
+        if is_webgl() && !state.lost_context && self.backend.borrow().is_context_lost() {
+            state.lost_context = true;
+            state.reset_status = gl::UNKNOWN_CONTEXT_RESET;
+        }
 
         CommandContext {
             context: self,

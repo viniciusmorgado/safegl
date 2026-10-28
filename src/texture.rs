@@ -960,6 +960,9 @@ pub enum TextureCreationError {
     /// generate mipmaps in its format, like the formats that aren't both color-renderable and
     /// filterable on OpenGL ES.
     MipmapsNotSupported,
+
+    /// The context is lost: nothing can be created in it.
+    ContextLost,
 }
 
 impl fmt::Display for TextureCreationError {
@@ -971,6 +974,7 @@ impl fmt::Display for TextureCreationError {
             TypeNotSupported => "The texture type is not supported by the backend",
             DataSizeMismatch => "The size of the data doesn't match the texture dimensions",
             MipmapsNotSupported => "Mipmaps can't be generated for the texture",
+            ContextLost => "The context is lost",
         };
         fmt.write_str(desc)
     }
