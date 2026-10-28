@@ -48,7 +48,10 @@ impl fmt::Display for ReadError {
 impl Error for ReadError {}
 
 /// Error that can happen when copying data between buffers.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[derive(Debug, Copy, Clone)]
+#[non_exhaustive]
 pub enum CopyError {
     /// The backend doesn't support copying between buffers.
     NotSupported,
@@ -59,6 +62,10 @@ pub enum CopyError {
 
     /// The target is smaller than the source.
     TargetTooSmall,
+
+    /// One buffer is an index buffer and the other one isn't, which WebGL can't copy between:
+    /// its index buffers never hold other data.
+    IndexBufferMismatch,
 }
 
 impl fmt::Display for CopyError {
@@ -68,6 +75,7 @@ impl fmt::Display for CopyError {
             NotSupported => "The backend doesn't support copying between buffers",
             ContextMismatch => "The target belongs to another context than the source",
             TargetTooSmall => "The target is smaller than the source",
+            IndexBufferMismatch => "WebGL can't copy between an index buffer and another buffer",
         };
         fmt.write_str(desc)
     }
@@ -108,6 +116,15 @@ pub struct Alloc {
 
     /// ID of the draw call where the buffer was last written as an SSBO.
     latest_shader_write: Cell<u64>,
+
+    /// The size of the indices of an index buffer, 0 for the other buffers.
+    index_size: Cell<usize>,
+
+    /// Whether the indices may hold the largest value of their type, at which WebGL always
+    /// restarts primitives. Only tracked on WebGL, where the content of an index buffer is only
+    /// written from the client: uploads, mappings (which are copies there) and copies from other
+    /// index buffers. WebGL creates buffers filled with zeros.
+    holds_restart_index: Cell<bool>,
 }
 
 impl Alloc {
@@ -141,6 +158,8 @@ impl Alloc {
             creation_mode: mode,
             mapped: Cell::new(false),
             latest_shader_write: Cell::new(0),
+            index_size: Cell::new(0),
+            holds_restart_index: Cell::new(false),
         })
     }
 
@@ -170,6 +189,8 @@ impl Alloc {
             creation_mode: mode,
             mapped: Cell::new(false),
             latest_shader_write: Cell::new(0),
+            index_size: Cell::new(0),
+            holds_restart_index: Cell::new(false),
         })
     }
 
@@ -189,6 +210,44 @@ impl Alloc {
     #[inline]
     pub fn uses_persistent_mapping(&self) -> bool {
         self.persistent_mapping.is_some()
+    }
+
+    /// Makes the buffer an index buffer of indices of `size` bytes, and records whether its
+    /// `content`, written when it was created, holds the restart index (see `note_write`).
+    pub fn set_index_size(&self, size: usize, content: &[u8]) {
+        self.index_size.set(size);
+        self.note_write(0, content);
+    }
+
+    /// Returns true if the buffer is an index buffer whose indices may hold the largest value of
+    /// their type, on WebGL.
+    pub fn may_hold_restart_index(&self) -> bool {
+        self.holds_restart_index.get()
+    }
+
+    /// Records whether `bytes`, written at `offset`, hold the largest value of the indices of an
+    /// index buffer, on WebGL. A write of the whole buffer replaces what was known; others can
+    /// only add restart indices.
+    fn note_write(&self, offset: usize, bytes: &[u8]) {
+        let size = self.index_size.get();
+        if !is_webgl() || size == 0 {
+            return;
+        }
+        // the indices that the bytes cover entirely
+        let first = offset.div_ceil(size) * size - offset;
+        let holds = bytes
+            .get(first.min(bytes.len())..)
+            .unwrap_or_default()
+            .chunks_exact(size)
+            .any(|index| index.iter().all(|&byte| byte == 0xff));
+        let partial = first != 0 || (bytes.len() - first.min(bytes.len())) % size != 0;
+        if offset == 0 && bytes.len() == self.size {
+            self.holds_restart_index.set(holds);
+        } else if holds || partial {
+            // an index written in part may become the restart index
+            self.holds_restart_index
+                .set(self.holds_restart_index.get() || holds || partial);
+        }
     }
 
     /// Changes the type of the buffer. Returns `Err` if this is forbidden.
@@ -588,6 +647,10 @@ impl Alloc {
         D: Content,
     {
         assert!(offset_bytes + mem::size_of_val(data) <= self.size);
+        self.note_write(
+            offset_bytes,
+            std::slice::from_raw_parts(data.to_void_ptr() as *const u8, mem::size_of_val(data)),
+        );
 
         if self.persistent_mapping.is_some() {
             let mapping = Mapping {
@@ -1181,6 +1244,19 @@ impl Alloc {
         if dest_offset + range.end - range.start > target.size {
             return Err(CopyError::TargetTooSmall);
         }
+        let index_buffer = |alloc: &Alloc| alloc.ty == BufferType::ElementArrayBuffer;
+        if is_webgl() && index_buffer(self) != index_buffer(target) {
+            return Err(CopyError::IndexBufferMismatch);
+        }
+        // the copied indices hold the restart index if the source does, when they have the same
+        // size; otherwise they may form one
+        if target.index_size.get() != 0 {
+            let same_size = self.index_size.get() == target.index_size.get();
+            let holds = self.holds_restart_index.get() || !same_size;
+            target
+                .holds_restart_index
+                .set(target.holds_restart_index.get() || holds);
+        }
 
         let mut ctxt = self.context.make_current();
 
@@ -1374,6 +1450,8 @@ impl<'a, D: ?Sized> Drop for MappingImpl<'a, D> {
             } => unsafe {
                 let size_bytes = mem::size_of_val(&*data);
                 if needs_flushing && size_bytes != 0 {
+                    let bytes = std::slice::from_raw_parts(data as *const u8, size_bytes);
+                    buffer.note_write(offset_bytes, bytes);
                     let mut ctxt = buffer.context.make_current();
                     buffer.assert_not_transform_feedback(&mut ctxt);
                     buffer.barrier_for_buffer_update(&mut ctxt);

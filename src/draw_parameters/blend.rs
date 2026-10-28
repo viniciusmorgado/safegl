@@ -371,6 +371,45 @@ impl BlendState {
 ///
 /// The caller has already checked that `outputs` fits in the draw buffers and that the backend
 /// supports per-draw-buffer state if any entry differs from `blend`.
+/// Returns `DrawError::BlendConstantsMismatch` if the color function of `blend` has a constant
+/// color factor and a constant alpha factor, which WebGL refuses (its `blendFuncSeparate` checks
+/// the color factors only).
+pub fn validate_webgl_constants(blend: &Blend) -> Result<(), DrawError> {
+    let (source, destination) = match blend.color {
+        BlendingFunction::Addition {
+            source,
+            destination,
+        }
+        | BlendingFunction::Subtraction {
+            source,
+            destination,
+        }
+        | BlendingFunction::ReverseSubtraction {
+            source,
+            destination,
+        } => (source, destination),
+        BlendingFunction::AlwaysReplace | BlendingFunction::Min | BlendingFunction::Max => {
+            return Ok(())
+        }
+    };
+    let color = |factor| {
+        matches!(
+            factor,
+            LinearBlendingFactor::ConstantColor | LinearBlendingFactor::OneMinusConstantColor
+        )
+    };
+    let alpha = |factor| {
+        matches!(
+            factor,
+            LinearBlendingFactor::ConstantAlpha | LinearBlendingFactor::OneMinusConstantAlpha
+        )
+    };
+    if (color(source) && alpha(destination)) || (alpha(source) && color(destination)) {
+        return Err(DrawError::BlendConstantsMismatch);
+    }
+    Ok(())
+}
+
 pub fn sync_blending(
     ctxt: &mut CommandContext<'_>,
     blend: Blend,

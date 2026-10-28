@@ -1693,6 +1693,20 @@ impl TextureExt for TextureAny {
     }
 
     #[inline]
+    fn is_depth(&self) -> bool {
+        match self.kind() {
+            TextureKind::Depth => true,
+            TextureKind::DepthStencil => !self.samples_stencil(),
+            _ => false,
+        }
+    }
+
+    #[inline]
+    fn sampled_levels(&self) -> (u32, u32) {
+        self.mipmap_range()
+    }
+
+    #[inline]
     fn get_context(&self) -> &Rc<Context> {
         &self.context
     }

@@ -756,6 +756,25 @@ impl<'a> ValidatedAttachments<'a> {
         }
     }
 
+    /// Returns true if a level of the `textures` given is attached, with the levels of each one,
+    /// from the first to the second included.
+    pub fn attaches_any(&self, textures: &[(glow::Texture, (u32, u32))]) -> bool {
+        let raw = &self.raw;
+        let attachments = raw.color.iter().map(|(_, attachment)| attachment);
+        attachments
+            .chain(&raw.depth)
+            .chain(&raw.stencil)
+            .chain(&raw.depth_stencil)
+            .any(|attachment| match *attachment {
+                RawAttachment::Texture { texture, level, .. } => {
+                    textures.iter().any(|&(sampled, (first, last))| {
+                        sampled == texture && (first..=last).contains(&level)
+                    })
+                }
+                RawAttachment::RenderBuffer(_) => false,
+            })
+    }
+
     /// Returns the fragment output location and the kind of each color attachment.
     #[inline]
     pub fn get_color_kinds(&self) -> &[(u32, TextureKind)] {

@@ -77,6 +77,17 @@ where
         }
     }
 
+    // WebGL always restarts primitives at the largest index value
+    if crate::version::is_webgl()
+        && draw_parameters.primitive_restart == draw_parameters::PrimitiveRestart::Disabled
+    {
+        if let IndicesSource::IndexBuffer { ref buffer, .. } = indices {
+            if buffer.may_hold_restart_index() {
+                return Err(DrawError::PrimitiveRestartAlwaysOn);
+            }
+        }
+    }
+
     if !draw_parameters::check_queries(draw_parameters)? {
         return Ok(());
     }
@@ -266,6 +277,14 @@ where
 
     // binding the program and uniforms
     bind_programs(&mut ctxt, &program, &uniforms, &mut fences)?;
+
+    // sampling a level that the draw renders to is a feedback loop: undefined on OpenGL, and an
+    // error on WebGL
+    if let FramebufferTarget::Attachments(attachments) = framebuffer {
+        if attachments.attaches_any(&ctxt.sampled_textures) {
+            return Err(DrawError::FeedbackLoop);
+        }
+    }
 
     // sync-ing draw_parameters
     unsafe {

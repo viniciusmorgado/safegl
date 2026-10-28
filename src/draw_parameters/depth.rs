@@ -1,5 +1,4 @@
 use crate::context::CommandContext;
-#[cfg(safegl_desktop)]
 use crate::version::Api;
 
 use crate::gl;
@@ -32,12 +31,13 @@ pub struct Depth {
     /// coordinates, it will also map your Z coordinates to a certain range which you can
     /// specify here.
     ///
-    /// The two values must be between `0.0` and `1.0`, anything outside this range will result
-    /// in a panic. By default the depth range is `(0.0, 1.0)`.
+    /// The two values must be between `0.0` and `1.0`: draws with values outside of this range
+    /// return `DrawError::InvalidDepthRange`. By default the depth range is `(0.0, 1.0)`.
     ///
     /// The first value of the tuple must be the "near" value, where `-1.0` will be mapped.
     /// The second value must be the "far" value, where `1.0` will be mapped.
-    /// It is possible for the "near" value to be greater than the "far" value.
+    /// It is possible for the "near" value to be greater than the "far" value, except on WebGL,
+    /// where it returns `DrawError::InvalidDepthRange`.
     pub range: (f32, f32),
 
     /// Sets whether the depth values of samples should be clamped to `0.0` and `1.0`.
@@ -261,10 +261,15 @@ pub fn sync_depth(ctxt: &mut CommandContext<'_>, depth: &Depth) -> Result<(), Dr
     }
 
     if depth.range != ctxt.state.depth_range {
-        // TODO: WebGL requires depth.range.1 > depth.range.0
+        // `glDepthRange` takes doubles on desktop OpenGL, and floats on OpenGL ES and WebGL,
+        // which refuses a near value above the far value (`validate_webgl`)
         unsafe {
-            ctxt.glow
-                .depth_range_f64(depth.range.0 as f64, depth.range.1 as f64);
+            if ctxt.version.0 == Api::Gl {
+                ctxt.glow
+                    .depth_range_f64(depth.range.0 as f64, depth.range.1 as f64);
+            } else {
+                ctxt.glow.depth_range_f32(depth.range.0, depth.range.1);
+            }
         }
         ctxt.state.depth_range = depth.range;
     }

@@ -632,7 +632,11 @@ pub struct DrawParameters<'a> {
     /// Whether indexed draws start a new primitive at an index value ("primitive restart"),
     /// to draw several strips or fans in one draw.
     ///
-    /// WebGL 2 always restarts primitives at the maximum index value, whatever this field is.
+    /// WebGL 2 always restarts primitives at the maximum index value, so `Disabled` only differs
+    /// from `FixedIndex` when the index buffer holds that value. Since the draw would restart
+    /// anyway, it returns `DrawError::PrimitiveRestartAlwaysOn` there when the index buffer may
+    /// hold it: when it was written with it, in the range drawn or not, or written in part, or
+    /// copied from an index buffer of another type or that may hold it.
     pub primitive_restart: PrimitiveRestart,
 
     /// The tessellation levels of the patches of programs with a tessellation evaluation shader
@@ -1129,6 +1133,9 @@ pub fn sync(
     primitives_types: PrimitiveType,
     index_type: Option<crate::index::IndexType>,
 ) -> Result<(), DrawError> {
+    if is_webgl() {
+        validate_webgl(draw_parameters)?;
+    }
     #[cfg(any(safegl_desktop, safegl_gles32))]
     validate_outputs(ctxt, draw_parameters)?;
     depth::sync_depth(ctxt, &draw_parameters.depth)?;
@@ -1214,6 +1221,17 @@ pub fn sync(
     )?;
 
     Ok(())
+}
+
+/// Checks the parameters that WebGL refuses where OpenGL ES accepts them, before anything is
+/// synchronized: WebGL would raise `GL_INVALID_OPERATION` and draw nothing.
+fn validate_webgl(draw_parameters: &DrawParameters<'_>) -> Result<(), DrawError> {
+    let (near, far) = draw_parameters.depth.range;
+    if near > far {
+        return Err(DrawError::InvalidDepthRange);
+    }
+    stencil::validate_webgl_faces(&draw_parameters.stencil)?;
+    blend::validate_webgl_constants(&draw_parameters.blend)
 }
 
 /// Checks that `DrawParameters::outputs` fits in the draw buffers, and that the backend can

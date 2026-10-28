@@ -497,6 +497,17 @@ trait TextureExt {
     fn has_integer_filters(&self) -> bool {
         true
     }
+
+    /// Returns true if sampling the texture reads depths: a depth texture, or a depth-stencil
+    /// texture that isn't in stencil mode.
+    fn is_depth(&self) -> bool {
+        false
+    }
+
+    /// The levels that sampling the texture reads, from the first to the second included.
+    fn sampled_levels(&self) -> (u32, u32) {
+        (0, u32::MAX)
+    }
 }
 
 /// Ways a texture could possibly be accessed after being written to in a shader via an image unit
@@ -1548,7 +1559,8 @@ pub enum DrawError {
     /// The viewport's dimensions are not supported by the backend.
     ViewportTooLarge,
 
-    /// The depth range is outside of the `(0, 1)` range.
+    /// The depth range is outside of the `(0, 1)` range, or, on WebGL, its near value is above
+    /// its far value.
     InvalidDepthRange,
 
     /// The line width isn't positive, or is above 1 pixel on desktop OpenGL, which SafeGL uses
@@ -1929,6 +1941,26 @@ pub enum DrawError {
         /// The alignment required by the backend.
         alignment: usize,
     },
+
+    /// The stencil test of the two faces has different reference values, test masks or write
+    /// masks, which WebGL refuses. They are compared on the 8 bits of WebGL's stencil buffers,
+    /// and the test masks of the tests that always pass or fail don't matter.
+    StencilFacesMismatch,
+
+    /// The color function of the blending has a constant color factor (`ConstantColor`,
+    /// `OneMinusConstantColor`) and a constant alpha factor (`ConstantAlpha`,
+    /// `OneMinusConstantAlpha`), which WebGL refuses.
+    BlendConstantsMismatch,
+
+    /// A texture that the draw samples has a level attached to the framebuffer drawn to, in the
+    /// levels that the sampling reads (`set_mipmap_range`): the draw would read what it writes.
+    /// WebGL refuses it, and OpenGL leaves the result undefined.
+    FeedbackLoop,
+
+    /// `DrawParameters::primitive_restart` is `Disabled`, but the index buffer may hold the
+    /// largest value of its index type, at which WebGL always restarts primitives. See
+    /// `DrawParameters::primitive_restart`.
+    PrimitiveRestartAlwaysOn,
 }
 
 impl Error for DrawError {
@@ -1987,7 +2019,7 @@ impl fmt::Display for DrawError {
             ViewportTooLarge =>
                 "The viewport's dimensions are not supported by the backend",
             InvalidDepthRange =>
-                "The depth range is outside of the `(0, 1)` range",
+                "The depth range is outside of the `(0, 1)` range, or reversed on WebGL",
             LineWidthNotSupported =>
                 "The line width isn't positive, or is above 1 pixel on desktop OpenGL",
             #[cfg(safegl_gl42)]
@@ -2148,6 +2180,14 @@ impl fmt::Display for DrawError {
                 "An object belongs to another context than the one drawn upon",
             BufferOffsetNotAligned { .. } =>
                 "A buffer slice bound to a block doesn't start at an offset the backend accepts",
+            StencilFacesMismatch =>
+                "WebGL needs the same stencil reference value and masks for both faces",
+            BlendConstantsMismatch =>
+                "WebGL can't blend with a constant color factor and a constant alpha factor",
+            FeedbackLoop =>
+                "A texture that the draw samples is attached to the framebuffer drawn to",
+            PrimitiveRestartAlwaysOn =>
+                "WebGL restarts primitives at the largest index value, which the indices may hold",
         };
         match self {
             UniformTypeMismatch {

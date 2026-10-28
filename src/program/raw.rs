@@ -1055,7 +1055,16 @@ fn check_link_locations(
     ctxt: &CommandContext<'_>,
     locations: &LinkLocations<'_>,
 ) -> Result<(), ProgramCreationError> {
-    let invalid = |name: &str| name.starts_with("gl_") || name.contains('\0') || name.is_empty();
+    // WebGL reserves its own prefixes, and limits the length of the names it is given
+    let webgl = |name: &str| {
+        name.starts_with("webgl_") || name.starts_with("_webgl_") || name.len() > 1024
+    };
+    let invalid = |name: &str| {
+        name.starts_with("gl_")
+            || name.contains('\0')
+            || name.is_empty()
+            || (crate::version::is_webgl() && webgl(name))
+    };
     let error = |name: &str| ProgramCreationError::InvalidLinkLocation {
         name: name.to_owned(),
     };

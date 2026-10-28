@@ -354,6 +354,14 @@ Breaking changes:
   `gl_ext_texture_compression_bptc`, `gl_ovr_multiview2`, ...).
 - In browsers, `Backend` has a `webgl2_context` method, which returns the WebGL 2 context that
   `create_glow_context` wraps. `WebGlBackend` implements it; other backends for browsers must too.
+- `buffer::CopyError` is `#[non_exhaustive]`, with the variant `IndexBufferMismatch`: WebGL can't
+  copy between an index buffer and another buffer, since its index buffers never hold other
+  data.
+- `QueryResultError` is `#[non_exhaustive]`, with the variant `NotAvailable`, and the `get` of the
+  queries takes `&self` instead of consuming the query. WebGL makes the results of queries
+  available in a later task of the browser's event loop and can't wait for them: there, `get`
+  returns `NotAvailable` until `is_ready` returns true, where it returned a wrong value, and the
+  query can be read again later.
 
 Additions:
 
@@ -867,6 +875,27 @@ Fixes:
 - `restore_state` resets every pixel store parameter that other code may change (row lengths,
   image heights, skips, compressed block parameters, byte orders), where it only reset the
   alignments.
+- Draws that WebGL refuses return errors instead of raising WebGL errors and drawing nothing:
+  - stencil faces with different reference values or masks: `DrawError::StencilFacesMismatch`
+    (SafeGL gives the tests that always pass or fail the mask of the other face, which they
+    don't read);
+  - a color blending function with a constant color factor and a constant alpha factor:
+    `DrawError::BlendConstantsMismatch`;
+  - a depth range whose near value is above its far value: `DrawError::InvalidDepthRange`;
+  - `PrimitiveRestart::Disabled` with an index buffer that may hold the largest index value,
+    at which WebGL always restarts: `DrawError::PrimitiveRestartAlwaysOn`. Index buffers track
+    whether they may hold it, from the data written to them;
+  - link locations whose name starts with `webgl_` or `_webgl_`, or is longer than 1024 bytes:
+    `ProgramCreationError::InvalidLinkLocation`.
+- A draw that samples a level of a texture that it renders to returns the new
+  `DrawError::FeedbackLoop`, on every API, outside of the levels given to `set_mipmap_range`:
+  WebGL refused the draw, and OpenGL left its result undefined.
+- On WebGL, depth textures sampled without a depth comparison use nearest filters, since WebGL
+  can't filter them: they read as zero with linear filters.
+- On WebGL, `SyncFence::wait_timeout` with a timeout calls `glFinish` and returns `Signaled`,
+  like `wait`, instead of timing out: WebGL only signals fences in a later task of the event loop.
+  `is_signaled` and `wait_timeout` see the fences that a `glFinish` completed (`wait`,
+  `Context::finish`) as signaled.
 - Framebuffers refuse the textures whose format can't be rendered to (compressed, `F9F9F9`, or
   on OpenGL ES and WebGL the formats that need an extension, such as the float formats without
   `GL_EXT_color_buffer_float`) with the new `ValidationError::FormatNotRenderable`, also when the

@@ -140,8 +140,12 @@ where
             return Err(CreationError::IndexTypeNotSupported);
         }
 
+        let buffer = Buffer::new(facade, data, BufferType::ElementArrayBuffer, mode)?;
+        let bytes =
+            unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, size_of_val(data)) };
+        buffer.as_slice_any().set_index_size(size_of::<T>(), bytes);
         Ok(IndexBuffer {
-            buffer: Buffer::new(facade, data, BufferType::ElementArrayBuffer, mode)?,
+            buffer,
             primitives: prim,
         })
     }
@@ -216,8 +220,10 @@ where
             return Err(CreationError::IndexTypeNotSupported);
         }
 
+        let buffer = Buffer::empty_array(facade, BufferType::ElementArrayBuffer, len, mode)?;
+        buffer.as_slice_any().set_index_size(size_of::<T>(), &[]);
         Ok(IndexBuffer {
-            buffer: Buffer::empty_array(facade, BufferType::ElementArrayBuffer, len, mode)?,
+            buffer,
             primitives: prim,
         })
     }

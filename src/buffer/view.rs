@@ -261,7 +261,8 @@ where
     /// Copies the content of the buffer to another buffer.
     ///
     /// Returns `CopyError::TargetTooSmall` if `T` is unsized and the other buffer is too small,
-    /// and `CopyError::ContextMismatch` if it belongs to another context.
+    /// `CopyError::ContextMismatch` if it belongs to another context, and, on WebGL,
+    /// `CopyError::IndexBufferMismatch` if one buffer is an index buffer and the other one isn't.
     ///
     pub fn copy_to<'a, S>(&self, target: S) -> Result<(), CopyError>
     where
@@ -690,7 +691,8 @@ where
     /// Copies the content of this slice to another slice.
     ///
     /// Returns `CopyError::TargetTooSmall` if `T` is unsized and the other buffer is too small,
-    /// and `CopyError::ContextMismatch` if it belongs to another context.
+    /// `CopyError::ContextMismatch` if it belongs to another context, and, on WebGL,
+    /// `CopyError::IndexBufferMismatch` if one buffer is an index buffer and the other one isn't.
     pub fn copy_to<S>(&self, target: S) -> Result<(), CopyError>
     where
         S: Into<BufferSlice<'a, T>>,
@@ -1218,7 +1220,8 @@ where
     /// Copies the content of this slice to another slice.
     ///
     /// Returns `CopyError::TargetTooSmall` if `T` is unsized and the other buffer is too small,
-    /// and `CopyError::ContextMismatch` if it belongs to another context.
+    /// `CopyError::ContextMismatch` if it belongs to another context, and, on WebGL,
+    /// `CopyError::IndexBufferMismatch` if one buffer is an index buffer and the other one isn't.
     pub fn copy_to<S>(&self, target: S) -> Result<(), CopyError>
     where
         S: Into<BufferSlice<'a, T>>,
@@ -1661,6 +1664,17 @@ pub struct BufferAnySlice<'a> {
 }
 
 impl<'a> BufferAnySlice<'a> {
+    /// Makes the buffer an index buffer of indices of `size` bytes, created with `content`.
+    pub(crate) fn set_index_size(&self, size: usize, content: &[u8]) {
+        self.alloc.set_index_size(size, content);
+    }
+
+    /// Returns true if the slice is in an index buffer whose indices may hold the largest value
+    /// of their type, at which WebGL always restarts primitives.
+    pub(crate) fn may_hold_restart_index(&self) -> bool {
+        self.alloc.may_hold_restart_index()
+    }
+
     /// Changes the number of bytes of each element of the slice.
     #[inline]
     pub(crate) fn with_elements_size(mut self, elements_size: usize) -> BufferAnySlice<'a> {

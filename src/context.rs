@@ -196,6 +196,10 @@ pub struct CommandContext<'a> {
     /// The browser's WebGL 2 context, for the functions that glow doesn't have.
     pub webgl: &'a webgl::WebGl,
 
+    /// The textures that the uniforms of the command sample, with the levels that they read,
+    /// from the first to the second included.
+    pub sampled_textures: Vec<(glow::Texture, (u32, u32))>,
+
     /// Refers to the state of the OpenGL backend. Maintained between multiple calls.
     /// **Must** be synchronized with the real state of the backend.
     pub state: RefMut<'a, GlState>,
@@ -1081,6 +1085,7 @@ impl ContextExt for Context {
             glow: &self.glow,
             extra: &self.extra,
             webgl: &self.webgl,
+            sampled_textures: Vec::new(),
             state,
             version: &self.version,
             extensions: &self.extensions,
@@ -1135,6 +1140,7 @@ impl Drop for Context {
                 glow: &self.glow,
                 extra: &self.extra,
                 webgl: &self.webgl,
+            sampled_textures: Vec::new(),
                 state: self.state.borrow_mut(),
                 version: &self.version,
                 extensions: &self.extensions,

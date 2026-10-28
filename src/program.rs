@@ -231,7 +231,8 @@ pub enum ProgramCreationError {
 
     /// A location of `LinkLocations` can't be given: it is too large for the implementation,
     /// the index of a fragment output isn't 0 or 1, or the name starts with `gl_` or holds a nul
-    /// character.
+    /// character. WebGL also refuses names that start with `webgl_` or `_webgl_`, and names
+    /// longer than 1024 bytes.
     InvalidLinkLocation {
         /// The name of the attribute or output.
         name: String,
