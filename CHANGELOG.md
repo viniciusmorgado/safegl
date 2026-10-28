@@ -357,6 +357,14 @@ Breaking changes:
 - `buffer::CopyError` is `#[non_exhaustive]`, with the variant `IndexBufferMismatch`: WebGL can't
   copy between an index buffer and another buffer, since its index buffers never hold other
   data.
+- Creating an object in a lost context returns an error instead of panicking: the new
+  `ContextLost` variants of `BufferCreationError` (now `#[non_exhaustive]`),
+  `TextureCreationError`, `RenderBufferCreationError`, `ProgramCreationError`,
+  `QueryCreationError` (now `#[non_exhaustive]`) and `buffer_texture::TextureCreationError`, and
+  `None` from `TimestampQuery::new`. A draw that loses the context while it creates an object
+  returns the new `DrawError::ContextLost`. Draws, clears and blits on a context known to be
+  lost do nothing, and the objects of a lost context are dropped without OpenGL calls.
+- `WebDisplayCreationError` is `#[non_exhaustive]`, with the variant `ContextNotRestored`.
 - `QueryResultError` is `#[non_exhaustive]`, with the variant `NotAvailable`, and the `get` of the
   queries takes `&self` instead of consuming the query. WebGL makes the results of queries
   available in a later task of the browser's event loop and can't wait for them: there, `get`
@@ -642,6 +650,18 @@ Additions:
   `ImageCompatibility`), sampling while depth and stencil are tested or written
   (`SimultaneousUse`), compressed blocks, buffer and texture clears, and texture views
   (`ViewClass`).
+- `WebDisplay::builder(canvas)` creates the WebGL 2 context with its attributes: alpha,
+  antialiasing, depth, stencil, premultiplied alpha, preserved drawing buffer, power preference
+  (`PowerPreference`), failure on a major performance caveat, and desynchronized presentation.
+  `WebDisplay::resize_to_display` sizes the drawing buffer for the device pixels of the screen
+  (HiDPI).
+- The WebGL context survives its loss: the backend asks the browser to restore it, and once
+  `WebDisplay::is_context_restored` returns true, `WebDisplay::restore` returns a display that
+  draws with the restored context. Its objects must be created again; the objects of the lost
+  context belong to the old display.
+- On WebGL, which has no debug output, the debug callback gets the errors of `glGetError` after
+  each operation, as messages of high severity from the API, and the messages of the default
+  callbacks go to the browser's console, where the standard error went nowhere.
 - In browsers, the extensions of WebGL 2, named without the `GL_` prefix, set the fields of
   `ExtensionsList`, so SafeGL uses the float render targets, anisotropic filtering, norm16
   textures and the others that the browser has. SafeGL enables each WebGL 2 extension that it
