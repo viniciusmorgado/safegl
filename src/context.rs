@@ -1140,7 +1140,7 @@ impl Drop for Context {
                 glow: &self.glow,
                 extra: &self.extra,
                 webgl: &self.webgl,
-            sampled_textures: Vec::new(),
+                sampled_textures: Vec::new(),
                 state: self.state.borrow_mut(),
                 version: &self.version,
                 extensions: &self.extensions,
