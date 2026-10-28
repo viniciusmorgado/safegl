@@ -20,7 +20,7 @@ pub use self::pipeline::DrawProgram;
 pub use self::pipeline::{
     ProgramPipeline, ProgramPipelineCreationError, SeparableProgram, SeparableSource,
 };
-pub use self::program::Program;
+pub use self::program::{PendingProgram, Program};
 pub use self::reflection::ShaderStage;
 #[cfg(not(safegl_desktop))]
 pub(crate) use self::reflection::SubroutineData;

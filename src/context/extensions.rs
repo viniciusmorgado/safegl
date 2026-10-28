@@ -186,6 +186,7 @@ extensions! {
     "GL_IMG_texture_compression_pvrtc" => gl_img_texture_compression_pvrtc,
     "GL_KHR_no_error" => gl_khr_no_error,
     "GL_KHR_parallel_shader_compile" => gl_khr_parallel_shader_compile,
+    "GL_ARB_parallel_shader_compile" => gl_arb_parallel_shader_compile,
     "GL_KHR_context_flush_control" => gl_khr_context_flush_control,
     "GL_KHR_robustness" => gl_khr_robustness,
     "GL_KHR_texture_compression_astc_ldr" => gl_khr_texture_compression_astc_ldr,

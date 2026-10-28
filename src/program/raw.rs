@@ -114,6 +114,46 @@ impl RawProgram {
         F: Facade,
         I: IntoIterator<Item = &'a Shader>,
     {
+        let id = Self::link(
+            facade,
+            shaders,
+            transform_feedback,
+            fragment_source,
+            locations,
+            separable,
+        )?;
+        unsafe {
+            let mut ctxt = facade.get_context().make_current();
+            if let Err(error) = check_program_link_errors(&mut ctxt, id) {
+                ctxt.glow.delete_program(id);
+                return Err(error);
+            }
+        }
+        Self::from_linked(
+            facade,
+            id,
+            has_geometry_shader,
+            has_tessellation_control_shader,
+            has_tessellation_evaluation_shader,
+            spirv,
+            separable,
+        )
+    }
+
+    /// Links a program from a list of shaders, without waiting for the end of the link, which
+    /// drivers with `GL_KHR_parallel_shader_compile` do in the background.
+    pub fn link<'a, F: ?Sized, I>(
+        facade: &'a F,
+        shaders: I,
+        transform_feedback: Option<(Vec<String>, TransformFeedbackMode)>,
+        fragment_source: Option<&str>,
+        locations: LinkLocations<'_>,
+        separable: Option<gl::types::GLbitfield>,
+    ) -> Result<glow::Program, ProgramCreationError>
+    where
+        F: Facade,
+        I: IntoIterator<Item = &'a Shader>,
+    {
         let mut ctxt = facade.get_context().make_current();
         check_link_locations(&ctxt, &locations)?;
 
@@ -188,11 +228,25 @@ impl RawProgram {
                 ctxt.report_debug_output_errors.set(true);
             }
 
-            // checking for errors
-            check_program_link_errors(&mut ctxt, id)?;
-
             id
         };
+        Ok(id)
+    }
+
+    /// Builds the program from a program that linked, reading what it contains.
+    pub fn from_linked<F: ?Sized>(
+        facade: &F,
+        id: glow::Program,
+        has_geometry_shader: bool,
+        has_tessellation_control_shader: bool,
+        has_tessellation_evaluation_shader: bool,
+        spirv: Option<&[Module]>,
+        separable: Option<gl::types::GLbitfield>,
+    ) -> Result<RawProgram, ProgramCreationError>
+    where
+        F: Facade,
+    {
+        let mut ctxt = facade.get_context().make_current();
 
         // drivers can leave out the names of the resources of SPIR-V modules
         let (uniforms, atomic_counters, uniform_locations, attributes, blocks, ssbos, outputs) =
@@ -998,7 +1052,7 @@ unsafe fn create_program(
         .map_err(|_| ProgramCreationError::ContextLost)
 }
 
-unsafe fn check_program_link_errors(
+pub(crate) unsafe fn check_program_link_errors(
     ctxt: &mut CommandContext<'_>,
     program: glow::Program,
 ) -> Result<(), ProgramCreationError> {

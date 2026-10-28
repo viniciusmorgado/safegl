@@ -5,7 +5,7 @@ use crate::version::Api;
 use crate::version::Version;
 
 use crate::backend::Facade;
-use crate::context::Context;
+use crate::context::{CommandContext, Context};
 use crate::CapabilitiesSource;
 use crate::ContextExt;
 
@@ -80,6 +80,41 @@ pub fn build_shader<F: ?Sized>(
 where
     F: Facade,
 {
+    let shader = start_shader(facade, shader_type, source_code)?;
+    check_shader(&facade.get_context().make_current(), &shader, shader_type)?;
+    Ok(shader)
+}
+
+/// Returns the error of the compilation of `shader`, which waits for its end. `ctxt` is the
+/// current context of the shader.
+pub fn check_shader(
+    ctxt: &CommandContext<'_>,
+    shader: &Shader,
+    shader_type: gl::types::GLenum,
+) -> Result<(), ProgramCreationError> {
+    unsafe {
+        // checking compilation success by reading a flag on the shader
+        if ctxt.glow.get_shader_compile_status(shader.id) {
+            Ok(())
+        } else {
+            Err(ProgramCreationError::CompilationError(
+                ctxt.glow.get_shader_info_log(shader.id),
+                ShaderType::from_opengl_type(shader_type),
+            ))
+        }
+    }
+}
+
+/// Starts compiling an individual shader, without waiting for the end of the compilation, which
+/// drivers with `GL_KHR_parallel_shader_compile` do in the background.
+pub fn start_shader<F: ?Sized>(
+    facade: &F,
+    shader_type: gl::types::GLenum,
+    source_code: &str,
+) -> Result<Shader, ProgramCreationError>
+where
+    F: Facade,
+{
     unsafe {
         let ctxt = facade.get_context().make_current();
 
@@ -110,21 +145,10 @@ where
             ctxt.report_debug_output_errors.set(true);
         }
 
-        // checking compilation success by reading a flag on the shader
-        if ctxt.glow.get_shader_compile_status(shader) {
-            Ok(Shader {
-                context: facade.get_context().clone(),
-                id: shader,
-            })
-        } else {
-            // compilation error
-            let msg = ctxt.glow.get_shader_info_log(shader);
-
-            Err(ProgramCreationError::CompilationError(
-                msg,
-                ShaderType::from_opengl_type(shader_type),
-            ))
-        }
+        Ok(Shader {
+            context: facade.get_context().clone(),
+            id: shader,
+        })
     }
 }
 

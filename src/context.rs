@@ -864,6 +864,24 @@ impl Context {
         }
     }
 
+    /// Sets the number of threads that the driver may use to compile and link the programs of
+    /// `Program::new_pending` in the background: `Some(0)` compiles them when they are created,
+    /// `None` lets the driver choose (`glMaxShaderCompilerThreadsKHR`).
+    ///
+    /// Returns false if the backend can't set it: without `GL_KHR_parallel_shader_compile` or
+    /// `GL_ARB_parallel_shader_compile`, and in browsers, which choose.
+    pub fn set_shader_compiler_threads(&self, threads: Option<u32>) -> bool {
+        let ctxt = self.make_current();
+        let available = !is_webgl()
+            && (ctxt.extensions.gl_khr_parallel_shader_compile
+                || ctxt.extensions.gl_arb_parallel_shader_compile);
+        if available && !ctxt.objects_lost() {
+            // glow calls the function of the KHR extension if it is loaded, else the ARB one
+            unsafe { ctxt.glow.max_shader_compiler_threads(threads.unwrap_or(u32::MAX)) };
+        }
+        available
+    }
+
     /// Returns an estimate of the amount of video memory available in bytes.
     ///
     /// Returns `None` if no estimate is available.
