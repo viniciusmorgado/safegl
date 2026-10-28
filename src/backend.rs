@@ -77,6 +77,13 @@ pub unsafe trait Backend {
     #[cfg(all(target_family = "wasm", not(target_os = "emscripten")))]
     unsafe fn create_glow_context(&self) -> glow::Context;
 
+    /// Returns the browser's WebGL 2 context, the one that `create_glow_context` wraps.
+    ///
+    /// SafeGL calls it for the WebGL functions that glow doesn't have, and to enable the WebGL
+    /// extensions that it uses.
+    #[cfg(safegl_browser)]
+    fn webgl2_context(&self) -> web_sys::WebGl2RenderingContext;
+
     /// Returns the dimensions of the window, or screen, etc.
     fn get_framebuffer_dimensions(&self) -> (u32, u32);
 
@@ -114,6 +121,11 @@ where
 
     unsafe fn create_glow_context(&self) -> glow::Context {
         self.deref().create_glow_context()
+    }
+
+    #[cfg(safegl_browser)]
+    fn webgl2_context(&self) -> web_sys::WebGl2RenderingContext {
+        self.deref().webgl2_context()
     }
 
     fn get_framebuffer_dimensions(&self) -> (u32, u32) {

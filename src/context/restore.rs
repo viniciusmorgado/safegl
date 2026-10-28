@@ -337,6 +337,10 @@ unsafe fn restore_fixed_function(ctxt: &mut CommandContext<'_>) {
         ctxt.extra
             .PolygonOffsetClamp(factor, units, state.polygon_offset_clamp);
     } else if ctxt.extensions.gl_ext_polygon_offset_clamp {
+        #[cfg(safegl_browser)]
+        ctxt.webgl
+            .polygon_offset_clamp(factor, units, state.polygon_offset_clamp);
+        #[cfg(not(safegl_browser))]
         ctxt.extra
             .PolygonOffsetClampEXT(factor, units, state.polygon_offset_clamp);
     }

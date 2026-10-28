@@ -347,6 +347,13 @@ Breaking changes:
 - `DrawParameters::base_instance` given to a draw of multidraw commands, which give their own
   base instance, or of captured vertices, which are drawn without one, returns
   `DrawError::BaseInstanceNotApplicable` instead of being ignored.
+- `ExtensionsList` is `#[non_exhaustive]`, so that new extensions don't break code that builds
+  it, and has fields for the WebGL 2 extensions: the ones that only WebGL has
+  (`webgl_multi_draw`, `webgl_compressed_texture_s3tc`, `ext_disjoint_timer_query_webgl2`, ...),
+  and the OpenGL ES ones that WebGL 2 has too (`gl_ext_float_blend`, `gl_ext_clip_control`,
+  `gl_ext_texture_compression_bptc`, `gl_ovr_multiview2`, ...).
+- In browsers, `Backend` has a `webgl2_context` method, which returns the WebGL 2 context that
+  `create_glow_context` wraps. `WebGlBackend` implements it; other backends for browsers must too.
 
 Additions:
 
@@ -627,6 +634,14 @@ Additions:
   `ImageCompatibility`), sampling while depth and stencil are tested or written
   (`SimultaneousUse`), compressed blocks, buffer and texture clears, and texture views
   (`ViewClass`).
+- In browsers, the extensions of WebGL 2, named without the `GL_` prefix, set the fields of
+  `ExtensionsList`, so SafeGL uses the float render targets, anisotropic filtering, norm16
+  textures and the others that the browser has. SafeGL enables each WebGL 2 extension that it
+  uses (`getExtension`), so their constants and their GLSL `#extension` work.
+- In browsers, `FormatInfos::multisamples` lists the sample counts of the formats of render
+  buffers, so that render buffers with more samples than their format has return
+  `RenderBufferCreationError::SamplesNotSupported`, and `Capabilities::renderer` and `vendor`
+  are the real ones when the browser gives them (`WEBGL_debug_renderer_info`).
 
 Fixes:
 
@@ -852,6 +867,8 @@ Fixes:
 - `restore_state` resets every pixel store parameter that other code may change (row lengths,
   image heights, skips, compressed block parameters, byte orders), where it only reset the
   alignments.
+- Programs with uniform blocks are created in browsers, where they panicked: glow doesn't have
+  `glGetActiveUniformsiv` there, and SafeGL calls the browser's `getActiveUniforms`.
 - Shaders whose `#version` comes after blank lines or indentation compile in browsers, which
   only accept it on the first line: SafeGL moves it there, followed by a `#line` that keeps the
   line numbers of the errors.

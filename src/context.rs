@@ -67,6 +67,7 @@ mod limits;
 mod debug_output;
 mod restore;
 mod state;
+mod webgl;
 
 /// Stores the state and information required for SafeGL to execute commands. Most public SafeGL
 /// functions require passing a `Rc<Context>`.
@@ -76,6 +77,9 @@ pub struct Context {
 
     /// Contains the pointers to OpenGL functions.
     extra: gl::Extra,
+
+    /// The browser's WebGL 2 context, for the functions that glow doesn't have.
+    webgl: webgl::WebGl,
 
     /// The current state of the OpenGL state machine. Contains for example which buffer is bound
     /// to which bind point, whether depth testing is activated, etc.
@@ -188,6 +192,9 @@ pub struct CommandContext<'a> {
 
     /// Source of OpenGL function pointers.
     pub extra: &'a gl::Extra,
+
+    /// The browser's WebGL 2 context, for the functions that glow doesn't have.
+    pub webgl: &'a webgl::WebGl,
 
     /// Refers to the state of the OpenGL backend. Maintained between multiple calls.
     /// **Must** be synchronized with the real state of the backend.
@@ -323,8 +330,13 @@ impl Context {
         let version = version::get_gl_version(&glow);
         let extensions = extensions::get_extensions(&glow);
         check_gl_compatibility(&glow, &version)?;
+        #[cfg(safegl_browser)]
+        let webgl = webgl::WebGl::new(backend.webgl2_context(), &extensions::hidden_extensions());
+        #[cfg(not(safegl_browser))]
+        let webgl = webgl::WebGl::new();
 
-        let capabilities = capabilities::get_capabilities(&glow, &extra, &version, &extensions);
+        let capabilities =
+            capabilities::get_capabilities(&glow, &extra, &webgl, &version, &extensions);
         let report_debug_output_errors = Cell::new(true);
 
         let vertex_array_objects = vertex_array_object::VertexAttributesSystem::new();
@@ -364,6 +376,7 @@ impl Context {
         let context = Rc::new(Context {
             glow,
             extra,
+            webgl,
             state: gl_state,
             version,
             extensions,
@@ -1066,6 +1079,7 @@ impl ContextExt for Context {
             context: self,
             glow: &self.glow,
             extra: &self.extra,
+            webgl: &self.webgl,
             state,
             version: &self.version,
             extensions: &self.extensions,
@@ -1119,6 +1133,7 @@ impl Drop for Context {
                 context: self,
                 glow: &self.glow,
                 extra: &self.extra,
+                webgl: &self.webgl,
                 state: self.state.borrow_mut(),
                 version: &self.version,
                 extensions: &self.extensions,

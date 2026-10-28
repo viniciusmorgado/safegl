@@ -28,7 +28,7 @@ gl46 = [] # desktop OpenGL 4.6 core
 gles30 = [] # OpenGL ES 3.0
 gles31 = [] # OpenGL ES 3.1
 gles32 = [] # OpenGL ES 3.2
-webgl = ["dep:web-sys", "dep:wasm-bindgen"] # WebGL 2 in browsers (wasm32), the OpenGL ES 3.0 set
+webgl = ["dep:web-sys", "dep:wasm-bindgen", "dep:js-sys"] # WebGL 2 in browsers (wasm32), the OpenGL ES 3.0 set
 glutin_backend = ["glutin"]
 backtrace = ["dep:backtrace"] # prints a backtrace with the OpenGL debug messages reported as errors
 unstable = [] # used for benchmarks
@@ -249,7 +249,8 @@ path = "examples/standalone/spirv/main.rs"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { version = "0.2", optional = true }
-web-sys = { version = "0.3", optional = true, features = ["HtmlCanvasElement", "WebGl2RenderingContext", "WebGlContextAttributes"] }
+js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", optional = true, features = ["HtmlCanvasElement", "WebGl2RenderingContext", "WebGlContextAttributes", "WebGlProgram"] }
 
 # the tests in browsers: `cargo test --target wasm32-unknown-unknown --no-default-features
 # --features webgl`, run by `wasm-bindgen-test-runner` (see `.cargo/config.toml`)

@@ -1,5 +1,6 @@
 use crate::context::limits::{self, Limits};
 use crate::context::ExtensionsList;
+use crate::context::webgl::WebGl;
 use crate::version::is_webgl;
 use crate::version::Api;
 use crate::version::Version;
@@ -250,6 +251,7 @@ pub enum ReleaseBehavior {
 pub unsafe fn get_capabilities(
     gl: &glow::Context,
     extra: &gl::Extra,
+    webgl: &WebGl,
     version: &Version,
     extensions: &ExtensionsList,
 ) -> Capabilities {
@@ -265,8 +267,20 @@ pub unsafe fn get_capabilities(
         (false, false)
     };
 
-    // getting the value of `GL_RENDERER`
+    // getting the value of `GL_RENDERER`, and of `GL_VENDOR`; browsers give the real ones with
+    // `WEBGL_debug_renderer_info`
     let renderer = gl.get_parameter_string(glow::RENDERER);
+    let vendor = gl.get_parameter_string(glow::VENDOR);
+    #[cfg(safegl_browser)]
+    let (renderer, vendor) = if extensions.webgl_debug_renderer_info {
+        use crate::context::webgl::{UNMASKED_RENDERER_WEBGL, UNMASKED_VENDOR_WEBGL};
+        (
+            webgl.unmasked_string(UNMASKED_RENDERER_WEBGL).unwrap_or(renderer),
+            webgl.unmasked_string(UNMASKED_VENDOR_WEBGL).unwrap_or(vendor),
+        )
+    } else {
+        (renderer, vendor)
+    };
 
     // separate vertex formats and bindings, which WebGL doesn't have
     let vertex_attrib_binding = !is_webgl()
@@ -293,7 +307,7 @@ pub unsafe fn get_capabilities(
 
         version: gl.get_parameter_string(glow::VERSION),
 
-        vendor: gl.get_parameter_string(glow::VENDOR),
+        vendor,
 
         debug,
 
@@ -445,8 +459,8 @@ pub unsafe fn get_capabilities(
             }
         },
 
-        internal_formats_textures: get_internal_formats(gl, version, extensions, false),
-        internal_formats_renderbuffers: get_internal_formats(gl, version, extensions, true),
+        internal_formats_textures: get_internal_formats(gl, webgl, version, extensions, false),
+        internal_formats_renderbuffers: get_internal_formats(gl, webgl, version, extensions, true),
 
         max_combined_texture_image_units: {
             let mut val = gl.get_parameter_i32(glow::MAX_COMBINED_TEXTURE_IMAGE_UNITS);
@@ -726,6 +740,7 @@ pub unsafe fn get_supported_glsl(
 /// Returns all informations about all supported internal formats.
 pub fn get_internal_formats(
     gl: &glow::Context,
+    webgl: &WebGl,
     version: &Version,
     extensions: &ExtensionsList,
     renderbuffer: bool,
@@ -758,7 +773,7 @@ pub fn get_internal_formats(
                 return None;
             }
 
-            let infos = get_internal_format(gl, version, extensions, format, renderbuffer);
+            let infos = get_internal_format(gl, webgl, version, extensions, format, renderbuffer);
             Some((format, infos))
         })
         .collect()
@@ -767,6 +782,7 @@ pub fn get_internal_formats(
 /// Returns informations about a precise internal format.
 pub fn get_internal_format(
     gl: &glow::Context,
+    webgl: &WebGl,
     version: &Version,
     extensions: &ExtensionsList,
     format: TextureFormat,
@@ -792,20 +808,30 @@ pub fn get_internal_format(
     // the sample counts of a format for a target, which OpenGL 4.2 and
     // `GL_ARB_internalformat_query` list for render buffers and multisample textures, and
     // OpenGL ES for render buffers from 3.0, 2D multisample textures from 3.1 and arrays from 3.2;
-    // WebGL only accepts `SAMPLES`, not `NUM_SAMPLE_COUNTS`, so the list can't be sized
-    let samples = |target: gl::types::GLenum, listed: bool| unsafe {
-        if !(listed && format.is_renderable(&dummy) && !is_webgl()) {
+    // WebGL only accepts `SAMPLES`, and returns the whole list
+    let samples = |target: gl::types::GLenum, listed: bool| {
+        if !(listed && format.is_renderable(&dummy)) {
             return None;
         }
-        let mut num = [0];
         let internal_format = format.to_glenum();
-        let count = glow::NUM_SAMPLE_COUNTS;
-        gl.get_internal_format_i32_slice(target, internal_format, count, &mut num);
-        let mut formats = vec![0; num[0].max(0) as usize];
-        if !formats.is_empty() {
-            gl.get_internal_format_i32_slice(target, internal_format, glow::SAMPLES, &mut formats);
+        #[cfg(safegl_browser)]
+        {
+            let _ = (gl, target);
+            Some(webgl.render_buffer_samples(internal_format))
         }
-        Some(formats)
+        #[cfg(not(safegl_browser))]
+        unsafe {
+            let _ = webgl;
+            let mut num = [0];
+            let count = glow::NUM_SAMPLE_COUNTS;
+            gl.get_internal_format_i32_slice(target, internal_format, count, &mut num);
+            let mut formats = vec![0; num[0].max(0) as usize];
+            if !formats.is_empty() {
+                let samples = glow::SAMPLES;
+                gl.get_internal_format_i32_slice(target, internal_format, samples, &mut formats);
+            }
+            Some(formats)
+        }
     };
     let desktop = version >= &Version(Api::Gl, 4, 2) || extensions.gl_arb_internalformat_query;
 

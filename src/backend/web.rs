@@ -56,6 +56,10 @@ unsafe impl Backend for WebGlBackend {
         glow::Context::from_webgl2_context(self.gl.clone())
     }
 
+    fn webgl2_context(&self) -> WebGl2RenderingContext {
+        self.gl.clone()
+    }
+
     fn get_framebuffer_dimensions(&self) -> (u32, u32) {
         (
             self.gl.drawing_buffer_width() as u32,
