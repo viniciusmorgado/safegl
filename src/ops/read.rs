@@ -505,6 +505,32 @@ unsafe fn set_pack_alignment(ctxt: &mut CommandContext<'_>, row_bytes: usize) {
     }
 }
 
+/// The client format whose pixels have `format` and `ty` in transfers, normalized or integer,
+/// if SafeGL has one.
+#[cfg(safegl_gl43)]
+pub(crate) fn client_format_from_gl_enums(
+    format: gl::types::GLenum,
+    ty: gl::types::GLenum,
+) -> Option<ClientFormat> {
+    use ClientFormat::*;
+    [
+        U8, U8U8, U8U8U8, U8U8U8U8, I8, I8I8, I8I8I8, I8I8I8I8, U16, U16U16, U16U16U16,
+        U16U16U16U16, I16, I16I16, I16I16I16, I16I16I16I16, U32, U32U32, U32U32U32,
+        U32U32U32U32, I32, I32I32, I32I32I32, I32I32I32I32, U3U3U2, U5U6U5, U4U4U4U4, U5U5U5U1,
+        U1U5U5U5Reversed, U10U10U10U2, F16, F16F16, F16F16F16, F16F16F16F16, F32, F32F32,
+        F32F32F32, F32F32F32F32,
+    ]
+    .into_iter()
+    .find(|client| {
+        let integer = matches!(
+            format,
+            gl::RED_INTEGER | gl::RG_INTEGER | gl::RGB_INTEGER | gl::RGBA_INTEGER
+        );
+        let packed = matches!(client, U3U3U2 | U5U6U5 | U4U4U4U4 | U5U5U5U1 | U1U5U5U5Reversed);
+        (!integer || !packed) && client_format_to_gl_enum(client, integer) == (format, ty)
+    })
+}
+
 fn client_format_to_gl_enum(
     format: &ClientFormat,
     integer: bool,

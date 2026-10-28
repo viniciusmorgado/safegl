@@ -156,7 +156,11 @@ pub use crate::context::{
 };
 #[cfg(safegl_gl43)]
 #[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
-pub use crate::context::{FormatInfo, FormatInfoNotSupportedError, FormatSupport, FormatTarget};
+pub use crate::context::{
+    ColorEncoding, ComponentType, FormatComponents, FormatInfo, FormatInfoNotSupportedError,
+    FormatSupport, FormatTarget, ImageCompatibility, ImageFormatClass, SimultaneousUse,
+    StageSupport, ViewClass,
+};
 #[cfg(any(safegl_desktop, safegl_gles32))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32))))]
 pub use crate::draw_parameters::OutputState;

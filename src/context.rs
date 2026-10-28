@@ -45,7 +45,11 @@ pub use self::capabilities::{Capabilities, ReleaseBehavior, ResetNotificationStr
 pub use self::extensions::ExtensionsList;
 #[cfg(safegl_gl43)]
 #[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
-pub use self::format_info::{FormatInfo, FormatInfoNotSupportedError, FormatSupport, FormatTarget};
+pub use self::format_info::{
+    ColorEncoding, ComponentType, FormatComponents, FormatInfo, FormatInfoNotSupportedError,
+    FormatSupport, FormatTarget, ImageCompatibility, ImageFormatClass, SimultaneousUse,
+    StageSupport, ViewClass,
+};
 #[cfg(any(safegl_gl43, safegl_gles32))]
 pub use self::debug_output::DebugGroup;
 #[cfg(any(safegl_gl43, safegl_gles32))]
