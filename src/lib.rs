@@ -168,8 +168,8 @@ pub use crate::draw_parameters::LogicOp;
 #[cfg(safegl_desktop)]
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub use crate::draw_parameters::PointCoordOrigin;
-#[cfg(safegl_gl41)]
-#[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+#[cfg(any(safegl_gl41, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
 pub use crate::draw_parameters::ViewportState;
 #[cfg(safegl_desktop)]
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
@@ -1786,25 +1786,25 @@ pub enum DrawError {
     },
 
     /// Viewport arrays (`DrawParameters::viewports`) aren't supported by the backend.
-    #[cfg(safegl_gl41)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
     ViewportArrayNotSupported,
 
     /// `DrawParameters::viewports` was given together with `viewport`, `scissor` or a
     /// `Depth::range` other than `(0.0, 1.0)`.
-    #[cfg(safegl_gl41)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
     ViewportArrayConflict,
 
     /// `DrawParameters::viewports` has more entries than `Limits::max_viewports`.
-    #[cfg(safegl_gl41)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
     ViewportIndexOutOfBounds,
 
     /// A viewport of `DrawParameters::viewports` has a negative size or a position that isn't
     /// finite.
-    #[cfg(safegl_gl41)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
     InvalidViewport,
 
     /// `DrawParameters::point_coord_origin` is `LowerLeft` while drawing into an OpenGL ES
@@ -2144,14 +2144,14 @@ impl fmt::Display for DrawError {
             #[cfg(safegl_desktop)]
             RectangleTextureSampler { .. } =>
                 "A rectangle texture is sampled with a wrap function or a filter it doesn't have",
-            #[cfg(safegl_gl41)]
+            #[cfg(any(safegl_gl41, safegl_gles32))]
             ViewportArrayNotSupported => "Viewport arrays are not supported by the backend",
-            #[cfg(safegl_gl41)]
+            #[cfg(any(safegl_gl41, safegl_gles32))]
             ViewportArrayConflict =>
                 "Viewport arrays can't be used with a viewport, a scissor box or a depth range",
-            #[cfg(safegl_gl41)]
+            #[cfg(any(safegl_gl41, safegl_gles32))]
             ViewportIndexOutOfBounds => "There are more viewports than the backend supports",
-            #[cfg(safegl_gl41)]
+            #[cfg(any(safegl_gl41, safegl_gles32))]
             InvalidViewport => "A viewport has a negative size or a position that isn't finite",
             #[cfg(safegl_desktop)]
             PointCoordOriginNotSupported =>

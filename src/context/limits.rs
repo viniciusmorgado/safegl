@@ -180,29 +180,29 @@ pub struct Limits {
     #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     pub max_vertex_streams: Option<gl::types::GLint>,
 
-    /// Number of viewports (`GL_MAX_VIEWPORTS`). `None` without OpenGL 4.1 or
-    /// `GL_ARB_viewport_array`.
-    #[cfg(safegl_gl41)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    /// Number of viewports (`GL_MAX_VIEWPORTS`). `None` without OpenGL 4.1,
+    /// `GL_ARB_viewport_array` or `GL_OES_viewport_array`.
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
     pub max_viewports: Option<gl::types::GLint>,
 
     /// Bits of subpixel precision of viewport bounds (`GL_VIEWPORT_SUBPIXEL_BITS`). `None`
-    /// without OpenGL 4.1 or `GL_ARB_viewport_array`.
-    #[cfg(safegl_gl41)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    /// without OpenGL 4.1, `GL_ARB_viewport_array` or `GL_OES_viewport_array`.
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
     pub viewport_subpixel_bits: Option<gl::types::GLint>,
 
-    /// Range of the corners of viewports (`GL_VIEWPORT_BOUNDS_RANGE`). `None` without OpenGL 4.1
-    /// or `GL_ARB_viewport_array`.
-    #[cfg(safegl_gl41)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    /// Range of the corners of viewports (`GL_VIEWPORT_BOUNDS_RANGE`). `None` without OpenGL 4.1,
+    /// `GL_ARB_viewport_array` or `GL_OES_viewport_array`.
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
     pub viewport_bounds_range: Option<(gl::types::GLfloat, gl::types::GLfloat)>,
 
     /// The vertex of a primitive that gives `gl_ViewportIndex`
-    /// (`GL_VIEWPORT_INDEX_PROVOKING_VERTEX`). `None` without OpenGL 4.1 or
-    /// `GL_ARB_viewport_array`.
-    #[cfg(safegl_gl41)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    /// (`GL_VIEWPORT_INDEX_PROVOKING_VERTEX`). `None` without OpenGL 4.1,
+    /// `GL_ARB_viewport_array` or `GL_OES_viewport_array`.
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
     pub viewport_index_provoking_vertex: Option<ProvokingVertexConvention>,
 
     /// Bits of subpixel precision of the rasterizer (`GL_SUBPIXEL_BITS`).
@@ -671,8 +671,10 @@ pub unsafe fn get_limits(
     let es2_compatibility = version.0 == Api::GlEs
         || version >= &Version(Api::Gl, 4, 1)
         || extensions.gl_arb_es2_compatibility;
-    #[cfg(safegl_gl41)]
-    let viewport_array = version >= &Version(Api::Gl, 4, 1) || extensions.gl_arb_viewport_array;
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    let viewport_array = version >= &Version(Api::Gl, 4, 1)
+        || extensions.gl_arb_viewport_array
+        || extensions.gl_oes_viewport_array;
     #[cfg(any(safegl_desktop, safegl_gles32))]
     let interpolation = desktop
         || version >= &Version(Api::GlEs, 3, 2)
@@ -906,17 +908,17 @@ pub unsafe fn get_limits(
         #[cfg(safegl_desktop)]
         max_vertex_streams: optional(desktop, gl::MAX_VERTEX_STREAMS),
 
-        #[cfg(safegl_gl41)]
+        #[cfg(any(safegl_gl41, safegl_gles32))]
         max_viewports: optional(viewport_array, gl::MAX_VIEWPORTS),
-        #[cfg(safegl_gl41)]
+        #[cfg(any(safegl_gl41, safegl_gles32))]
         viewport_subpixel_bits: optional(viewport_array, gl::VIEWPORT_SUBPIXEL_BITS),
-        #[cfg(safegl_gl41)]
+        #[cfg(any(safegl_gl41, safegl_gles32))]
         viewport_bounds_range: if viewport_array {
             Some(get_pair(gl, gl::VIEWPORT_BOUNDS_RANGE))
         } else {
             None
         },
-        #[cfg(safegl_gl41)]
+        #[cfg(any(safegl_gl41, safegl_gles32))]
         viewport_index_provoking_vertex: if viewport_array {
             Some(get_convention(gl, gl::VIEWPORT_INDEX_PROVOKING_VERTEX))
         } else {

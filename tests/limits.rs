@@ -319,13 +319,16 @@ fn shader_resource_limits() {
     display.assert_no_error(None);
 }
 
-#[cfg(safegl_gl41)]
+#[cfg(any(safegl_gl41, safegl_gles32))]
 #[test]
 fn viewport_limits() {
     let display = support::build_display();
     let limits = &display.get_capabilities().limits;
 
-    let viewport_array = gl(&display, 4, 1) || display.get_extensions().gl_arb_viewport_array;
+    let extensions = display.get_extensions();
+    let viewport_array = gl(&display, 4, 1)
+        || extensions.gl_arb_viewport_array
+        || extensions.gl_oes_viewport_array;
     assert_eq!(limits.max_viewports.is_some(), viewport_array);
     assert_eq!(
         limits.viewport_index_provoking_vertex.is_some(),
