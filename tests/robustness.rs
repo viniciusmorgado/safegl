@@ -44,7 +44,6 @@ fn context_is_not_lost() {
     assert!(!capabilities.robust_buffer_access || capabilities.robustness);
 
     assert!(!display.is_context_lost());
-    #[cfg(any(safegl_gl45, safegl_gles32))]
     assert_eq!(display.graphics_reset_status(), None);
 
     display.assert_no_error(None);
@@ -66,7 +65,6 @@ fn robust_context_lost_on_reset() {
     );
     assert!(display.is_context_loss_possible());
     assert!(!display.is_context_lost());
-    #[cfg(any(safegl_gl45, safegl_gles32))]
     assert_eq!(display.graphics_reset_status(), None);
 
     display.assert_no_error(None);

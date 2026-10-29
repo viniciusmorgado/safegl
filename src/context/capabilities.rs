@@ -218,8 +218,6 @@ pub enum ResetNotificationStrategy {
 }
 
 /// How a GPU reset that lost the context involved it, from `glGetGraphicsResetStatus`.
-#[cfg(any(safegl_gl45, safegl_gles32))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_gles32))))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum GraphicsResetStatus {
     /// The commands of this context caused the reset (`GL_GUILTY_CONTEXT_RESET`).

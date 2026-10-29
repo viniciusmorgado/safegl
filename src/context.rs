@@ -39,7 +39,6 @@ use crate::texture;
 use crate::uniforms;
 use crate::vertex_array_object;
 
-#[cfg(any(safegl_gl45, safegl_gles32))]
 pub use self::capabilities::GraphicsResetStatus;
 pub use self::capabilities::{Capabilities, ReleaseBehavior, ResetNotificationStrategy};
 pub use self::extensions::ExtensionsList;
@@ -721,13 +720,12 @@ impl Context {
 
     /// Returns how the GPU reset that lost the context involved it, or `None` if the context
     /// isn't lost, or if the backend can't tell resets (OpenGL 4.5, OpenGL ES 3.2,
-    /// `GL_KHR_robustness`, `GL_ARB_robustness` or `GL_EXT_robustness`).
+    /// `GL_KHR_robustness`, `GL_ARB_robustness` or `GL_EXT_robustness`, and the context loss
+    /// events of WebGL, whose status is `Unknown`).
     ///
     /// A context created with the `NoResetNotification` strategy (see
     /// `Capabilities::reset_notification`) isn't told about resets, so this is always `None`.
     /// The status stays once the context is known to be lost, like `is_context_lost`.
-    #[cfg(any(safegl_gl45, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_gles32))))]
     pub fn graphics_reset_status(&self) -> Option<GraphicsResetStatus> {
         match self.reset_status() {
             gl::NO_ERROR => None,

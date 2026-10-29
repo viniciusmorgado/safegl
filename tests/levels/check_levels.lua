@@ -313,9 +313,12 @@ local cases = {
   { "gl42_has_no_debug_groups", { "gl42" }, "no method named `push_debug_group`", [[
     pub fn f(c: &safegl::backend::Context) { let _group = c.push_debug_group(0, "group"); }
   ]] },
-  { "gl44_has_no_reset_status", { "gl44" }, "no method named `graphics_reset_status`", [[
-    pub fn f(c: &safegl::backend::Context) { let _ = c.graphics_reset_status(); }
+  { "gles30_has_reset_status", { "gles30" }, nil, [[
+    pub fn f(c: &safegl::backend::Context) -> Option<safegl::GraphicsResetStatus> { c.graphics_reset_status() }
   ]] },
+  { "webgl_has_reset_status", { "webgl" }, nil, [[
+    pub fn f(c: &safegl::backend::Context) -> Option<safegl::GraphicsResetStatus> { c.graphics_reset_status() }
+  ]], WASM },
   { "gl45_has_no_error_contexts", { "gl45" }, "no method named `is_no_error`", [[
     pub fn f(c: &safegl::backend::Context) -> bool { c.is_no_error() }
   ]] },
