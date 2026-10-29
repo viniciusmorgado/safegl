@@ -162,6 +162,15 @@ impl DefaultFramebuffer {
             if ctxt.version.0 != Api::Gl {
                 return Err(DefaultFramebufferAttachmentMissingError);
             }
+            // the surfaces without front buffer, like the pbuffers of EGL, may still have a
+            // front left attachment for the driver, which can't be drawn to nor read
+            let front = matches!(
+                attachment,
+                DefaultFramebufferAttachment::FrontLeft | DefaultFramebufferAttachment::FrontRight
+            );
+            if front && ctxt.capabilities.front_buffer == gl::BACK_LEFT {
+                return Err(DefaultFramebufferAttachmentMissingError);
+            }
             let exists = unsafe {
                 fbo::bind_framebuffer(&mut ctxt, None, true, false);
                 ctxt.glow.get_framebuffer_attachment_parameter_i32(
