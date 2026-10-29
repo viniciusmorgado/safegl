@@ -579,6 +579,7 @@ impl Context {
             let mut ctxt = self.make_current();
 
             unsafe {
+                crate::fbo::suspend_framebuffer_pass(&mut ctxt);
                 ctxt.glow.bind_framebuffer(glow::FRAMEBUFFER, None);
             }
             ctxt.state.draw_framebuffer = None;

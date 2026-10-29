@@ -75,6 +75,12 @@ pub const SRG8_EXT: GLenum = 0x8FBE;
 pub const MAX_VIEWS_OVR: GLenum = 0x9631;
 // GL_EXT_multisampled_render_to_texture
 pub const TEXTURE_SAMPLES_EXT: GLenum = 0x8D6C;
+// GL_EXT_shader_pixel_local_storage and GL_EXT_shader_pixel_local_storage2
+pub const SHADER_PIXEL_LOCAL_STORAGE_EXT: GLenum = 0x8F64;
+pub const MAX_SHADER_PIXEL_LOCAL_STORAGE_FAST_SIZE_EXT: GLenum = 0x8F63;
+pub const MAX_SHADER_PIXEL_LOCAL_STORAGE_SIZE_EXT: GLenum = 0x8F67;
+pub const MAX_SHADER_COMBINED_LOCAL_STORAGE_FAST_SIZE_EXT: GLenum = 0x9650;
+pub const MAX_SHADER_COMBINED_LOCAL_STORAGE_SIZE_EXT: GLenum = 0x9651;
 // WebGL 2
 pub const MAX_CLIENT_WAIT_TIMEOUT_WEBGL: GLenum = 0x9247;
 pub const TEXTURE_FREE_MEMORY_ATI: GLenum = 0x87FC;
@@ -196,6 +202,11 @@ extra_functions! {
     fn PopGroupMarkerEXT() -> ();
     fn FramebufferTexture2DMultisampleEXT(target: GLenum, attachment: GLenum, textarget: GLenum, texture: GLuint, level: GLint, samples: GLsizei) -> ();
     fn RenderbufferStorageMultisampleEXT(target: GLenum, samples: GLsizei, internalformat: GLenum, width: GLsizei, height: GLsizei) -> ();
+    fn FramebufferPixelLocalStorageSizeEXT(target: GLuint, size: GLsizei) -> ();
+    fn GetFramebufferPixelLocalStorageSizeEXT(target: GLuint) -> GLsizei;
+    fn ClearPixelLocalStorageuiEXT(offset: GLsizei, n: GLsizei, values: *const GLuint) -> ();
+    fn StartTilingQCOM(x: GLuint, y: GLuint, width: GLuint, height: GLuint, preserveMask: GLbitfield) -> ();
+    fn EndTilingQCOM(preserveMask: GLbitfield) -> ();
     fn EnableiEXT(target: GLenum, index: GLuint) -> ();
     fn DisableiEXT(target: GLenum, index: GLuint) -> ();
     fn BlendEquationSeparateiEXT(buf: GLuint, modeRGB: GLenum, modeAlpha: GLenum) -> ();

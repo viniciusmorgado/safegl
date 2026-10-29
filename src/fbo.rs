@@ -936,6 +936,11 @@ impl<'a> ValidatedAttachments<'a> {
         }
     }
 
+    /// Returns the locations of the color attachments.
+    pub fn color_locations(&self) -> impl Iterator<Item = u32> + '_ {
+        self.color_kinds.iter().map(|&(location, _)| location)
+    }
+
     /// Returns true if a color attachment has a format of 32-bit floats, which OpenGL ES and
     /// WebGL only blend into with `GL_EXT_float_blend`.
     pub fn has_float32_colors(&self) -> bool {
@@ -2001,6 +2006,16 @@ impl FrameBufferObject {
 
     /// Destroys the FBO. Must be called, or things will leak.
     fn destroy(self, ctxt: &mut CommandContext<'_>) {
+        // the render pass of a tile-based GPU on the framebuffer ends with it
+        if ctxt
+            .state
+            .framebuffer_pass
+            .is_some_and(|pass| pass.framebuffer == Some(self.id))
+        {
+            unsafe { suspend_framebuffer_pass(ctxt) };
+            ctxt.state.framebuffer_pass = None;
+        }
+
         // unbinding framebuffer
         if ctxt.state.draw_framebuffer == Some(self.id) {
             ctxt.state.draw_framebuffer = None;
@@ -2094,6 +2109,93 @@ fn select_default_draw_buffer(ctxt: &mut CommandContext<'_>, buffer: gl::types::
 /// The id of the FBO must be valid.
 ///
 pub unsafe fn bind_framebuffer(
+    ctxt: &mut CommandContext<'_>,
+    fbo_id: Option<glow::Framebuffer>,
+    draw: bool,
+    read: bool,
+) {
+    // OpenGL ES binds framebuffers for reading to `GL_FRAMEBUFFER`, for drawing too
+    let draws = draw || (read && ctxt.version.0 != Api::Gl);
+    if draws && ctxt.state.draw_framebuffer != fbo_id {
+        suspend_framebuffer_pass(ctxt);
+    }
+    bind_framebuffer_without_pass(ctxt, fbo_id, draw, read);
+    resume_framebuffer_pass(ctxt);
+}
+
+/// A render pass of a tile-based GPU that a surface keeps open on a framebuffer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FramebufferPass {
+    /// The identifier of the object that opened the pass.
+    pub id: u64,
+    /// The framebuffer of the pass, `None` for the default one.
+    pub framebuffer: Option<glow::Framebuffer>,
+    /// What the pass does.
+    pub kind: FramebufferPassKind,
+    /// Whether the pass is active in OpenGL, rather than suspended while another framebuffer is
+    /// bound for drawing.
+    pub active: bool,
+}
+
+/// What a render pass of a tile-based GPU does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FramebufferPassKind {
+    /// Pixel local storage is enabled (`GL_EXT_shader_pixel_local_storage`).
+    PixelLocalStorage,
+    /// The rendering is limited to a tile, `(x, y, width, height)` (`GL_QCOM_tiled_rendering`).
+    Tiling((u32, u32, u32, u32)),
+}
+
+/// All the buffers that `glStartTilingQCOM` and `glEndTilingQCOM` can preserve.
+pub const PRESERVE_ALL_TILE_BUFFERS: gl::types::GLbitfield = 0xFFFF_FFFF;
+
+/// Ends the render pass of a tile-based GPU in OpenGL, which `resume_framebuffer_pass` starts
+/// again when its framebuffer is bound for drawing: pixel local storage is disabled, and its
+/// content is lost, and the tiled rendering ends, preserving everything.
+pub unsafe fn suspend_framebuffer_pass(ctxt: &mut CommandContext<'_>) {
+    let Some(pass) = ctxt.state.framebuffer_pass.filter(|pass| pass.active) else {
+        return;
+    };
+    #[cfg(not(safegl_browser))]
+    match pass.kind {
+        FramebufferPassKind::PixelLocalStorage => {
+            ctxt.glow.disable(gl::SHADER_PIXEL_LOCAL_STORAGE_EXT)
+        }
+        FramebufferPassKind::Tiling(_) => ctxt.extra.EndTilingQCOM(PRESERVE_ALL_TILE_BUFFERS),
+    }
+    ctxt.state.framebuffer_pass = Some(FramebufferPass {
+        active: false,
+        ..pass
+    });
+}
+
+/// Starts again the render pass of a tile-based GPU that `suspend_framebuffer_pass` ended, if
+/// its framebuffer is bound for drawing.
+unsafe fn resume_framebuffer_pass(ctxt: &mut CommandContext<'_>) {
+    let Some(pass) = ctxt.state.framebuffer_pass else {
+        return;
+    };
+    if pass.active || ctxt.state.draw_framebuffer != pass.framebuffer {
+        return;
+    }
+    #[cfg(not(safegl_browser))]
+    match pass.kind {
+        FramebufferPassKind::PixelLocalStorage => {
+            ctxt.glow.enable(gl::SHADER_PIXEL_LOCAL_STORAGE_EXT)
+        }
+        FramebufferPassKind::Tiling((x, y, width, height)) => {
+            ctxt.extra
+                .StartTilingQCOM(x, y, width, height, PRESERVE_ALL_TILE_BUFFERS)
+        }
+    }
+    ctxt.state.framebuffer_pass = Some(FramebufferPass {
+        active: true,
+        ..pass
+    });
+}
+
+/// Binds a framebuffer without suspending nor resuming the render pass of a tile-based GPU.
+unsafe fn bind_framebuffer_without_pass(
     ctxt: &mut CommandContext<'_>,
     fbo_id: Option<glow::Framebuffer>,
     draw: bool,

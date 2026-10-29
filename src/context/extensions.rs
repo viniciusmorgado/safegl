@@ -241,6 +241,9 @@ extensions! {
     "GL_OES_texture_stencil8" => gl_oes_texture_stencil8,
     "GL_OES_texture_storage_multisample_2d_array" => gl_oes_texture_storage_multisample_2d_array,
     "GL_OVR_multiview2" => gl_ovr_multiview2,
+    "GL_EXT_shader_pixel_local_storage" => gl_ext_shader_pixel_local_storage,
+    "GL_EXT_shader_pixel_local_storage2" => gl_ext_shader_pixel_local_storage2,
+    "GL_QCOM_tiled_rendering" => gl_qcom_tiled_rendering,
     // extensions of GLSL ES only, which shaders enable with `#extension`
     "GL_EXT_gpu_shader5" => gl_ext_gpu_shader5,
     "GL_OES_gpu_shader5" => gl_oes_gpu_shader5,
