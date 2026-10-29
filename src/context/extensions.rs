@@ -189,6 +189,7 @@ extensions! {
     "GL_ARB_texture_mirror_clamp_to_edge" => gl_arb_texture_mirror_clamp_to_edge,
     "GL_EXT_texture_norm16" => gl_ext_texture_norm16,
     "GL_EXT_texture_sRGB" => gl_ext_texture_srgb,
+    "GL_EXT_texture_format_sRGB_override" => gl_ext_texture_format_srgb_override,
     "GL_EXT_texture_sRGB_decode" => gl_ext_texture_srgb_decode,
     "GL_EXT_texture_sRGB_R8" => gl_ext_texture_srgb_r8,
     "GL_EXT_texture_sRGB_RG8" => gl_ext_texture_srgb_rg8,

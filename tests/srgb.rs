@@ -163,6 +163,54 @@ fn one_and_two_components() {
     display.assert_no_error(None);
 }
 
+/// A linear texture sampled as sRGB (`GL_EXT_texture_format_sRGB_override`) is decoded; formats
+/// without an sRGB variant and backends without the extension are errors.
+#[test]
+fn srgb_override() {
+    use safegl::texture::{MipmapsOption, SrgbOverrideError, UncompressedFloatFormat};
+
+    let display = support::build_display();
+    let program = program(&display, "color = texture(tex, vec2(0.5));", true);
+    let target = Texture2d::empty(&display, 1, 1).unwrap();
+    let texel = (SRGB_HALF, SRGB_HALF, SRGB_HALF, 255);
+    let linear = Texture2d::new(&display, vec![vec![texel]]).unwrap();
+    let supported = !cfg!(target_arch = "wasm32")
+        && display.get_extensions().gl_ext_texture_format_srgb_override;
+    match linear.set_srgb_override(true) {
+        Ok(()) => {
+            assert!(supported);
+            draw(
+                &display,
+                SimpleFrameBuffer::new(&display, &target).unwrap(),
+                &program,
+                &uniform! { tex: &linear },
+            );
+            assert_near(first_pixel(target.read().unwrap()), (128, 128, 128, 255));
+            linear.set_srgb_override(false).unwrap();
+            let half = Texture2d::empty_with_format(
+                &display,
+                UncompressedFloatFormat::F16F16F16F16,
+                MipmapsOption::NoMipmap,
+                1,
+                1,
+            )
+            .unwrap();
+            assert_eq!(half.set_srgb_override(true), Err(SrgbOverrideError::NoSrgbVariant));
+        }
+        Err(SrgbOverrideError::NotSupported) => assert!(!supported),
+        Err(error) => panic!("{error}"),
+    }
+    draw(
+        &display,
+        SimpleFrameBuffer::new(&display, &target).unwrap(),
+        &program,
+        &uniform! { tex: &linear },
+    );
+    assert_eq!(first_pixel(target.read().unwrap()), texel);
+
+    display.assert_no_error(None);
+}
+
 #[test]
 fn drawing_encodes_unless_the_program_outputs_srgb() {
     let display = support::build_display();

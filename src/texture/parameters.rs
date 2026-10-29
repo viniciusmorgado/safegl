@@ -151,6 +151,46 @@ impl TextureAny {
         Ok(())
     }
 
+    /// Samples the texture as if it had the sRGB variant of its format, which decodes its texels
+    /// to linear colors, if `srgb`, or as its own format if not
+    /// (`GL_TEXTURE_FORMAT_SRGB_OVERRIDE_EXT`). Rendering, image units, reads and writes see the
+    /// texture as it is.
+    ///
+    /// Needs `GL_EXT_texture_format_sRGB_override`, or returns `SrgbOverrideError::NotSupported`,
+    /// and a texture created with SafeGL in a format that has an sRGB variant (`U8`, `U8U8`,
+    /// `U8U8U8`, `U8U8U8U8`, and the ETC2, S3TC, BPTC and ASTC formats of colors), or returns
+    /// `SrgbOverrideError::NoSrgbVariant`.
+    pub fn set_srgb_override(&self, srgb: bool) -> Result<(), SrgbOverrideError> {
+        let format = self.created_format();
+        let astc = (0x93B0..=0x93BD).contains(&format);
+        let has_variant = astc
+            || matches!(
+                format,
+                gl::R8
+                    | gl::RG8
+                    | gl::RGB8
+                    | gl::RGBA8
+                    | gl::COMPRESSED_RGB8_ETC2
+                    | gl::COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2
+                    | gl::COMPRESSED_RGBA8_ETC2_EAC
+                    | gl::COMPRESSED_RGB_S3TC_DXT1_EXT
+                    | gl::COMPRESSED_RGBA_S3TC_DXT1_EXT
+                    | gl::COMPRESSED_RGBA_S3TC_DXT3_EXT
+                    | gl::COMPRESSED_RGBA_S3TC_DXT5_EXT
+                    | gl::COMPRESSED_RGBA_BPTC_UNORM
+            );
+        let mut ctxt = self.get_context().make_current();
+        if crate::version::is_webgl() || !ctxt.extensions.gl_ext_texture_format_srgb_override {
+            return Err(SrgbOverrideError::NotSupported);
+        }
+        if !has_variant {
+            return Err(SrgbOverrideError::NoSrgbVariant);
+        }
+        let value = if srgb { gl::SRGB } else { gl::NONE };
+        self.set_parameter(&mut ctxt, gl::TEXTURE_FORMAT_SRGB_OVERRIDE_EXT, value as i32);
+        Ok(())
+    }
+
     /// Returns whether sampling a depth-stencil texture returns its depth or its stencil index.
     /// See `set_depth_stencil_mode`.
     #[cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))]
@@ -306,3 +346,27 @@ impl fmt::Display for DepthStencilTextureModeError {
 
 #[cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))]
 impl Error for DepthStencilTextureModeError {}
+
+/// Error of `TextureAny::set_srgb_override`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SrgbOverrideError {
+    /// Sampling textures as sRGB isn't supported by the backend: it needs
+    /// `GL_EXT_texture_format_sRGB_override`.
+    NotSupported,
+    /// The format of the texture has no sRGB variant, or SafeGL didn't create the texture.
+    NoSrgbVariant,
+}
+
+impl fmt::Display for SrgbOverrideError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.write_str(match self {
+            SrgbOverrideError::NotSupported => {
+                "Sampling textures as sRGB is not supported by the backend"
+            }
+            SrgbOverrideError::NoSrgbVariant => "The format of the texture has no sRGB variant",
+        })
+    }
+}
+
+impl Error for SrgbOverrideError {}
