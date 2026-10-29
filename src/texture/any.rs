@@ -717,6 +717,29 @@ where
         other => other,
     };
 
+    // OpenGL ES only uploads the data whose format matches the internal format: the other data
+    // is converted the way desktop OpenGL does
+    let mut converted = None;
+    if let (Some((ClientFormatAny::ClientFormat(client), pixels)), Api::GlEs) =
+        (&data, facade.get_context().get_opengl_version().0)
+    {
+        let internal = storage_internal_format.unwrap_or(teximg_internal_format);
+        match super::es_upload::upload(internal, *client) {
+            super::es_upload::Upload::AsIs => (),
+            super::es_upload::Upload::Convert => {
+                let bytes = super::es_upload::bytes(&pixels[..]);
+                converted = Some(super::es_upload::convert(bytes, *client, internal));
+            }
+            super::es_upload::Upload::Refused => {
+                return Err(TextureCreationError::FormatNotSupported)
+            }
+        }
+    }
+    let (client_format, client_type) = match &converted {
+        Some(converted) => (converted.format, converted.ty),
+        None => (client_format, client_type),
+    };
+
     let is_multisampled = matches!(
         ty,
         Dimensions::Texture2dMultisample { .. } | Dimensions::Texture2dMultisampleArray { .. }
@@ -775,7 +798,9 @@ where
         let has_mipmaps = texture_levels > 1;
         let data = data;
         // the size of `data` in bytes has been checked against `data_bufsize` above
-        let data_raw: Option<&[u8]> = if let Some((_, ref data)) = data {
+        let data_raw: Option<&[u8]> = if let Some(converted) = &converted {
+            Some(&converted.data)
+        } else if let Some((_, ref data)) = data {
             Some(slice::from_raw_parts(
                 data.as_ptr() as *const u8,
                 data_bufsize,
@@ -1599,6 +1624,48 @@ impl TextureAny {
         self.created_format
     }
 
+    /// The format, the type and the bytes of an upload of `data`, whose format is `client`, and
+    /// which OpenGL takes as `format` and `ty` otherwise: on OpenGL ES and WebGL, the data that
+    /// the internal format of the texture doesn't take is converted (`es_upload`), and
+    /// `UploadError::FormatNotSupported` returned if it can't be.
+    pub(crate) fn upload_data<'d>(
+        &self,
+        client: ClientFormatAny,
+        format: gl::types::GLenum,
+        ty: gl::types::GLenum,
+        data: &'d [u8],
+    ) -> Result<(gl::types::GLenum, gl::types::GLenum, Cow<'d, [u8]>), UploadError> {
+        let ClientFormatAny::ClientFormat(client) = client else {
+            return Ok((format, ty, Cow::Borrowed(data)));
+        };
+        if self.context.get_opengl_version().0 == Api::Gl {
+            return Ok((format, ty, Cow::Borrowed(data)));
+        }
+        match super::es_upload::upload(self.created_format, client) {
+            super::es_upload::Upload::AsIs => Ok((format, ty, Cow::Borrowed(data))),
+            super::es_upload::Upload::Convert => {
+                let converted = super::es_upload::convert(data, client, self.created_format);
+                Ok((converted.format, converted.ty, Cow::Owned(converted.data)))
+            }
+            super::es_upload::Upload::Refused => Err(UploadError::FormatNotSupported),
+        }
+    }
+
+    /// Returns `UploadError::FormatNotSupported` if an upload of `client` data from a pixel
+    /// buffer, which SafeGL can't convert, needs a conversion on OpenGL ES and WebGL.
+    pub(crate) fn check_buffer_upload(&self, client: ClientFormatAny) -> Result<(), UploadError> {
+        let ClientFormatAny::ClientFormat(client) = client else {
+            return Ok(());
+        };
+        if self.context.get_opengl_version().0 == Api::Gl {
+            return Ok(());
+        }
+        match super::es_upload::upload(self.created_format, client) {
+            super::es_upload::Upload::AsIs => Ok(()),
+            _ => Err(UploadError::FormatNotSupported),
+        }
+    }
+
     /// Returns the initial requested format.
     #[inline]
     #[doc(hidden)]
@@ -2237,6 +2304,8 @@ impl<'a> TextureAnyMipmap<'a> {
             inverted,
         )
         .map_err(|_| UploadError::FormatNotSupported)?;
+        self.texture
+            .check_buffer_upload(ClientFormatAny::ClientFormat(P::get_format()))?;
 
         let mut ctxt = self.texture.context.make_current();
 
@@ -2453,6 +2522,10 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
 
             // the size of `data` in bytes has been checked against `data_bufsize` above
             let data = slice::from_raw_parts(data.as_ptr() as *const u8, data_bufsize);
+            let (client_format, client_type, data) =
+                self.texture
+                    .upload_data(format, client_format, client_type, data)?;
+            let data = &*data;
 
             if bind_point == gl::TEXTURE_CUBE_MAP || bind_point == gl::TEXTURE_CUBE_MAP_ARRAY {
                 panic!("the faces of a cubemap are written one by one, through its images");
@@ -2894,6 +2967,13 @@ impl<'a> TextureAnyImage<'a> {
         }
         // the size of `data` in bytes has been checked against the size of the rect above
         let data = unsafe { slice::from_raw_parts(data.as_ptr() as *const u8, data_size) };
+        let (client_format, client_type, data) = self.texture.upload_data(
+            ClientFormatAny::ClientFormat(format),
+            client_format,
+            client_type,
+            data,
+        )?;
+        let data = &*data;
 
         let mut ctxt = self.texture.context.make_current();
 

@@ -159,10 +159,18 @@ impl<'a> TextureAnyMipmap<'a> {
                 ctxt.glow.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
             }
             UNPACK.set(&mut ctxt, source_size, source_offset);
-            let pixels = glow::PixelUnpackData::Slice(Some(std::slice::from_raw_parts(
+            let bytes = std::slice::from_raw_parts(
                 source.as_ptr() as *const u8,
                 std::mem::size_of_val(source),
-            )));
+            );
+            // OpenGL ES takes the data whose format matches the texture's, or converted data
+            let (format, ty, bytes) = texture.upload_data(
+                ClientFormatAny::ClientFormat(P::get_format()),
+                format,
+                ty,
+                bytes,
+            )?;
+            let pixels = glow::PixelUnpackData::Slice(Some(&*bytes));
 
             let bind_point = texture.bind_to_current(&mut ctxt);
             let (x, y, z) = (offset.0 as i32, offset.1 as i32, offset.2 as i32);

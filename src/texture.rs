@@ -198,6 +198,7 @@ pub mod buffer_texture;
 pub mod pixel_buffer;
 
 mod any;
+mod es_upload;
 mod external;
 mod get_format;
 #[cfg(any(safegl_gl43, safegl_gles30))]
