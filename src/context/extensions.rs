@@ -240,6 +240,20 @@ extensions! {
     "GL_OES_texture_stencil8" => gl_oes_texture_stencil8,
     "GL_OES_texture_storage_multisample_2d_array" => gl_oes_texture_storage_multisample_2d_array,
     "GL_OVR_multiview2" => gl_ovr_multiview2,
+    // extensions of GLSL ES only, which shaders enable with `#extension`
+    "GL_EXT_gpu_shader5" => gl_ext_gpu_shader5,
+    "GL_OES_gpu_shader5" => gl_oes_gpu_shader5,
+    "GL_EXT_shader_io_blocks" => gl_ext_shader_io_blocks,
+    "GL_OES_shader_io_blocks" => gl_oes_shader_io_blocks,
+    "GL_OES_shader_image_atomic" => gl_oes_shader_image_atomic,
+    "GL_EXT_shader_non_constant_global_initializers" =>
+        gl_ext_shader_non_constant_global_initializers,
+    "GL_NV_shader_noperspective_interpolation" => gl_nv_shader_noperspective_interpolation,
+    "GL_EXT_geometry_point_size" => gl_ext_geometry_point_size,
+    "GL_EXT_tessellation_point_size" => gl_ext_tessellation_point_size,
+    "GL_EXT_shader_group_vote" => gl_ext_shader_group_vote,
+    "GL_EXT_shader_integer_mix" => gl_ext_shader_integer_mix,
+    "GL_EXT_texture_shadow_lod" => gl_ext_texture_shadow_lod,
     // the extensions that only WebGL has
     "EXT_disjoint_timer_query_webgl2" => ext_disjoint_timer_query_webgl2,
     "WEBGL_blend_func_extended" => webgl_blend_func_extended,
