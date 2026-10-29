@@ -141,6 +141,7 @@ where
                 ctxt.version.0 == Api::Gl
                     || ctxt.version >= &Version(Api::GlEs, 3, 2)
                     || ctxt.extensions.gl_oes_draw_elements_base_vertex
+                    || ctxt.extensions.gl_ext_draw_elements_base_vertex
                     || ctxt.extensions.webgl_draw_instanced_base_vertex_base_instance
             }
         };
@@ -450,6 +451,15 @@ where
                                     instances_count as gl::types::GLsizei,
                                     base_vertex,
                                 );
+                            } else if ctxt.extensions.gl_ext_draw_elements_base_vertex {
+                                ctxt.extra.DrawElementsInstancedBaseVertexEXT(
+                                    primitives.to_glenum(),
+                                    buffer.get_elements_count() as gl::types::GLsizei,
+                                    data_type.to_glenum(),
+                                    ptr as *const _,
+                                    instances_count as gl::types::GLsizei,
+                                    base_vertex,
+                                );
                             } else {
                                 unreachable!();
                             }
@@ -473,6 +483,14 @@ where
                             );
                         } else if ctxt.extensions.gl_oes_draw_elements_base_vertex {
                             ctxt.extra.DrawElementsBaseVertexOES(
+                                primitives.to_glenum(),
+                                buffer.get_elements_count() as gl::types::GLsizei,
+                                data_type.to_glenum(),
+                                ptr as *const _,
+                                base_vertex,
+                            );
+                        } else if ctxt.extensions.gl_ext_draw_elements_base_vertex {
+                            ctxt.extra.DrawElementsBaseVertexEXT(
                                 primitives.to_glenum(),
                                 buffer.get_elements_count() as gl::types::GLsizei,
                                 data_type.to_glenum(),
