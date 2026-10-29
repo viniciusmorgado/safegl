@@ -84,6 +84,8 @@ gltf = { version = "1.4.1", default-features = false, features = ["utils"] }
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 gbm = { version = "0.18.0", default-features = false, features = ["drm-support"] }
 drm = "0.14"
+# the tests of memory objects share memory and semaphores with Vulkan
+ash = "0.38"
 
 # the Android example runs in a native activity
 [target.'cfg(target_os = "android")'.dev-dependencies]
