@@ -385,6 +385,9 @@ Breaking changes:
   differ), `AdvancedBlendingTooManyOutputs` and `AdvancedBlendingNotDeclared` (the fragment
   shader lacks its `layout(blend_support_*) out;`), and SafeGL separates the draws with
   `glBlendBarrier` without `GL_KHR_blend_equation_advanced_coherent`.
+- `FrameError` and `SwapBuffersError` are `#[non_exhaustive]`, with the variant `SurfaceLost`:
+  frames can't be drawn on a display whose surface was removed (`Display::remove_surface`), and
+  a frame whose surface is removed before it finishes isn't shown.
 
 Additions:
 
@@ -805,6 +808,17 @@ Additions:
   `framebuffer::TiledRendering` limits the rendering of a surface to a tile
   (`GL_QCOM_tiled_rendering`), preserving the buffers of `TilePreserve`. Both are suspended
   while SafeGL binds another framebuffer for drawing, and return `TilePassError`.
+- Displays without window system (`backend::glutin::headless`, with the new default feature
+  `egl`): the EGL display of a device (`EGL_EXT_platform_device`), a GPU or the software renderer
+  of Mesa, draws its frames to a pbuffer of a fixed size, for servers, CI and boards without X11
+  or Wayland. `Display` takes surfaces that aren't windows (`Display::from_pbuffer`), and the
+  `headless` example uses it. The tests run on such displays with `SAFEGL_TEST_DISPLAY=headless`
+  at build time, on the EGL device of `SAFEGL_EGL_DEVICE` (`software` for Mesa's).
+- `Display::remove_surface` and `Display::set_surface` keep the context and the objects of SafeGL
+  while the window is destroyed, as Android does when the application is paused: the context
+  stays current without surface (`EGL_KHR_surfaceless_context`). The `android` example uses
+  them, and the `kiosk` example draws fullscreen with DRM/KMS page flips on a GBM surface,
+  without window system.
 
 Fixes:
 
