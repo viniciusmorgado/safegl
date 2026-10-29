@@ -200,6 +200,26 @@ local cases = {
         t.sampled().srgb_decode(false)
     }
   ]] },
+  { "gles30_has_tile_based_features", { "gles30" }, nil, [[
+    use safegl::framebuffer::{PixelLocalStorage, SimpleFrameBuffer, TilePassError, TilePreserve, TiledRendering};
+    pub fn f<'a>(s: &mut SimpleFrameBuffer<'a>, i: safegl::texture::TextureAnyImage<'a>)
+        -> (safegl::Blend, safegl::texture::TextureAnyImage<'a>, Result<(), TilePassError>) {
+        let _ = PixelLocalStorage::new(&mut *s, 4).map(drop);
+        let tile = safegl::Rect { left: 0, bottom: 0, width: 1, height: 1 };
+        let r = TiledRendering::new(s, &tile, TilePreserve::ALL).map(drop);
+        (safegl::Blend::advanced(safegl::AdvancedBlending::Multiply), i.multisampled(4), r)
+    }
+  ]] },
+  { "webgl_has_tile_based_features", { "webgl" }, nil, [[
+    use safegl::framebuffer::{PixelLocalStorage, SimpleFrameBuffer, TilePassError, TilePreserve, TiledRendering};
+    pub fn f<'a>(s: &mut SimpleFrameBuffer<'a>, i: safegl::texture::TextureAnyImage<'a>)
+        -> (safegl::Blend, safegl::texture::TextureAnyImage<'a>, Result<(), TilePassError>) {
+        let _ = PixelLocalStorage::new(&mut *s, 4).map(drop);
+        let tile = safegl::Rect { left: 0, bottom: 0, width: 1, height: 1 };
+        let r = TiledRendering::new(s, &tile, TilePreserve::ALL).map(drop);
+        (safegl::Blend::advanced(safegl::AdvancedBlending::Multiply), i.multisampled(4), r)
+    }
+  ]], WASM },
   { "webgl_has_framebuffer_invalidation", { "webgl" }, nil, [[
     pub use safegl::framebuffer::InvalidateAttachments;
   ]], WASM },
