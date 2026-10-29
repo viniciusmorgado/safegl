@@ -1698,7 +1698,7 @@ impl<'a> BufferAnySlice<'a> {
     }
 }
 
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 impl<T: ?Sized + Content> crate::debug::sealed::Labeled for Buffer<T> {
     fn labeled_object(
         &self,
@@ -1710,7 +1710,7 @@ impl<T: ?Sized + Content> crate::debug::sealed::Labeled for Buffer<T> {
     }
 }
 
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 impl crate::debug::sealed::Labeled for BufferAny {
     fn labeled_object(
         &self,

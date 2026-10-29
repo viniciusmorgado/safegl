@@ -181,6 +181,10 @@ extra_functions! {
     fn DrawElementsInstancedBaseInstanceEXT(mode: GLenum, count: GLsizei, type_: GLenum, indices: *const c_void, instancecount: GLsizei, baseinstance: GLuint) -> ();
     fn DrawElementsInstancedBaseVertexBaseInstanceEXT(mode: GLenum, count: GLsizei, type_: GLenum, indices: *const c_void, instancecount: GLsizei, basevertex: GLint, baseinstance: GLuint) -> ();
     fn EndConditionalRender() -> ();
+    fn LabelObjectEXT(type_: GLenum, object: GLuint, length: GLsizei, label: *const GLchar) -> ();
+    fn GetObjectLabelEXT(type_: GLenum, object: GLuint, bufSize: GLsizei, length: *mut GLsizei, label: *mut GLchar) -> ();
+    fn PushGroupMarkerEXT(length: GLsizei, marker: *const GLchar) -> ();
+    fn PopGroupMarkerEXT() -> ();
     fn EnableiEXT(target: GLenum, index: GLuint) -> ();
     fn DisableiEXT(target: GLenum, index: GLuint) -> ();
     fn BlendEquationSeparateiEXT(buf: GLuint, modeRGB: GLenum, modeAlpha: GLenum) -> ();

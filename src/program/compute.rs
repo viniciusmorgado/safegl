@@ -265,7 +265,7 @@ impl fmt::Debug for ComputeShader {
     }
 }
 
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 impl crate::debug::sealed::Labeled for ComputeShader {
     fn labeled_object(
         &self,

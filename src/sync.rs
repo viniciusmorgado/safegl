@@ -170,7 +170,7 @@ pub enum SyncWaitResult {
     Failed,
 }
 
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 impl crate::debug::sealed::Labeled for SyncFence {
     fn labeled_object(&self) -> (&Context, crate::debug::sealed::LabeledObject) {
         let sync = self.id.expect("the fence is only taken when it is consumed");

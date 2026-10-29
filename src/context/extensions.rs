@@ -156,6 +156,7 @@ extensions! {
     "GL_EXT_tessellation_shader" => gl_ext_tessellation_shader,
     "GL_EXT_color_buffer_float" => gl_ext_color_buffer_float,
     "GL_EXT_color_buffer_half_float" => gl_ext_color_buffer_half_float,
+    "GL_EXT_debug_label" => gl_ext_debug_label,
     "GL_EXT_debug_marker" => gl_ext_debug_marker,
     "GL_EXT_direct_state_access" => gl_ext_direct_state_access,
     "GL_EXT_memory_object" => gl_ext_memory_object,

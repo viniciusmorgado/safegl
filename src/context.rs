@@ -50,10 +50,10 @@ pub use self::format_info::{
     FormatSupport, FormatTarget, ImageCompatibility, ImageFormatClass, SimultaneousUse,
     StageSupport, ViewClass,
 };
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 pub use self::debug_output::DebugGroup;
-#[cfg(any(safegl_gl43, safegl_gles32))]
-pub(crate) use self::debug_output::{object_label, set_object_label};
+#[cfg(any(safegl_gl43, safegl_gles30))]
+pub(crate) use self::debug_output::{apply_label, object_label, set_object_label};
 pub use self::limits::{Limits, ProvokingVertexConvention, QueryCounterBits, StageLimits};
 pub use self::state::GlState;
 pub(crate) use self::state::RecordingTransformFeedback;
@@ -63,7 +63,7 @@ mod extensions;
 #[cfg(safegl_gl43)]
 mod format_info;
 mod limits;
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 mod debug_output;
 mod restore;
 mod state;
@@ -392,14 +392,14 @@ impl Context {
         let resident_image_handles = RefCell::new(Vec::new());
 
         let errors_only = matches!(callback_behavior, DebugCallbackBehavior::DebugMessageOnError);
-        #[cfg(any(safegl_gl43, safegl_gles32))]
+        #[cfg(any(safegl_gl43, safegl_gles30))]
         let log = matches!(callback_behavior, DebugCallbackBehavior::Log);
-        #[cfg(not(any(safegl_gl43, safegl_gles32)))]
+        #[cfg(not(any(safegl_gl43, safegl_gles30)))]
         let log = false;
         let (debug_callback, synchronous) = match callback_behavior {
             DebugCallbackBehavior::Ignore => (None, false),
             // logged in the order of the commands
-            #[cfg(any(safegl_gl43, safegl_gles32))]
+            #[cfg(any(safegl_gl43, safegl_gles30))]
             DebugCallbackBehavior::Log => (None, true),
             DebugCallbackBehavior::DebugMessageOnError => (
                 Some(Box::new(default_debug_callback) as debug::DebugCallback),
@@ -1371,8 +1371,8 @@ pub enum DebugCallbackBehavior {
     /// Don't call a callback, but keep the messages in the message log of the context, which
     /// `Context::debug_message_log` reads (OpenGL 4.3, OpenGL ES 3.2 or `GL_KHR_debug`). Every
     /// message is logged, synchronously.
-    #[cfg(any(safegl_gl43, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+    #[cfg(any(safegl_gl43, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
     Log,
 
     /// Use a custom callback.

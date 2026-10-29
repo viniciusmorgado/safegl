@@ -1,5 +1,6 @@
 //! Debug groups, object labels, and the control, insertion and log of debug messages (OpenGL
-//! 4.3, OpenGL ES 3.2 and `GL_KHR_debug`).
+//! 4.3, OpenGL ES 3.2 and `GL_KHR_debug`). Without them, objects have labels with
+//! `GL_EXT_debug_label`, and groups and inserted markers with `GL_EXT_debug_marker`.
 
 use std::cell::RefCell;
 
@@ -18,6 +19,53 @@ pub(crate) fn is_supported(ctxt: &CommandContext<'_>) -> bool {
         && (ctxt.version >= &Version(Api::Gl, 4, 3)
             || ctxt.version >= &Version(Api::GlEs, 3, 2)
             || ctxt.extensions.gl_khr_debug)
+}
+
+/// Returns true if the context labels objects: with the debug output, or with
+/// `GL_EXT_debug_label`.
+fn labels_supported(ctxt: &CommandContext<'_>) -> bool {
+    is_supported(ctxt) || (!is_webgl() && ctxt.extensions.gl_ext_debug_label)
+}
+
+/// Returns true if the context has debug groups and inserted messages: with the debug output,
+/// or as the markers of `GL_EXT_debug_marker`.
+fn markers_supported(ctxt: &CommandContext<'_>) -> bool {
+    is_supported(ctxt) || (!is_webgl() && ctxt.extensions.gl_ext_debug_marker)
+}
+
+/// The object type of `GL_EXT_debug_label` for an identifier of `GL_KHR_debug`; the others are
+/// the same.
+fn ext_object_type(identifier: gl::types::GLenum) -> gl::types::GLenum {
+    match identifier {
+        gl::BUFFER => 0x9151,           // GL_BUFFER_OBJECT_EXT
+        gl::SHADER => 0x8B48,           // GL_SHADER_OBJECT_EXT
+        gl::PROGRAM => 0x8B40,          // GL_PROGRAM_OBJECT_EXT
+        gl::VERTEX_ARRAY => 0x9154,     // GL_VERTEX_ARRAY_OBJECT_EXT
+        gl::QUERY => 0x9153,            // GL_QUERY_OBJECT_EXT
+        gl::PROGRAM_PIPELINE => 0x8A4F, // GL_PROGRAM_PIPELINE_OBJECT_EXT
+        other => other,
+    }
+}
+
+/// Gives the OpenGL object `name` of the namespace `identifier` a label, or removes it, with
+/// `GL_KHR_debug` or else `GL_EXT_debug_label`.
+pub(crate) unsafe fn apply_label(
+    ctxt: &CommandContext<'_>,
+    identifier: gl::types::GLenum,
+    name: gl::types::GLuint,
+    label: Option<&str>,
+) {
+    if is_supported(ctxt) {
+        ctxt.glow.object_label(identifier, name, label);
+    } else {
+        // a length of 0 means a null-terminated label: a null label removes it
+        let (length, pointer) = match label {
+            Some(label) => (label.len() as gl::types::GLsizei, label.as_ptr().cast()),
+            None => (0, std::ptr::null()),
+        };
+        ctxt.extra
+            .LabelObjectEXT(ext_object_type(identifier), name, length, pointer);
+    }
 }
 
 /// Returns true if the entry points have the `KHR` suffix, which they have on OpenGL ES below 3.2.
@@ -40,6 +88,8 @@ pub struct DebugGroup<'a> {
     context: &'a Context,
     /// The `generation` of the context when the group was pushed.
     generation: u64,
+    /// True if the group is a marker of `GL_EXT_debug_marker`.
+    marker: bool,
 }
 
 impl Drop for DebugGroup<'_> {
@@ -55,7 +105,13 @@ impl Drop for DebugGroup<'_> {
         self.context.debug_group_depth.set(depth - 1);
 
         let ctxt = self.context.make_current();
-        unsafe { ctxt.glow.pop_debug_group() };
+        unsafe {
+            if self.marker {
+                ctxt.extra.PopGroupMarkerEXT();
+            } else {
+                ctxt.glow.pop_debug_group();
+            }
+        }
     }
 }
 
@@ -69,10 +125,23 @@ impl Context {
     /// Pushes a debug group with an identifier and a message, which is popped when the returned
     /// `DebugGroup` is dropped. Pushing and popping send messages of the types `PushGroup` and
     /// `PopGroup` from `Source::Application` to the debug output.
+    ///
+    /// With `GL_EXT_debug_marker` but without the debug output, the group is a group
+    /// marker that debugging tools show, without an identifier nor messages.
     pub fn push_debug_group(&self, id: u32, message: &str) -> Result<DebugGroup<'_>, DebugError> {
         let ctxt = self.make_current();
         if !is_supported(&ctxt) {
-            return Err(DebugError::NotSupported);
+            if !markers_supported(&ctxt) {
+                return Err(DebugError::NotSupported);
+            }
+            let length = message.len() as gl::types::GLsizei;
+            unsafe { ctxt.extra.PushGroupMarkerEXT(length, message.as_ptr().cast()) };
+            self.debug_group_depth.set(self.debug_group_depth.get() + 1);
+            return Ok(DebugGroup {
+                context: self,
+                generation: self.generation.get(),
+                marker: true,
+            });
         }
         let limits = &self.capabilities.limits;
         if too_long(message, limits.max_debug_message_length) {
@@ -96,6 +165,7 @@ impl Context {
         Ok(DebugGroup {
             context: self,
             generation: self.generation.get(),
+            marker: false,
         })
     }
 
@@ -133,13 +203,22 @@ impl Context {
 
     /// Sends a message to the debug output, from `Source::Application` or `Source::ThirdParty`.
     /// It reaches the debug callback or the message log if it is enabled.
+    ///
+    /// With `GL_EXT_debug_marker` but without the debug output, the text of the
+    /// message is inserted as an event marker that debugging tools show.
     pub fn insert_debug_message(&self, message: &DebugMessage) -> Result<(), DebugError> {
         let ctxt = self.make_current();
-        if !is_supported(&ctxt) {
+        if !markers_supported(&ctxt) {
             return Err(DebugError::NotSupported);
         }
         if message.source != Source::Application && message.source != Source::ThirdParty {
             return Err(DebugError::InvalidSource);
+        }
+        if !is_supported(&ctxt) {
+            let text = &message.message;
+            let length = text.len() as gl::types::GLsizei;
+            unsafe { ctxt.extra.InsertEventMarkerEXT(length, text.as_ptr().cast()) };
+            return Ok(());
         }
         if too_long(
             &message.message,
@@ -236,10 +315,13 @@ pub(crate) fn set_object_label(
     label: &str,
 ) -> Result<(), DebugError> {
     let ctxt = context.make_current();
-    if !is_supported(&ctxt) {
+    let khr = is_supported(&ctxt);
+    // `GL_EXT_debug_label` has no limit, and no labels of sync objects
+    let ext = !khr && labels_supported(&ctxt) && !matches!(object, LabeledObject::Sync(_));
+    if !khr && !ext {
         return Err(DebugError::NotSupported);
     }
-    if too_long(label, context.capabilities.limits.max_label_length) {
+    if khr && too_long(label, context.capabilities.limits.max_label_length) {
         return Err(DebugError::LabelTooLong);
     }
 
@@ -251,7 +333,7 @@ pub(crate) fn set_object_label(
     unsafe {
         match object {
             LabeledObject::Object(identifier, name) => {
-                ctxt.glow.object_label(identifier, name, label)
+                apply_label(&ctxt, identifier, name, label)
             }
             LabeledObject::Sync(sync) => ctxt.glow.object_ptr_label(sync, label),
         }
@@ -266,11 +348,30 @@ pub(crate) fn object_label(
     pending: Option<&RefCell<Option<String>>>,
 ) -> Result<String, DebugError> {
     let ctxt = context.make_current();
-    if !is_supported(&ctxt) {
+    let khr = is_supported(&ctxt);
+    let ext = !khr && labels_supported(&ctxt) && !matches!(object, LabeledObject::Sync(_));
+    if !khr && !ext {
         return Err(DebugError::NotSupported);
     }
     if let Some(pending) = pending {
         return Ok(pending.borrow().clone().unwrap_or_default());
+    }
+    if let (true, LabeledObject::Object(identifier, name)) = (ext, &object) {
+        // the length of the label, then the label and its null terminator
+        let ty = ext_object_type(*identifier);
+        let mut length = 0;
+        let mut label = unsafe {
+            ctxt.extra
+                .GetObjectLabelEXT(ty, *name, 0, &mut length, std::ptr::null_mut());
+            vec![0u8; length.max(0) as usize + 1]
+        };
+        unsafe {
+            let size = label.len() as gl::types::GLsizei;
+            ctxt.extra
+                .GetObjectLabelEXT(ty, *name, size, &mut length, label.as_mut_ptr().cast());
+        }
+        label.truncate(length.max(0) as usize);
+        return Ok(String::from_utf8_lossy(&label).into_owned());
     }
 
     let size = context

@@ -9,7 +9,7 @@ mod support;
 #[allow(unused_imports)]
 use wasm_bindgen_test::wasm_bindgen_test as test;
 
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 mod debug_output {
     use super::support;
 
@@ -329,6 +329,57 @@ mod debug_output {
 
         shader.set_label("compute").unwrap();
         assert_eq!(shader.label().unwrap(), "compute");
+
+        display.assert_no_error(None);
+    }
+
+    /// Without `GL_KHR_debug`, the objects other than sync fences have labels with
+    /// `GL_EXT_debug_label`, and debug groups and inserted messages are the markers of
+    /// `GL_EXT_debug_marker`.
+    #[test]
+    fn labels_and_markers_of_extensions() {
+        let display = support::build_display();
+        if display.is_debug_output_supported() {
+            return;
+        }
+        let extensions = support::extensions(&display);
+        let labels = extensions.gl_ext_debug_label;
+        let markers = extensions.gl_ext_debug_marker;
+
+        let (vertices, _) = support::build_rectangle_vb_ib(&display);
+        match vertices.set_label("vertices") {
+            Ok(()) => {
+                assert!(labels);
+                assert_eq!(vertices.label().unwrap(), "vertices");
+                vertices.set_label("").unwrap();
+                assert_eq!(vertices.label().unwrap(), "");
+                let (_, _, program) = support::build_fullscreen_red_pipeline(&display);
+                program.set_label("red").unwrap();
+                assert_eq!(program.label().unwrap(), "red");
+            }
+            Err(DebugError::NotSupported) => assert!(!labels),
+            Err(error) => panic!("{error}"),
+        }
+        let fence = safegl::SyncFence::new(&display);
+        assert_eq!(fence.set_label("fence"), Err(DebugError::NotSupported));
+        fence.wait();
+
+        match display.push_debug_group(1, "group") {
+            Ok(group) => {
+                assert!(markers);
+                let event = DebugMessage {
+                    source: Source::Application,
+                    ty: MessageType::Marker,
+                    id: 0,
+                    severity: Severity::Notification,
+                    message: "event".to_owned(),
+                };
+                display.insert_debug_message(&event).unwrap();
+                drop(group);
+            }
+            Err(DebugError::NotSupported) => assert!(!markers),
+            Err(error) => panic!("{error}"),
+        }
 
         display.assert_no_error(None);
     }

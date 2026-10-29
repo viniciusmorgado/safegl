@@ -39,7 +39,7 @@ pub struct RawQuery {
     has_been_used: Cell<bool>,
 
     /// The label given before the query began, when OpenGL creates the query object.
-    #[cfg(any(safegl_gl43, safegl_gles32))]
+    #[cfg(any(safegl_gl43, safegl_gles30))]
     pending_label: std::cell::RefCell<Option<String>>,
 }
 
@@ -486,7 +486,7 @@ impl RawQuery {
             id,
             ty,
             has_been_used: Cell::new(false),
-            #[cfg(any(safegl_gl43, safegl_gles32))]
+            #[cfg(any(safegl_gl43, safegl_gles30))]
             pending_label: Default::default(),
         })
     }
@@ -495,14 +495,13 @@ impl RawQuery {
     /// the label it was given before.
     fn mark_used(&self, ctxt: &mut CommandContext<'_>) {
         self.has_been_used.set(true);
-        #[cfg(any(safegl_gl43, safegl_gles32))]
+        #[cfg(any(safegl_gl43, safegl_gles30))]
         if let Some(label) = self.pending_label.borrow_mut().take() {
             unsafe {
-                ctxt.glow
-                    .object_label(gl::QUERY, self.id.0.get(), Some(label))
+                crate::context::apply_label(ctxt, gl::QUERY, self.id.0.get(), Some(&label))
             };
         }
-        #[cfg(not(any(safegl_gl43, safegl_gles32)))]
+        #[cfg(not(any(safegl_gl43, safegl_gles30)))]
         let _ = ctxt;
     }
 
@@ -1079,7 +1078,7 @@ impl fmt::Debug for RawQuery {
     }
 }
 
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 impl crate::debug::sealed::Labeled for RawQuery {
     fn labeled_object(
         &self,
@@ -1187,7 +1186,7 @@ macro_rules! impl_helper {
             }
         }
 
-        #[cfg(any(safegl_gl43, safegl_gles32))]
+        #[cfg(any(safegl_gl43, safegl_gles30))]
         impl crate::debug::sealed::Labeled for $name {
             fn labeled_object(
                 &self,

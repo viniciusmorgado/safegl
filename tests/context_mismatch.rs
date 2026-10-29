@@ -184,7 +184,7 @@ fn copies_between_contexts() {
 
     // images, which only the `gl46` tier copies
     let texture_a = safegl::Texture2d::empty(&a, 4, 4).unwrap();
-    #[cfg(any(safegl_gl43, safegl_gles32))]
+    #[cfg(any(safegl_gl43, safegl_gles30))]
     {
         let texture_b = safegl::Texture2d::empty(&b, 4, 4).unwrap();
         let result = texture_a.main_level().copy_to(&texture_b.main_level());

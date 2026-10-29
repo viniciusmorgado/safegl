@@ -364,7 +364,7 @@ fn cull_distance_limits() {
     display.assert_no_error(None);
 }
 
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 #[test]
 fn debug_limits() {
     let display = support::build_display();
@@ -379,6 +379,7 @@ fn debug_limits() {
         assert!(limits.max_label_length.unwrap() >= 256);
     }
 
+    #[cfg(any(safegl_gl43, safegl_gles32))]
     if let Some(alignment) = limits.texture_buffer_offset_alignment {
         assert!((1..=256).contains(&alignment));
     }
