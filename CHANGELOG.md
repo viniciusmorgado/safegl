@@ -836,9 +836,21 @@ Additions:
   other APIs through file descriptors (`GL_EXT_memory_object_fd`, `GL_EXT_semaphore_fd`):
   buffers and 2D textures in imported memory, and semaphores that OpenGL waits for or signals.
   `interop::device_uuids` gives the UUIDs of the matching Vulkan device.
+- `Context::graphics_reset_status` and `GraphicsResetStatus` compile at every level: OpenGL ES
+  below 3.2 tells resets with `GL_EXT_robustness` or `GL_KHR_robustness`, and browsers through the
+  loss of their context.
+- Debug builds lower the limits that SafeGL checks to the minimums of OpenGL ES 3.0, 3.1 or 3.2
+  with `SAFEGL_CLAMP_LIMITS=es30`, `es31` or `es32`, so that tests run as on the devices that have
+  no more.
 
 Fixes:
 
+- On OpenGL ES and WebGL, the uploads of data whose format the internal format of the texture
+  doesn't take, like RGBA bytes into `U8` or `SrgbFormat::U8`, floats into `U8U8U8U8`, or RGB
+  into RGBA, raised `GL_INVALID_OPERATION`: SafeGL converts the data on the CPU the way desktop
+  OpenGL does, when creating textures and writing them, and returns `FormatNotSupported` for
+  the uploads that no exact conversion gives (floats into integer textures, and the uploads from
+  pixel buffers, whose data stays on the GPU).
 - `TextureHandle::new` makes the handle of the texture with the sampler given
   (`glGetTextureSamplerHandleARB`), resident as long as the `ResidentTexture`, where it ignored
   the sampler, and a `TextureHandle` can be the value of a `sampler*` uniform declared with
