@@ -568,18 +568,30 @@ impl UncompressedFloatFormat {
 }
 
 /// List of uncompressed pixel formats that contain floating-point data in the sRGB color space.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SrgbFormat {
     U8U8U8,
     U8U8U8U8,
+    /// One sRGB component (`GL_SR8_EXT`), with `GL_EXT_texture_sRGB_R8`. Not renderable.
+    U8,
+    /// Two sRGB components (`GL_SRG8_EXT`), with `GL_EXT_texture_sRGB_RG8`. Not renderable.
+    U8U8,
 }
 
 impl SrgbFormat {
     /// Returns a list of all the possible values of this enumeration.
     #[inline]
     pub fn get_formats_list() -> Vec<SrgbFormat> {
-        vec![SrgbFormat::U8U8U8, SrgbFormat::U8U8U8U8]
+        vec![
+            SrgbFormat::U8U8U8,
+            SrgbFormat::U8U8U8U8,
+            SrgbFormat::U8,
+            SrgbFormat::U8U8,
+        ]
     }
 
     /// Turns this format into a more generic `TextureFormat`.
@@ -589,12 +601,17 @@ impl SrgbFormat {
     }
 
     /// Returns true if this format is supported by the backend.
-    pub fn is_supported<C: ?Sized>(&self, _context: &C) -> bool
+    pub fn is_supported<C: ?Sized>(&self, context: &C) -> bool
     where
         C: CapabilitiesSource,
     {
-        // both are core in every version that SafeGL supports
-        true
+        // the three and four components are core in every version that SafeGL supports
+        let extensions = context.get_extensions();
+        match self {
+            SrgbFormat::U8U8U8 | SrgbFormat::U8U8U8U8 => true,
+            SrgbFormat::U8 => extensions.gl_ext_texture_srgb_r8,
+            SrgbFormat::U8U8 => extensions.gl_ext_texture_srgb_rg8,
+        }
     }
 
     /// Returns true if a texture or renderbuffer with this format can be used as a framebuffer
@@ -608,10 +625,12 @@ impl SrgbFormat {
             return false;
         }
 
-        // OpenGL ES can't render to `GL_SRGB8`
+        // OpenGL ES can't render to `GL_SRGB8`, and the extensions of one and two components
+        // don't render
         match self {
             SrgbFormat::U8U8U8 => context.get_version().0 == Api::Gl,
             SrgbFormat::U8U8U8U8 => true,
+            SrgbFormat::U8 | SrgbFormat::U8U8 => false,
         }
     }
 
@@ -619,6 +638,8 @@ impl SrgbFormat {
         match self {
             SrgbFormat::U8U8U8 => gl::SRGB8,
             SrgbFormat::U8U8U8U8 => gl::SRGB8_ALPHA8,
+            SrgbFormat::U8 => gl::SR8_EXT,
+            SrgbFormat::U8U8 => gl::SRG8_EXT,
         }
     }
 }
@@ -2325,6 +2346,12 @@ pub fn default_client_format_to_glenum(
         }
         TextureFormatRequest::Specific(TextureFormat::Srgb(SrgbFormat::U8U8U8)) => {
             (gl::RGB, gl::UNSIGNED_BYTE)
+        }
+        TextureFormatRequest::Specific(TextureFormat::Srgb(SrgbFormat::U8)) => {
+            (gl::RED, gl::UNSIGNED_BYTE)
+        }
+        TextureFormatRequest::Specific(TextureFormat::Srgb(SrgbFormat::U8U8)) => {
+            (gl::RG, gl::UNSIGNED_BYTE)
         }
         TextureFormatRequest::AnyIntegral => (gl::RGBA_INTEGER, gl::INT),
         TextureFormatRequest::AnyUnsigned => (gl::RGBA_INTEGER, gl::UNSIGNED_INT),
