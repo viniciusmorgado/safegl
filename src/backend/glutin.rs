@@ -138,7 +138,8 @@ pub use self::simple_window_builder::SimpleWindowBuilder;
 #[cfg(feature = "simple_window_builder")]
 pub mod simple_window_builder;
 
-#[cfg(safegl_egl)]
+// dma-bufs and native fences are file descriptors of Linux and Android
+#[cfg(all(safegl_egl, unix))]
 pub mod egl;
 #[cfg(safegl_egl)]
 pub mod headless;
