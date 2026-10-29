@@ -377,6 +377,14 @@ Breaking changes:
 - `SrgbFormat` is `#[non_exhaustive]`, with the formats of one and two components `U8`
   (`GL_SR8_EXT`) and `U8U8` (`GL_SRG8_EXT`), from `GL_EXT_texture_sRGB_R8` and
   `GL_EXT_texture_sRGB_RG8`: matches on it need a wildcard arm.
+- `BlendingFunction` is `#[non_exhaustive]`, with the variant `Advanced(AdvancedBlending)`: the
+  advanced blend equations of `GL_KHR_blend_equation_advanced` (core in OpenGL ES 3.2), such as
+  multiply, screen or the HSL equations, which `Blend::advanced` gives for the colors and the
+  alpha. Matches on it need a wildcard arm. Draws return the new `DrawError`s
+  `AdvancedBlendingNotSupported`, `AdvancedBlendingMismatch` (the color and the alpha functions
+  differ), `AdvancedBlendingTooManyOutputs` and `AdvancedBlendingNotDeclared` (the fragment
+  shader lacks its `layout(blend_support_*) out;`), and SafeGL separates the draws with
+  `glBlendBarrier` without `GL_KHR_blend_equation_advanced_coherent`.
 
 Additions:
 
@@ -778,6 +786,25 @@ Additions:
   `GL_NV_shader_noperspective_interpolation`, `GL_EXT_geometry_point_size`,
   `GL_EXT_tessellation_point_size`, `GL_EXT_shader_group_vote`, `GL_EXT_shader_integer_mix` and
   `GL_EXT_texture_shadow_lod`.
+- Fragment shaders read the framebuffer with `GL_EXT_shader_framebuffer_fetch`,
+  `GL_ARM_shader_framebuffer_fetch` and `GL_ARM_shader_framebuffer_fetch_depth_stencil`, which
+  `ExtensionsList` has, and with `layout(noncoherent)` of
+  `GL_EXT_shader_framebuffer_fetch_non_coherent`, for which SafeGL separates the draws with
+  `glFramebufferFetchBarrierEXT`.
+- Framebuffers render to textures with samples that the GPU resolves when it writes them, which
+  tile-based GPUs keep in the memory of the chip (`GL_EXT_multisampled_render_to_texture` and
+  `GL_EXT_multisampled_render_to_texture2`): `TextureAnyImage::multisampled` gives an image the
+  samples to render with, and `new_multisample_resolved` builds the render buffers that go with
+  it. Framebuffers return the new `ValidationError`s `MultisampledRenderToTextureNotSupported`,
+  `MultisampledRenderToTextureTarget` and `SamplesNotSupported`, and render buffers
+  `RenderBufferCreationError::ResolvedMultisampleNotSupported`.
+- `framebuffer::PixelLocalStorage` enables pixel local storage on a surface
+  (`GL_EXT_shader_pixel_local_storage`, and `GL_EXT_shader_pixel_local_storage2` for its size
+  and `clear`), for the fragment shaders that keep values for each pixel from a draw to the next,
+  which draw only there (`DrawError::PixelLocalStorageNotEnabled`).
+  `framebuffer::TiledRendering` limits the rendering of a surface to a tile
+  (`GL_QCOM_tiled_rendering`), preserving the buffers of `TilePreserve`. Both are suspended
+  while SafeGL binds another framebuffer for drawing, and return `TilePassError`.
 
 Fixes:
 
