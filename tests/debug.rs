@@ -56,6 +56,16 @@ mod debug_output {
             .collect()
     }
 
+    /// Returns true if the messages of the tests, of up to 16 bytes, are shorter than
+    /// `max_debug_message_length`, which `GL_KHR_debug` only guarantees to be 1.
+    fn messages_fit(display: &support::Backend) -> bool {
+        display
+            .get_capabilities()
+            .limits
+            .max_debug_message_length
+            .is_some_and(|max| max > 16)
+    }
+
     fn marker(id: u32, text: &str) -> DebugMessage {
         DebugMessage {
             source: Source::Application,
@@ -69,7 +79,7 @@ mod debug_output {
     #[test]
     fn debug_groups_send_messages() {
         let (display, received) = display_with_messages();
-        if !display.is_debug_output_supported() {
+        if !display.is_debug_output_supported() || !messages_fit(&display) {
             return;
         }
 
@@ -94,7 +104,7 @@ mod debug_output {
     #[test]
     fn debug_group_stack_overflow() {
         let display = support::build_display();
-        if !display.is_debug_output_supported() {
+        if !display.is_debug_output_supported() || !messages_fit(&display) {
             return;
         }
         let max = display
@@ -149,7 +159,7 @@ mod debug_output {
     #[test]
     fn inserted_messages_are_filtered() {
         let (display, received) = display_with_messages();
-        if !display.is_debug_output_supported() {
+        if !display.is_debug_output_supported() || !messages_fit(&display) {
             return;
         }
 
@@ -220,7 +230,7 @@ mod debug_output {
     #[test]
     fn message_log() {
         let display = support::build_display_with_debug(DebugCallbackBehavior::Log);
-        if !display.is_debug_output_supported() {
+        if !display.is_debug_output_supported() || !messages_fit(&display) {
             return;
         }
 

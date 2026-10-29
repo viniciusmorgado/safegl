@@ -1110,6 +1110,41 @@ fn precision_of_shaders() {
     display.assert_no_error(None);
 }
 
+/// Every qualifier of the vertex and fragment shaders has at least the precision of OpenGL ES 3.0,
+/// whose `mediump` and `lowp` are less precise on mobile GPUs than on desktop drivers, which
+/// compute them as `highp`. The formats are printed, for the runs on devices
+/// (`--nocapture`).
+#[cfg(any(safegl_gl41, safegl_gles30))]
+#[test]
+fn precision_of_every_qualifier() {
+    use safegl::program::{PrecisionQualifier as Q, ShaderType};
+
+    let display = support::build_display();
+    // the minimum range and precision of each qualifier in OpenGL ES 3.0
+    let minimums = [
+        (Q::HighFloat, (126, 127), 23),
+        (Q::MediumFloat, (14, 14), 10),
+        (Q::LowFloat, (1, 1), 8),
+        (Q::HighInt, (31, 30), 0),
+        (Q::MediumInt, (15, 14), 0),
+        (Q::LowInt, (8, 7), 0),
+    ];
+    for shader in [ShaderType::Vertex, ShaderType::Fragment] {
+        for (qualifier, range, precision) in minimums {
+            let Some(format) = display.shader_precision_format(shader, qualifier) else {
+                return;
+            };
+            eprintln!("{shader:?} {qualifier:?}: {format:?}");
+            assert!(
+                format.range.0 >= range.0 && format.range.1 >= range.1,
+                "{shader:?} {qualifier:?}: {format:?}"
+            );
+            assert!(format.precision >= precision, "{shader:?} {qualifier:?}: {format:?}");
+        }
+    }
+    display.assert_no_error(None);
+}
+
 /// Programs are linked with `GL_PROGRAM_BINARY_RETRIEVABLE_HINT`, so that their binaries can be
 /// retrieved on every driver.
 #[cfg(any(safegl_gl41, safegl_gles30))]
