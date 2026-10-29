@@ -67,7 +67,7 @@ Cargo feature:
 | Chain                        | Levels                                                | Typical targets                                                                                    |
 |------------------------------|-------------------------------------------------------|----------------------------------------------------------------------------------------------------|
 | Desktop OpenGL, core profile | `gl40` (**default**), `gl41`, `gl42`, `gl43`, `gl44`, `gl45`, `gl46` | Windows and Linux with NVIDIA, AMD, Intel or Mesa drivers (`gl46`); macOS (`gl41` at most); Asahi Linux on Apple M1/M2 (`gl46`) |
-| OpenGL ES                    | `gles30`, `gles31`, `gles32`                          | Embedded Linux, such as the Raspberry Pi 4/5 (`gles31`), and other OpenGL ES devices               |
+| OpenGL ES                    | `gles30`, `gles31`, `gles32`                          | Embedded Linux, such as the Raspberry Pi 4/5 (`gles31`), Android (`gles31`, `gles32`), and other OpenGL ES devices (see [Embedded devices](#embedded-devices)) |
 | WebGL                        | `webgl`                                               | Browsers, through `wasm32-unknown-unknown` (see [examples/web](examples/web))                     |
 
 A level is a ceiling: SafeGL compiles the API of its version and of the versions below it in its
@@ -211,8 +211,9 @@ driver has it and fall back to `glBufferData` otherwise.
   limited to `gl41` under macOS can use `gl46` under Linux.
 - **Raspberry Pi 4/5** and similar boards expose OpenGL ES 3.1 but only desktop OpenGL 3.1; use
   `gles31`.
-- **OpenGL ES** has fewer formats than desktop OpenGL. Data uploaded to a texture must match its
-  format, so a texture created from data gets a format chosen from that data. OpenGL ES only
+- **OpenGL ES** has fewer formats than desktop OpenGL, and only uploads the data whose format
+  matches the texture's: SafeGL converts the other data on the CPU like desktop OpenGL does, and
+  a texture created from data without a format gets one chosen from that data. OpenGL ES only
   reads textures back as `(i32, i32, i32, i32)`, `(u32, u32, u32, u32)` or `(f32, f32, f32, f32)`
   for integer and float textures, and as `(u8, u8, u8, u8)` for normalized ones; `read()` and
   `read_as()` convert the other pixel formats on the CPU.
@@ -227,6 +228,46 @@ driver has it and fall back to `glBufferData` otherwise.
 - **Browsers** provide WebGL 2, which SafeGL treats as OpenGL ES 3.0. WebGL can't map buffers or
   block on fences, so buffer mappings are emulated with copies and `SyncFence::wait` returns after
   `glFinish`. Shaders must start with `#version 300 es` on their very first line.
+
+### Embedded devices
+
+> **The embedded devices aren't tested like desktop OpenGL and WebGL yet.** SafeGL covers OpenGL
+> ES 3.0 to 3.2 and their extensions completely, and the whole test suite runs on the OpenGL ES
+> drivers of desktop GPUs and compiles for the architectures of embedded devices, but no phone or
+> board has run it, for lack of devices for now. Contributions are appreciated: a run of the
+> tests on a real board or phone, with `lua tests/cross/embedded_device_tests.lua`, tells which
+> drivers work and which need fixes.
+
+The chapter [OpenGL ES 3.0 to 3.2 devices](book/opengl-es.md) lists every extension of OpenGL ES
+that SafeGL uses, what the tests verified, and what they couldn't.
+
+- **Without window system**, on servers, in CI and on boards without X11 nor Wayland,
+  `backend::glutin::headless` draws on the EGL display of a GPU or of Mesa's software renderer
+  (the [`headless`](examples/standalone/headless.rs) example). Kiosks draw fullscreen with
+  DRM/KMS and GBM (the [`kiosk`](examples/standalone/kiosk.rs) example).
+- **On a Raspberry Pi 4/5**, select `gles31`. To cross-compile from another machine, add the
+  target and a linker for it, like Debian's `gcc-aarch64-linux-gnu`:
+
+  ```sh
+  rustup target add aarch64-unknown-linux-gnu
+  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+      cargo build --release --target aarch64-unknown-linux-gnu --features gles31
+  ```
+
+  `armv7-unknown-linux-gnueabihf` builds for 32-bit systems, and `riscv64gc-unknown-linux-gnu`
+  for RISC-V boards.
+- **On Android**, select `gles31` or `gles32`, with winit's `android-native-activity` feature,
+  and build with [cargo-apk](https://github.com/rust-mobile/cargo-apk) or
+  [xbuild](https://github.com/rust-mobile/xbuild). The display keeps its objects while the
+  application is paused (`Display::remove_surface` and `Display::set_surface`), as the
+  [`android`](examples/standalone/android.rs) example shows:
+
+  ```sh
+  cargo apk run --example android --no-default-features --features gles31,simple_window_builder,egl
+  ```
+- **External images** from cameras, video decoders and other processes are sampled as
+  `texture::ExternalTexture`s from dma-bufs (`backend::glutin::egl`), and memory and semaphores
+  are shared with Vulkan (`interop`).
 
 ## Why SafeGL matters for Oxidian
 
@@ -289,6 +330,12 @@ Environment variables select the context that the tests use:
 - `SAFEGL_DISABLE_EXTENSIONS`: a space-separated list of extension names that the context treats
   as missing (debug builds only), to run the paths of drivers without them on drivers that have
   them.
+- `SAFEGL_CLAMP_LIMITS=es30`, `es31` or `es32`: lower the limits that SafeGL checks to the
+  minimums of that OpenGL ES version (debug builds only), to run the suite as on the devices that
+  have no more.
+- `SAFEGL_TEST_DISPLAY=headless`, when the tests are built: draw on displays without window
+  system, pbuffers of an EGL device, instead of hidden windows; `SAFEGL_EGL_DEVICE` chooses the
+  device whose name, vendor or DRM node contains it, `software` for Mesa's software renderer.
 
 Tests of features that the context lacks return early, while every other error fails them. Mesa's
 software renderer runs the whole suite (`LIBGL_ALWAYS_SOFTWARE=1`, plus
@@ -322,6 +369,17 @@ the tests under `xvfb-run`, and Firefox draws with Mesa's software driver where 
 Browsers have no environment: there, `SAFEGL_DISABLE_EXTENSIONS` is read when the tests are
 built. The tests that need native windows or contexts (rebuilding a display, robust contexts,
 caught panics) only run natively.
+
+The OpenGL ES levels compile for the architectures of embedded devices (aarch64, armv7, riscv64
+and Android, which `rustup target add` installs), and the suite runs as a 32-bit program, or in
+QEMU for aarch64 with a sysroot of aarch64 with Mesa, through another Lua script:
+
+```sh
+lua tests/cross/check_targets.lua check test-i686
+```
+
+On an embedded device, `lua tests/cross/embedded_device_tests.lua` runs the suite at each OpenGL
+ES level of its driver, and writes a report of the driver and of the results.
 
 What each level compiles is checked by a [Lua](https://www.lua.org) script, which builds small
 crates against every level, the browser and macOS (`rustup target add wasm32-unknown-unknown
