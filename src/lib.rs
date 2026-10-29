@@ -2289,6 +2289,7 @@ impl fmt::Display for DrawError {
 
 /// Error that can happen when swapping buffers.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SwapBuffersError {
     /// The OpenGL context has been lost and needs to be recreated. The `Display` and all the
     /// objects associated to it (textures, buffers, programs, etc.) need to be recreated from
@@ -2306,6 +2307,9 @@ pub enum SwapBuffersError {
     /// This error can be returned when `set_finish()` is called multiple times, or `finish()` is
     /// called after `set_finish()`.
     AlreadySwapped,
+    /// The display lost its surface while the frame was drawn (`Display::remove_surface`): the
+    /// frame isn't shown.
+    SurfaceLost,
 }
 
 impl Error for SwapBuffersError {}
@@ -2316,6 +2320,7 @@ impl fmt::Display for SwapBuffersError {
         let desc = match *self {
             ContextLost => "the OpenGL context has been lost and needs to be recreated",
             AlreadySwapped => "the buffers have already been swapped",
+            SurfaceLost => "the display lost its surface, and the frame isn't shown",
         };
         fmt.write_str(desc)
     }
@@ -2426,9 +2431,13 @@ impl Frame {
 
 /// Error that can happen when starting a `Frame`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FrameError {
     /// Another `Frame` of the context hasn't been finished yet.
     AlreadyDrawing,
+    /// The display has no surface to draw on: its window was destroyed, and the surface removed
+    /// (`Display::remove_surface`), as Android does when the application is paused.
+    SurfaceLost,
 }
 
 impl fmt::Display for FrameError {
@@ -2437,6 +2446,7 @@ impl fmt::Display for FrameError {
             FrameError::AlreadyDrawing => {
                 fmt.write_str("Another `Frame` of the context hasn't been finished yet")
             }
+            FrameError::SurfaceLost => fmt.write_str("The display has no surface to draw on"),
         }
     }
 }

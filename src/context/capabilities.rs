@@ -74,6 +74,11 @@ pub struct Capabilities {
     /// Whether the context supports left and right buffers.
     pub stereo: bool,
 
+    /// The color buffer of the default framebuffer that is shown, which `read_front_buffer`
+    /// reads: `GL_FRONT_LEFT`, `GL_BACK_LEFT` for the surfaces without front buffer like the
+    /// pbuffers of EGL, and `GL_BACK` on OpenGL ES.
+    pub(crate) front_buffer: gl::types::GLenum,
+
     /// True if the default framebuffer is in sRGB.
     pub srgb: bool,
 
@@ -302,7 +307,23 @@ pub unsafe fn get_capabilities(
         false
     };
 
+    // the color buffer of the default framebuffer that is shown: the front one with double
+    // buffering, otherwise the one that it draws to, the back one for the pbuffers of EGL, which
+    // drivers may give a front left attachment that can't be read
+    let draw_framebuffer = gl.get_parameter_i32(glow::DRAW_FRAMEBUFFER_BINDING);
+    let front_buffer = match version.0 {
+        Api::Gl if draw_framebuffer == 0 && !gl.get_parameter_bool(glow::DOUBLEBUFFER) => {
+            match gl.get_parameter_i32(glow::DRAW_BUFFER) as gl::types::GLenum {
+                gl::BACK | gl::BACK_LEFT => gl::BACK_LEFT,
+                _ => gl::FRONT_LEFT,
+            }
+        }
+        Api::Gl => gl::FRONT_LEFT,
+        Api::GlEs => gl::BACK,
+    };
+
     Capabilities {
+        front_buffer,
         supported_glsl_versions: { get_supported_glsl(gl, version, extensions) },
 
         version: gl.get_parameter_string(glow::VERSION),
@@ -372,9 +393,8 @@ pub unsafe fn get_capabilities(
         srgb: {
             // the default framebuffer names its color buffers by side on desktop OpenGL
             let fb = gl.get_parameter_i32(glow::DRAW_FRAMEBUFFER_BINDING);
-            let attachment = match (fb, version.0) {
-                (0, Api::Gl) => gl::FRONT_LEFT,
-                (0, Api::GlEs) => gl::BACK,
+            let attachment = match fb {
+                0 => front_buffer,
                 _ => gl::COLOR_ATTACHMENT0,
             };
             let value = gl.get_framebuffer_attachment_parameter_i32(

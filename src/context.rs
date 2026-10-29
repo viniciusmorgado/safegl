@@ -940,9 +940,14 @@ impl Context {
         };
 
         let mut data = Vec::with_capacity(0);
+        // the surfaces without front buffer show their back buffer
+        let front = match ctxt.capabilities.front_buffer {
+            gl::BACK_LEFT => gl::BACK_LEFT,
+            _ => gl::FRONT_LEFT,
+        };
         ops::read(
             &mut ctxt,
-            ops::Source::DefaultFramebuffer(gl::FRONT_LEFT),
+            ops::Source::DefaultFramebuffer(front),
             &rect,
             &mut data,
             false,

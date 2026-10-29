@@ -14,7 +14,7 @@ exclude = ["doc", ".idea", "examples/renderers", "examples/standalone/support/fe
 edition = "2021"
 
 [features]
-default = ["backtrace", "glutin_backend", "simple_window_builder", "glutin/default", "winit/rwh_06", "winit/x11", "winit/wayland", "winit/wayland-dlopen", "winit/wayland-csd-adwaita-notitle", "glutin-winit/default"]
+default = ["backtrace", "glutin_backend", "egl", "simple_window_builder", "glutin/default", "winit/rwh_06", "winit/x11", "winit/wayland", "winit/wayland-dlopen", "winit/wayland-csd-adwaita-notitle", "glutin-winit/default"]
 # OpenGL levels. Select at most one desktop level and one OpenGL ES level, or `webgl` alone for
 # browsers; without any, the level is `gl40`. A level is a ceiling: the API of the versions above
 # it doesn't compile.
@@ -30,6 +30,7 @@ gles31 = [] # OpenGL ES 3.1
 gles32 = [] # OpenGL ES 3.2
 webgl = ["dep:web-sys", "dep:wasm-bindgen", "dep:js-sys"] # WebGL 2 in browsers (wasm32), the OpenGL ES 3.0 set
 glutin_backend = ["glutin"]
+egl = ["glutin_backend", "glutin/egl"] # displays without window, and surfaces removed from displays
 backtrace = ["dep:backtrace"] # prints a backtrace with the OpenGL debug messages reported as errors
 unstable = [] # used for benchmarks
 simple_window_builder = ["glutin", "glutin-winit", "winit", "raw-window-handle"] # used in the tutorial
@@ -80,7 +81,7 @@ takeable-option = "0.5.0"
 gltf = { version = "1.4.1", default-features = false, features = ["utils"] }
 
 [package.metadata.docs.rs]
-features = ["gl46", "gles32", "backtrace", "glutin_backend", "simple_window_builder", "glutin/default", "winit/rwh_06", "winit/x11", "winit/wayland", "glutin-winit/default"]
+features = ["gl46", "gles32", "backtrace", "glutin_backend", "egl", "simple_window_builder", "glutin/default", "winit/rwh_06", "winit/x11", "winit/wayland", "glutin-winit/default"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [[example]]
