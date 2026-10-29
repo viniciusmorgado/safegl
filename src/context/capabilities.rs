@@ -879,3 +879,83 @@ pub fn get_internal_format(
         }
     }
 }
+
+/// Lowers the limits that SafeGL checks to the minimums that OpenGL ES 3.0, 3.1 or 3.2 requires,
+/// with `SAFEGL_CLAMP_LIMITS=es30`, `es31` or `es32`, so that tests run as on the devices that
+/// have no more. Only debug builds read it: from the environment of the program, or, in
+/// browsers, from the environment of the build.
+pub(crate) fn clamp_to_minimums(capabilities: &mut Capabilities) {
+    if !cfg!(debug_assertions) {
+        return;
+    }
+    let level = std::env::var("SAFEGL_CLAMP_LIMITS")
+        .ok()
+        .or_else(|| option_env!("SAFEGL_CLAMP_LIMITS").map(str::to_owned));
+    let minor = match level.as_deref() {
+        Some("es30") => 0,
+        Some("es31") => 1,
+        Some("es32") => 2,
+        _ => return,
+    };
+    // the minimum of each version, from 3.0 to 3.2
+    let at_most = |value: &mut gl::types::GLint, minimums: [gl::types::GLint; 3]| {
+        *value = (*value).min(minimums[minor]);
+    };
+    let optional = |value: &mut Option<gl::types::GLint>, minimums: [gl::types::GLint; 3]| {
+        if let Some(value) = value {
+            *value = (*value).min(minimums[minor]);
+        }
+    };
+
+    let c = capabilities;
+    at_most(&mut c.max_texture_size, [2048, 2048, 2048]);
+    at_most(&mut c.max_cube_map_texture_size, [2048, 2048, 2048]);
+    at_most(&mut c.max_array_texture_layers, [256, 256, 256]);
+    at_most(&mut c.max_viewport_dims.0, [2048, 2048, 2048]);
+    at_most(&mut c.max_viewport_dims.1, [2048, 2048, 2048]);
+    at_most(&mut c.max_draw_buffers, [4, 4, 4]);
+    at_most(&mut c.max_color_attachments, [4, 4, 4]);
+    at_most(&mut c.max_combined_texture_image_units, [32, 48, 96]);
+    at_most(&mut c.max_indexed_uniform_buffer, [24, 36, 72]);
+    at_most(&mut c.max_indexed_transform_feedback_buffer, [4, 4, 4]);
+    at_most(&mut c.max_indexed_shader_storage_buffer, [0, 4, 8]);
+    at_most(&mut c.max_indexed_atomic_counter_buffer, [0, 1, 1]);
+    optional(&mut c.max_texture_buffer_size, [0, 0, 65536]);
+    optional(&mut c.max_patch_vertices, [0, 0, 32]);
+    for count in [
+        &mut c.max_compute_work_group_count.0,
+        &mut c.max_compute_work_group_count.1,
+        &mut c.max_compute_work_group_count.2,
+    ] {
+        at_most(count, [0, 65535, 65535]);
+    }
+    if let Some(anisotropy) = &mut c.max_texture_max_anisotropy {
+        // the minimum of `GL_EXT_texture_filter_anisotropic`
+        *anisotropy = anisotropy.min(2.0);
+    }
+
+    let l = &mut c.limits;
+    at_most(&mut l.max_vertex_attribs, [16, 16, 16]);
+    at_most(&mut l.max_renderbuffer_size, [2048, 2048, 2048]);
+    at_most(&mut l.max_samples, [4, 4, 4]);
+    // the minimum of `GL_EXT_blend_func_extended`
+    optional(&mut l.max_dual_source_draw_buffers, [1, 1, 1]);
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    {
+        optional(&mut l.max_color_texture_samples, [1, 1, 1]);
+        optional(&mut l.max_depth_texture_samples, [1, 1, 1]);
+        optional(&mut l.max_integer_samples, [1, 1, 1]);
+    }
+    #[cfg(any(safegl_gl43, safegl_gles30))]
+    {
+        // the minimums of `GL_KHR_debug`, core in OpenGL ES 3.2
+        optional(&mut l.max_label_length, [256, 256, 256]);
+        optional(&mut l.max_debug_group_stack_depth, [64, 64, 64]);
+        optional(&mut l.max_debug_message_length, [1, 1, 1]);
+    }
+    #[cfg(any(safegl_gl43, safegl_gles32))]
+    if let Some(alignment) = &mut l.texture_buffer_offset_alignment {
+        // an alignment is a maximum
+        *alignment = (*alignment).max(256);
+    }
+}

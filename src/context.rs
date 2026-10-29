@@ -377,8 +377,9 @@ impl Context {
         #[cfg(not(safegl_browser))]
         let webgl = webgl::WebGl::new();
 
-        let capabilities =
+        let mut capabilities =
             capabilities::get_capabilities(&glow, &extra, &webgl, &version, &extensions);
+        capabilities::clamp_to_minimums(&mut capabilities);
         let report_debug_output_errors = Cell::new(true);
 
         let vertex_array_objects = vertex_array_object::VertexAttributesSystem::new();
