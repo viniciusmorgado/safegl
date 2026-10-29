@@ -1183,13 +1183,14 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
                 /// Its level 0 is the level `levels.start` of the source. Views can be made of
                 /// views.
                 ///
-                /// Needs OpenGL 4.3 or `GL_ARB_texture_view`, and a source with immutable storage
+                /// Needs OpenGL 4.3, `GL_ARB_texture_view`, or `GL_OES_texture_view` or
+                /// `GL_EXT_texture_view` on OpenGL ES 3.1, and a source with immutable storage
                 /// that is a texture of a compatible kind: two-dimensional textures, their arrays,
                 /// cube maps and cube map arrays view each other, as do one-dimensional textures and
                 /// their arrays, and multisample textures and their arrays; 3D and rectangle
                 /// textures only view textures of their kind.
-                #[cfg(safegl_gl43)]
-                #[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+                #[cfg(any(safegl_gl43, safegl_gles31))]
+                #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
                 pub fn view<S>(source: &S, format: {format}, levels: std::ops::Range<u32>,
                                layers: std::ops::Range<u32>)
                                -> Result<{name}, crate::texture::TextureViewError>

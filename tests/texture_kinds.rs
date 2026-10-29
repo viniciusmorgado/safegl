@@ -724,7 +724,7 @@ fn rectangle_textures() {
 
 /// Texture views share the storage of their source, with another kind, format, range of levels
 /// or range of layers.
-#[cfg(safegl_gl43)]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 #[test]
 fn texture_views() {
     use safegl::texture::{
@@ -748,7 +748,7 @@ fn texture_views() {
     let uint_program = program(
         &display,
         330,
-        0,
+        300,
         "uniform usampler2D tex;",
         "uint v = texelFetch(tex, ivec2(0), 0).r;\n\
          color = vec4(float(v & 255u), float((v >> 8) & 255u), float((v >> 16) & 255u), \
@@ -777,7 +777,7 @@ fn texture_views() {
     let sample = program(
         &display,
         330,
-        0,
+        300,
         "uniform sampler2D tex;",
         "color = texture(tex, uv);",
     );

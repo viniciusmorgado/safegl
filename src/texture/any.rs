@@ -1222,7 +1222,7 @@ where
 
 /// Builds a view of the levels `levels` and the layers `layers` of `source`, of the kind whose
 /// bind point is `target`, with the format `format` (`glTextureView`).
-#[cfg(safegl_gl43)]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 pub fn new_texture_view(
     source: &TextureAny,
     target: gl::types::GLenum,
@@ -1236,7 +1236,11 @@ pub fn new_texture_view(
 
     let context = &source.context;
     let mut ctxt = context.make_current();
-    if !(ctxt.version >= &Version(Api::Gl, 4, 3) || ctxt.extensions.gl_arb_texture_view) {
+    let supported = ctxt.version >= &Version(Api::Gl, 4, 3)
+        || ctxt.extensions.gl_arb_texture_view
+        || ctxt.extensions.gl_oes_texture_view
+        || ctxt.extensions.gl_ext_texture_view;
+    if !supported {
         return Err(TextureViewError::NotSupported);
     }
     let source_target = source.get_bind_point();
@@ -1341,7 +1345,16 @@ pub fn new_texture_view(
     let id = unsafe {
         // `glTextureView` needs a name that was never bound
         let id = ctxt.glow.create_texture().expect("failed to create a texture");
-        ctxt.extra.TextureView(
+        // the entry point of the version, or of the extension on OpenGL ES
+        let view = if ctxt.version.0 == Api::Gl {
+            gl::Extra::TextureView
+        } else if ctxt.extensions.gl_oes_texture_view {
+            gl::Extra::TextureViewOES
+        } else {
+            gl::Extra::TextureViewEXT
+        };
+        view(
+            ctxt.extra,
             id.raw_name(),
             target,
             source.id.raw_name(),

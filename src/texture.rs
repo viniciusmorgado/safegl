@@ -158,8 +158,8 @@ pub use self::ops::{
 #[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
 pub use self::ops::RegionOutOfBoundsError;
 pub use self::parameters::MipmapRangeError;
-#[cfg(safegl_gl43)]
-#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+#[cfg(any(safegl_gl43, safegl_gles31))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
 pub use self::view::TextureViewError;
 #[cfg(any(safegl_desktop, safegl_gles30))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles30))))]
@@ -216,7 +216,7 @@ pub(crate) unsafe fn reset_client_layouts(ctxt: &mut crate::context::CommandCont
         regions::PACK.reset_rows(ctxt);
     }
 }
-#[cfg(safegl_gl43)]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 mod view;
 #[cfg(safegl_browser)]
 mod web_image;
