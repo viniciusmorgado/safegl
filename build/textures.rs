@@ -2019,7 +2019,7 @@ fn build_texture<W: Write>(dest: &mut W, ty: TextureType, dimensions: TextureDim
 
         (writeln!(
             dest,
-            "#[cfg(any(safegl_gl43, safegl_gles32))]
+            "#[cfg(any(safegl_gl43, safegl_gles30))]
              impl<'t> From<{name}Mipmap<'t>> for crate::texture::CopyImageTarget<'t> {{
                  #[inline]
                  fn from(mipmap: {name}Mipmap<'t>) -> crate::texture::CopyImageTarget<'t> {{

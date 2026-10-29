@@ -61,6 +61,9 @@ pub const DEPTH_CLAMP_FAR_AMD: GLenum = 0x901F;
 pub const DEPTH_CLAMP_NEAR_AMD: GLenum = 0x901E;
 pub const GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX: GLenum = 0x9049;
 pub const INT64_NV: GLenum = 0x140E;
+// GL_EXT_texture_sRGB_R8 and GL_EXT_texture_sRGB_RG8
+pub const SR8_EXT: GLenum = 0x8FBD;
+pub const SRG8_EXT: GLenum = 0x8FBE;
 // GL_OVR_multiview
 pub const MAX_VIEWS_OVR: GLenum = 0x9631;
 // WebGL 2
@@ -161,6 +164,8 @@ extra_functions! {
     fn ClipControl(origin: GLenum, depth: GLenum) -> ();
     fn ClipControlEXT(origin: GLenum, depth: GLenum) -> ();
     fn CopyImageSubData(srcName: GLuint, srcTarget: GLenum, srcLevel: GLint, srcX: GLint, srcY: GLint, srcZ: GLint, dstName: GLuint, dstTarget: GLenum, dstLevel: GLint, dstX: GLint, dstY: GLint, dstZ: GLint, srcWidth: GLsizei, srcHeight: GLsizei, srcDepth: GLsizei) -> ();
+    fn CopyImageSubDataEXT(srcName: GLuint, srcTarget: GLenum, srcLevel: GLint, srcX: GLint, srcY: GLint, srcZ: GLint, dstName: GLuint, dstTarget: GLenum, dstLevel: GLint, dstX: GLint, dstY: GLint, dstZ: GLint, srcWidth: GLsizei, srcHeight: GLsizei, srcDepth: GLsizei) -> ();
+    fn CopyImageSubDataOES(srcName: GLuint, srcTarget: GLenum, srcLevel: GLint, srcX: GLint, srcY: GLint, srcZ: GLint, dstName: GLuint, dstTarget: GLenum, dstLevel: GLint, dstX: GLint, dstY: GLint, dstZ: GLint, srcWidth: GLsizei, srcHeight: GLsizei, srcDepth: GLsizei) -> ();
     fn CompressedTexSubImage1D(target: GLenum, level: GLint, xoffset: GLint, width: GLsizei, format: GLenum, imageSize: GLsizei, data: *const c_void) -> ();
     fn DebugMessageCallback(callback: GLDEBUGPROC, userParam: *const c_void) -> ();
     fn DebugMessageCallbackARB(callback: GLDEBUGPROCARB, userParam: *const c_void) -> ();

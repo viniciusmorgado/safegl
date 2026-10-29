@@ -143,8 +143,8 @@ pub use self::any::{TextureAny, TextureAnyLayer, TextureAnyLayerMipmap, TextureA
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub use self::bindless::{BindlessTexturesNotSupportedError, ResidentTexture, TextureHandle};
 pub use self::get_format::{GetFormatError, InternalFormat, InternalFormatType};
-#[cfg(any(safegl_gl43, safegl_gles32))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
 pub use self::ops::{copy_image, is_copy_image_supported, CopyImageError, CopyImageTarget};
 #[cfg(safegl_gl44)]
 #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
@@ -196,7 +196,7 @@ pub mod pixel_buffer;
 
 mod any;
 mod get_format;
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 mod ops;
 mod parameters;
 #[cfg(safegl_desktop)]

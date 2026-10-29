@@ -1,4 +1,4 @@
-#![cfg(any(safegl_gl43, safegl_gles32))]
+#![cfg(any(safegl_gl43, safegl_gles30))]
 
 #[macro_use]
 extern crate safegl;
@@ -10,9 +10,11 @@ use safegl::index::PrimitiveType;
 use safegl::texture::texture_barrier;
 use safegl::texture::{
     copy_image, CompressedFormat, CompressedMipmapsOption, CompressedTexture2d, CopyImageError,
-    MipmapsOption, Texture2dMultisample, UncompressedFloatFormat, UncompressedUintFormat,
-    UnsignedTexture2d,
+    MipmapsOption, UncompressedFloatFormat, UncompressedUintFormat, UnsignedTexture2d,
 };
+// multisample textures come with OpenGL ES 3.1
+#[cfg(any(safegl_desktop, safegl_gles31))]
+use safegl::texture::Texture2dMultisample;
 #[cfg(safegl_gl44)]
 use safegl::texture::{
     ClearTextureError, DepthStencilFormat, DepthStencilTexture2d, DepthTexture2d,
@@ -491,11 +493,14 @@ fn copy_checks_formats_and_samples() {
         Err(CopyImageError::IncompatibleFormats)
     );
 
-    let multisample = Texture2dMultisample::empty(&display, SIZE, SIZE, 4).unwrap();
-    assert_eq!(
-        source.main_level().copy_to(&multisample.main_level()),
-        Err(CopyImageError::SampleCountMismatch)
-    );
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    {
+        let multisample = Texture2dMultisample::empty(&display, SIZE, SIZE, 4).unwrap();
+        assert_eq!(
+            source.main_level().copy_to(&multisample.main_level()),
+            Err(CopyImageError::SampleCountMismatch)
+        );
+    }
 
     display.assert_no_error(None);
 }
