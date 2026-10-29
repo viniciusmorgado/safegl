@@ -275,6 +275,9 @@ extra_functions! {
     fn PrimitiveBoundingBoxOES(minX: GLfloat, minY: GLfloat, minZ: GLfloat, minW: GLfloat, maxX: GLfloat, maxY: GLfloat, maxZ: GLfloat, maxW: GLfloat) -> ();
     fn VertexAttribL4d(index: GLuint, x: GLdouble, y: GLdouble, z: GLdouble, w: GLdouble) -> ();
     fn MultiDrawArrays(mode: GLenum, first: *const GLint, count: *const GLsizei, drawcount: GLsizei) -> ();
+    fn MultiDrawArraysEXT(mode: GLenum, first: *const GLint, count: *const GLsizei, primcount: GLsizei) -> ();
+    fn MultiDrawElementsEXT(mode: GLenum, count: *const GLsizei, type_: GLenum, indices: *const *const c_void, primcount: GLsizei) -> ();
+    fn MultiDrawElementsBaseVertexEXT(mode: GLenum, count: *const GLsizei, type_: GLenum, indices: *const *const c_void, drawcount: GLsizei, basevertex: *const GLint) -> ();
     fn MultiDrawElementsBaseVertex(mode: GLenum, count: *const GLsizei, type_: GLenum, indices: *const *const c_void, drawcount: GLsizei, basevertex: *const GLint) -> ();
     fn DrawTransformFeedback(mode: GLenum, id: GLuint) -> ();
     fn DrawTransformFeedbackInstanced(mode: GLenum, id: GLuint, instancecount: GLsizei) -> ();

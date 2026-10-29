@@ -1,6 +1,5 @@
 use std::ptr;
 
-#[cfg(any(safegl_desktop, safegl_webgl))]
 use smallvec::SmallVec;
 
 use glow::HasContext;
@@ -121,9 +120,7 @@ where
             IndicesSource::NoIndices { .. } => None,
             #[cfg(safegl_desktop)]
             IndicesSource::TransformFeedback { .. } => None,
-            #[cfg(any(safegl_desktop, safegl_webgl))]
             IndicesSource::NoIndicesRanges { .. } => None,
-            #[cfg(any(safegl_desktop, safegl_webgl))]
             IndicesSource::IndexBufferRanges { buffer, .. } => Some(buffer),
         };
 
@@ -135,7 +132,6 @@ where
             IndicesSource::MultidrawElement { .. } => false,
             IndicesSource::NoIndices { .. } => true,
             // the base vertex is added to the first vertex of each range
-            #[cfg(any(safegl_desktop, safegl_webgl))]
             IndicesSource::NoIndicesRanges { .. } => true,
             _ => {
                 ctxt.version.0 == Api::Gl
@@ -154,7 +150,6 @@ where
                 IndicesSource::MultidrawArray { .. } | IndicesSource::MultidrawElement { .. } => {
                     false
                 }
-                #[cfg(any(safegl_desktop, safegl_webgl))]
                 IndicesSource::NoIndicesRanges { .. } | IndicesSource::IndexBufferRanges { .. } => {
                     false
                 }
@@ -344,7 +339,6 @@ where
             IndicesSource::IndexBuffer { data_type, .. } => Some(data_type),
             #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawElement { data_type, .. } => Some(data_type),
-            #[cfg(safegl_desktop)]
             IndicesSource::IndexBufferRanges { data_type, .. } => Some(data_type),
             _ => None,
         };
@@ -733,7 +727,6 @@ where
                 }
             }
 
-            #[cfg(any(safegl_desktop, safegl_webgl))]
             IndicesSource::NoIndicesRanges { primitives, ranges } => {
                 let vertices_count = match vertices_count {
                     Some(c) => c,
@@ -754,6 +747,14 @@ where
                     if cfg!(safegl_browser) {
                         #[cfg(safegl_browser)]
                         draw_array_ranges_in_browser(
+                            &ctxt,
+                            primitives.to_glenum(),
+                            &firsts,
+                            &counts,
+                            base_instance,
+                        );
+                    } else if ctxt.version.0 == Api::GlEs {
+                        draw_array_ranges_on_es(
                             &ctxt,
                             primitives.to_glenum(),
                             &firsts,
@@ -781,7 +782,6 @@ where
                 }
             }
 
-            #[cfg(any(safegl_desktop, safegl_webgl))]
             IndicesSource::IndexBufferRanges {
                 ref buffer,
                 data_type,
@@ -814,6 +814,15 @@ where
                     if cfg!(safegl_browser) {
                         #[cfg(safegl_browser)]
                         draw_element_ranges_in_browser(
+                            &ctxt,
+                            (primitives.to_glenum(), data_type.to_glenum()),
+                            &offsets,
+                            &counts,
+                            &base_vertices,
+                            base_instance,
+                        )?;
+                    } else if ctxt.version.0 == Api::GlEs {
+                        draw_element_ranges_on_es(
                             &ctxt,
                             (primitives.to_glenum(), data_type.to_glenum()),
                             &offsets,
@@ -928,16 +937,12 @@ fn draw_count<'a>(indices: &IndicesSource<'a>) -> Option<index::DrawCount<'a>> {
 /// Checks that the backend can draw ranges of vertices or indices, which desktop OpenGL draws
 /// with one call and browsers with `WEBGL_multi_draw` or one by one, that the ranges are in the
 /// `len` vertices or indices, and that the draw has no instances.
-#[cfg(any(safegl_desktop, safegl_webgl))]
 fn check_ranges(
     ctxt: &context::CommandContext<'_>,
     ranges: &[std::ops::Range<usize>],
     len: usize,
     instances_count: Option<usize>,
 ) -> Result<(), DrawError> {
-    if ctxt.version.0 != Api::Gl && !crate::version::is_webgl() {
-        return Err(DrawError::DrawRangesNotSupported);
-    }
     if instances_count.is_some_and(|instances| instances != 1) {
         return Err(DrawError::InstancedDrawRangesNotSupported);
     }
@@ -946,6 +951,105 @@ fn check_ranges(
         .any(|range| range.start > range.end || range.end > len)
     {
         return Err(DrawError::DrawRangeOutOfBounds);
+    }
+    Ok(())
+}
+
+/// Draws ranges of vertices on OpenGL ES, starting at `firsts`: with `GL_EXT_multi_draw_arrays`,
+/// or one by one, and with a base instance through `GL_EXT_base_instance`, which the draw
+/// checked.
+unsafe fn draw_array_ranges_on_es(
+    ctxt: &context::CommandContext<'_>,
+    mode: gl::types::GLenum,
+    firsts: &[gl::types::GLint],
+    counts: &[gl::types::GLsizei],
+    base_instance: u32,
+) {
+    if base_instance != 0 {
+        for (&first, &count) in firsts.iter().zip(counts) {
+            ctxt.extra
+                .DrawArraysInstancedBaseInstanceEXT(mode, first, count, 1, base_instance);
+        }
+    } else if ctxt.extensions.gl_ext_multi_draw_arrays {
+        let ranges = firsts.len() as gl::types::GLsizei;
+        ctxt.extra
+            .MultiDrawArraysEXT(mode, firsts.as_ptr(), counts.as_ptr(), ranges);
+    } else {
+        for (&first, &count) in firsts.iter().zip(counts) {
+            ctxt.glow.draw_arrays(mode, first, count);
+        }
+    }
+}
+
+/// Draws ranges of indices on OpenGL ES, at the `offsets` in bytes in the bound index buffer:
+/// with `GL_EXT_multi_draw_arrays`, or one by one. Their base vertices need OpenGL ES 3.2,
+/// `GL_EXT_draw_elements_base_vertex` or `GL_OES_draw_elements_base_vertex`, without which they
+/// return `DrawError::DrawRangesNotSupported`, and the base instance `GL_EXT_base_instance`,
+/// which the draw checked.
+unsafe fn draw_element_ranges_on_es(
+    ctxt: &context::CommandContext<'_>,
+    (mode, ty): (gl::types::GLenum, gl::types::GLenum),
+    offsets: &[*const std::os::raw::c_void],
+    counts: &[gl::types::GLsizei],
+    base_vertices: &[gl::types::GLint],
+    base_instance: u32,
+) -> Result<(), DrawError> {
+    let ranges = counts.len() as gl::types::GLsizei;
+    let multi = ctxt.extensions.gl_ext_multi_draw_arrays;
+    if base_instance != 0 {
+        for i in 0..counts.len() {
+            ctxt.extra.DrawElementsInstancedBaseVertexBaseInstanceEXT(
+                mode,
+                counts[i],
+                ty,
+                offsets[i],
+                1,
+                base_vertices[i],
+                base_instance,
+            );
+        }
+    } else if base_vertices.iter().all(|&base| base == 0) {
+        if multi {
+            ctxt.extra
+                .MultiDrawElementsEXT(mode, counts.as_ptr(), ty, offsets.as_ptr(), ranges);
+        } else {
+            for (&count, &offset) in counts.iter().zip(offsets) {
+                ctxt.glow.draw_elements(mode, count, ty, offset as i32);
+            }
+        }
+    } else {
+        let extensions = ctxt.extensions;
+        let base_vertex_extension = extensions.gl_ext_draw_elements_base_vertex
+            || extensions.gl_oes_draw_elements_base_vertex;
+        if multi && base_vertex_extension {
+            // both extensions give `glMultiDrawElementsBaseVertexEXT` with this one
+            ctxt.extra.MultiDrawElementsBaseVertexEXT(
+                mode,
+                counts.as_ptr(),
+                ty,
+                offsets.as_ptr(),
+                ranges,
+                base_vertices.as_ptr(),
+            );
+        } else if ctxt.version >= &Version(Api::GlEs, 3, 2) {
+            for i in 0..counts.len() {
+                let offset = offsets[i] as i32;
+                ctxt.glow
+                    .draw_elements_base_vertex(mode, counts[i], ty, offset, base_vertices[i]);
+            }
+        } else if extensions.gl_oes_draw_elements_base_vertex {
+            for i in 0..counts.len() {
+                ctxt.extra
+                    .DrawElementsBaseVertexOES(mode, counts[i], ty, offsets[i], base_vertices[i]);
+            }
+        } else if extensions.gl_ext_draw_elements_base_vertex {
+            for i in 0..counts.len() {
+                ctxt.extra
+                    .DrawElementsBaseVertexEXT(mode, counts[i], ty, offsets[i], base_vertices[i]);
+            }
+        } else {
+            return Err(DrawError::DrawRangesNotSupported);
+        }
     }
     Ok(())
 }
@@ -1283,7 +1387,6 @@ fn check_contexts(
                 return mismatch("index buffer");
             }
         }
-        #[cfg(any(safegl_desktop, safegl_webgl))]
         IndicesSource::IndexBufferRanges { ref buffer, .. } => {
             if !ctxt.owns(buffer.get_context()) {
                 return mismatch("index buffer");
@@ -1309,7 +1412,6 @@ fn check_contexts(
             }
         }
         IndicesSource::NoIndices { .. } => (),
-        #[cfg(any(safegl_desktop, safegl_webgl))]
         IndicesSource::NoIndicesRanges { .. } => (),
         #[cfg(safegl_desktop)]
         IndicesSource::TransformFeedback { captured, .. } => {

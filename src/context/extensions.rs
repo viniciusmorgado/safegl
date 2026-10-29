@@ -163,6 +163,7 @@ extensions! {
     "GL_EXT_disjoint_timer_query" => gl_ext_disjoint_timer_query,
     "GL_EXT_float_blend" => gl_ext_float_blend,
     "GL_EXT_geometry_shader" => gl_ext_geometry_shader,
+    "GL_EXT_multi_draw_arrays" => gl_ext_multi_draw_arrays,
     "GL_EXT_multi_draw_indirect" => gl_ext_multi_draw_indirect,
     "GL_EXT_multisampled_render_to_texture" => gl_ext_multisampled_render_to_texture,
     "GL_EXT_occlusion_query_boolean" => gl_ext_occlusion_query_boolean,

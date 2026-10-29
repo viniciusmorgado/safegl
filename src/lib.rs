@@ -1526,21 +1526,17 @@ pub enum DrawError {
     #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     CapturedVerticesDrawNotSupported,
 
-    /// Drawing ranges of vertices or indices with one call (`index::NoIndicesRanges`,
-    /// `IndexBuffer::ranges`) needs desktop OpenGL.
-    #[cfg(any(safegl_desktop, safegl_webgl))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
+    /// The ranges of indices drawn with base vertices
+    /// (`IndexBuffer::ranges_with_base_vertices`) need base vertices, which OpenGL ES has in
+    /// version 3.2, `GL_EXT_draw_elements_base_vertex` and `GL_OES_draw_elements_base_vertex`,
+    /// and WebGL in `WEBGL_draw_instanced_base_vertex_base_instance`.
     DrawRangesNotSupported,
 
     /// A range of vertices or indices drawn with one call is outside the vertices source or the
     /// index buffer.
-    #[cfg(any(safegl_desktop, safegl_webgl))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     DrawRangeOutOfBounds,
 
     /// Ranges of vertices or indices drawn with one call can't have several instances.
-    #[cfg(any(safegl_desktop, safegl_webgl))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     InstancedDrawRangesNotSupported,
 
     /// Indirect draws aren't supported by the backend: they need OpenGL 4.0 or OpenGL ES 3.1.
@@ -2018,11 +2014,8 @@ impl fmt::Display for DrawError {
             #[cfg(any(safegl_desktop, safegl_gles31))]
             IndirectDrawWithTransformFeedback =>
                 "OpenGL ES doesn't draw indirectly while transform feedback records",
-            #[cfg(any(safegl_desktop, safegl_webgl))]
             DrawRangesNotSupported => "Drawing ranges with one call is not supported by the backend",
-            #[cfg(any(safegl_desktop, safegl_webgl))]
             DrawRangeOutOfBounds => "A drawn range is outside the vertices or the indices",
-            #[cfg(any(safegl_desktop, safegl_webgl))]
             InstancedDrawRangesNotSupported => "Drawn ranges can't have several instances",
             TransformFeedbackBuffersMissing =>
                 "The transform feedback object lacks buffers of its program",

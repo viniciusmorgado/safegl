@@ -38,7 +38,6 @@ use crate::CapabilitiesSource;
 use crate::ToGlEnum;
 
 use std::mem;
-#[cfg(any(safegl_desktop, safegl_webgl))]
 use std::ops::Range;
 
 use crate::buffer::BufferAnySlice;
@@ -135,8 +134,6 @@ pub enum IndicesSource<'a> {
 
     /// Draw several ranges of the vertices of the vertices source with one call
     /// (`glMultiDrawArrays`). Built with [`NoIndicesRanges`].
-    #[cfg(any(safegl_desktop, safegl_webgl))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     NoIndicesRanges {
         /// Type of primitives contained in the vertex source.
         primitives: PrimitiveType,
@@ -147,8 +144,6 @@ pub enum IndicesSource<'a> {
     /// Draw several ranges of the indices of an index buffer with one call, each with a value
     /// added to its indices (`glMultiDrawElementsBaseVertex`). Built with
     /// `IndexBuffer::ranges`.
-    #[cfg(any(safegl_desktop, safegl_webgl))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     IndexBufferRanges {
         /// The buffer.
         buffer: BufferAnySlice<'a>,
@@ -174,11 +169,9 @@ impl<'a> IndicesSource<'a> {
             #[cfg(any(safegl_desktop, safegl_gles31))]
             IndicesSource::MultidrawElement { primitives, .. } => primitives,
             IndicesSource::NoIndices { primitives } => primitives,
-            #[cfg(any(safegl_desktop, safegl_webgl))]
             IndicesSource::NoIndicesRanges { primitives, .. } => primitives,
             #[cfg(safegl_desktop)]
             IndicesSource::TransformFeedback { primitives, .. } => primitives,
-            #[cfg(any(safegl_desktop, safegl_webgl))]
             IndicesSource::IndexBufferRanges { primitives, .. } => primitives,
         }
     }
@@ -357,14 +350,12 @@ impl ToGlEnum for PrimitiveType {
 pub struct NoIndices(pub PrimitiveType);
 
 /// Marker that draws several ranges of the vertices of the vertices source with one call
-/// (`glMultiDrawArrays`), on desktop OpenGL. The ranges must be in the vertices source, and the
-/// draw has no instances.
-#[cfg(any(safegl_desktop, safegl_webgl))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
+/// (`glMultiDrawArrays`), on desktop OpenGL, on OpenGL ES with `GL_EXT_multi_draw_arrays` and on
+/// WebGL with `WEBGL_multi_draw`, and one by one elsewhere. The ranges must be in the vertices
+/// source, and the draw has no instances.
 #[derive(Copy, Clone, Debug)]
 pub struct NoIndicesRanges<'a>(pub PrimitiveType, pub &'a [Range<usize>]);
 
-#[cfg(any(safegl_desktop, safegl_webgl))]
 impl<'a> From<NoIndicesRanges<'a>> for IndicesSource<'a> {
     #[inline]
     fn from(marker: NoIndicesRanges<'a>) -> IndicesSource<'a> {
