@@ -149,6 +149,7 @@ extensions! {
     "GL_EXT_clip_cull_distance" => gl_ext_clip_cull_distance,
     "GL_EXT_conservative_depth" => gl_ext_conservative_depth,
     "GL_EXT_copy_image" => gl_ext_copy_image,
+    "GL_EXT_draw_buffers_indexed" => gl_ext_draw_buffers_indexed,
     "GL_OES_copy_image" => gl_oes_copy_image,
     "GL_EXT_depth_clamp" => gl_ext_depth_clamp,
     "GL_EXT_tessellation_shader" => gl_ext_tessellation_shader,

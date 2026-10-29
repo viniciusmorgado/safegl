@@ -179,6 +179,16 @@ extra_functions! {
     fn DrawElementsInstancedBaseInstanceEXT(mode: GLenum, count: GLsizei, type_: GLenum, indices: *const c_void, instancecount: GLsizei, baseinstance: GLuint) -> ();
     fn DrawElementsInstancedBaseVertexBaseInstanceEXT(mode: GLenum, count: GLsizei, type_: GLenum, indices: *const c_void, instancecount: GLsizei, basevertex: GLint, baseinstance: GLuint) -> ();
     fn EndConditionalRender() -> ();
+    fn EnableiEXT(target: GLenum, index: GLuint) -> ();
+    fn DisableiEXT(target: GLenum, index: GLuint) -> ();
+    fn BlendEquationSeparateiEXT(buf: GLuint, modeRGB: GLenum, modeAlpha: GLenum) -> ();
+    fn BlendFuncSeparateiEXT(buf: GLuint, srcRGB: GLenum, dstRGB: GLenum, srcAlpha: GLenum, dstAlpha: GLenum) -> ();
+    fn ColorMaskiEXT(index: GLuint, r: GLboolean, g: GLboolean, b: GLboolean, a: GLboolean) -> ();
+    fn EnableiOES(target: GLenum, index: GLuint) -> ();
+    fn DisableiOES(target: GLenum, index: GLuint) -> ();
+    fn BlendEquationSeparateiOES(buf: GLuint, modeRGB: GLenum, modeAlpha: GLenum) -> ();
+    fn BlendFuncSeparateiOES(buf: GLuint, srcRGB: GLenum, dstRGB: GLenum, srcAlpha: GLenum, dstAlpha: GLenum) -> ();
+    fn ColorMaskiOES(index: GLuint, r: GLboolean, g: GLboolean, b: GLboolean, a: GLboolean) -> ();
     fn EndConditionalRenderNV() -> ();
     fn FramebufferParameteri(target: GLenum, pname: GLenum, param: GLint) -> ();
     fn FramebufferTextureEXT(target: GLenum, attachment: GLenum, texture: GLuint, level: GLint) -> ();

@@ -120,6 +120,7 @@ pub use self::stencil::{Stencil, StencilOperation, StencilTest};
 
 mod blend;
 mod depth;
+mod indexed;
 mod query;
 mod stencil;
 
@@ -400,11 +401,10 @@ pub struct DrawParameters<'a> {
     /// `DrawError::BlendingParameterNotSupported` is returned.
     ///
     /// More entries than `Capabilities::max_draw_buffers` return
-    /// `DrawError::OutputStateIndexOutOfBounds`. Needs OpenGL 4.0 or OpenGL ES 3.2. Elsewhere,
-    /// WebGL included, an entry that differs from `blend` and `color_mask` returns
-    /// `DrawError::PerOutputStateNotSupported`.
-    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))))]
+    /// `DrawError::OutputStateIndexOutOfBounds`. Needs OpenGL 4.0, OpenGL ES 3.2, or
+    /// `GL_EXT_draw_buffers_indexed` or `GL_OES_draw_buffers_indexed` on OpenGL ES 3.0 and 3.1
+    /// (`OES_draw_buffers_indexed` on WebGL). Elsewhere, an entry that differs from `blend` and
+    /// `color_mask` returns `DrawError::PerOutputStateNotSupported`.
     pub outputs: &'a [OutputState],
 
     /// A bitwise operation that replaces the color written into the color buffers
@@ -734,8 +734,6 @@ pub struct DrawParameters<'a> {
 /// };
 /// ```
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))))]
 pub struct OutputState {
     /// How the output is merged with the existing pixel. See `DrawParameters::blend`.
     pub blend: Blend,
@@ -745,7 +743,6 @@ pub struct OutputState {
     pub color_mask: (bool, bool, bool, bool),
 }
 
-#[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
 impl Default for OutputState {
     /// No blending and all components written, like the defaults of `DrawParameters`.
     fn default() -> OutputState {
@@ -1063,7 +1060,6 @@ impl<'a> Default for DrawParameters<'a> {
             stencil: Default::default(),
             blend: Default::default(),
             color_mask: (true, true, true, true),
-            #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
             outputs: &[],
             #[cfg(safegl_desktop)]
             logic_op: None,
@@ -1148,11 +1144,9 @@ pub fn sync(
     if is_webgl() {
         validate_webgl(draw_parameters)?;
     }
-    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
     validate_outputs(ctxt, draw_parameters)?;
     depth::sync_depth(ctxt, &draw_parameters.depth)?;
     stencil::sync_stencil(ctxt, &draw_parameters.stencil, draw_parameters.front_face);
-    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
     let (blends, masks) = (
         draw_parameters.outputs.iter().map(|output| output.blend),
         draw_parameters
@@ -1160,8 +1154,6 @@ pub fn sync(
             .iter()
             .map(|output| output.color_mask),
     );
-    #[cfg(not(any(safegl_desktop, safegl_gles32, safegl_webgl)))]
-    let (blends, masks) = (std::iter::empty(), std::iter::empty());
     #[cfg(safegl_desktop)]
     sync_logic_op(ctxt, draw_parameters)?;
     blend::sync_blending(ctxt, draw_parameters.blend, blends)?;
@@ -1241,13 +1233,10 @@ pub(crate) fn blends(draw_parameters: &DrawParameters<'_>) -> bool {
         blend.color != BlendingFunction::AlwaysReplace
             || blend.alpha != BlendingFunction::AlwaysReplace
     };
-    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
     let outputs = draw_parameters
         .outputs
         .iter()
         .any(|output| blends(&output.blend));
-    #[cfg(not(any(safegl_desktop, safegl_gles32, safegl_webgl)))]
-    let outputs = false;
     blends(&draw_parameters.blend) || outputs
 }
 
@@ -1264,7 +1253,6 @@ fn validate_webgl(draw_parameters: &DrawParameters<'_>) -> Result<(), DrawError>
 
 /// Checks that `DrawParameters::outputs` fits in the draw buffers, and that the backend can
 /// give draw buffers their own state if an entry needs it.
-#[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
 fn validate_outputs(
     ctxt: &context::CommandContext<'_>,
     draw_parameters: &DrawParameters<'_>,
@@ -1283,12 +1271,7 @@ fn validate_outputs(
         output.color_mask != draw_parameters.color_mask
             || blend::BlendState::new(output.blend) != global_blend
     });
-    // `glColorMaski`, `glEnablei` and `glBlend*i` are core in OpenGL 4.0 and OpenGL ES 3.2, and
-    // WebGL has them in `OES_draw_buffers_indexed`
-    let supported = ctxt.version.0 == Api::Gl
-        || (ctxt.version >= &Version(Api::GlEs, 3, 2) && !crate::version::is_webgl())
-        || (crate::version::is_webgl() && ctxt.extensions.gl_oes_draw_buffers_indexed);
-    if overrides && !supported {
+    if overrides && !indexed::is_supported(ctxt) {
         return Err(DrawError::PerOutputStateNotSupported);
     }
 
@@ -1303,13 +1286,10 @@ pub(crate) fn validate_dual_source_blending(
     draw_parameters: &DrawParameters<'_>,
     draw_buffers: impl FnOnce(&mut context::CommandContext<'_>) -> usize,
 ) -> Result<(), DrawError> {
-    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
     let outputs = draw_parameters
         .outputs
         .iter()
         .any(|output| output.blend.uses_second_source());
-    #[cfg(not(any(safegl_desktop, safegl_gles32, safegl_webgl)))]
-    let outputs = false;
     if !outputs && !draw_parameters.blend.uses_second_source() {
         return Ok(());
     }
@@ -1384,14 +1364,7 @@ fn sync_color_mask(
     let mut indexed = false;
     for (index, m) in outputs.enumerate() {
         if m != mask {
-            // WebGL has `glColorMaski` in `OES_draw_buffers_indexed`
-            #[cfg(safegl_browser)]
-            ctxt.webgl.color_mask_indexed(index as u32, m);
-            #[cfg(not(safegl_browser))]
-            unsafe {
-                ctxt.glow
-                    .color_mask_draw_buffer(index as u32, m.0, m.1, m.2, m.3);
-            }
+            unsafe { indexed::color_mask(ctxt, index as u32, m) };
             indexed = true;
         }
     }

@@ -161,8 +161,6 @@ pub use crate::context::{
     FormatSupport, FormatTarget, ImageCompatibility, ImageFormatClass, SimultaneousUse,
     StageSupport, ViewClass,
 };
-#[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))))]
 pub use crate::draw_parameters::OutputState;
 #[cfg(safegl_desktop)]
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
@@ -1850,13 +1848,9 @@ pub enum DrawError {
 
     /// Giving outputs their own blending or color mask (`DrawParameters::outputs`) isn't
     /// supported by the backend.
-    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))))]
     PerOutputStateNotSupported,
 
     /// `DrawParameters::outputs` has more entries than the backend has draw buffers.
-    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))))]
     OutputStateIndexOutOfBounds,
 
     /// Clamping the depth offset (`DrawParameters::polygon_offset_clamp`) isn't supported by the
@@ -2179,10 +2173,8 @@ impl fmt::Display for DrawError {
             #[cfg(any(safegl_desktop, safegl_gles31))]
             SampleMaskNotSupported =>
                 "Masking samples is not supported by the backend",
-            #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
             PerOutputStateNotSupported =>
                 "Giving outputs their own blending or color mask is not supported by the backend",
-            #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
             OutputStateIndexOutOfBounds =>
                 "There are more output states than draw buffers",
             #[cfg(any(safegl_gl46, safegl_webgl))]
