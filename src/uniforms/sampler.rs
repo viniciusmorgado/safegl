@@ -192,6 +192,13 @@ impl<'t, T: 't> Sampler<'t, T> {
         self
     }
 
+    /// Reads the texels of sRGB textures as they are stored, without converting them to linear
+    /// colors, if `decode` is false. See `SamplerBehavior::srgb_decode`.
+    pub fn srgb_decode(mut self, decode: bool) -> Sampler<'t, T> {
+        self.1.srgb_decode = decode;
+        self
+    }
+
     /// Changes the magnifying filter of the sampler.
     pub fn anisotropy(mut self, level: u16) -> Sampler<'t, T> {
         self.1.max_anisotropy = level;
@@ -406,6 +413,12 @@ pub struct SamplerBehavior {
     /// The levels of detail that the sampler can use, and the bias added to the level it
     /// computes. Default value is every level and no bias.
     pub level_of_detail: LevelOfDetail,
+
+    /// If false, the texels of sRGB textures are read as they are stored, without being
+    /// converted to linear colors (`GL_TEXTURE_SRGB_DECODE_EXT`), as if the texture had the
+    /// linear format of the same size. Default value is true. Not decoding needs
+    /// `GL_EXT_texture_sRGB_decode`, or returns `SamplerNotSupportedError::SrgbDecode`.
+    pub srgb_decode: bool,
 }
 
 /// The levels of detail of a sampler (`GL_TEXTURE_MIN_LOD`, `GL_TEXTURE_MAX_LOD` and
@@ -479,6 +492,7 @@ impl Default for SamplerBehavior {
             #[cfg(any(safegl_desktop, safegl_gles32))]
             border_color: None,
             level_of_detail: Default::default(),
+            srgb_decode: true,
         }
     }
 }
@@ -495,6 +509,10 @@ pub enum SamplerNotSupportedError {
     /// Anisotropic filtering (`max_anisotropy` above 1) without OpenGL 4.6,
     /// `GL_ARB_texture_filter_anisotropic` or `GL_EXT_texture_filter_anisotropic`.
     Anisotropy,
+
+    /// Reading sRGB textures without decoding them (`srgb_decode` false) without
+    /// `GL_EXT_texture_sRGB_decode`.
+    SrgbDecode,
 }
 
 impl std::fmt::Display for SamplerNotSupportedError {
@@ -506,6 +524,9 @@ impl std::fmt::Display for SamplerNotSupportedError {
             SamplerNotSupportedError::Anisotropy => {
                 fmt.write_str("Anisotropic filtering is not supported by the backend")
             }
+            SamplerNotSupportedError::SrgbDecode => fmt.write_str(
+                "Reading sRGB textures without decoding is not supported by the backend",
+            ),
         }
     }
 }

@@ -95,6 +95,15 @@ impl SamplerObject {
                 ctxt.glow
                     .sampler_parameter_f32(sampler, glow::TEXTURE_MAX_ANISOTROPY_EXT, value);
             }
+
+            // `check_support` made sure that the decoding can be skipped
+            if !behavior.srgb_decode {
+                ctxt.glow.sampler_parameter_i32(
+                    sampler,
+                    gl::TEXTURE_SRGB_DECODE_EXT,
+                    gl::SKIP_DECODE_EXT as gl::types::GLint,
+                );
+            }
         }
 
         Ok(SamplerObject {
@@ -224,6 +233,9 @@ pub fn check_support(
     }
     if behavior.max_anisotropy > 1 && ctxt.capabilities.max_texture_max_anisotropy.is_none() {
         return Err(SamplerNotSupportedError::Anisotropy);
+    }
+    if !behavior.srgb_decode && !ctxt.extensions.gl_ext_texture_srgb_decode {
+        return Err(SamplerNotSupportedError::SrgbDecode);
     }
     Ok(())
 }

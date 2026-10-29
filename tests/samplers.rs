@@ -216,6 +216,57 @@ fn anisotropy_needs_support() {
     display.assert_no_error(None);
 }
 
+/// A sampler that doesn't decode sRGB textures reads their stored values
+/// (`GL_EXT_texture_sRGB_decode`); without the extension, it is an error.
+#[test]
+fn srgb_decode_skipped() {
+    let display = support::build_display();
+    // 128 is 0.216 in linear colors, which the target stores as 55
+    let texture = safegl::texture::SrgbTexture2d::with_format(
+        &display,
+        vec![vec![(128u8, 128u8, 128u8, 255u8); 2]; 2],
+        safegl::texture::SrgbFormat::U8U8U8U8,
+        safegl::texture::MipmapsOption::NoMipmap,
+    )
+    .unwrap();
+    let (vb, ib) = support::build_rectangle_vb_ib(&display);
+    let program = support::program_from_legacy(
+        &display,
+        "attribute vec2 position; varying vec2 v; \
+         void main() { v = position * 0.5 + 0.5; gl_Position = vec4(position, 0.0, 1.0); }",
+        "uniform sampler2D tex; varying vec2 v; void main() { gl_FragColor = texture2D(tex, v); }",
+    )
+    .unwrap();
+    let draw = |decode: bool| {
+        let output = safegl::Texture2d::empty(&display, 4, 4).unwrap();
+        let sampler = texture
+            .sampled()
+            .magnify_filter(safegl::uniforms::MagnifySamplerFilter::Nearest)
+            .minify_filter(safegl::uniforms::MinifySamplerFilter::Nearest)
+            .srgb_decode(decode);
+        output
+            .as_surface()
+            .draw(&vb, &ib, &program, &uniform! { tex: sampler }, &Default::default())
+            .map(|()| output.read::<Vec<Vec<(u8, u8, u8, u8)>>>().unwrap()[0][0].0)
+    };
+
+    let decoded = draw(true).unwrap();
+    assert!((54..=56).contains(&decoded), "{decoded}");
+    let extension = support::extensions(&display).gl_ext_texture_srgb_decode;
+    match draw(false) {
+        Ok(stored) => {
+            assert!(extension);
+            assert!((127..=129).contains(&stored), "{stored}");
+        }
+        Err(safegl::DrawError::SamplerNotSupported(
+            safegl::uniforms::SamplerNotSupportedError::SrgbDecode,
+        )) => assert!(!extension),
+        Err(error) => panic!("{error}"),
+    }
+
+    display.assert_no_error(None);
+}
+
 /// Mirroring once is an error where the backend doesn't have it, not a clamp.
 #[cfg(any(safegl_gl44, safegl_webgl))]
 #[test]
