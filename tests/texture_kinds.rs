@@ -275,6 +275,54 @@ fn astc_textures() {
     display.assert_no_error(None);
 }
 
+/// 3D textures are compressed in slices of the two-dimensional ASTC blocks with
+/// `GL_KHR_texture_compression_astc_sliced_3d` or `_hdr`, and in the three-dimensional ASTC
+/// blocks with `GL_OES_texture_compression_astc`, which only 3D textures have; the other formats
+/// can't compress them, except BPTC on desktop OpenGL.
+#[test]
+fn compressed_3d_textures() {
+    use safegl::texture::{AstcBlockSize, AstcBlockSize3d, CompressedFormat, TextureCreationError};
+    use safegl::texture::{CompressedMipmapsOption, CompressedTexture2d, CompressedTexture3d};
+
+    let display = support::build_display();
+    let extensions = support::extensions(&display);
+    let no_mipmaps = CompressedMipmapsOption::NoMipmap;
+    let three_d = |data: &[u8], depth: u32, format: CompressedFormat| {
+        CompressedTexture3d::with_compressed_data(&display, data, 4, 4, depth, format, no_mipmaps)
+            .map(|_| ())
+    };
+    let expect = |result: Result<(), TextureCreationError>, supported: bool| {
+        if supported {
+            result.unwrap();
+        } else {
+            assert_eq!(result, Err(TextureCreationError::FormatNotSupported));
+        }
+    };
+
+    // two slices of one 4 × 4 block
+    let sliced = CompressedFormat::Astc(AstcBlockSize::B4x4);
+    let sliced_supported = sliced.is_supported(&display)
+        && (extensions.gl_khr_texture_compression_astc_sliced_3d
+            || extensions.gl_khr_texture_compression_astc_hdr);
+    expect(three_d(&[0u8; 32], 2, sliced), sliced_supported);
+
+    // one 4 × 4 × 4 block
+    let blocks = CompressedFormat::Astc3d(AstcBlockSize3d::B4x4x4);
+    assert_eq!(blocks.block_size(), (4, 4, 16));
+    let blocks_supported = blocks.is_supported(&display);
+    expect(three_d(&[0u8; 16], 4, blocks), blocks_supported);
+    // which two-dimensional textures don't have
+    let flat =
+        CompressedTexture2d::with_compressed_data(&display, &[0u8; 16], 4, 4, blocks, no_mipmaps);
+    assert_eq!(flat.err(), Some(TextureCreationError::FormatNotSupported));
+
+    // S3TC has no 3D textures
+    let s3tc = CompressedFormat::S3tcDxt5Alpha;
+    expect(three_d(&[0u8; 32], 2, s3tc), false);
+
+    display.assert_no_error(None);
+}
+
 /// ETC1 and PVRTC textures are written whole, and PVRTC textures have power-of-two sizes.
 #[test]
 fn whole_written_formats() {

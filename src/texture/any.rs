@@ -617,6 +617,40 @@ where
         return Err(TextureCreationError::DimensionsNotSupported);
     }
 
+    // 3D textures are compressed in slices of the two-dimensional blocks of ASTC
+    // (`GL_KHR_texture_compression_astc_sliced_3d` or `_hdr`) or in its three-dimensional blocks,
+    // which only 3D textures have, and with BPTC on desktop OpenGL
+    if let Some(compressed) = compressed {
+        let three_d = bind_point == gl::TEXTURE_3D;
+        let astc_3d_blocks = compressed.block_depth() > 1;
+        let extensions = facade.get_context().get_extensions();
+        let supported = match (three_d, compressed) {
+            (false, _) => !astc_3d_blocks,
+            (true, _) if astc_3d_blocks => true,
+            (true, astc) if astc.is_astc() => {
+                extensions.gl_khr_texture_compression_astc_sliced_3d
+                    || extensions.gl_khr_texture_compression_astc_hdr
+            }
+            (true, ClientFormatAny::CompressedFormat(f)) => {
+                facade.get_context().get_opengl_version().0 == Api::Gl
+                    && matches!(
+                        f,
+                        CompressedFormat::BptcUnorm4
+                            | CompressedFormat::BptcSignedFloat3
+                            | CompressedFormat::BptcUnsignedFloat3
+                    )
+            }
+            (true, ClientFormatAny::CompressedSrgbFormat(f)) => {
+                facade.get_context().get_opengl_version().0 == Api::Gl
+                    && f == image_format::CompressedSrgbFormat::Bptc
+            }
+            (true, ClientFormatAny::ClientFormat(_)) => true,
+        };
+        if !supported {
+            return Err(TextureCreationError::FormatNotSupported);
+        }
+    }
+
     let should_generate_mipmaps = mipmaps.should_generate();
     let texture_levels = mipmaps.num_levels(width, height, depth) as gl::types::GLsizei;
     // rectangle textures have a single level

@@ -831,6 +831,9 @@ impl UncompressedUintFormat {
 // formats follow the order of `AstcBlockSize::ALL`
 const COMPRESSED_RGBA_ASTC_4X4: gl::types::GLenum = 0x93B0;
 const COMPRESSED_SRGB8_ALPHA8_ASTC_4X4: gl::types::GLenum = 0x93D0;
+// the three-dimensional ones follow the order of `AstcBlockSize3d::ALL`
+const COMPRESSED_RGBA_ASTC_3X3X3: gl::types::GLenum = 0x93C0;
+const COMPRESSED_SRGB8_ALPHA8_ASTC_3X3X3: gl::types::GLenum = 0x93E0;
 const ETC1_RGB8: gl::types::GLenum = 0x8D64;
 const COMPRESSED_RGB_PVRTC_4BPPV1: gl::types::GLenum = 0x8C00;
 const COMPRESSED_RGB_PVRTC_2BPPV1: gl::types::GLenum = 0x8C01;
@@ -910,6 +913,68 @@ impl AstcBlockSize {
     }
 }
 
+/// The size in texels of the three-dimensional blocks of an ASTC format, for 3D textures
+/// (`GL_OES_texture_compression_astc`): `B5x4x4` is 5 texels wide, 4 high and 4 deep.
+#[allow(missing_docs)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum AstcBlockSize3d {
+    B3x3x3,
+    B4x3x3,
+    B4x4x3,
+    B4x4x4,
+    B5x4x4,
+    B5x5x4,
+    B5x5x5,
+    B6x5x5,
+    B6x6x5,
+    B6x6x6,
+}
+
+impl AstcBlockSize3d {
+    /// Every size, from the smallest.
+    pub const ALL: [AstcBlockSize3d; 10] = [
+        AstcBlockSize3d::B3x3x3,
+        AstcBlockSize3d::B4x3x3,
+        AstcBlockSize3d::B4x4x3,
+        AstcBlockSize3d::B4x4x4,
+        AstcBlockSize3d::B5x4x4,
+        AstcBlockSize3d::B5x5x4,
+        AstcBlockSize3d::B5x5x5,
+        AstcBlockSize3d::B6x5x5,
+        AstcBlockSize3d::B6x6x5,
+        AstcBlockSize3d::B6x6x6,
+    ];
+
+    /// The width, the height and the depth of the blocks in texels.
+    pub fn dimensions(self) -> (u32, u32, u32) {
+        match self {
+            AstcBlockSize3d::B3x3x3 => (3, 3, 3),
+            AstcBlockSize3d::B4x3x3 => (4, 3, 3),
+            AstcBlockSize3d::B4x4x3 => (4, 4, 3),
+            AstcBlockSize3d::B4x4x4 => (4, 4, 4),
+            AstcBlockSize3d::B5x4x4 => (5, 4, 4),
+            AstcBlockSize3d::B5x5x4 => (5, 5, 4),
+            AstcBlockSize3d::B5x5x5 => (5, 5, 5),
+            AstcBlockSize3d::B6x5x5 => (6, 5, 5),
+            AstcBlockSize3d::B6x6x5 => (6, 6, 5),
+            AstcBlockSize3d::B6x6x6 => (6, 6, 6),
+        }
+    }
+
+    /// The position of the size in `ALL`, which orders the enums of OpenGL the same way.
+    fn index(self) -> u32 {
+        AstcBlockSize3d::ALL
+            .iter()
+            .position(|&size| size == self)
+            .unwrap() as u32
+    }
+
+    /// The size whose position in `ALL` is `index`.
+    fn from_index(index: u32) -> Option<AstcBlockSize3d> {
+        AstcBlockSize3d::ALL.get(index as usize).copied()
+    }
+}
+
 /// List of compressed texture formats.
 ///
 /// New formats can be added without a major version, so matches need a wildcard arm.
@@ -974,8 +1039,14 @@ pub enum CompressedFormat {
     EacRg11Signed,
     /// ASTC (LDR profile) with blocks of the given size, four components in linear colors
     /// (`GL_COMPRESSED_RGBA_ASTC_*_KHR`). Needs `GL_KHR_texture_compression_astc_ldr`, or
-    /// `WEBGL_compressed_texture_astc` on WebGL.
+    /// `WEBGL_compressed_texture_astc` on WebGL. 3D textures of these blocks, one slice after
+    /// the other, need `GL_KHR_texture_compression_astc_sliced_3d` or
+    /// `GL_KHR_texture_compression_astc_hdr`.
     Astc(AstcBlockSize),
+    /// ASTC with three-dimensional blocks of the given size, four components in linear colors,
+    /// for 3D textures only (`GL_COMPRESSED_RGBA_ASTC_*_OES`). Needs
+    /// `GL_OES_texture_compression_astc`.
+    Astc3d(AstcBlockSize3d),
     /// ETC1, three components (`GL_ETC1_RGB8_OES`). Needs `GL_OES_compressed_ETC1_RGB8_texture`,
     /// or `WEBGL_compressed_texture_etc1` on WebGL. Its textures are written whole: their
     /// regions can't be written. `Etc2Rgb8` decodes ETC1 data too.
@@ -1025,6 +1096,7 @@ impl CompressedFormat {
             CompressedFormat::EacRg11Signed,
         ];
         formats.extend(AstcBlockSize::ALL.map(CompressedFormat::Astc));
+        formats.extend(AstcBlockSize3d::ALL.map(CompressedFormat::Astc3d));
         formats.extend([
             CompressedFormat::Etc1Rgb8,
             CompressedFormat::PvrtcRgb4,
@@ -1062,6 +1134,10 @@ impl CompressedFormat {
             | CompressedFormat::EacRg11Signed => (4, 4, 16),
             CompressedFormat::Astc(size) => {
                 let (width, height) = size.dimensions();
+                (width, height, 16)
+            }
+            CompressedFormat::Astc3d(size) => {
+                let (width, height, _) = size.dimensions();
                 (width, height, 16)
             }
             CompressedFormat::PvrtcRgb4 | CompressedFormat::PvrtcRgba4 => (4, 4, 8),
@@ -1121,6 +1197,7 @@ impl CompressedFormat {
                 extensions.gl_khr_texture_compression_astc_ldr
                     || extensions.webgl_compressed_texture_astc
             }
+            CompressedFormat::Astc3d(_) => extensions.gl_oes_texture_compression_astc,
             CompressedFormat::Etc1Rgb8 => {
                 extensions.gl_oes_compressed_etc1_rgb8_texture
                     || extensions.webgl_compressed_texture_etc1
@@ -1165,6 +1242,7 @@ impl CompressedFormat {
             #[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
             CompressedFormat::EacRg11Signed => gl::COMPRESSED_SIGNED_RG11_EAC,
             CompressedFormat::Astc(size) => COMPRESSED_RGBA_ASTC_4X4 + size.index(),
+            CompressedFormat::Astc3d(size) => COMPRESSED_RGBA_ASTC_3X3X3 + size.index(),
             CompressedFormat::Etc1Rgb8 => ETC1_RGB8,
             CompressedFormat::PvrtcRgb4 => COMPRESSED_RGB_PVRTC_4BPPV1,
             CompressedFormat::PvrtcRgb2 => COMPRESSED_RGB_PVRTC_2BPPV1,
@@ -1202,8 +1280,12 @@ pub enum CompressedSrgbFormat {
     Etc2Rgba8Eac,
     /// ASTC (LDR profile) with blocks of the given size, in sRGB with a linear alpha
     /// (`GL_COMPRESSED_SRGB8_ALPHA8_ASTC_*_KHR`). Needs `GL_KHR_texture_compression_astc_ldr`,
-    /// or `WEBGL_compressed_texture_astc` on WebGL.
+    /// or `WEBGL_compressed_texture_astc` on WebGL. See `CompressedFormat::Astc` for 3D textures.
     Astc(AstcBlockSize),
+    /// ASTC with three-dimensional blocks of the given size, in sRGB with a linear alpha, for 3D
+    /// textures only (`GL_COMPRESSED_SRGB8_ALPHA8_ASTC_*_OES`). Needs
+    /// `GL_OES_texture_compression_astc`.
+    Astc3d(AstcBlockSize3d),
 }
 
 impl CompressedSrgbFormat {
@@ -1224,6 +1306,7 @@ impl CompressedSrgbFormat {
             CompressedSrgbFormat::Etc2Rgba8Eac,
         ];
         formats.extend(AstcBlockSize::ALL.map(CompressedSrgbFormat::Astc));
+        formats.extend(AstcBlockSize3d::ALL.map(CompressedSrgbFormat::Astc3d));
         formats
     }
 
@@ -1268,6 +1351,7 @@ impl CompressedSrgbFormat {
                 extensions.gl_khr_texture_compression_astc_ldr
                     || extensions.webgl_compressed_texture_astc
             }
+            CompressedSrgbFormat::Astc3d(_) => extensions.gl_oes_texture_compression_astc,
         }
     }
 
@@ -1289,6 +1373,9 @@ impl CompressedSrgbFormat {
             CompressedSrgbFormat::Astc(size) => {
                 COMPRESSED_SRGB8_ALPHA8_ASTC_4X4 + size.index()
             }
+            CompressedSrgbFormat::Astc3d(size) => {
+                COMPRESSED_SRGB8_ALPHA8_ASTC_3X3X3 + size.index()
+            }
         }
     }
 
@@ -1309,6 +1396,10 @@ impl CompressedSrgbFormat {
             CompressedSrgbFormat::Etc2Rgba8Eac => (4, 4, 16),
             CompressedSrgbFormat::Astc(size) => {
                 let (width, height) = size.dimensions();
+                (width, height, 16)
+            }
+            CompressedSrgbFormat::Astc3d(size) => {
+                let (width, height, _) = size.dimensions();
                 (width, height, 16)
             }
         }
@@ -1686,17 +1777,17 @@ impl ClientFormatAny {
             ClientFormatAny::CompressedSrgbFormat(format) => format.block_size(),
         };
 
-        // the compressed formats only exist for two-dimensional images and their arrays; the
-        // blocks at the right and top edges of an image whose size isn't a multiple of the
-        // blocks are partial, but take the room of a whole block, and PVRTC images have at least
-        // two blocks in each direction
+        // the compressed formats exist for two-dimensional images and their arrays, and some for
+        // 3D images too, in slices of two-dimensional blocks or in three-dimensional blocks; the
+        // blocks at the edges of an image whose size isn't a multiple of the blocks are partial,
+        // but take the room of a whole block, and PVRTC images have at least two blocks in each
+        // direction
         let height = height?;
-        if depth.is_some() {
-            return None;
-        }
+        let slices = depth.map_or(1, |depth| depth.div_ceil(self.block_depth()) as usize);
         let min_blocks = if self.is_pvrtc() { 2 } else { 1 };
         let blocks = width.div_ceil(block_width).max(min_blocks) as usize
             * height.div_ceil(block_height).max(min_blocks) as usize
+            * slices
             * array_size.unwrap_or(1) as usize;
         Some(blocks * block_bytes)
     }
@@ -1744,6 +1835,30 @@ impl ClientFormatAny {
                     | CompressedSrgbFormat::S3tcDxt5Alpha
             ),
             _ => false,
+        }
+    }
+
+    /// Returns true for the ASTC formats, of two- or three-dimensional blocks.
+    pub fn is_astc(&self) -> bool {
+        matches!(
+            self,
+            ClientFormatAny::CompressedFormat(
+                CompressedFormat::Astc(_) | CompressedFormat::Astc3d(_)
+            ) | ClientFormatAny::CompressedSrgbFormat(
+                    CompressedSrgbFormat::Astc(_) | CompressedSrgbFormat::Astc3d(_)
+                )
+        )
+    }
+
+    /// The depth of the blocks in texels: that of the three-dimensional ASTC blocks, 1 for the
+    /// other formats.
+    pub fn block_depth(&self) -> u32 {
+        match self {
+            ClientFormatAny::CompressedFormat(CompressedFormat::Astc3d(size))
+            | ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::Astc3d(size)) => {
+                size.dimensions().2
+            }
+            _ => 1,
         }
     }
 
@@ -1804,9 +1919,14 @@ impl ClientFormatAny {
                 CompressedFormat::Etc1Rgb8 | CompressedFormat::PvrtcRgb4 | CompressedFormat::PvrtcRgb2,
             ) => 3,
             ClientFormatAny::CompressedFormat(
-                CompressedFormat::Astc(_) | CompressedFormat::PvrtcRgba4 | CompressedFormat::PvrtcRgba2,
+                CompressedFormat::Astc(_)
+                | CompressedFormat::Astc3d(_)
+                | CompressedFormat::PvrtcRgba4
+                | CompressedFormat::PvrtcRgba2,
             )
-            | ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::Astc(_)) => 4,
+            | ClientFormatAny::CompressedSrgbFormat(
+                CompressedSrgbFormat::Astc(_) | CompressedSrgbFormat::Astc3d(_),
+            ) => 4,
         }
     }
 
@@ -1920,11 +2040,24 @@ impl ClientFormatAny {
                 AstcBlockSize::from_index(astc - COMPRESSED_RGBA_ASTC_4X4)
                     .map(|size| ClientFormatAny::CompressedFormat(CompressedFormat::Astc(size)))
             }
+            astc if (COMPRESSED_RGBA_ASTC_3X3X3..COMPRESSED_RGBA_ASTC_3X3X3 + 10)
+                .contains(&astc) =>
+            {
+                AstcBlockSize3d::from_index(astc - COMPRESSED_RGBA_ASTC_3X3X3)
+                    .map(|size| ClientFormatAny::CompressedFormat(CompressedFormat::Astc3d(size)))
+            }
             astc if (COMPRESSED_SRGB8_ALPHA8_ASTC_4X4..COMPRESSED_SRGB8_ALPHA8_ASTC_4X4 + 14)
                 .contains(&astc) =>
             {
                 AstcBlockSize::from_index(astc - COMPRESSED_SRGB8_ALPHA8_ASTC_4X4).map(|size| {
                     ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::Astc(size))
+                })
+            }
+            astc if (COMPRESSED_SRGB8_ALPHA8_ASTC_3X3X3..COMPRESSED_SRGB8_ALPHA8_ASTC_3X3X3 + 10)
+                .contains(&astc) =>
+            {
+                AstcBlockSize3d::from_index(astc - COMPRESSED_SRGB8_ALPHA8_ASTC_3X3X3).map(|size| {
+                    ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::Astc3d(size))
                 })
             }
             _ => None,

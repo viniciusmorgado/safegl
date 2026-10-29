@@ -180,7 +180,8 @@ pub use self::ty_support::is_texture_2d_multisample_array_supported;
 #[cfg(any(safegl_desktop, safegl_gles31))]
 pub use self::ty_support::is_texture_2d_multisample_supported;
 pub use crate::image_format::{ClientFormat, TextureFormat};
-pub use crate::image_format::{AstcBlockSize, CompressedFormat, DepthFormat, DepthStencilFormat};
+pub use crate::image_format::{AstcBlockSize, AstcBlockSize3d, CompressedFormat};
+pub use crate::image_format::{DepthFormat, DepthStencilFormat};
 pub use crate::image_format::StencilFormat;
 pub use crate::image_format::{CompressedSrgbFormat, SrgbFormat};
 pub use crate::image_format::{
