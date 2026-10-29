@@ -219,6 +219,8 @@ pub mod draw_parameters;
 pub mod field;
 pub mod framebuffer;
 pub mod index;
+#[cfg(unix)]
+pub mod interop;
 pub mod pixel_buffer;
 pub mod program;
 pub mod texture;

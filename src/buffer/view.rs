@@ -101,6 +101,16 @@ where
         })
     }
 
+    /// The buffer of an allocation.
+    #[cfg(unix)]
+    pub(crate) fn from_alloc(alloc: Alloc) -> Buffer<T> {
+        Buffer {
+            alloc: Some(alloc),
+            fence: Some(Fences::new()),
+            marker: PhantomData,
+        }
+    }
+
     /// Returns the context corresponding to this buffer.
     #[inline]
     pub fn get_context(&self) -> &Rc<Context> {

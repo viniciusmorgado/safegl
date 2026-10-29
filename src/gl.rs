@@ -75,6 +75,11 @@ pub const SRG8_EXT: GLenum = 0x8FBE;
 pub const MAX_VIEWS_OVR: GLenum = 0x9631;
 // GL_OES_EGL_image_external and GL_EXT_YUV_target
 pub const TEXTURE_EXTERNAL_OES: GLenum = 0x8D65;
+// GL_EXT_memory_object, GL_EXT_memory_object_fd, GL_EXT_semaphore and GL_EXT_semaphore_fd
+pub const HANDLE_TYPE_OPAQUE_FD_EXT: GLenum = 0x9586;
+pub const DEDICATED_MEMORY_OBJECT_EXT: GLenum = 0x9581;
+pub const DEVICE_UUID_EXT: GLenum = 0x9597;
+pub const DRIVER_UUID_EXT: GLenum = 0x9598;
 pub const SAMPLER_EXTERNAL_OES: GLenum = 0x8D66;
 pub const SAMPLER_EXTERNAL_2D_Y2Y_EXT: GLenum = 0x8BE7;
 // GL_KHR_blend_equation_advanced_coherent
@@ -206,6 +211,19 @@ extra_functions! {
     fn GetObjectLabelEXT(type_: GLenum, object: GLuint, bufSize: GLsizei, length: *mut GLsizei, label: *mut GLchar) -> ();
     fn PushGroupMarkerEXT(length: GLsizei, marker: *const GLchar) -> ();
     fn PopGroupMarkerEXT() -> ();
+    fn GetUnsignedBytevEXT(pname: GLenum, data: *mut GLubyte) -> ();
+    fn GetUnsignedBytei_vEXT(target: GLenum, index: GLuint, data: *mut GLubyte) -> ();
+    fn CreateMemoryObjectsEXT(n: GLsizei, memoryObjects: *mut GLuint) -> ();
+    fn DeleteMemoryObjectsEXT(n: GLsizei, memoryObjects: *const GLuint) -> ();
+    fn MemoryObjectParameterivEXT(memoryObject: GLuint, pname: GLenum, params: *const GLint) -> ();
+    fn ImportMemoryFdEXT(memory: GLuint, size: GLuint64, handleType: GLenum, fd: GLint) -> ();
+    fn BufferStorageMemEXT(target: GLenum, size: GLsizeiptr, memory: GLuint, offset: GLuint64) -> ();
+    fn TexStorageMem2DEXT(target: GLenum, levels: GLsizei, internalFormat: GLenum, width: GLsizei, height: GLsizei, memory: GLuint, offset: GLuint64) -> ();
+    fn GenSemaphoresEXT(n: GLsizei, semaphores: *mut GLuint) -> ();
+    fn DeleteSemaphoresEXT(n: GLsizei, semaphores: *const GLuint) -> ();
+    fn ImportSemaphoreFdEXT(semaphore: GLuint, handleType: GLenum, fd: GLint) -> ();
+    fn SignalSemaphoreEXT(semaphore: GLuint, numBufferBarriers: GLuint, buffers: *const GLuint, numTextureBarriers: GLuint, textures: *const GLuint, dstLayouts: *const GLenum) -> ();
+    fn WaitSemaphoreEXT(semaphore: GLuint, numBufferBarriers: GLuint, buffers: *const GLuint, numTextureBarriers: GLuint, textures: *const GLuint, srcLayouts: *const GLenum) -> ();
     fn EGLImageTargetTexture2DOES(target: GLenum, image: *const c_void) -> ();
     fn EGLImageTargetTexStorageEXT(target: GLenum, image: *const c_void, attrib_list: *const GLint) -> ();
     fn BlendBarrier() -> ();
