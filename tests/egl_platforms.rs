@@ -14,9 +14,14 @@ mod support;
 
 type Pixel = (u8, u8, u8, u8);
 
+/// Held by each test: NVIDIA's driver fails to make an EGL context current while a GLX context
+/// of the windows of the other tests is made current on another thread.
+static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// A display without window draws its frames to its pbuffer, which is read back.
 #[test]
 fn headless_display() {
+    let _lock = ONE_AT_A_TIME.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let headless = match Headless::first() {
         Ok(headless) => headless,
         // EGL without devices, like the drivers of other systems
@@ -41,6 +46,7 @@ fn headless_display() {
 /// application, keeps its objects, and gets its surface back.
 #[test]
 fn surface_removed_and_given_back() {
+    let _lock = ONE_AT_A_TIME.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let display = support::build_display();
     let texture = Texture2d::empty(&display, 4, 4).unwrap();
     let surface = match display.remove_surface() {
