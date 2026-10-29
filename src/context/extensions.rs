@@ -241,6 +241,10 @@ extensions! {
     "GL_OES_texture_stencil8" => gl_oes_texture_stencil8,
     "GL_OES_texture_storage_multisample_2d_array" => gl_oes_texture_storage_multisample_2d_array,
     "GL_OVR_multiview2" => gl_ovr_multiview2,
+    "GL_KHR_blend_equation_advanced" => gl_khr_blend_equation_advanced,
+    "GL_KHR_blend_equation_advanced_coherent" => gl_khr_blend_equation_advanced_coherent,
+    "GL_EXT_shader_framebuffer_fetch_non_coherent" =>
+        gl_ext_shader_framebuffer_fetch_non_coherent,
     "GL_EXT_shader_pixel_local_storage" => gl_ext_shader_pixel_local_storage,
     "GL_EXT_shader_pixel_local_storage2" => gl_ext_shader_pixel_local_storage2,
     "GL_QCOM_tiled_rendering" => gl_qcom_tiled_rendering,
@@ -258,6 +262,10 @@ extensions! {
     "GL_EXT_shader_group_vote" => gl_ext_shader_group_vote,
     "GL_EXT_shader_integer_mix" => gl_ext_shader_integer_mix,
     "GL_EXT_texture_shadow_lod" => gl_ext_texture_shadow_lod,
+    "GL_EXT_shader_framebuffer_fetch" => gl_ext_shader_framebuffer_fetch,
+    "GL_ARM_shader_framebuffer_fetch" => gl_arm_shader_framebuffer_fetch,
+    "GL_ARM_shader_framebuffer_fetch_depth_stencil" =>
+        gl_arm_shader_framebuffer_fetch_depth_stencil,
     // the extensions that only WebGL has
     "EXT_disjoint_timer_query_webgl2" => ext_disjoint_timer_query_webgl2,
     "WEBGL_blend_func_extended" => webgl_blend_func_extended,

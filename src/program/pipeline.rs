@@ -18,7 +18,7 @@ use crate::gl;
 #[cfg(any(safegl_gl41, safegl_gles31))]
 use crate::program::raw::RawProgram;
 #[cfg(any(safegl_gl41, safegl_gles31))]
-use crate::program::shader::build_shader;
+use crate::program::shader::{build_shader, fragment_features};
 #[cfg(safegl_gl46)]
 use crate::program::shader::build_spirv_shader;
 #[cfg(safegl_gl46)]
@@ -168,7 +168,13 @@ impl SeparableProgram {
             Some(bits),
         )?;
         Ok(SeparableProgram {
-            program: Program::separable(raw, source.outputs_srgb, source.uses_point_size, bits),
+            program: Program::separable(
+                raw,
+                source.outputs_srgb,
+                source.uses_point_size,
+                bits,
+                Some(source.fragment_shader.map(fragment_features).unwrap_or_default()),
+            ),
         })
     }
 
@@ -239,7 +245,7 @@ impl SeparableProgram {
             Some(bits),
         )?;
         Ok(SeparableProgram {
-            program: Program::separable(raw, true, false, bits),
+            program: Program::separable(raw, true, false, bits, None),
         })
     }
 
@@ -523,6 +529,15 @@ impl<'a> DrawProgram<'a> {
             DrawProgram::Pipeline(pipeline) => pipeline
                 .stage(gl::VERTEX_SHADER_BIT)
                 .expect("pipelines have a vertex shader"),
+        }
+    }
+
+    /// What the fragment shader declares, `Err(())` if SafeGL doesn't know. A pipeline without
+    /// fragment shader declares nothing.
+    pub(crate) fn fragment_features(&self) -> Result<crate::program::FragmentFeatures, ()> {
+        match self.fragment() {
+            Some(program) => program.fragment_features(),
+            None => Ok(Default::default()),
         }
     }
 

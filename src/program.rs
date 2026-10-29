@@ -21,6 +21,7 @@ pub use self::pipeline::{
     ProgramPipeline, ProgramPipelineCreationError, SeparableProgram, SeparableSource,
 };
 pub use self::program::{PendingProgram, Program};
+pub(crate) use self::shader::FragmentFeatures;
 pub use self::reflection::ShaderStage;
 #[cfg(not(safegl_desktop))]
 pub(crate) use self::reflection::SubroutineData;

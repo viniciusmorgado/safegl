@@ -91,7 +91,7 @@ use crate::ToGlEnum;
 #[cfg(safegl_gles32)]
 use std::ops::Range;
 
-pub use self::blend::{Blend, BlendingFunction, LinearBlendingFactor};
+pub use self::blend::{AdvancedBlending, Blend, BlendingFunction, LinearBlendingFactor};
 #[cfg(any(safegl_desktop, safegl_webgl))]
 pub use self::depth::DepthClamp;
 pub use self::depth::{Depth, DepthTest};
@@ -1304,6 +1304,103 @@ pub(crate) fn validate_dual_source_blending(
         return Err(DrawError::DualSourceBlendingTooManyDrawBuffers);
     }
     Ok(())
+}
+
+/// The barriers that a draw needs before and after it, so that it doesn't read what the draws
+/// around it write, nor write what they read, without coherence.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct DrawBarriers {
+    /// `glBlendBarrier`: advanced blending without `GL_KHR_blend_equation_advanced_coherent`.
+    blend: bool,
+    /// `glFramebufferFetchBarrierEXT`: a fragment shader that may read the framebuffer with
+    /// `layout(noncoherent)` (`GL_EXT_shader_framebuffer_fetch_non_coherent`).
+    fetch: bool,
+}
+
+impl DrawBarriers {
+    /// Inserts the barriers.
+    pub(crate) unsafe fn insert(self, ctxt: &context::CommandContext<'_>) {
+        #[cfg(not(safegl_browser))]
+        {
+            if self.blend {
+                if ctxt.version >= &Version(Api::GlEs, 3, 2) {
+                    ctxt.extra.BlendBarrier();
+                } else {
+                    ctxt.extra.BlendBarrierKHR();
+                }
+            }
+            if self.fetch {
+                ctxt.extra.FramebufferFetchBarrierEXT();
+            }
+        }
+        #[cfg(safegl_browser)]
+        let _ = ctxt;
+    }
+}
+
+/// Returns true if the backend blends with advanced equations (`BlendingFunction::Advanced`):
+/// OpenGL ES 3.2, or `GL_KHR_blend_equation_advanced`. WebGL doesn't.
+pub fn is_advanced_blending_supported<C: ?Sized>(context: &C) -> bool
+where
+    C: crate::CapabilitiesSource,
+{
+    !is_webgl()
+        && (context.get_version() >= &Version(Api::GlEs, 3, 2)
+            || context.get_extensions().gl_khr_blend_equation_advanced)
+}
+
+/// Checks the draws that read the framebuffer, and returns the barriers that they need.
+///
+/// The advanced blend equations of the draw must be supported, the same for the colors and the
+/// alpha, and declared by the fragment shader (`features`, `Err(())` if SafeGL doesn't know it),
+/// and the framebuffer bound for drawing must have a single draw buffer (`draw_buffers` returns
+/// their number).
+pub(crate) fn validate_framebuffer_reads(
+    ctxt: &mut context::CommandContext<'_>,
+    draw_parameters: &DrawParameters<'_>,
+    features: Result<crate::program::FragmentFeatures, ()>,
+    draw_buffers: impl FnOnce(&mut context::CommandContext<'_>) -> usize,
+) -> Result<DrawBarriers, DrawError> {
+    let mut equations = smallvec::SmallVec::<[AdvancedBlending; 8]>::new();
+    let blends = draw_parameters.outputs.iter().map(|output| &output.blend);
+    for blend in std::iter::once(&draw_parameters.blend).chain(blends) {
+        equations.extend(blend.advanced_equation()?);
+    }
+
+    let mut barriers = DrawBarriers::default();
+    if !equations.is_empty() {
+        if !is_advanced_blending_supported(ctxt.context) {
+            return Err(DrawError::AdvancedBlendingNotSupported);
+        }
+        if draw_buffers(ctxt) > 1 {
+            return Err(DrawError::AdvancedBlendingTooManyOutputs);
+        }
+        if let Ok(features) = features {
+            let undeclared = equations
+                .iter()
+                .find(|equation| features.blend_support & equation.bit() == 0);
+            if let Some(&equation) = undeclared {
+                return Err(DrawError::AdvancedBlendingNotDeclared { equation });
+            }
+        }
+        barriers.blend = !ctxt.extensions.gl_khr_blend_equation_advanced_coherent;
+    }
+
+    // pixel local storage is enabled on the framebuffer bound for drawing by a
+    // `framebuffer::PixelLocalStorage`, whose pass is active once it is bound
+    if features.is_ok_and(|features| features.pixel_local_storage) {
+        let enabled = ctxt.state.framebuffer_pass.is_some_and(|pass| {
+            pass.active && pass.kind == crate::fbo::FramebufferPassKind::PixelLocalStorage
+        });
+        if !enabled {
+            return Err(DrawError::PixelLocalStorageNotEnabled);
+        }
+    }
+
+    // the programs whose source SafeGL doesn't have may read without coherence
+    barriers.fetch = ctxt.extensions.gl_ext_shader_framebuffer_fetch_non_coherent
+        && features.map_or(true, |features| features.noncoherent_fetch);
+    Ok(barriers)
 }
 
 /// Sets the logic operation, after checking that the draw doesn't blend.

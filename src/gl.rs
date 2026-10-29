@@ -73,6 +73,8 @@ pub const SR8_EXT: GLenum = 0x8FBD;
 pub const SRG8_EXT: GLenum = 0x8FBE;
 // GL_OVR_multiview
 pub const MAX_VIEWS_OVR: GLenum = 0x9631;
+// GL_KHR_blend_equation_advanced_coherent
+pub const BLEND_ADVANCED_COHERENT_KHR: GLenum = 0x9285;
 // GL_EXT_multisampled_render_to_texture
 pub const TEXTURE_SAMPLES_EXT: GLenum = 0x8D6C;
 // GL_EXT_shader_pixel_local_storage and GL_EXT_shader_pixel_local_storage2
@@ -200,6 +202,11 @@ extra_functions! {
     fn GetObjectLabelEXT(type_: GLenum, object: GLuint, bufSize: GLsizei, length: *mut GLsizei, label: *mut GLchar) -> ();
     fn PushGroupMarkerEXT(length: GLsizei, marker: *const GLchar) -> ();
     fn PopGroupMarkerEXT() -> ();
+    fn BlendBarrier() -> ();
+    fn BlendBarrierKHR() -> ();
+    fn BlendEquationiEXT(buf: GLuint, mode: GLenum) -> ();
+    fn BlendEquationiOES(buf: GLuint, mode: GLenum) -> ();
+    fn FramebufferFetchBarrierEXT() -> ();
     fn FramebufferTexture2DMultisampleEXT(target: GLenum, attachment: GLenum, textarget: GLenum, texture: GLuint, level: GLint, samples: GLsizei) -> ();
     fn RenderbufferStorageMultisampleEXT(target: GLenum, samples: GLsizei, internalformat: GLenum, width: GLsizei, height: GLsizei) -> ();
     fn FramebufferPixelLocalStorageSizeEXT(target: GLuint, size: GLsizei) -> ();

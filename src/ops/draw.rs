@@ -268,6 +268,12 @@ where
     draw_parameters::validate_dual_source_blending(&mut ctxt, draw_parameters, |ctxt| {
         fbo::draw_buffers_count(ctxt, framebuffer)
     })?;
+    let barriers = draw_parameters::validate_framebuffer_reads(
+        &mut ctxt,
+        draw_parameters,
+        program.fragment_features(),
+        |ctxt| fbo::draw_buffers_count(ctxt, framebuffer),
+    )?;
 
     // transform feedback can't record while the program changes: the capture is paused, unless
     // the draw continues it
@@ -356,7 +362,8 @@ where
         }
     }
 
-    // drawing
+    // drawing, between the barriers that separate the draw from the ones around it
+    unsafe { barriers.insert(&ctxt) };
     // TODO: make this code more readable
     {
         match &indices {
@@ -914,6 +921,7 @@ where
         };
     };
 
+    unsafe { barriers.insert(&ctxt) };
     ctxt.state.next_draw_call_id += 1;
 
     // fulfilling the fences

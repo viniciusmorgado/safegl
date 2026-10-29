@@ -56,7 +56,8 @@ pub(crate) unsafe fn set_enabled(
     }
 }
 
-/// Sets the blend equations of color and alpha of the draw buffer `index`.
+/// Sets the blend equations of color and alpha of the draw buffer `index`. An advanced equation
+/// is the same for both, and set by itself.
 pub(crate) unsafe fn blend_equation(
     ctxt: &CommandContext<'_>,
     index: u32,
@@ -65,12 +66,20 @@ pub(crate) unsafe fn blend_equation(
     #[cfg(safegl_browser)]
     ctxt.webgl.blend_equation_indexed(index, color, alpha);
     #[cfg(not(safegl_browser))]
-    match entry(ctxt) {
-        Entry::Core => ctxt
-            .glow
-            .blend_equation_separate_draw_buffer(index, color, alpha),
-        Entry::Ext => ctxt.extra.BlendEquationSeparateiEXT(index, color, alpha),
-        Entry::Oes => ctxt.extra.BlendEquationSeparateiOES(index, color, alpha),
+    if super::blend::is_advanced(color) {
+        match entry(ctxt) {
+            Entry::Core => ctxt.glow.blend_equation_draw_buffer(index, color),
+            Entry::Ext => ctxt.extra.BlendEquationiEXT(index, color),
+            Entry::Oes => ctxt.extra.BlendEquationiOES(index, color),
+        }
+    } else {
+        match entry(ctxt) {
+            Entry::Core => ctxt
+                .glow
+                .blend_equation_separate_draw_buffer(index, color, alpha),
+            Entry::Ext => ctxt.extra.BlendEquationSeparateiEXT(index, color, alpha),
+            Entry::Oes => ctxt.extra.BlendEquationSeparateiOES(index, color, alpha),
+        }
     }
 }
 

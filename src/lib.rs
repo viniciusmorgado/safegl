@@ -178,7 +178,8 @@ pub use crate::draw_parameters::PolygonMode;
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub use crate::draw_parameters::Smooth;
 pub use crate::draw_parameters::{
-    BackfaceCullingMode, Blend, BlendingFunction, FrontFace, LinearBlendingFactor,
+    AdvancedBlending, BackfaceCullingMode, Blend, BlendingFunction, FrontFace,
+    LinearBlendingFactor,
 };
 pub use crate::draw_parameters::{Depth, DepthTest, DrawParameters, StencilOperation, StencilTest};
 pub use crate::index::IndexBuffer;
@@ -1983,6 +1984,29 @@ pub enum DrawError {
     /// A draw to several views of a multiview framebuffer can't capture transform feedback nor
     /// be timed by a `TimeElapsedQuery` (`GL_OVR_multiview2`).
     MultiviewRestricted,
+
+    /// The draw blends with an advanced equation (`BlendingFunction::Advanced`), which needs
+    /// `GL_KHR_blend_equation_advanced` or OpenGL ES 3.2, and which WebGL doesn't have.
+    AdvancedBlendingNotSupported,
+
+    /// The color or the alpha function of a `Blend` is an advanced equation, and the other one
+    /// differs: advanced equations blend the colors and the alpha together (`Blend::advanced`).
+    AdvancedBlendingMismatch,
+
+    /// The draw blends with an advanced equation into a framebuffer of more than one color
+    /// attachment: advanced equations write a single color output.
+    AdvancedBlendingTooManyOutputs,
+
+    /// The draw blends with an advanced equation that the fragment shader doesn't declare with
+    /// `layout(blend_support_*) out;` or `layout(blend_support_all_equations) out;`.
+    AdvancedBlendingNotDeclared {
+        /// The equation.
+        equation: crate::draw_parameters::AdvancedBlending,
+    },
+
+    /// The fragment shader declares pixel local storage (`GL_EXT_shader_pixel_local_storage`),
+    /// and draws only through a `framebuffer::PixelLocalStorage`.
+    PixelLocalStorageNotEnabled,
 }
 
 impl Error for DrawError {
@@ -2211,6 +2235,16 @@ impl fmt::Display for DrawError {
                 "The program doesn't declare the number of views of the framebuffer",
             MultiviewRestricted =>
                 "Draws to several views can't capture transform feedback nor be timed",
+            AdvancedBlendingNotSupported =>
+                "The backend doesn't support advanced blend equations",
+            AdvancedBlendingMismatch =>
+                "An advanced blend equation blends the colors and the alpha together",
+            AdvancedBlendingTooManyOutputs =>
+                "Advanced blend equations write to a framebuffer of a single color attachment",
+            AdvancedBlendingNotDeclared { .. } =>
+                "The fragment shader doesn't declare the advanced blend equation of the draw",
+            PixelLocalStorageNotEnabled =>
+                "A program with pixel local storage draws only where the storage is enabled",
         };
         match self {
             UniformTypeMismatch {

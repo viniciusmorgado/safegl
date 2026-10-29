@@ -42,12 +42,37 @@ impl Blend {
             constant_value: (0.0, 0.0, 0.0, 0.0),
         }
     }
+
+    /// Returns a blend effect that blends the colors and the alpha with an advanced equation.
+    pub fn advanced(equation: AdvancedBlending) -> Blend {
+        Blend {
+            color: BlendingFunction::Advanced(equation),
+            alpha: BlendingFunction::Advanced(equation),
+            constant_value: (0.0, 0.0, 0.0, 0.0),
+        }
+    }
 }
 
 impl Blend {
     /// Whether drawing with it enables `GL_BLEND`.
     pub(crate) fn is_enabled(&self) -> bool {
         BlendState::new(*self).enabled
+    }
+
+    /// The advanced equation that it blends with, or `DrawError::AdvancedBlendingMismatch` if
+    /// its color or its alpha function is advanced and the other one differs.
+    pub(crate) fn advanced_equation(&self) -> Result<Option<AdvancedBlending>, DrawError> {
+        match (self.color, self.alpha) {
+            (BlendingFunction::Advanced(color), BlendingFunction::Advanced(alpha))
+                if color == alpha =>
+            {
+                Ok(Some(color))
+            }
+            (BlendingFunction::Advanced(_), _) | (_, BlendingFunction::Advanced(_)) => {
+                Err(DrawError::AdvancedBlendingMismatch)
+            }
+            _ => Ok(None),
+        }
     }
 
     /// Whether it blends with the second color output of the fragment shader, which is
@@ -80,6 +105,7 @@ impl Default for Blend {
 
 /// Function that the GPU will use for blending.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum BlendingFunction {
     /// Simply overwrite the destination pixel with the source pixel.
     ///
@@ -144,6 +170,14 @@ pub enum BlendingFunction {
         /// The factor to apply to the destination pixel.
         destination: LinearBlendingFactor,
     },
+
+    /// An advanced blend equation, which ignores the blend factors and blends the colors and the
+    /// alpha together: the color and the alpha functions of a `Blend` are the same advanced
+    /// equation, which `Blend::advanced` gives, or draws return
+    /// `DrawError::AdvancedBlendingMismatch`. Draws with it return
+    /// `DrawError::AdvancedBlendingNotSupported` without `GL_KHR_blend_equation_advanced` or
+    /// OpenGL ES 3.2, and on WebGL.
+    Advanced(AdvancedBlending),
 }
 
 /// Indicates which value to multiply each component with.
@@ -255,6 +289,133 @@ impl LinearBlendingFactor {
     }
 }
 
+
+/// An advanced blend equation (`GL_KHR_blend_equation_advanced`, core in OpenGL ES 3.2): one of
+/// the equations of the PDF and SVG specifications, applied to the colors and the alpha, which
+/// ignores the blend factors.
+///
+/// The fragment shader declares the equations that it is drawn with, like
+/// `layout(blend_support_multiply) out;`, or `layout(blend_support_all_equations) out;` for all
+/// of them. The colors are premultiplied by the alpha, and the draw writes a single color
+/// output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum AdvancedBlending {
+    /// `source × destination` (`GL_MULTIPLY_KHR`).
+    Multiply,
+    /// `source + destination - source × destination` (`GL_SCREEN_KHR`).
+    Screen,
+    /// `HardLight` with the source and the destination swapped (`GL_OVERLAY_KHR`).
+    Overlay,
+    /// The minimum of each component (`GL_DARKEN_KHR`).
+    Darken,
+    /// The maximum of each component (`GL_LIGHTEN_KHR`).
+    Lighten,
+    /// The destination brightened to reflect the source (`GL_COLORDODGE_KHR`).
+    ColorDodge,
+    /// The destination darkened to reflect the source (`GL_COLORBURN_KHR`).
+    ColorBurn,
+    /// `Multiply` or `Screen`, depending on the source (`GL_HARDLIGHT_KHR`).
+    HardLight,
+    /// A softer `HardLight` (`GL_SOFTLIGHT_KHR`).
+    SoftLight,
+    /// The absolute difference of the components (`GL_DIFFERENCE_KHR`).
+    Difference,
+    /// `Difference` with a lower contrast (`GL_EXCLUSION_KHR`).
+    Exclusion,
+    /// The hue of the source with the saturation and the luminosity of the destination
+    /// (`GL_HSL_HUE_KHR`).
+    HslHue,
+    /// The saturation of the source with the hue and the luminosity of the destination
+    /// (`GL_HSL_SATURATION_KHR`).
+    HslSaturation,
+    /// The hue and the saturation of the source with the luminosity of the destination
+    /// (`GL_HSL_COLOR_KHR`).
+    HslColor,
+    /// The luminosity of the source with the hue and the saturation of the destination
+    /// (`GL_HSL_LUMINOSITY_KHR`).
+    HslLuminosity,
+}
+
+impl AdvancedBlending {
+    /// Every advanced blend equation.
+    pub const ALL: [AdvancedBlending; 15] = [
+        AdvancedBlending::Multiply,
+        AdvancedBlending::Screen,
+        AdvancedBlending::Overlay,
+        AdvancedBlending::Darken,
+        AdvancedBlending::Lighten,
+        AdvancedBlending::ColorDodge,
+        AdvancedBlending::ColorBurn,
+        AdvancedBlending::HardLight,
+        AdvancedBlending::SoftLight,
+        AdvancedBlending::Difference,
+        AdvancedBlending::Exclusion,
+        AdvancedBlending::HslHue,
+        AdvancedBlending::HslSaturation,
+        AdvancedBlending::HslColor,
+        AdvancedBlending::HslLuminosity,
+    ];
+
+    fn to_glenum(self) -> gl::types::GLenum {
+        match self {
+            AdvancedBlending::Multiply => 0x9294,
+            AdvancedBlending::Screen => 0x9295,
+            AdvancedBlending::Overlay => 0x9296,
+            AdvancedBlending::Darken => 0x9297,
+            AdvancedBlending::Lighten => 0x9298,
+            AdvancedBlending::ColorDodge => 0x9299,
+            AdvancedBlending::ColorBurn => 0x929A,
+            AdvancedBlending::HardLight => 0x929B,
+            AdvancedBlending::SoftLight => 0x929C,
+            AdvancedBlending::Difference => 0x929E,
+            AdvancedBlending::Exclusion => 0x92A0,
+            AdvancedBlending::HslHue => 0x92AD,
+            AdvancedBlending::HslSaturation => 0x92AE,
+            AdvancedBlending::HslColor => 0x92AF,
+            AdvancedBlending::HslLuminosity => 0x92B0,
+        }
+    }
+
+    /// The name of the equation in the `blend_support_*` layout qualifier of GLSL.
+    fn layout_name(self) -> &'static str {
+        match self {
+            AdvancedBlending::Multiply => "multiply",
+            AdvancedBlending::Screen => "screen",
+            AdvancedBlending::Overlay => "overlay",
+            AdvancedBlending::Darken => "darken",
+            AdvancedBlending::Lighten => "lighten",
+            AdvancedBlending::ColorDodge => "colordodge",
+            AdvancedBlending::ColorBurn => "colorburn",
+            AdvancedBlending::HardLight => "hardlight",
+            AdvancedBlending::SoftLight => "softlight",
+            AdvancedBlending::Difference => "difference",
+            AdvancedBlending::Exclusion => "exclusion",
+            AdvancedBlending::HslHue => "hsl_hue",
+            AdvancedBlending::HslSaturation => "hsl_saturation",
+            AdvancedBlending::HslColor => "hsl_color",
+            AdvancedBlending::HslLuminosity => "hsl_luminosity",
+        }
+    }
+
+    /// The bit of the equation in the masks of `blend_support_mask`.
+    pub(crate) fn bit(self) -> u32 {
+        1 << AdvancedBlending::ALL.iter().position(|&e| e == self).unwrap()
+    }
+
+    /// The mask of the equations that a `blend_support_*` layout qualifier of GLSL declares,
+    /// `None` if `qualifier` isn't one.
+    pub(crate) fn blend_support_mask(qualifier: &str) -> Option<u32> {
+        let name = qualifier.strip_prefix("blend_support_")?;
+        if name == "all_equations" {
+            return Some((1 << AdvancedBlending::ALL.len()) - 1);
+        }
+        AdvancedBlending::ALL
+            .iter()
+            .find(|equation| equation.layout_name() == name)
+            .map(|equation| equation.bit())
+    }
+}
+
 /// The OpenGL state that a `Blend` translates to.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) struct BlendState {
@@ -287,6 +448,7 @@ impl BlendState {
                 // `GL_MIN` and `GL_MAX` are core in OpenGL ES 3.0
                 BlendingFunction::Min => gl::MIN,
                 BlendingFunction::Max => gl::MAX,
+                BlendingFunction::Advanced(equation) => equation.to_glenum(),
             }
         }
 
@@ -297,7 +459,8 @@ impl BlendState {
             match blending_function {
                 BlendingFunction::AlwaysReplace
                 | BlendingFunction::Min
-                | BlendingFunction::Max => None,
+                | BlendingFunction::Max
+                | BlendingFunction::Advanced(_) => None,
                 BlendingFunction::Addition {
                     source,
                     destination,
@@ -388,9 +551,10 @@ pub fn validate_webgl_constants(blend: &Blend) -> Result<(), DrawError> {
             source,
             destination,
         } => (source, destination),
-        BlendingFunction::AlwaysReplace | BlendingFunction::Min | BlendingFunction::Max => {
-            return Ok(())
-        }
+        BlendingFunction::AlwaysReplace
+        | BlendingFunction::Min
+        | BlendingFunction::Max
+        | BlendingFunction::Advanced(_) => return Ok(()),
     };
     let color = |factor| {
         matches!(
@@ -464,7 +628,12 @@ pub fn sync_blending(
     };
     if force || ctxt.state.blend_equation != equation {
         unsafe {
-            ctxt.glow.blend_equation_separate(equation.0, equation.1);
+            // the advanced equations set the colors and the alpha together
+            if is_advanced(equation.0) {
+                ctxt.glow.blend_equation(equation.0);
+            } else {
+                ctxt.glow.blend_equation_separate(equation.0, equation.1);
+            }
         }
         ctxt.state.blend_equation = equation;
     }
@@ -494,4 +663,9 @@ pub fn sync_blending(
     ctxt.state.indexed_blend = !overrides.is_empty();
 
     Ok(())
+}
+
+/// Whether `equation` is one of the advanced blend equations of `AdvancedBlending`.
+pub(crate) fn is_advanced(equation: gl::types::GLenum) -> bool {
+    (0x9294..=0x92B0).contains(&equation)
 }
