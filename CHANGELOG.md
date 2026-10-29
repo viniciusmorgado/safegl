@@ -388,6 +388,9 @@ Breaking changes:
 - `FrameError` and `SwapBuffersError` are `#[non_exhaustive]`, with the variant `SurfaceLost`:
   frames can't be drawn on a display whose surface was removed (`Display::remove_surface`), and
   a frame whose surface is removed before it finishes isn't shown.
+- `UniformType` is `#[non_exhaustive]`, with the variants `SamplerExternalOes`
+  (`samplerExternalOES`) and `SamplerExternal2dY2yExt` (`__samplerExternal2DY2YEXT`), which were
+  `Unknown`.
 
 Additions:
 
@@ -819,6 +822,20 @@ Additions:
   stays current without surface (`EGL_KHR_surfaceless_context`). The `android` example uses
   them, and the `kiosk` example draws fullscreen with DRM/KMS page flips on a GBM surface,
   without window system.
+- `texture::ExternalTexture` is the texture of an EGL image (`GL_OES_EGL_image_external`): camera
+  frames, decoded video and the images of other processes, which `samplerExternalOES` uniforms
+  sample in RGB, YUV included. Its samplers don't use mipmaps and clamp to the edges, unless the
+  backend has `GL_EXT_EGL_image_external_wrap_modes` (`DrawError::ExternalTextureSampler`), and
+  it is a color attachment written in YUV with `GL_EXT_YUV_target`.
+- `backend::glutin::egl` imports dma-bufs as EGL images (`EGL_EXT_image_dma_buf_import`, with
+  modifiers and YUV color spaces), makes images of textures and exports them as dma-bufs
+  (`EGL_KHR_gl_texture_2D_image`, `EGL_MESA_image_dma_buf_export`), makes 2D textures whose
+  storage is an image (`GL_EXT_EGL_image_storage`), and creates, exports and imports EGL fences
+  (`EGL_KHR_fence_sync`, `EGL_KHR_wait_sync`, `EGL_ANDROID_native_fence_sync`).
+- `interop::MemoryObject` and `interop::Semaphore` share memory and semaphores with Vulkan and
+  other APIs through file descriptors (`GL_EXT_memory_object_fd`, `GL_EXT_semaphore_fd`):
+  buffers and 2D textures in imported memory, and semaphores that OpenGL waits for or signals.
+  `interop::device_uuids` gives the UUIDs of the matching Vulkan device.
 
 Fixes:
 
