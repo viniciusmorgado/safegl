@@ -4,13 +4,14 @@
 
 use std::env;
 
-#[cfg(not(safegl_test_headless))]
+// Android has no windows for the tests: they draw without window system there
+#[cfg(not(any(safegl_test_headless, target_os = "android")))]
 mod windowed;
-#[cfg(not(safegl_test_headless))]
+#[cfg(not(any(safegl_test_headless, target_os = "android")))]
 pub use windowed::*;
-#[cfg(safegl_test_headless)]
+#[cfg(any(safegl_test_headless, target_os = "android"))]
 mod headless;
-#[cfg(safegl_test_headless)]
+#[cfg(any(safegl_test_headless, target_os = "android"))]
 pub use headless::*;
 
 /// The context APIs that the tests request, in order: the one of `SAFEGL_GL_VERSION` (such as
