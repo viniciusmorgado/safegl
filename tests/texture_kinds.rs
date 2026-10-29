@@ -275,6 +275,54 @@ fn astc_textures() {
     display.assert_no_error(None);
 }
 
+/// The decode precision of ASTC textures is chosen with
+/// `GL_EXT_texture_compression_astc_decode_mode`, and only for ASTC textures.
+#[test]
+fn astc_decode_precision() {
+    use safegl::texture::{AstcBlockSize, AstcDecodePrecision, AstcDecodePrecisionError};
+    use safegl::texture::{CompressedFormat, CompressedMipmapsOption, CompressedTexture2d};
+
+    let display = support::build_display();
+    let format = CompressedFormat::Astc(AstcBlockSize::B4x4);
+    if !format.is_supported(&display) {
+        return;
+    }
+    let texture = CompressedTexture2d::with_compressed_data(
+        &display,
+        &ASTC_GREEN_BLOCK,
+        4,
+        4,
+        format,
+        CompressedMipmapsOption::NoMipmap,
+    )
+    .unwrap();
+    let extensions = support::extensions(&display);
+    let decode_mode = !cfg!(target_arch = "wasm32")
+        && extensions.gl_ext_texture_compression_astc_decode_mode;
+    let rgb9e5 = !cfg!(target_arch = "wasm32")
+        && extensions.gl_ext_texture_compression_astc_decode_mode_rgb9e5;
+    let expect = |precision, supported: bool| {
+        let result = texture.set_astc_decode_precision(precision);
+        if supported {
+            result.unwrap();
+        } else {
+            assert_eq!(result, Err(AstcDecodePrecisionError::NotSupported));
+        }
+    };
+    expect(AstcDecodePrecision::Unorm8, decode_mode);
+    expect(AstcDecodePrecision::SharedExponent, rgb9e5);
+    expect(AstcDecodePrecision::Float16, decode_mode);
+    if decode_mode {
+        let linear = Texture2d::empty(&display, 4, 4).unwrap();
+        assert_eq!(
+            linear.set_astc_decode_precision(AstcDecodePrecision::Unorm8),
+            Err(AstcDecodePrecisionError::NotAstc)
+        );
+    }
+
+    display.assert_no_error(None);
+}
+
 /// 3D textures are compressed in slices of the two-dimensional ASTC blocks with
 /// `GL_KHR_texture_compression_astc_sliced_3d` or `_hdr`, and in the three-dimensional ASTC
 /// blocks with `GL_OES_texture_compression_astc`, which only 3D textures have; the other formats

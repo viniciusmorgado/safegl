@@ -61,6 +61,8 @@ pub const DEPTH_CLAMP_FAR_AMD: GLenum = 0x901F;
 pub const DEPTH_CLAMP_NEAR_AMD: GLenum = 0x901E;
 pub const GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX: GLenum = 0x9049;
 pub const INT64_NV: GLenum = 0x140E;
+// GL_EXT_texture_compression_astc_decode_mode
+pub const TEXTURE_ASTC_DECODE_PRECISION_EXT: GLenum = 0x8F69;
 // GL_EXT_texture_format_sRGB_override
 pub const TEXTURE_FORMAT_SRGB_OVERRIDE_EXT: GLenum = 0x8FBF;
 // GL_EXT_texture_sRGB_decode

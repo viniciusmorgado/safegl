@@ -179,6 +179,9 @@ extensions! {
     "GL_EXT_semaphore_fd" => gl_ext_semaphore_fd,
     "GL_EXT_texture_border_clamp" => gl_ext_texture_border_clamp,
     "GL_EXT_texture_buffer" => gl_ext_texture_buffer,
+    "GL_EXT_texture_compression_astc_decode_mode" => gl_ext_texture_compression_astc_decode_mode,
+    "GL_EXT_texture_compression_astc_decode_mode_rgb9e5" =>
+        gl_ext_texture_compression_astc_decode_mode_rgb9e5,
     "GL_EXT_texture_compression_bptc" => gl_ext_texture_compression_bptc,
     "GL_EXT_texture_compression_rgtc" => gl_ext_texture_compression_rgtc,
     "GL_EXT_texture_compression_s3tc" => gl_ext_texture_compression_s3tc,

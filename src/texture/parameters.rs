@@ -191,6 +191,48 @@ impl TextureAny {
         Ok(())
     }
 
+    /// Sets the precision to which the texels of an ASTC texture are decoded when it is sampled
+    /// (`GL_TEXTURE_ASTC_DECODE_PRECISION_EXT`): lower precisions take less bandwidth. The
+    /// default is `AstcDecodePrecision::Float16`.
+    ///
+    /// Needs `GL_EXT_texture_compression_astc_decode_mode`, and
+    /// `GL_EXT_texture_compression_astc_decode_mode_rgb9e5` for `SharedExponent`, or returns
+    /// `AstcDecodePrecisionError::NotSupported`, and a texture that SafeGL created with an ASTC
+    /// format, or returns `AstcDecodePrecisionError::NotAstc`.
+    pub fn set_astc_decode_precision(
+        &self,
+        precision: AstcDecodePrecision,
+    ) -> Result<(), AstcDecodePrecisionError> {
+        let format = self.created_format();
+        // the ASTC formats of two- and three-dimensional blocks, linear and sRGB
+        let astc = (0x93B0..=0x93BD).contains(&format)
+            || (0x93C0..=0x93C9).contains(&format)
+            || (0x93D0..=0x93DD).contains(&format)
+            || (0x93E0..=0x93E9).contains(&format);
+        let mut ctxt = self.get_context().make_current();
+        let extensions = ctxt.extensions;
+        let supported = !crate::version::is_webgl()
+            && match precision {
+                AstcDecodePrecision::SharedExponent => {
+                    extensions.gl_ext_texture_compression_astc_decode_mode_rgb9e5
+                }
+                _ => extensions.gl_ext_texture_compression_astc_decode_mode,
+            };
+        if !supported {
+            return Err(AstcDecodePrecisionError::NotSupported);
+        }
+        if !astc {
+            return Err(AstcDecodePrecisionError::NotAstc);
+        }
+        let value = match precision {
+            AstcDecodePrecision::Float16 => gl::RGBA16F,
+            AstcDecodePrecision::Unorm8 => gl::RGBA8,
+            AstcDecodePrecision::SharedExponent => gl::RGB9_E5,
+        };
+        self.set_parameter(&mut ctxt, gl::TEXTURE_ASTC_DECODE_PRECISION_EXT, value as i32);
+        Ok(())
+    }
+
     /// Returns whether sampling a depth-stencil texture returns its depth or its stencil index.
     /// See `set_depth_stencil_mode`.
     #[cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))]
@@ -346,6 +388,44 @@ impl fmt::Display for DepthStencilTextureModeError {
 
 #[cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))]
 impl Error for DepthStencilTextureModeError {}
+
+/// The precision to which the texels of ASTC textures are decoded. See
+/// `TextureAny::set_astc_decode_precision`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum AstcDecodePrecision {
+    /// 16-bit floats, the default.
+    Float16,
+    /// 8-bit normalized values, for low dynamic range content.
+    Unorm8,
+    /// Floats with a shared exponent (`GL_RGB9_E5`), for high dynamic range content without
+    /// alpha.
+    SharedExponent,
+}
+
+/// Error of `TextureAny::set_astc_decode_precision`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AstcDecodePrecisionError {
+    /// The precision can't be chosen: it needs `GL_EXT_texture_compression_astc_decode_mode`,
+    /// and `GL_EXT_texture_compression_astc_decode_mode_rgb9e5` for the shared exponent.
+    NotSupported,
+    /// The texture doesn't have an ASTC format, or SafeGL didn't create it.
+    NotAstc,
+}
+
+impl fmt::Display for AstcDecodePrecisionError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.write_str(match self {
+            AstcDecodePrecisionError::NotSupported => {
+                "Choosing the decode precision of ASTC textures is not supported by the backend"
+            }
+            AstcDecodePrecisionError::NotAstc => "The texture doesn't have an ASTC format",
+        })
+    }
+}
+
+impl Error for AstcDecodePrecisionError {}
 
 /// Error of `TextureAny::set_srgb_override`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
