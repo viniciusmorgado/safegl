@@ -73,6 +73,8 @@ pub const SR8_EXT: GLenum = 0x8FBD;
 pub const SRG8_EXT: GLenum = 0x8FBE;
 // GL_OVR_multiview
 pub const MAX_VIEWS_OVR: GLenum = 0x9631;
+// GL_EXT_multisampled_render_to_texture
+pub const TEXTURE_SAMPLES_EXT: GLenum = 0x8D6C;
 // WebGL 2
 pub const MAX_CLIENT_WAIT_TIMEOUT_WEBGL: GLenum = 0x9247;
 pub const TEXTURE_FREE_MEMORY_ATI: GLenum = 0x87FC;
@@ -192,6 +194,8 @@ extra_functions! {
     fn GetObjectLabelEXT(type_: GLenum, object: GLuint, bufSize: GLsizei, length: *mut GLsizei, label: *mut GLchar) -> ();
     fn PushGroupMarkerEXT(length: GLsizei, marker: *const GLchar) -> ();
     fn PopGroupMarkerEXT() -> ();
+    fn FramebufferTexture2DMultisampleEXT(target: GLenum, attachment: GLenum, textarget: GLenum, texture: GLuint, level: GLint, samples: GLsizei) -> ();
+    fn RenderbufferStorageMultisampleEXT(target: GLenum, samples: GLsizei, internalformat: GLenum, width: GLsizei, height: GLsizei) -> ();
     fn EnableiEXT(target: GLenum, index: GLuint) -> ();
     fn DisableiEXT(target: GLenum, index: GLuint) -> ();
     fn BlendEquationSeparateiEXT(buf: GLuint, modeRGB: GLenum, modeAlpha: GLenum) -> ();

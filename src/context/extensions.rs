@@ -168,6 +168,7 @@ extensions! {
     "GL_EXT_multi_draw_arrays" => gl_ext_multi_draw_arrays,
     "GL_EXT_multi_draw_indirect" => gl_ext_multi_draw_indirect,
     "GL_EXT_multisampled_render_to_texture" => gl_ext_multisampled_render_to_texture,
+    "GL_EXT_multisampled_render_to_texture2" => gl_ext_multisampled_render_to_texture2,
     "GL_EXT_occlusion_query_boolean" => gl_ext_occlusion_query_boolean,
     "GL_EXT_polygon_offset_clamp" => gl_ext_polygon_offset_clamp,
     "GL_EXT_primitive_bounding_box" => gl_ext_primitive_bounding_box,

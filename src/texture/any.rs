@@ -2706,6 +2706,7 @@ impl<'a> TextureAnyLayerMipmap<'a> {
             cube_layer,
             width: self.width,
             height: self.height,
+            render_samples: None,
         })
     }
 }
@@ -2727,6 +2728,9 @@ pub struct TextureAnyImage<'a> {
     width: u32,
     /// Height of this image.
     height: Option<u32>,
+    /// The samples that framebuffers render to it with, resolved when they are written
+    /// (`GL_EXT_multisampled_render_to_texture`).
+    render_samples: Option<u32>,
 }
 
 impl<'a> TextureAnyImage<'a> {
@@ -2770,6 +2774,33 @@ impl<'a> TextureAnyImage<'a> {
     #[inline]
     pub fn get_samples(&self) -> Option<u32> {
         self.texture.get_samples()
+    }
+
+    /// Returns the image, which framebuffers render to with `samples` samples per pixel, that
+    /// the GPU resolves into the image when it writes them to memory, and discards afterwards
+    /// (`GL_EXT_multisampled_render_to_texture`): on tile-based GPUs, the samples stay in the
+    /// memory of the chip, so that multisampling costs neither memory nor bandwidth.
+    ///
+    /// The image is of a texture of two dimensions or of a face of a cube map, without
+    /// samples of its own. The other multisampled attachments of the framebuffer are render
+    /// buffers built with `new_multisample_resolved`, or images given samples too, with the same
+    /// number of samples. Building the framebuffer returns
+    /// `ValidationError::MultisampledRenderToTextureNotSupported` without the extension, and
+    /// for images attached elsewhere than at the first color attachment without
+    /// `GL_EXT_multisampled_render_to_texture2`.
+    #[inline]
+    pub fn multisampled(self, samples: u32) -> TextureAnyImage<'a> {
+        TextureAnyImage {
+            render_samples: Some(samples),
+            ..self
+        }
+    }
+
+    /// Returns the samples that framebuffers render to the image with
+    /// (`TextureAnyImage::multisampled`).
+    #[inline]
+    pub fn get_render_samples(&self) -> Option<u32> {
+        self.render_samples
     }
 
     /// Uploads data to a rectangle of the image. A layer of a one-dimensional texture array is
