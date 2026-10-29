@@ -144,7 +144,13 @@ impl ApplicationContext for Application {
                     fragment: r"
                         #version 100
 
+                        // the coordinates of pixels need highp: mediump has 10 bits of
+                        // precision on mobile GPUs, a fraction of a pixel only up to 1024
+                        #ifdef GL_FRAGMENT_PRECISION_HIGH
+                        precision highp float;
+                        #else
                         precision mediump float;
+                        #endif
 
                         uniform vec2 resolution;
                         uniform sampler2D tex;
