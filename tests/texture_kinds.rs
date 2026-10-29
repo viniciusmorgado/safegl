@@ -380,14 +380,21 @@ fn whole_written_formats() {
     };
 
     let display = support::build_display();
-    for format in [CompressedFormat::Etc1Rgb8, CompressedFormat::PvrtcRgba4] {
+    let formats = [
+        CompressedFormat::Etc1Rgb8,
+        CompressedFormat::PvrtcRgba4,
+        CompressedFormat::PvrtcRgba4V2,
+        CompressedFormat::AtcRgb,
+        CompressedFormat::AtcRgbaInterpolatedAlpha,
+    ];
+    for format in formats {
         if !format.is_supported(&display) {
             continue;
         }
-        // a PVRTC image takes two blocks at least in each direction
+        // an image of the first version of PVRTC takes two blocks at least in each direction
         let size = |side: u32| {
             let (width, height, bytes) = format.block_size();
-            let min = if format == CompressedFormat::Etc1Rgb8 { 1 } else { 2 };
+            let min = if format == CompressedFormat::PvrtcRgba4 { 2 } else { 1 };
             let blocks = side.div_ceil(width).max(min) * side.div_ceil(height).max(min);
             blocks as usize * bytes
         };
@@ -400,17 +407,18 @@ fn whole_written_formats() {
             CompressedMipmapsOption::NoMipmap,
         )
         .unwrap();
-        // a region is refused, except for ETC1 with `GL_EXT_compressed_ETC1_RGB8_sub_texture`;
-        // the whole level is written
+        // a region is refused, except for ETC1 with `GL_EXT_compressed_ETC1_RGB8_sub_texture` and
+        // for the second version of PVRTC; the whole level is written
         let region = safegl::Rect {
             left: 0,
             bottom: 0,
             width: 4,
             height: 4,
         };
-        let regions = format == CompressedFormat::Etc1Rgb8
-            && !cfg!(target_arch = "wasm32")
-            && support::extensions(&display).gl_ext_compressed_etc1_rgb8_sub_texture;
+        let regions = format == CompressedFormat::PvrtcRgba4V2
+            || (format == CompressedFormat::Etc1Rgb8
+                && !cfg!(target_arch = "wasm32")
+                && support::extensions(&display).gl_ext_compressed_etc1_rgb8_sub_texture);
         let written = texture.write_compressed_data(region, &vec![0u8; size(4)], 4, 4, format);
         if regions {
             written.unwrap();
@@ -427,7 +435,14 @@ fn whole_written_formats() {
             .unwrap();
     }
 
-    // PVRTC textures need power-of-two sizes
+    // the textures of the first version of PVRTC need power-of-two sizes, not those of the second
+    let format = CompressedFormat::PvrtcRgba4V2;
+    if format.is_supported(&display) {
+        let data = [0u8; 3 * 2 * 8];
+        let no_mipmaps = CompressedMipmapsOption::NoMipmap;
+        CompressedTexture2d::with_compressed_data(&display, &data, 12, 8, format, no_mipmaps)
+            .unwrap();
+    }
     let format = CompressedFormat::PvrtcRgba4;
     if format.is_supported(&display) {
         let texture = CompressedTexture2d::with_compressed_data(

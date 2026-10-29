@@ -584,17 +584,21 @@ where
     }
     check_dimensions(facade.get_context(), ty)?;
 
-    // ETC1 and PVRTC textures have no texture storage: their levels are given whole, the
-    // levels of PVRTC textures have power-of-two sizes
-    let written_whole = match format {
+    // the textures of ETC1, PVRTC and ATC have no texture storage, which their extensions don't
+    // give: their levels are given whole, and those of the first version of PVRTC have
+    // power-of-two sizes
+    let no_storage = match format {
         TextureFormatRequest::Specific(TextureFormat::CompressedFormat(format)) => {
-            Some(ClientFormatAny::CompressedFormat(format)).filter(|f| f.is_written_whole())
+            Some(ClientFormatAny::CompressedFormat(format))
+        }
+        TextureFormatRequest::Specific(TextureFormat::CompressedSrgbFormat(format)) => {
+            Some(ClientFormatAny::CompressedSrgbFormat(format))
         }
         _ => None,
-    };
+    }
+    .filter(|f| f.has_no_storage());
     let power_of_two = |size: Option<u32>| size.is_none_or(u32::is_power_of_two);
-    let etc1 = ClientFormatAny::CompressedFormat(CompressedFormat::Etc1Rgb8);
-    if written_whole.is_some_and(|f| f != etc1)
+    if no_storage.is_some_and(|f| f.is_pvrtc())
         && !(power_of_two(Some(width)) && power_of_two(height))
     {
         return Err(TextureCreationError::DimensionsNotSupported);
@@ -675,7 +679,7 @@ where
         image_format::RequestType::TexStorage(storage_client),
     )
     .ok()
-    .filter(|_| written_whole.is_none());
+    .filter(|_| no_storage.is_none());
 
     let (client_format, client_type) = match (&data, format) {
         (&Some((client_format, _)), f) => {
@@ -1009,8 +1013,8 @@ where
                     data_bufsize as i32,
                     data_raw,
                 );
-            } else if let Some(format) = written_whole {
-                // an empty ETC1 or PVRTC level is made of zeroed blocks
+            } else if let Some(format) = no_storage {
+                // an empty level of these formats is made of zeroed blocks
                 let size = format.get_buffer_size(width as u32, Some(height as u32), None, None);
                 let zeroes = vec![0u8; size.unwrap_or(0)];
                 for target in image_targets(bind_point) {
