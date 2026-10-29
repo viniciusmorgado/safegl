@@ -65,7 +65,9 @@ pub fn blit(
         let source = FramebuffersContainer::get_framebuffer_for_drawing(&mut ctxt, source);
         let target = FramebuffersContainer::get_framebuffer_for_drawing(&mut ctxt, target);
 
-        // binding the framebuffers, which the checks query
+        // binding the framebuffers, which the checks query, after the render pass of a
+        // tile-based GPU, which can't stay open while other framebuffers are bound
+        crate::fbo::suspend_framebuffer_pass(&mut ctxt);
         if ctxt.state.read_framebuffer != source {
             ctxt.glow.bind_framebuffer(glow::READ_FRAMEBUFFER, source);
             ctxt.state.read_framebuffer = source;

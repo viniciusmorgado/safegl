@@ -48,6 +48,10 @@ pub enum CreationError {
 
     /// The context is lost: nothing can be created in it.
     ContextLost,
+
+    /// A multisampled render buffer resolved by the GPU (`new_multisample_resolved`) needs
+    /// `GL_EXT_multisampled_render_to_texture`.
+    ResolvedMultisampleNotSupported,
 }
 
 impl fmt::Display for CreationError {
@@ -58,6 +62,9 @@ impl fmt::Display for CreationError {
             DimensionsNotSupported => "The dimensions of the render buffer are too large",
             SamplesNotSupported => "The number of samples isn't supported for this format",
             ContextLost => "The context is lost",
+            ResolvedMultisampleNotSupported => {
+                "The backend can't resolve the samples of render buffers when it writes them"
+            }
         };
         fmt.write_str(desc)
     }
@@ -97,6 +104,7 @@ impl RenderBuffer {
                 width,
                 height,
                 None,
+                false,
             )?,
         })
     }
@@ -119,6 +127,36 @@ impl RenderBuffer {
                 width,
                 height,
                 Some(samples),
+                false,
+            )?,
+        })
+    }
+    /// Builds a new multisampled render buffer for a framebuffer that renders to textures with
+    /// samples (`TextureAnyImage::multisampled`), whose samples the GPU resolves when it writes
+    /// them to memory and discards afterwards (`GL_EXT_multisampled_render_to_texture`): on
+    /// tile-based GPUs, the samples stay in the memory of the chip. Its samples match the
+    /// samples of the textures of the framebuffer.
+    ///
+    /// Returns `CreationError::ResolvedMultisampleNotSupported` without the extension.
+    pub fn new_multisample_resolved<F: ?Sized>(
+        facade: &F,
+        format: UncompressedFloatFormat,
+        width: u32,
+        height: u32,
+        samples: u32,
+    ) -> Result<RenderBuffer, CreationError>
+    where
+        F: Facade,
+    {
+        Ok(RenderBuffer {
+            buffer: RenderBufferAny::new(
+                facade,
+                image_format::TextureFormat::UncompressedFloat(format),
+                TextureKind::Float,
+                width,
+                height,
+                Some(samples),
+                true,
             )?,
         })
     }
@@ -182,6 +220,7 @@ impl DepthRenderBuffer {
                 width,
                 height,
                 None,
+                false,
             )?,
         })
     }
@@ -204,6 +243,36 @@ impl DepthRenderBuffer {
                 width,
                 height,
                 Some(samples),
+                false,
+            )?,
+        })
+    }
+    /// Builds a new multisampled render buffer for a framebuffer that renders to textures with
+    /// samples (`TextureAnyImage::multisampled`), whose samples the GPU resolves when it writes
+    /// them to memory and discards afterwards (`GL_EXT_multisampled_render_to_texture`): on
+    /// tile-based GPUs, the samples stay in the memory of the chip. Its samples match the
+    /// samples of the textures of the framebuffer.
+    ///
+    /// Returns `CreationError::ResolvedMultisampleNotSupported` without the extension.
+    pub fn new_multisample_resolved<F: ?Sized>(
+        facade: &F,
+        format: DepthFormat,
+        width: u32,
+        height: u32,
+        samples: u32,
+    ) -> Result<DepthRenderBuffer, CreationError>
+    where
+        F: Facade,
+    {
+        Ok(DepthRenderBuffer {
+            buffer: RenderBufferAny::new(
+                facade,
+                image_format::TextureFormat::DepthFormat(format),
+                TextureKind::Depth,
+                width,
+                height,
+                Some(samples),
+                true,
             )?,
         })
     }
@@ -266,6 +335,7 @@ impl StencilRenderBuffer {
                 width,
                 height,
                 None,
+                false,
             )?,
         })
     }
@@ -288,6 +358,36 @@ impl StencilRenderBuffer {
                 width,
                 height,
                 Some(samples),
+                false,
+            )?,
+        })
+    }
+    /// Builds a new multisampled render buffer for a framebuffer that renders to textures with
+    /// samples (`TextureAnyImage::multisampled`), whose samples the GPU resolves when it writes
+    /// them to memory and discards afterwards (`GL_EXT_multisampled_render_to_texture`): on
+    /// tile-based GPUs, the samples stay in the memory of the chip. Its samples match the
+    /// samples of the textures of the framebuffer.
+    ///
+    /// Returns `CreationError::ResolvedMultisampleNotSupported` without the extension.
+    pub fn new_multisample_resolved<F: ?Sized>(
+        facade: &F,
+        format: StencilFormat,
+        width: u32,
+        height: u32,
+        samples: u32,
+    ) -> Result<StencilRenderBuffer, CreationError>
+    where
+        F: Facade,
+    {
+        Ok(StencilRenderBuffer {
+            buffer: RenderBufferAny::new(
+                facade,
+                image_format::TextureFormat::StencilFormat(format),
+                TextureKind::Stencil,
+                width,
+                height,
+                Some(samples),
+                true,
             )?,
         })
     }
@@ -351,6 +451,7 @@ impl DepthStencilRenderBuffer {
                 width,
                 height,
                 None,
+                false,
             )?,
         })
     }
@@ -373,6 +474,36 @@ impl DepthStencilRenderBuffer {
                 width,
                 height,
                 Some(samples),
+                false,
+            )?,
+        })
+    }
+    /// Builds a new multisampled render buffer for a framebuffer that renders to textures with
+    /// samples (`TextureAnyImage::multisampled`), whose samples the GPU resolves when it writes
+    /// them to memory and discards afterwards (`GL_EXT_multisampled_render_to_texture`): on
+    /// tile-based GPUs, the samples stay in the memory of the chip. Its samples match the
+    /// samples of the textures of the framebuffer.
+    ///
+    /// Returns `CreationError::ResolvedMultisampleNotSupported` without the extension.
+    pub fn new_multisample_resolved<F: ?Sized>(
+        facade: &F,
+        format: DepthStencilFormat,
+        width: u32,
+        height: u32,
+        samples: u32,
+    ) -> Result<DepthStencilRenderBuffer, CreationError>
+    where
+        F: Facade,
+    {
+        Ok(DepthStencilRenderBuffer {
+            buffer: RenderBufferAny::new(
+                facade,
+                image_format::TextureFormat::DepthStencilFormat(format),
+                TextureKind::DepthStencil,
+                width,
+                height,
+                Some(samples),
+                true,
             )?,
         })
     }
@@ -417,12 +548,15 @@ pub struct RenderBufferAny {
     width: u32,
     height: u32,
     samples: Option<u32>,
+    // whether the GPU resolves the samples when it writes them to memory
+    // (`GL_EXT_multisampled_render_to_texture`)
+    resolved: bool,
     kind: TextureKind,
     format: image_format::TextureFormat,
 }
 
 impl RenderBufferAny {
-    /// Builds a new render buffer.
+    /// Builds a new render buffer, whose samples the GPU resolves if `resolved`.
     fn new<F: ?Sized>(
         facade: &F,
         texture_format: image_format::TextureFormat,
@@ -430,11 +564,15 @@ impl RenderBufferAny {
         width: u32,
         height: u32,
         samples: Option<u32>,
+        resolved: bool,
     ) -> Result<RenderBufferAny, CreationError>
     where
         F: Facade,
     {
         let context = facade.get_context();
+        if resolved && !crate::fbo::is_multisampled_render_to_texture_supported(context) {
+            return Err(CreationError::ResolvedMultisampleNotSupported);
+        }
         let format = image_format::format_request_to_glenum(
             context,
             image_format::TextureFormatRequest::Specific(texture_format),
@@ -479,7 +617,16 @@ impl RenderBufferAny {
             ctxt.glow.bind_renderbuffer(glow::RENDERBUFFER, Some(id));
             ctxt.state.renderbuffer = Some(id);
 
-            if let Some(samples) = samples {
+            if let (Some(samples), true) = (samples, resolved) {
+                #[cfg(not(safegl_browser))]
+                ctxt.extra.RenderbufferStorageMultisampleEXT(
+                    glow::RENDERBUFFER,
+                    samples as gl::types::GLsizei,
+                    format,
+                    width as gl::types::GLsizei,
+                    height as gl::types::GLsizei,
+                );
+            } else if let Some(samples) = samples {
                 ctxt.glow.renderbuffer_storage_multisample(
                     glow::RENDERBUFFER,
                     samples as gl::types::GLsizei,
@@ -502,6 +649,7 @@ impl RenderBufferAny {
                 width,
                 height,
                 samples,
+                resolved,
                 kind,
                 format: texture_format,
             })
@@ -525,6 +673,13 @@ impl RenderBufferAny {
     #[inline]
     pub fn get_samples(&self) -> Option<u32> {
         self.samples
+    }
+
+    /// Returns true if the GPU resolves the samples of the render buffer when it writes them
+    /// to memory (`new_multisample_resolved`).
+    #[inline]
+    pub fn is_multisample_resolved(&self) -> bool {
+        self.resolved
     }
 
     /// Returns the context used to create this renderbuffer.
@@ -584,7 +739,7 @@ impl Drop for RenderBufferAny {
     }
 }
 
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 impl crate::debug::sealed::Labeled for RenderBufferAny {
     fn labeled_object(
         &self,

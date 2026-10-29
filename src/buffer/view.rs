@@ -101,6 +101,16 @@ where
         })
     }
 
+    /// The buffer of an allocation.
+    #[cfg(unix)]
+    pub(crate) fn from_alloc(alloc: Alloc) -> Buffer<T> {
+        Buffer {
+            alloc: Some(alloc),
+            fence: Some(Fences::new()),
+            marker: PhantomData,
+        }
+    }
+
     /// Returns the context corresponding to this buffer.
     #[inline]
     pub fn get_context(&self) -> &Rc<Context> {
@@ -1698,7 +1708,7 @@ impl<'a> BufferAnySlice<'a> {
     }
 }
 
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 impl<T: ?Sized + Content> crate::debug::sealed::Labeled for Buffer<T> {
     fn labeled_object(
         &self,
@@ -1710,7 +1720,7 @@ impl<T: ?Sized + Content> crate::debug::sealed::Labeled for Buffer<T> {
     }
 }
 
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 impl crate::debug::sealed::Labeled for BufferAny {
     fn labeled_object(
         &self,

@@ -1,6 +1,6 @@
 //! Viewport arrays: several viewports, depth ranges and scissor boxes among which a geometry
 //! shader chooses with `gl_ViewportIndex`.
-#![cfg(safegl_gl41)]
+#![cfg(any(safegl_gl41, safegl_gles32))]
 
 #[macro_use]
 extern crate safegl;
@@ -75,14 +75,32 @@ fn program_reading(display: &Display, read_index: bool) -> Option<Program> {
             );
             color = colors[viewport];
         }";
-    // below OpenGL 4.1, `GL_ARB_viewport_array` gives `gl_ViewportIndex` to GLSL 4.00
-    let header = if support::glsl_supported(display, 410, 0) {
+    // OpenGL ES has `gl_ViewportIndex` with `GL_OES_viewport_array`, and desktop OpenGL below
+    // 4.1 with `GL_ARB_viewport_array` in GLSL 4.00
+    let es = support::is_gles(display);
+    let es_header = |extensions: &str| {
+        format!(
+            "#version 320 es\n#extension GL_OES_viewport_array : require\n{extensions}\
+             precision highp float;\nprecision highp int;\n"
+        )
+    };
+    let header = if es {
+        es_header("")
+    } else if support::glsl_supported(display, 410, 0) {
         "#version 410 core\n".to_owned()
     } else {
         "#version 400 core\n#extension GL_ARB_viewport_array : require\n".to_owned()
     };
     // fragment shaders read it from GLSL 4.30, or with `GL_ARB_fragment_layer_viewport`
-    let fragment_header = if read_index {
+    let fragment_header = if read_index && es {
+        // NVIDIA's compiler gives it to fragment shaders with its own extension
+        let nv = if support::has_extension(display, "GL_NV_viewport_array") {
+            "#extension GL_NV_viewport_array : enable\n"
+        } else {
+            ""
+        };
+        es_header(nv) + "#define READ_INDEX\n"
+    } else if read_index {
         let extension = "GL_ARB_fragment_layer_viewport";
         let available = support::has_extension(display, extension);
         let mut header = support::glsl_header(display, 430, &[(extension, available)])?;
@@ -95,15 +113,8 @@ fn program_reading(display: &Display, read_index: bool) -> Option<Program> {
     };
     let [vertex, geometry] = [VERTEX, GEOMETRY].map(|s| format!("{header}{s}"));
     let fragment = format!("{fragment_header}{FRAGMENT}");
-    let program = program!(display,
-        400 => {
-            vertex: &vertex,
-            geometry: geometry.as_str(),
-            fragment: &fragment,
-        },
-    )
-    .unwrap();
-    Some(program)
+    let program = Program::from_source(display, &vertex, &fragment, Some(geometry.as_str()));
+    Some(program.unwrap())
 }
 
 fn fullscreen_triangle(display: &Display) -> VertexBuffer<Vertex> {

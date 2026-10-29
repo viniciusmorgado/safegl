@@ -129,6 +129,12 @@ pub use self::layered::{
 };
 mod external_fb;
 mod render_buffer;
+mod tiled;
+
+pub use self::tiled::{is_pixel_local_storage_supported, is_tiled_rendering_supported};
+pub use self::tiled::{
+    PassSurface, PixelLocalStorage, TilePassError, TilePreserve, TiledRendering,
+};
 
 /// The attachments of a framebuffer that `invalidate` and `invalidate_rect` discard.
 ///

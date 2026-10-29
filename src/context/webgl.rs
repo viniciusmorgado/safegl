@@ -31,6 +31,7 @@ const EXTENSIONS: &[&str] = &[
     "EXT_texture_filter_anisotropic",
     "EXT_texture_mirror_clamp_to_edge",
     "EXT_texture_norm16",
+    "EXT_texture_sRGB_decode",
     "KHR_parallel_shader_compile",
     "OES_draw_buffers_indexed",
     "OES_sample_variables",

@@ -138,13 +138,14 @@ use crate::image_format::FormatNotSupportedError;
 #[cfg(safegl_desktop)]
 pub(crate) use self::any::prepare_for_access;
 pub use self::any::{Dimensions, TextureAnyImage};
+pub use self::external::{is_external_texture_supported, ExternalTexture};
 pub use self::any::{TextureAny, TextureAnyLayer, TextureAnyLayerMipmap, TextureAnyMipmap};
 #[cfg(safegl_desktop)]
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub use self::bindless::{BindlessTexturesNotSupportedError, ResidentTexture, TextureHandle};
 pub use self::get_format::{GetFormatError, InternalFormat, InternalFormatType};
-#[cfg(any(safegl_gl43, safegl_gles32))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
 pub use self::ops::{copy_image, is_copy_image_supported, CopyImageError, CopyImageTarget};
 #[cfg(safegl_gl44)]
 #[cfg_attr(docsrs, doc(cfg(safegl_gl44)))]
@@ -158,8 +159,8 @@ pub use self::ops::{
 #[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
 pub use self::ops::RegionOutOfBoundsError;
 pub use self::parameters::MipmapRangeError;
-#[cfg(safegl_gl43)]
-#[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]
+#[cfg(any(safegl_gl43, safegl_gles31))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31))))]
 pub use self::view::TextureViewError;
 #[cfg(any(safegl_desktop, safegl_gles30))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles30))))]
@@ -167,6 +168,7 @@ pub use self::parameters::{Swizzle, SwizzleSource};
 #[cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))]
 #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles31, safegl_webgl))))]
 pub use self::parameters::{DepthStencilTextureMode, DepthStencilTextureModeError};
+pub use self::parameters::{AstcDecodePrecision, AstcDecodePrecisionError, SrgbOverrideError};
 pub use self::pixel::PixelValue;
 #[cfg(any(safegl_desktop, safegl_gles32))]
 pub use self::ty_support::is_cubemap_arrays_supported;
@@ -179,7 +181,8 @@ pub use self::ty_support::is_texture_2d_multisample_array_supported;
 #[cfg(any(safegl_desktop, safegl_gles31))]
 pub use self::ty_support::is_texture_2d_multisample_supported;
 pub use crate::image_format::{ClientFormat, TextureFormat};
-pub use crate::image_format::{AstcBlockSize, CompressedFormat, DepthFormat, DepthStencilFormat};
+pub use crate::image_format::{AstcBlockSize, AstcBlockSize3d, CompressedFormat};
+pub use crate::image_format::{DepthFormat, DepthStencilFormat};
 pub use crate::image_format::StencilFormat;
 pub use crate::image_format::{CompressedSrgbFormat, SrgbFormat};
 pub use crate::image_format::{
@@ -195,8 +198,10 @@ pub mod buffer_texture;
 pub mod pixel_buffer;
 
 mod any;
+mod es_upload;
+mod external;
 mod get_format;
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 mod ops;
 mod parameters;
 #[cfg(safegl_desktop)]
@@ -216,7 +221,7 @@ pub(crate) unsafe fn reset_client_layouts(ctxt: &mut crate::context::CommandCont
         regions::PACK.reset_rows(ctxt);
     }
 }
-#[cfg(safegl_gl43)]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 mod view;
 #[cfg(safegl_browser)]
 mod web_image;

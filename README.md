@@ -67,7 +67,7 @@ Cargo feature:
 | Chain                        | Levels                                                | Typical targets                                                                                    |
 |------------------------------|-------------------------------------------------------|----------------------------------------------------------------------------------------------------|
 | Desktop OpenGL, core profile | `gl40` (**default**), `gl41`, `gl42`, `gl43`, `gl44`, `gl45`, `gl46` | Windows and Linux with NVIDIA, AMD, Intel or Mesa drivers (`gl46`); macOS (`gl41` at most); Asahi Linux on Apple M1/M2 (`gl46`) |
-| OpenGL ES                    | `gles30`, `gles31`, `gles32`                          | Embedded Linux, such as the Raspberry Pi 4/5 (`gles31`), and other OpenGL ES devices               |
+| OpenGL ES                    | `gles30`, `gles31`, `gles32`                          | Embedded Linux, such as the Raspberry Pi 4/5 (`gles31`), Android (`gles31`, `gles32`), and other OpenGL ES devices (see [Embedded devices](#embedded-devices)) |
 | WebGL                        | `webgl`                                               | Browsers, through `wasm32-unknown-unknown` (see [examples/web](examples/web))                     |
 
 A level is a ceiling: SafeGL compiles the API of its version and of the versions below it in its
@@ -128,7 +128,7 @@ each chain that compiles a functionality; — means that the chain doesn't have 
 |--------------------------------------------------|---------|-----------|-------|----------------------------------------------------------------------------------------------------------------------------------------------|
 | Layered framebuffers                             | `gl40`  | `gles32`  | —     | `LayeredFrameBuffer::{is_supported, new, with_depth_buffer, with_stencil_buffer, with_depth_stencil_buffer, depth_only, with_outputs}`, `ValidationError::{LayeredFramebuffersNotSupported, LayerTargetsMismatch}` (the multiview framebuffers of the same types are at every level) |
 | Geometry and tessellation shaders                | `gl40`  | `gles32`  | —     | geometry and tessellation sources of `ProgramCreationInput::SourceCode`, `Program::from_source` and `program!`; `PrimitiveType::{LinesListAdjacency, LineStripAdjacency, TrianglesListAdjacency, TriangleStripAdjacency, Patches}`; their `DrawError`s |
-| Per-output blending and color masks              | `gl40`  | `gles32`  | `webgl` | `DrawParameters::outputs`, `OutputState`, `DrawError::{PerOutputStateNotSupported, OutputStateIndexOutOfBounds}`                            |
+| Per-output blending and color masks              | `gl40`  | `gles30`  | `webgl` | `DrawParameters::outputs`, `OutputState`, `DrawError::{PerOutputStateNotSupported, OutputStateIndexOutOfBounds}`                            |
 | Sample shading                                   | `gl40`  | `gles32`  | —     | `MultisampleState::sample_shading`, `DrawError::SampleShadingNotSupported`                                                                   |
 | Primitives generated queries                     | `gl40`  | `gles32`  | —     | `PrimitivesGeneratedQuery`, `DrawParameters::primitives_generated_queries`                                                                   |
 | Buffer textures                                  | `gl40`  | `gles32`  | —     | `texture::buffer_texture`, `UniformValue::BufferTexture`                                                                                     |
@@ -136,7 +136,7 @@ each chain that compiles a functionality; — means that the chain doesn't have 
 | Level-of-detail bias of samplers                 | `gl40`  | —         | —     | `LevelOfDetail::bias`, `Sampler::lod_bias`                                                                                                   |
 | Ranges of buffer textures                        | `gl43`  | `gles32`  | —     | `BufferTexture::from_buffer_range`, `buffer_texture::TextureCreationError::{RangeNotSupported, RangeOutOfBounds, MisalignedRange}`           |
 | Format queries                                   | `gl43`  | —         | —     | `Context::format_info`, `FormatTarget`, `FormatInfo`, `FormatSupport`, `FormatInfoNotSupportedError`                                       |
-| Texture views                                    | `gl43`  | —         | —     | `view` constructors of every texture type, `texture::TextureViewError`                                                                     |
+| Texture views                                    | `gl43`  | `gles31`  | —     | `view` constructors of every texture type, `texture::TextureViewError`                                                                     |
 | Texture invalidation                             | `gl43`  | —         | —     | `TextureAnyMipmap::{invalidate, invalidate_region}`, `texture::RegionOutOfBoundsError`                                                       |
 | ETC2 and EAC compressed formats                  | `gl43`  | `gles30`  | `webgl` | `CompressedFormat::{Etc2Rgb8, Etc2Rgb8PunchthroughAlpha1, Etc2Rgba8Eac, EacR11Unsigned, EacR11Signed, EacRg11Unsigned, EacRg11Signed}`, `CompressedSrgbFormat::{Etc2Rgb8, Etc2Rgb8PunchthroughAlpha1, Etc2Rgba8Eac}` |
 | Texture swizzle                                  | `gl40`  | `gles30`  | —     | `TextureAny::{set_swizzle, swizzle}`, `texture::{Swizzle, SwizzleSource}`                                                                     |
@@ -152,13 +152,13 @@ each chain that compiles a functionality; — means that the chain doesn't have 
 | 64-bit integer and packed float vertex attributes | `gl40` | —        | —     | `AttributeType::{I64*, U64*, F64*, F10F11F11UnsignedIntReversed}`                                                                            |
 | Bindless textures (`GL_ARB_bindless_texture`)    | `gl40`  | —         | —     | `texture::bindless`, `texture::{ResidentTexture, TextureHandle, BindlessTexturesNotSupportedError}`, `resident()` on textures                 |
 | Chosen primitive restart index, BGRA attributes, default tessellation levels | `gl40` | — | — | `PrimitiveRestart::Index`, `DrawError::PrimitiveRestartIndexNotSupported`, `vertex::Bgra8`, `AttributeType::*Bgra`, `DrawParameters::patch_default_levels`, `PatchDefaultLevels` |
-| Ranges drawn with one call                       | `gl40`  | —         | `webgl` | `index::NoIndicesRanges`, `IndexBuffer::{ranges, ranges_with_base_vertices}`, `IndicesSource::{NoIndicesRanges, IndexBufferRanges}`, `DrawError::{DrawRangesNotSupported, DrawRangeOutOfBounds, InstancedDrawRangesNotSupported}` |
+| Ranges drawn with one call                       | `gl40`  | `gles30`  | `webgl` | `index::NoIndicesRanges`, `IndexBuffer::{ranges, ranges_with_base_vertices}`, `IndicesSource::{NoIndicesRanges, IndexBufferRanges}`, `DrawError::{DrawRangesNotSupported, DrawRangeOutOfBounds, InstancedDrawRangesNotSupported}` |
 | Draws of captured vertices and vertex streams    | `gl40`  | —         | —     | `CapturedVertices::{indices, stream_indices}`, `IndicesSource::TransformFeedback`, `PrimitivesGeneratedQuery::with_stream`, `TransformFeedbackPrimitivesWrittenQuery::with_stream`, `DrawError::CapturedVerticesDrawNotSupported` |
 | Rectangle textures                               | `gl40`  | —         | —     | `texture::{TextureRectangle, SrgbTextureRectangle, IntegralTextureRectangle, UnsignedTextureRectangle, DepthTextureRectangle, DepthStencilTextureRectangle}`, `DrawError::RectangleTextureSampler` |
 | Double-precision vertex attributes               | `gl41`  | —         | —     | the `Attribute` impls of `f64`, its arrays and its tuples                                                                                   |
 | Program binaries                                 | `gl41`  | `gles30`  | —     | `Program::get_binary`, `ComputeShader::{get_binary, from_binary}`, `ProgramCreationInput::Binary`, `program::{Binary, GetBinaryError, is_binary_supported}` |
 | Shader precision formats                         | `gl41`  | `gles30`  | `webgl` | `Context::shader_precision_format`, `program::{PrecisionQualifier, ShaderPrecision}`                                                          |
-| Viewport arrays                                  | `gl41`  | —         | —     | `DrawParameters::viewports`, `ViewportState`, `DrawError::{ViewportArrayNotSupported, ViewportArrayConflict, ViewportIndexOutOfBounds, InvalidViewport}` |
+| Viewport arrays                                  | `gl41`  | `gles32`  | —     | `DrawParameters::viewports`, `ViewportState`, `DrawError::{ViewportArrayNotSupported, ViewportArrayConflict, ViewportIndexOutOfBounds, InvalidViewport}` |
 | Program pipelines of separable programs          | `gl41`  | `gles31`  | —     | `program::{SeparableProgram, SeparableSource, ProgramPipeline, ProgramPipelineCreationError}`, `DrawProgram::Pipeline` |
 | Base instances                                   | `gl42`  | —         | `webgl` | `DrawParameters::base_instance`, `DrawError::BaseInstanceNotSupported`                                                                     |
 | Indirect draws of one command                    | `gl40`  | `gles31`  | —     | `index::{DrawCommandsNoIndicesBuffer, DrawCommandsIndicesBuffer, DrawCommandNoIndices, DrawCommandIndices, DrawCommandLayout}`, `command()` and `command_with_index_buffer()` on them, `implement_draw_command!`, `IndicesSource::Multidraw*`, `DrawError::{IndirectDrawsNotSupported, MultidrawNotSupported, IndirectDrawWithTransformFeedback}` |
@@ -166,11 +166,11 @@ each chain that compiles a functionality; — means that the chain doesn't have 
 | Multisample images                               | `gl42`  | —         | —     | `image_unit()` on multisample textures, `ImageUnitError::TooManySamples`                                                                    |
 | Buffer images                                    | `gl42`  | `gles32`  | —     | `BufferTexture::image_unit`, `buffer_texture::BufferImageUnit`, `UniformValue::BufferImage`                                                   |
 | Compute shaders, shader storage and empty framebuffers | `gl43` | `gles31` | — | `program::{ComputeShader, ComputeCommand}`, `BufferType::{ShaderStorageBuffer, DispatchIndirectBuffer}`, `Program::get_shader_storage_blocks`, `framebuffer::EmptyFrameBuffer` |
-| Copying images                                   | `gl43`  | `gles32`  | —     | `texture::{copy_image, is_copy_image_supported, CopyImageTarget, CopyImageError}`, `copy_to()` on mipmaps                                    |
+| Copying images                                   | `gl43`  | `gles30`  | —     | `texture::{copy_image, is_copy_image_supported, CopyImageTarget, CopyImageError}`, `copy_to()` on mipmaps                                    |
 | Clearing buffers                                 | `gl43`  | —         | —     | `clear()` on buffers and their slices, `buffer::{ClearValue, ClearContent, ClearBufferError}`                                                |
 | Multidraw indirect                               | `gl43`  | —         | —     | `with_primitive_type()` and `with_index_buffer()` on the draw command buffers                                                               |
 | Framebuffer invalidation                         | `gl43`  | `gles30`  | `webgl` | `invalidate()` and `invalidate_rect()` on framebuffers, `framebuffer::InvalidateAttachments`                                              |
-| Debug groups, object labels and debug messages   | `gl43`  | `gles32`  | —     | `Context::{push_debug_group, set_debug_messages_enabled, insert_debug_message, debug_message_log, is_debug_output_supported}`, `debug::{DebugGroup, ObjectLabel, DebugMessage, DebugMessageFilter, DebugError}`, `DebugCallbackBehavior::Log`, the debug fields of `Limits` |
+| Debug groups, object labels and debug messages   | `gl43`  | `gles30`  | —     | `Context::{push_debug_group, set_debug_messages_enabled, insert_debug_message, debug_message_log, is_debug_output_supported}`, `debug::{DebugGroup, ObjectLabel, DebugMessage, DebugMessageFilter, DebugError}`, `DebugCallbackBehavior::Log`, the debug fields of `Limits` |
 | Stencil textures                                 | `gl44`  | `gles32`  | —     | `texture::{StencilTexture2d, ...}`                                                                                                           |
 | Sampling the stencil of depth-stencil textures   | `gl43`  | `gles31`  | `webgl` | `TextureAny::{set_depth_stencil_mode, depth_stencil_mode}`, `texture::{DepthStencilTextureMode, DepthStencilTextureModeError}`                 |
 | Clearing textures and query buffers              | `gl44`  | —         | —     | `texture::{is_clear_texture_supported, ClearTextureError}`, `clear()`, `clear_region()` and `clear_depth_stencil()` on mipmaps, `to_buffer_u32()` and `to_buffer()` on queries, `debug::TimestampQuery::to_buffer`, `draw_parameters::{ToBufferError, QueryBufferMode, QueryBufferValue}`, `BufferType::QueryBuffer` |
@@ -178,7 +178,6 @@ each chain that compiles a functionality; — means that the chain doesn't have 
 | Reading boxes of textures                        | `gl45`  | —         | —     | `TextureAnyMipmap::{read_box, read_volume, read_compressed_box}`, `ReadError::{NotSupported, MisalignedBlocks}`                            |
 | Texture barrier                                  | `gl45`  | —         | —     | `texture::{texture_barrier, is_texture_barrier_supported, TextureBarrierNotSupportedError}` |
 | Clip control                                     | `gl45`  | —         | `webgl` | `DrawParameters::{clip_control_origin, clip_control_depth}`, `ClipControlOrigin`, `ClipControlDepth`, `DrawError::ClipControlNotSupported` |
-| Graphics reset status                            | `gl45`  | `gles32`  | —     | `Context::graphics_reset_status`, `GraphicsResetStatus`                                                                                      |
 | Inverted conditional rendering                   | `gl45`  | —         | —     | `ConditionalRendering::inverted`, `DrawError::ConditionalRenderingInvertedNotSupported`                                                      |
 | Draws with a number of commands from a buffer    | `gl46`  | —         | —     | `DrawCommandsNoIndicesBuffer::with_draw_count`, `DrawCommandsIndicesBuffer::with_index_buffer_and_draw_count`, `index::DrawCount`, `BufferType::ParameterBuffer`, `DrawError::DrawCountNotSupported` |
 | Pipeline statistics and transform feedback overflow queries | `gl46` | — | — | `draw_parameters::{PipelineStatisticsQuery, PipelineStatistic, TransformFeedbackOverflowQuery}`, `DrawParameters::{pipeline_statistics_queries, transform_feedback_overflow_query}`, `ComputeShader::execute_with_statistics`, `ConditionQuery::TransformFeedbackOverflowQuery` |
@@ -212,8 +211,9 @@ driver has it and fall back to `glBufferData` otherwise.
   limited to `gl41` under macOS can use `gl46` under Linux.
 - **Raspberry Pi 4/5** and similar boards expose OpenGL ES 3.1 but only desktop OpenGL 3.1; use
   `gles31`.
-- **OpenGL ES** has fewer formats than desktop OpenGL. Data uploaded to a texture must match its
-  format, so a texture created from data gets a format chosen from that data. OpenGL ES only
+- **OpenGL ES** has fewer formats than desktop OpenGL, and only uploads the data whose format
+  matches the texture's: SafeGL converts the other data on the CPU like desktop OpenGL does, and
+  a texture created from data without a format gets one chosen from that data. OpenGL ES only
   reads textures back as `(i32, i32, i32, i32)`, `(u32, u32, u32, u32)` or `(f32, f32, f32, f32)`
   for integer and float textures, and as `(u8, u8, u8, u8)` for normalized ones; `read()` and
   `read_as()` convert the other pixel formats on the CPU.
@@ -228,6 +228,46 @@ driver has it and fall back to `glBufferData` otherwise.
 - **Browsers** provide WebGL 2, which SafeGL treats as OpenGL ES 3.0. WebGL can't map buffers or
   block on fences, so buffer mappings are emulated with copies and `SyncFence::wait` returns after
   `glFinish`. Shaders must start with `#version 300 es` on their very first line.
+
+### Embedded devices
+
+> **The embedded devices aren't tested like desktop OpenGL and WebGL yet.** SafeGL covers OpenGL
+> ES 3.0 to 3.2 and their extensions completely, and the whole test suite runs on the OpenGL ES
+> drivers of desktop GPUs and compiles for the architectures of embedded devices, but no phone or
+> board has run it, for lack of devices for now. Contributions are appreciated: a run of the
+> tests on a real board or phone, with `lua tests/cross/embedded_device_tests.lua`, tells which
+> drivers work and which need fixes.
+
+The chapter [OpenGL ES 3.0 to 3.2 devices](book/opengl-es.md) lists every extension of OpenGL ES
+that SafeGL uses, what the tests verified, and what they couldn't.
+
+- **Without window system**, on servers, in CI and on boards without X11 nor Wayland,
+  `backend::glutin::headless` draws on the EGL display of a GPU or of Mesa's software renderer
+  (the [`headless`](examples/standalone/headless.rs) example). Kiosks draw fullscreen with
+  DRM/KMS and GBM (the [`kiosk`](examples/standalone/kiosk.rs) example).
+- **On a Raspberry Pi 4/5**, select `gles31`. To cross-compile from another machine, add the
+  target and a linker for it, like Debian's `gcc-aarch64-linux-gnu`:
+
+  ```sh
+  rustup target add aarch64-unknown-linux-gnu
+  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+      cargo build --release --target aarch64-unknown-linux-gnu --features gles31
+  ```
+
+  `armv7-unknown-linux-gnueabihf` builds for 32-bit systems, and `riscv64gc-unknown-linux-gnu`
+  for RISC-V boards.
+- **On Android**, select `gles31` or `gles32`, with winit's `android-native-activity` feature,
+  and build with [cargo-apk](https://github.com/rust-mobile/cargo-apk) or
+  [xbuild](https://github.com/rust-mobile/xbuild). The display keeps its objects while the
+  application is paused (`Display::remove_surface` and `Display::set_surface`), as the
+  [`android`](examples/standalone/android.rs) example shows:
+
+  ```sh
+  cargo apk run --example android --no-default-features --features gles31,simple_window_builder,egl
+  ```
+- **External images** from cameras, video decoders and other processes are sampled as
+  `texture::ExternalTexture`s from dma-bufs (`backend::glutin::egl`), and memory and semaphores
+  are shared with Vulkan (`interop`).
 
 ## Why SafeGL matters for Oxidian
 
@@ -290,6 +330,12 @@ Environment variables select the context that the tests use:
 - `SAFEGL_DISABLE_EXTENSIONS`: a space-separated list of extension names that the context treats
   as missing (debug builds only), to run the paths of drivers without them on drivers that have
   them.
+- `SAFEGL_CLAMP_LIMITS=es30`, `es31` or `es32`: lower the limits that SafeGL checks to the
+  minimums of that OpenGL ES version (debug builds only), to run the suite as on the devices that
+  have no more.
+- `SAFEGL_TEST_DISPLAY=headless`, when the tests are built: draw on displays without window
+  system, pbuffers of an EGL device, instead of hidden windows; `SAFEGL_EGL_DEVICE` chooses the
+  device whose name, vendor or DRM node contains it, `software` for Mesa's software renderer.
 
 Tests of features that the context lacks return early, while every other error fails them. Mesa's
 software renderer runs the whole suite (`LIBGL_ALWAYS_SOFTWARE=1`, plus
@@ -323,6 +369,17 @@ the tests under `xvfb-run`, and Firefox draws with Mesa's software driver where 
 Browsers have no environment: there, `SAFEGL_DISABLE_EXTENSIONS` is read when the tests are
 built. The tests that need native windows or contexts (rebuilding a display, robust contexts,
 caught panics) only run natively.
+
+The OpenGL ES levels compile for the architectures of embedded devices (aarch64, armv7, riscv64
+and Android, which `rustup target add` installs), and the suite runs as a 32-bit program, or in
+QEMU for aarch64 with a sysroot of aarch64 with Mesa, through another Lua script:
+
+```sh
+lua tests/cross/check_targets.lua check test-i686
+```
+
+On an embedded device, `lua tests/cross/embedded_device_tests.lua` runs the suite at each OpenGL
+ES level of its driver, and writes a report of the driver and of the results.
 
 What each level compiles is checked by a [Lua](https://www.lua.org) script, which builds small
 crates against every level, the browser and macOS (`rustup target add wasm32-unknown-unknown

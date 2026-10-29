@@ -74,6 +74,11 @@ pub struct Capabilities {
     /// Whether the context supports left and right buffers.
     pub stereo: bool,
 
+    /// The color buffer of the default framebuffer that is shown, which `read_front_buffer`
+    /// reads: `GL_FRONT_LEFT`, `GL_BACK_LEFT` for the surfaces without front buffer like the
+    /// pbuffers of EGL, and `GL_BACK` on OpenGL ES.
+    pub(crate) front_buffer: gl::types::GLenum,
+
     /// True if the default framebuffer is in sRGB.
     pub srgb: bool,
 
@@ -213,8 +218,6 @@ pub enum ResetNotificationStrategy {
 }
 
 /// How a GPU reset that lost the context involved it, from `glGetGraphicsResetStatus`.
-#[cfg(any(safegl_gl45, safegl_gles32))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_gles32))))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum GraphicsResetStatus {
     /// The commands of this context caused the reset (`GL_GUILTY_CONTEXT_RESET`).
@@ -302,7 +305,23 @@ pub unsafe fn get_capabilities(
         false
     };
 
+    // the color buffer of the default framebuffer that is shown: the front one with double
+    // buffering, otherwise the one that it draws to, the back one for the pbuffers of EGL, which
+    // drivers may give a front left attachment that can't be read
+    let draw_framebuffer = gl.get_parameter_i32(glow::DRAW_FRAMEBUFFER_BINDING);
+    let front_buffer = match version.0 {
+        Api::Gl if draw_framebuffer == 0 && !gl.get_parameter_bool(glow::DOUBLEBUFFER) => {
+            match gl.get_parameter_i32(glow::DRAW_BUFFER) as gl::types::GLenum {
+                gl::BACK | gl::BACK_LEFT => gl::BACK_LEFT,
+                _ => gl::FRONT_LEFT,
+            }
+        }
+        Api::Gl => gl::FRONT_LEFT,
+        Api::GlEs => gl::BACK,
+    };
+
     Capabilities {
+        front_buffer,
         supported_glsl_versions: { get_supported_glsl(gl, version, extensions) },
 
         version: gl.get_parameter_string(glow::VERSION),
@@ -372,9 +391,8 @@ pub unsafe fn get_capabilities(
         srgb: {
             // the default framebuffer names its color buffers by side on desktop OpenGL
             let fb = gl.get_parameter_i32(glow::DRAW_FRAMEBUFFER_BINDING);
-            let attachment = match (fb, version.0) {
-                (0, Api::Gl) => gl::FRONT_LEFT,
-                (0, Api::GlEs) => gl::BACK,
+            let attachment = match fb {
+                0 => front_buffer,
                 _ => gl::COLOR_ATTACHMENT0,
             };
             let value = gl.get_framebuffer_attachment_parameter_i32(
@@ -857,5 +875,85 @@ pub fn get_internal_format(
                         && extensions.gl_oes_texture_storage_multisample_2d_array),
             ),
         }
+    }
+}
+
+/// Lowers the limits that SafeGL checks to the minimums that OpenGL ES 3.0, 3.1 or 3.2 requires,
+/// with `SAFEGL_CLAMP_LIMITS=es30`, `es31` or `es32`, so that tests run as on the devices that
+/// have no more. Only debug builds read it: from the environment of the program, or, in
+/// browsers, from the environment of the build.
+pub(crate) fn clamp_to_minimums(capabilities: &mut Capabilities) {
+    if !cfg!(debug_assertions) {
+        return;
+    }
+    let level = std::env::var("SAFEGL_CLAMP_LIMITS")
+        .ok()
+        .or_else(|| option_env!("SAFEGL_CLAMP_LIMITS").map(str::to_owned));
+    let minor = match level.as_deref() {
+        Some("es30") => 0,
+        Some("es31") => 1,
+        Some("es32") => 2,
+        _ => return,
+    };
+    // the minimum of each version, from 3.0 to 3.2
+    let at_most = |value: &mut gl::types::GLint, minimums: [gl::types::GLint; 3]| {
+        *value = (*value).min(minimums[minor]);
+    };
+    let optional = |value: &mut Option<gl::types::GLint>, minimums: [gl::types::GLint; 3]| {
+        if let Some(value) = value {
+            *value = (*value).min(minimums[minor]);
+        }
+    };
+
+    let c = capabilities;
+    at_most(&mut c.max_texture_size, [2048, 2048, 2048]);
+    at_most(&mut c.max_cube_map_texture_size, [2048, 2048, 2048]);
+    at_most(&mut c.max_array_texture_layers, [256, 256, 256]);
+    at_most(&mut c.max_viewport_dims.0, [2048, 2048, 2048]);
+    at_most(&mut c.max_viewport_dims.1, [2048, 2048, 2048]);
+    at_most(&mut c.max_draw_buffers, [4, 4, 4]);
+    at_most(&mut c.max_color_attachments, [4, 4, 4]);
+    at_most(&mut c.max_combined_texture_image_units, [32, 48, 96]);
+    at_most(&mut c.max_indexed_uniform_buffer, [24, 36, 72]);
+    at_most(&mut c.max_indexed_transform_feedback_buffer, [4, 4, 4]);
+    at_most(&mut c.max_indexed_shader_storage_buffer, [0, 4, 8]);
+    at_most(&mut c.max_indexed_atomic_counter_buffer, [0, 1, 1]);
+    optional(&mut c.max_texture_buffer_size, [0, 0, 65536]);
+    optional(&mut c.max_patch_vertices, [0, 0, 32]);
+    for count in [
+        &mut c.max_compute_work_group_count.0,
+        &mut c.max_compute_work_group_count.1,
+        &mut c.max_compute_work_group_count.2,
+    ] {
+        at_most(count, [0, 65535, 65535]);
+    }
+    if let Some(anisotropy) = &mut c.max_texture_max_anisotropy {
+        // the minimum of `GL_EXT_texture_filter_anisotropic`
+        *anisotropy = anisotropy.min(2.0);
+    }
+
+    let l = &mut c.limits;
+    at_most(&mut l.max_vertex_attribs, [16, 16, 16]);
+    at_most(&mut l.max_renderbuffer_size, [2048, 2048, 2048]);
+    at_most(&mut l.max_samples, [4, 4, 4]);
+    // the minimum of `GL_EXT_blend_func_extended`
+    optional(&mut l.max_dual_source_draw_buffers, [1, 1, 1]);
+    #[cfg(any(safegl_desktop, safegl_gles31))]
+    {
+        optional(&mut l.max_color_texture_samples, [1, 1, 1]);
+        optional(&mut l.max_depth_texture_samples, [1, 1, 1]);
+        optional(&mut l.max_integer_samples, [1, 1, 1]);
+    }
+    #[cfg(any(safegl_gl43, safegl_gles30))]
+    {
+        // the minimums of `GL_KHR_debug`, core in OpenGL ES 3.2
+        optional(&mut l.max_label_length, [256, 256, 256]);
+        optional(&mut l.max_debug_group_stack_depth, [64, 64, 64]);
+        optional(&mut l.max_debug_message_length, [1, 1, 1]);
+    }
+    #[cfg(any(safegl_gl43, safegl_gles32))]
+    if let Some(alignment) = &mut l.texture_buffer_offset_alignment {
+        // an alignment is a maximum
+        *alignment = (*alignment).max(256);
     }
 }

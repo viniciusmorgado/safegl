@@ -61,8 +61,37 @@ pub const DEPTH_CLAMP_FAR_AMD: GLenum = 0x901F;
 pub const DEPTH_CLAMP_NEAR_AMD: GLenum = 0x901E;
 pub const GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX: GLenum = 0x9049;
 pub const INT64_NV: GLenum = 0x140E;
+// GL_EXT_texture_compression_astc_decode_mode
+pub const TEXTURE_ASTC_DECODE_PRECISION_EXT: GLenum = 0x8F69;
+// GL_EXT_texture_format_sRGB_override
+pub const TEXTURE_FORMAT_SRGB_OVERRIDE_EXT: GLenum = 0x8FBF;
+// GL_EXT_texture_sRGB_decode
+pub const TEXTURE_SRGB_DECODE_EXT: GLenum = 0x8A48;
+pub const SKIP_DECODE_EXT: GLenum = 0x8A4A;
+// GL_EXT_texture_sRGB_R8 and GL_EXT_texture_sRGB_RG8
+pub const SR8_EXT: GLenum = 0x8FBD;
+pub const SRG8_EXT: GLenum = 0x8FBE;
 // GL_OVR_multiview
 pub const MAX_VIEWS_OVR: GLenum = 0x9631;
+// GL_OES_EGL_image_external and GL_EXT_YUV_target
+pub const TEXTURE_EXTERNAL_OES: GLenum = 0x8D65;
+// GL_EXT_memory_object, GL_EXT_memory_object_fd, GL_EXT_semaphore and GL_EXT_semaphore_fd
+pub const HANDLE_TYPE_OPAQUE_FD_EXT: GLenum = 0x9586;
+pub const DEDICATED_MEMORY_OBJECT_EXT: GLenum = 0x9581;
+pub const DEVICE_UUID_EXT: GLenum = 0x9597;
+pub const DRIVER_UUID_EXT: GLenum = 0x9598;
+pub const SAMPLER_EXTERNAL_OES: GLenum = 0x8D66;
+pub const SAMPLER_EXTERNAL_2D_Y2Y_EXT: GLenum = 0x8BE7;
+// GL_KHR_blend_equation_advanced_coherent
+pub const BLEND_ADVANCED_COHERENT_KHR: GLenum = 0x9285;
+// GL_EXT_multisampled_render_to_texture
+pub const TEXTURE_SAMPLES_EXT: GLenum = 0x8D6C;
+// GL_EXT_shader_pixel_local_storage and GL_EXT_shader_pixel_local_storage2
+pub const SHADER_PIXEL_LOCAL_STORAGE_EXT: GLenum = 0x8F64;
+pub const MAX_SHADER_PIXEL_LOCAL_STORAGE_FAST_SIZE_EXT: GLenum = 0x8F63;
+pub const MAX_SHADER_PIXEL_LOCAL_STORAGE_SIZE_EXT: GLenum = 0x8F67;
+pub const MAX_SHADER_COMBINED_LOCAL_STORAGE_FAST_SIZE_EXT: GLenum = 0x9650;
+pub const MAX_SHADER_COMBINED_LOCAL_STORAGE_SIZE_EXT: GLenum = 0x9651;
 // WebGL 2
 pub const MAX_CLIENT_WAIT_TIMEOUT_WEBGL: GLenum = 0x9247;
 pub const TEXTURE_FREE_MEMORY_ATI: GLenum = 0x87FC;
@@ -161,6 +190,8 @@ extra_functions! {
     fn ClipControl(origin: GLenum, depth: GLenum) -> ();
     fn ClipControlEXT(origin: GLenum, depth: GLenum) -> ();
     fn CopyImageSubData(srcName: GLuint, srcTarget: GLenum, srcLevel: GLint, srcX: GLint, srcY: GLint, srcZ: GLint, dstName: GLuint, dstTarget: GLenum, dstLevel: GLint, dstX: GLint, dstY: GLint, dstZ: GLint, srcWidth: GLsizei, srcHeight: GLsizei, srcDepth: GLsizei) -> ();
+    fn CopyImageSubDataEXT(srcName: GLuint, srcTarget: GLenum, srcLevel: GLint, srcX: GLint, srcY: GLint, srcZ: GLint, dstName: GLuint, dstTarget: GLenum, dstLevel: GLint, dstX: GLint, dstY: GLint, dstZ: GLint, srcWidth: GLsizei, srcHeight: GLsizei, srcDepth: GLsizei) -> ();
+    fn CopyImageSubDataOES(srcName: GLuint, srcTarget: GLenum, srcLevel: GLint, srcX: GLint, srcY: GLint, srcZ: GLint, dstName: GLuint, dstTarget: GLenum, dstLevel: GLint, dstX: GLint, dstY: GLint, dstZ: GLint, srcWidth: GLsizei, srcHeight: GLsizei, srcDepth: GLsizei) -> ();
     fn CompressedTexSubImage1D(target: GLenum, level: GLint, xoffset: GLint, width: GLsizei, format: GLenum, imageSize: GLsizei, data: *const c_void) -> ();
     fn DebugMessageCallback(callback: GLDEBUGPROC, userParam: *const c_void) -> ();
     fn DebugMessageCallbackARB(callback: GLDEBUGPROCARB, userParam: *const c_void) -> ();
@@ -168,12 +199,55 @@ extra_functions! {
     fn DebugMessageControl(source: GLenum, type_: GLenum, severity: GLenum, count: GLsizei, ids: *const GLuint, enabled: GLboolean) -> ();
     fn DebugMessageControlARB(source: GLenum, type_: GLenum, severity: GLenum, count: GLsizei, ids: *const GLuint, enabled: GLboolean) -> ();
     fn DebugMessageControlKHR(source: GLenum, type_: GLenum, severity: GLenum, count: GLsizei, ids: *const GLuint, enabled: GLboolean) -> ();
+    fn DrawElementsBaseVertexEXT(mode: GLenum, count: GLsizei, type_: GLenum, indices: *const c_void, basevertex: GLint) -> ();
+    fn DrawElementsInstancedBaseVertexEXT(mode: GLenum, count: GLsizei, type_: GLenum, indices: *const c_void, instancecount: GLsizei, basevertex: GLint) -> ();
     fn DrawElementsBaseVertexOES(mode: GLenum, count: GLsizei, type_: GLenum, indices: *const c_void, basevertex: GLint) -> ();
     fn DrawElementsInstancedBaseVertexOES(mode: GLenum, count: GLsizei, type_: GLenum, indices: *const c_void, instancecount: GLsizei, basevertex: GLint) -> ();
     fn DrawArraysInstancedBaseInstanceEXT(mode: GLenum, first: GLint, count: GLsizei, instancecount: GLsizei, baseinstance: GLuint) -> ();
     fn DrawElementsInstancedBaseInstanceEXT(mode: GLenum, count: GLsizei, type_: GLenum, indices: *const c_void, instancecount: GLsizei, baseinstance: GLuint) -> ();
     fn DrawElementsInstancedBaseVertexBaseInstanceEXT(mode: GLenum, count: GLsizei, type_: GLenum, indices: *const c_void, instancecount: GLsizei, basevertex: GLint, baseinstance: GLuint) -> ();
     fn EndConditionalRender() -> ();
+    fn LabelObjectEXT(type_: GLenum, object: GLuint, length: GLsizei, label: *const GLchar) -> ();
+    fn GetObjectLabelEXT(type_: GLenum, object: GLuint, bufSize: GLsizei, length: *mut GLsizei, label: *mut GLchar) -> ();
+    fn PushGroupMarkerEXT(length: GLsizei, marker: *const GLchar) -> ();
+    fn PopGroupMarkerEXT() -> ();
+    fn GetUnsignedBytevEXT(pname: GLenum, data: *mut GLubyte) -> ();
+    fn GetUnsignedBytei_vEXT(target: GLenum, index: GLuint, data: *mut GLubyte) -> ();
+    fn CreateMemoryObjectsEXT(n: GLsizei, memoryObjects: *mut GLuint) -> ();
+    fn DeleteMemoryObjectsEXT(n: GLsizei, memoryObjects: *const GLuint) -> ();
+    fn MemoryObjectParameterivEXT(memoryObject: GLuint, pname: GLenum, params: *const GLint) -> ();
+    fn ImportMemoryFdEXT(memory: GLuint, size: GLuint64, handleType: GLenum, fd: GLint) -> ();
+    fn BufferStorageMemEXT(target: GLenum, size: GLsizeiptr, memory: GLuint, offset: GLuint64) -> ();
+    fn TexStorageMem2DEXT(target: GLenum, levels: GLsizei, internalFormat: GLenum, width: GLsizei, height: GLsizei, memory: GLuint, offset: GLuint64) -> ();
+    fn GenSemaphoresEXT(n: GLsizei, semaphores: *mut GLuint) -> ();
+    fn DeleteSemaphoresEXT(n: GLsizei, semaphores: *const GLuint) -> ();
+    fn ImportSemaphoreFdEXT(semaphore: GLuint, handleType: GLenum, fd: GLint) -> ();
+    fn SignalSemaphoreEXT(semaphore: GLuint, numBufferBarriers: GLuint, buffers: *const GLuint, numTextureBarriers: GLuint, textures: *const GLuint, dstLayouts: *const GLenum) -> ();
+    fn WaitSemaphoreEXT(semaphore: GLuint, numBufferBarriers: GLuint, buffers: *const GLuint, numTextureBarriers: GLuint, textures: *const GLuint, srcLayouts: *const GLenum) -> ();
+    fn EGLImageTargetTexture2DOES(target: GLenum, image: *const c_void) -> ();
+    fn EGLImageTargetTexStorageEXT(target: GLenum, image: *const c_void, attrib_list: *const GLint) -> ();
+    fn BlendBarrier() -> ();
+    fn BlendBarrierKHR() -> ();
+    fn BlendEquationiEXT(buf: GLuint, mode: GLenum) -> ();
+    fn BlendEquationiOES(buf: GLuint, mode: GLenum) -> ();
+    fn FramebufferFetchBarrierEXT() -> ();
+    fn FramebufferTexture2DMultisampleEXT(target: GLenum, attachment: GLenum, textarget: GLenum, texture: GLuint, level: GLint, samples: GLsizei) -> ();
+    fn RenderbufferStorageMultisampleEXT(target: GLenum, samples: GLsizei, internalformat: GLenum, width: GLsizei, height: GLsizei) -> ();
+    fn FramebufferPixelLocalStorageSizeEXT(target: GLuint, size: GLsizei) -> ();
+    fn GetFramebufferPixelLocalStorageSizeEXT(target: GLuint) -> GLsizei;
+    fn ClearPixelLocalStorageuiEXT(offset: GLsizei, n: GLsizei, values: *const GLuint) -> ();
+    fn StartTilingQCOM(x: GLuint, y: GLuint, width: GLuint, height: GLuint, preserveMask: GLbitfield) -> ();
+    fn EndTilingQCOM(preserveMask: GLbitfield) -> ();
+    fn EnableiEXT(target: GLenum, index: GLuint) -> ();
+    fn DisableiEXT(target: GLenum, index: GLuint) -> ();
+    fn BlendEquationSeparateiEXT(buf: GLuint, modeRGB: GLenum, modeAlpha: GLenum) -> ();
+    fn BlendFuncSeparateiEXT(buf: GLuint, srcRGB: GLenum, dstRGB: GLenum, srcAlpha: GLenum, dstAlpha: GLenum) -> ();
+    fn ColorMaskiEXT(index: GLuint, r: GLboolean, g: GLboolean, b: GLboolean, a: GLboolean) -> ();
+    fn EnableiOES(target: GLenum, index: GLuint) -> ();
+    fn DisableiOES(target: GLenum, index: GLuint) -> ();
+    fn BlendEquationSeparateiOES(buf: GLuint, modeRGB: GLenum, modeAlpha: GLenum) -> ();
+    fn BlendFuncSeparateiOES(buf: GLuint, srcRGB: GLenum, dstRGB: GLenum, srcAlpha: GLenum, dstAlpha: GLenum) -> ();
+    fn ColorMaskiOES(index: GLuint, r: GLboolean, g: GLboolean, b: GLboolean, a: GLboolean) -> ();
     fn EndConditionalRenderNV() -> ();
     fn FramebufferParameteri(target: GLenum, pname: GLenum, param: GLint) -> ();
     fn FramebufferTextureEXT(target: GLenum, attachment: GLenum, texture: GLuint, level: GLint) -> ();
@@ -258,6 +332,9 @@ extra_functions! {
     fn PrimitiveBoundingBoxOES(minX: GLfloat, minY: GLfloat, minZ: GLfloat, minW: GLfloat, maxX: GLfloat, maxY: GLfloat, maxZ: GLfloat, maxW: GLfloat) -> ();
     fn VertexAttribL4d(index: GLuint, x: GLdouble, y: GLdouble, z: GLdouble, w: GLdouble) -> ();
     fn MultiDrawArrays(mode: GLenum, first: *const GLint, count: *const GLsizei, drawcount: GLsizei) -> ();
+    fn MultiDrawArraysEXT(mode: GLenum, first: *const GLint, count: *const GLsizei, primcount: GLsizei) -> ();
+    fn MultiDrawElementsEXT(mode: GLenum, count: *const GLsizei, type_: GLenum, indices: *const *const c_void, primcount: GLsizei) -> ();
+    fn MultiDrawElementsBaseVertexEXT(mode: GLenum, count: *const GLsizei, type_: GLenum, indices: *const *const c_void, drawcount: GLsizei, basevertex: *const GLint) -> ();
     fn MultiDrawElementsBaseVertex(mode: GLenum, count: *const GLsizei, type_: GLenum, indices: *const *const c_void, drawcount: GLsizei, basevertex: *const GLint) -> ();
     fn DrawTransformFeedback(mode: GLenum, id: GLuint) -> ();
     fn DrawTransformFeedbackInstanced(mode: GLenum, id: GLuint, instancecount: GLsizei) -> ();
@@ -296,6 +373,11 @@ extra_functions! {
     fn TexSubImage1D(target: GLenum, level: GLint, xoffset: GLint, width: GLsizei, format: GLenum, type_: GLenum, pixels: *const c_void) -> ();
     fn TextureBarrier() -> ();
     fn TextureView(texture: GLuint, target: GLenum, origtexture: GLuint, internalformat: GLenum, minlevel: GLuint, numlevels: GLuint, minlayer: GLuint, numlayers: GLuint) -> ();
+    fn ViewportArrayvOES(first: GLuint, count: GLsizei, v: *const GLfloat) -> ();
+    fn ScissorArrayvOES(first: GLuint, count: GLsizei, v: *const GLint) -> ();
+    fn DepthRangeArrayfvOES(first: GLuint, count: GLsizei, v: *const GLfloat) -> ();
+    fn TextureViewEXT(texture: GLuint, target: GLenum, origtexture: GLuint, internalformat: GLenum, minlevel: GLuint, numlevels: GLuint, minlayer: GLuint, numlayers: GLuint) -> ();
+    fn TextureViewOES(texture: GLuint, target: GLenum, origtexture: GLuint, internalformat: GLenum, minlevel: GLuint, numlevels: GLuint, minlayer: GLuint, numlayers: GLuint) -> ();
     fn TextureBarrierNV() -> ();
     fn Uniform1d(location: GLint, x: GLdouble) -> ();
     fn Uniform1i64ARB(location: GLint, x: GLint64) -> ();

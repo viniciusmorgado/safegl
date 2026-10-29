@@ -39,7 +39,6 @@ use crate::texture;
 use crate::uniforms;
 use crate::vertex_array_object;
 
-#[cfg(any(safegl_gl45, safegl_gles32))]
 pub use self::capabilities::GraphicsResetStatus;
 pub use self::capabilities::{Capabilities, ReleaseBehavior, ResetNotificationStrategy};
 pub use self::extensions::ExtensionsList;
@@ -50,10 +49,10 @@ pub use self::format_info::{
     FormatSupport, FormatTarget, ImageCompatibility, ImageFormatClass, SimultaneousUse,
     StageSupport, ViewClass,
 };
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 pub use self::debug_output::DebugGroup;
-#[cfg(any(safegl_gl43, safegl_gles32))]
-pub(crate) use self::debug_output::{object_label, set_object_label};
+#[cfg(any(safegl_gl43, safegl_gles30))]
+pub(crate) use self::debug_output::{apply_label, object_label, set_object_label};
 pub use self::limits::{Limits, ProvokingVertexConvention, QueryCounterBits, StageLimits};
 pub use self::state::GlState;
 pub(crate) use self::state::RecordingTransformFeedback;
@@ -63,7 +62,7 @@ mod extensions;
 #[cfg(safegl_gl43)]
 mod format_info;
 mod limits;
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 mod debug_output;
 mod restore;
 mod state;
@@ -377,8 +376,9 @@ impl Context {
         #[cfg(not(safegl_browser))]
         let webgl = webgl::WebGl::new();
 
-        let capabilities =
+        let mut capabilities =
             capabilities::get_capabilities(&glow, &extra, &webgl, &version, &extensions);
+        capabilities::clamp_to_minimums(&mut capabilities);
         let report_debug_output_errors = Cell::new(true);
 
         let vertex_array_objects = vertex_array_object::VertexAttributesSystem::new();
@@ -392,14 +392,14 @@ impl Context {
         let resident_image_handles = RefCell::new(Vec::new());
 
         let errors_only = matches!(callback_behavior, DebugCallbackBehavior::DebugMessageOnError);
-        #[cfg(any(safegl_gl43, safegl_gles32))]
+        #[cfg(any(safegl_gl43, safegl_gles30))]
         let log = matches!(callback_behavior, DebugCallbackBehavior::Log);
-        #[cfg(not(any(safegl_gl43, safegl_gles32)))]
+        #[cfg(not(any(safegl_gl43, safegl_gles30)))]
         let log = false;
         let (debug_callback, synchronous) = match callback_behavior {
             DebugCallbackBehavior::Ignore => (None, false),
             // logged in the order of the commands
-            #[cfg(any(safegl_gl43, safegl_gles32))]
+            #[cfg(any(safegl_gl43, safegl_gles30))]
             DebugCallbackBehavior::Log => (None, true),
             DebugCallbackBehavior::DebugMessageOnError => (
                 Some(Box::new(default_debug_callback) as debug::DebugCallback),
@@ -579,6 +579,7 @@ impl Context {
             let mut ctxt = self.make_current();
 
             unsafe {
+                crate::fbo::suspend_framebuffer_pass(&mut ctxt);
                 ctxt.glow.bind_framebuffer(glow::FRAMEBUFFER, None);
             }
             ctxt.state.draw_framebuffer = None;
@@ -719,13 +720,12 @@ impl Context {
 
     /// Returns how the GPU reset that lost the context involved it, or `None` if the context
     /// isn't lost, or if the backend can't tell resets (OpenGL 4.5, OpenGL ES 3.2,
-    /// `GL_KHR_robustness`, `GL_ARB_robustness` or `GL_EXT_robustness`).
+    /// `GL_KHR_robustness`, `GL_ARB_robustness` or `GL_EXT_robustness`, and the context loss
+    /// events of WebGL, whose status is `Unknown`).
     ///
     /// A context created with the `NoResetNotification` strategy (see
     /// `Capabilities::reset_notification`) isn't told about resets, so this is always `None`.
     /// The status stays once the context is known to be lost, like `is_context_lost`.
-    #[cfg(any(safegl_gl45, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_gles32))))]
     pub fn graphics_reset_status(&self) -> Option<GraphicsResetStatus> {
         match self.reset_status() {
             gl::NO_ERROR => None,
@@ -939,9 +939,14 @@ impl Context {
         };
 
         let mut data = Vec::with_capacity(0);
+        // the surfaces without front buffer show their back buffer
+        let front = match ctxt.capabilities.front_buffer {
+            gl::BACK_LEFT => gl::BACK_LEFT,
+            _ => gl::FRONT_LEFT,
+        };
         ops::read(
             &mut ctxt,
-            ops::Source::DefaultFramebuffer(gl::FRONT_LEFT),
+            ops::Source::DefaultFramebuffer(front),
             &rect,
             &mut data,
             false,
@@ -1371,8 +1376,8 @@ pub enum DebugCallbackBehavior {
     /// Don't call a callback, but keep the messages in the message log of the context, which
     /// `Context::debug_message_log` reads (OpenGL 4.3, OpenGL ES 3.2 or `GL_KHR_debug`). Every
     /// message is logged, synchronously.
-    #[cfg(any(safegl_gl43, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+    #[cfg(any(safegl_gl43, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
     Log,
 
     /// Use a custom callback.

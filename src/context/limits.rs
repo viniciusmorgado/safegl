@@ -180,29 +180,29 @@ pub struct Limits {
     #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     pub max_vertex_streams: Option<gl::types::GLint>,
 
-    /// Number of viewports (`GL_MAX_VIEWPORTS`). `None` without OpenGL 4.1 or
-    /// `GL_ARB_viewport_array`.
-    #[cfg(safegl_gl41)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    /// Number of viewports (`GL_MAX_VIEWPORTS`). `None` without OpenGL 4.1,
+    /// `GL_ARB_viewport_array` or `GL_OES_viewport_array`.
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
     pub max_viewports: Option<gl::types::GLint>,
 
     /// Bits of subpixel precision of viewport bounds (`GL_VIEWPORT_SUBPIXEL_BITS`). `None`
-    /// without OpenGL 4.1 or `GL_ARB_viewport_array`.
-    #[cfg(safegl_gl41)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    /// without OpenGL 4.1, `GL_ARB_viewport_array` or `GL_OES_viewport_array`.
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
     pub viewport_subpixel_bits: Option<gl::types::GLint>,
 
-    /// Range of the corners of viewports (`GL_VIEWPORT_BOUNDS_RANGE`). `None` without OpenGL 4.1
-    /// or `GL_ARB_viewport_array`.
-    #[cfg(safegl_gl41)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    /// Range of the corners of viewports (`GL_VIEWPORT_BOUNDS_RANGE`). `None` without OpenGL 4.1,
+    /// `GL_ARB_viewport_array` or `GL_OES_viewport_array`.
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
     pub viewport_bounds_range: Option<(gl::types::GLfloat, gl::types::GLfloat)>,
 
     /// The vertex of a primitive that gives `gl_ViewportIndex`
-    /// (`GL_VIEWPORT_INDEX_PROVOKING_VERTEX`). `None` without OpenGL 4.1 or
-    /// `GL_ARB_viewport_array`.
-    #[cfg(safegl_gl41)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    /// (`GL_VIEWPORT_INDEX_PROVOKING_VERTEX`). `None` without OpenGL 4.1,
+    /// `GL_ARB_viewport_array` or `GL_OES_viewport_array`.
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
     pub viewport_index_provoking_vertex: Option<ProvokingVertexConvention>,
 
     /// Bits of subpixel precision of the rasterizer (`GL_SUBPIXEL_BITS`).
@@ -420,26 +420,26 @@ pub struct Limits {
 
     /// Length of a debug message, null terminator included (`GL_MAX_DEBUG_MESSAGE_LENGTH`).
     /// `None` without OpenGL 4.3, OpenGL ES 3.2 or `GL_KHR_debug`.
-    #[cfg(any(safegl_gl43, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+    #[cfg(any(safegl_gl43, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
     pub max_debug_message_length: Option<gl::types::GLint>,
 
     /// Messages kept in the debug message log (`GL_MAX_DEBUG_LOGGED_MESSAGES`). `None` without
     /// OpenGL 4.3, OpenGL ES 3.2 or `GL_KHR_debug`.
-    #[cfg(any(safegl_gl43, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+    #[cfg(any(safegl_gl43, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
     pub max_debug_logged_messages: Option<gl::types::GLint>,
 
     /// Depth of the debug group stack (`GL_MAX_DEBUG_GROUP_STACK_DEPTH`). `None` without OpenGL
     /// 4.3, OpenGL ES 3.2 or `GL_KHR_debug`.
-    #[cfg(any(safegl_gl43, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+    #[cfg(any(safegl_gl43, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
     pub max_debug_group_stack_depth: Option<gl::types::GLint>,
 
     /// Length of an object label, null terminator included (`GL_MAX_LABEL_LENGTH`). `None`
     /// without OpenGL 4.3, OpenGL ES 3.2 or `GL_KHR_debug`.
-    #[cfg(any(safegl_gl43, safegl_gles32))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+    #[cfg(any(safegl_gl43, safegl_gles30))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
     pub max_label_length: Option<gl::types::GLint>,
 
     /// Largest timeout in nanoseconds of a wait on the server (`GL_MAX_SERVER_WAIT_TIMEOUT`).
@@ -671,13 +671,15 @@ pub unsafe fn get_limits(
     let es2_compatibility = version.0 == Api::GlEs
         || version >= &Version(Api::Gl, 4, 1)
         || extensions.gl_arb_es2_compatibility;
-    #[cfg(safegl_gl41)]
-    let viewport_array = version >= &Version(Api::Gl, 4, 1) || extensions.gl_arb_viewport_array;
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    let viewport_array = version >= &Version(Api::Gl, 4, 1)
+        || extensions.gl_arb_viewport_array
+        || extensions.gl_oes_viewport_array;
     #[cfg(any(safegl_desktop, safegl_gles32))]
     let interpolation = desktop
         || version >= &Version(Api::GlEs, 3, 2)
         || extensions.gl_oes_shader_multisample_interpolation;
-    #[cfg(any(safegl_gl43, safegl_gles32))]
+    #[cfg(any(safegl_gl43, safegl_gles30))]
     let debug = version >= &Version(Api::Gl, 4, 3)
         || version >= &Version(Api::GlEs, 3, 2)
         || extensions.gl_khr_debug;
@@ -906,17 +908,17 @@ pub unsafe fn get_limits(
         #[cfg(safegl_desktop)]
         max_vertex_streams: optional(desktop, gl::MAX_VERTEX_STREAMS),
 
-        #[cfg(safegl_gl41)]
+        #[cfg(any(safegl_gl41, safegl_gles32))]
         max_viewports: optional(viewport_array, gl::MAX_VIEWPORTS),
-        #[cfg(safegl_gl41)]
+        #[cfg(any(safegl_gl41, safegl_gles32))]
         viewport_subpixel_bits: optional(viewport_array, gl::VIEWPORT_SUBPIXEL_BITS),
-        #[cfg(safegl_gl41)]
+        #[cfg(any(safegl_gl41, safegl_gles32))]
         viewport_bounds_range: if viewport_array {
             Some(get_pair(gl, gl::VIEWPORT_BOUNDS_RANGE))
         } else {
             None
         },
-        #[cfg(safegl_gl41)]
+        #[cfg(any(safegl_gl41, safegl_gles32))]
         viewport_index_provoking_vertex: if viewport_array {
             Some(get_convention(gl, gl::VIEWPORT_INDEX_PROVOKING_VERTEX))
         } else {
@@ -1107,13 +1109,13 @@ pub unsafe fn get_limits(
             gl::NUM_SHADER_BINARY_FORMATS,
         ),
 
-        #[cfg(any(safegl_gl43, safegl_gles32))]
+        #[cfg(any(safegl_gl43, safegl_gles30))]
         max_debug_message_length: optional(debug, gl::MAX_DEBUG_MESSAGE_LENGTH),
-        #[cfg(any(safegl_gl43, safegl_gles32))]
+        #[cfg(any(safegl_gl43, safegl_gles30))]
         max_debug_logged_messages: optional(debug, gl::MAX_DEBUG_LOGGED_MESSAGES),
-        #[cfg(any(safegl_gl43, safegl_gles32))]
+        #[cfg(any(safegl_gl43, safegl_gles30))]
         max_debug_group_stack_depth: optional(debug, gl::MAX_DEBUG_GROUP_STACK_DEPTH),
-        #[cfg(any(safegl_gl43, safegl_gles32))]
+        #[cfg(any(safegl_gl43, safegl_gles30))]
         max_label_length: optional(debug, gl::MAX_LABEL_LENGTH),
 
         // an unsigned value, which drivers can set to all ones

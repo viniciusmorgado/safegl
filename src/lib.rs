@@ -147,8 +147,6 @@ include!(concat!(env!("OUT_DIR"), "/levels.rs"));
 pub use crate::backend::glutin::glutin;
 #[cfg(feature = "simple_window_builder")]
 pub use crate::backend::winit;
-#[cfg(any(safegl_gl45, safegl_gles32))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_gl45, safegl_gles32))))]
 pub use crate::context::GraphicsResetStatus;
 pub use crate::context::{
     Capabilities, ExtensionsList, Limits, ProvokingVertexConvention, QueryCounterBits,
@@ -161,8 +159,6 @@ pub use crate::context::{
     FormatSupport, FormatTarget, ImageCompatibility, ImageFormatClass, SimultaneousUse,
     StageSupport, ViewClass,
 };
-#[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))))]
 pub use crate::draw_parameters::OutputState;
 #[cfg(safegl_desktop)]
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
@@ -170,8 +166,8 @@ pub use crate::draw_parameters::LogicOp;
 #[cfg(safegl_desktop)]
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub use crate::draw_parameters::PointCoordOrigin;
-#[cfg(safegl_gl41)]
-#[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+#[cfg(any(safegl_gl41, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
 pub use crate::draw_parameters::ViewportState;
 #[cfg(safegl_desktop)]
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
@@ -180,7 +176,8 @@ pub use crate::draw_parameters::PolygonMode;
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
 pub use crate::draw_parameters::Smooth;
 pub use crate::draw_parameters::{
-    BackfaceCullingMode, Blend, BlendingFunction, FrontFace, LinearBlendingFactor,
+    AdvancedBlending, BackfaceCullingMode, Blend, BlendingFunction, FrontFace,
+    LinearBlendingFactor,
 };
 pub use crate::draw_parameters::{Depth, DepthTest, DrawParameters, StencilOperation, StencilTest};
 pub use crate::index::IndexBuffer;
@@ -220,6 +217,8 @@ pub mod draw_parameters;
 pub mod field;
 pub mod framebuffer;
 pub mod index;
+#[cfg(unix)]
+pub mod interop;
 pub mod pixel_buffer;
 pub mod program;
 pub mod texture;
@@ -1528,21 +1527,17 @@ pub enum DrawError {
     #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
     CapturedVerticesDrawNotSupported,
 
-    /// Drawing ranges of vertices or indices with one call (`index::NoIndicesRanges`,
-    /// `IndexBuffer::ranges`) needs desktop OpenGL.
-    #[cfg(any(safegl_desktop, safegl_webgl))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
+    /// The ranges of indices drawn with base vertices
+    /// (`IndexBuffer::ranges_with_base_vertices`) need base vertices, which OpenGL ES has in
+    /// version 3.2, `GL_EXT_draw_elements_base_vertex` and `GL_OES_draw_elements_base_vertex`,
+    /// and WebGL in `WEBGL_draw_instanced_base_vertex_base_instance`.
     DrawRangesNotSupported,
 
     /// A range of vertices or indices drawn with one call is outside the vertices source or the
     /// index buffer.
-    #[cfg(any(safegl_desktop, safegl_webgl))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     DrawRangeOutOfBounds,
 
     /// Ranges of vertices or indices drawn with one call can't have several instances.
-    #[cfg(any(safegl_desktop, safegl_webgl))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_webgl))))]
     InstancedDrawRangesNotSupported,
 
     /// Indirect draws aren't supported by the backend: they need OpenGL 4.0 or OpenGL ES 3.1.
@@ -1792,25 +1787,25 @@ pub enum DrawError {
     },
 
     /// Viewport arrays (`DrawParameters::viewports`) aren't supported by the backend.
-    #[cfg(safegl_gl41)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
     ViewportArrayNotSupported,
 
     /// `DrawParameters::viewports` was given together with `viewport`, `scissor` or a
     /// `Depth::range` other than `(0.0, 1.0)`.
-    #[cfg(safegl_gl41)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
     ViewportArrayConflict,
 
     /// `DrawParameters::viewports` has more entries than `Limits::max_viewports`.
-    #[cfg(safegl_gl41)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
     ViewportIndexOutOfBounds,
 
     /// A viewport of `DrawParameters::viewports` has a negative size or a position that isn't
     /// finite.
-    #[cfg(safegl_gl41)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
     InvalidViewport,
 
     /// `DrawParameters::point_coord_origin` is `LowerLeft` while drawing into an OpenGL ES
@@ -1850,13 +1845,9 @@ pub enum DrawError {
 
     /// Giving outputs their own blending or color mask (`DrawParameters::outputs`) isn't
     /// supported by the backend.
-    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))))]
     PerOutputStateNotSupported,
 
     /// `DrawParameters::outputs` has more entries than the backend has draw buffers.
-    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))))]
     OutputStateIndexOutOfBounds,
 
     /// Clamping the depth offset (`DrawParameters::polygon_offset_clamp`) isn't supported by the
@@ -1993,6 +1984,37 @@ pub enum DrawError {
     /// A draw to several views of a multiview framebuffer can't capture transform feedback nor
     /// be timed by a `TimeElapsedQuery` (`GL_OVR_multiview2`).
     MultiviewRestricted,
+
+    /// The draw blends with an advanced equation (`BlendingFunction::Advanced`), which needs
+    /// `GL_KHR_blend_equation_advanced` or OpenGL ES 3.2, and which WebGL doesn't have.
+    AdvancedBlendingNotSupported,
+
+    /// The color or the alpha function of a `Blend` is an advanced equation, and the other one
+    /// differs: advanced equations blend the colors and the alpha together (`Blend::advanced`).
+    AdvancedBlendingMismatch,
+
+    /// The draw blends with an advanced equation into a framebuffer of more than one color
+    /// attachment: advanced equations write a single color output.
+    AdvancedBlendingTooManyOutputs,
+
+    /// The draw blends with an advanced equation that the fragment shader doesn't declare with
+    /// `layout(blend_support_*) out;` or `layout(blend_support_all_equations) out;`.
+    AdvancedBlendingNotDeclared {
+        /// The equation.
+        equation: crate::draw_parameters::AdvancedBlending,
+    },
+
+    /// The fragment shader declares pixel local storage (`GL_EXT_shader_pixel_local_storage`),
+    /// and draws only through a `framebuffer::PixelLocalStorage`.
+    PixelLocalStorageNotEnabled,
+
+    /// The sampler of an external texture (`texture::ExternalTexture`) uses mipmaps, or wraps
+    /// the coordinates otherwise than by clamping them to the edges, which needs
+    /// `GL_EXT_EGL_image_external_wrap_modes`.
+    ExternalTextureSampler {
+        /// Name of the uniform.
+        name: String,
+    },
 }
 
 impl Error for DrawError {
@@ -2024,11 +2046,8 @@ impl fmt::Display for DrawError {
             #[cfg(any(safegl_desktop, safegl_gles31))]
             IndirectDrawWithTransformFeedback =>
                 "OpenGL ES doesn't draw indirectly while transform feedback records",
-            #[cfg(any(safegl_desktop, safegl_webgl))]
             DrawRangesNotSupported => "Drawing ranges with one call is not supported by the backend",
-            #[cfg(any(safegl_desktop, safegl_webgl))]
             DrawRangeOutOfBounds => "A drawn range is outside the vertices or the indices",
-            #[cfg(any(safegl_desktop, safegl_webgl))]
             InstancedDrawRangesNotSupported => "Drawn ranges can't have several instances",
             TransformFeedbackBuffersMissing =>
                 "The transform feedback object lacks buffers of its program",
@@ -2157,14 +2176,14 @@ impl fmt::Display for DrawError {
             #[cfg(safegl_desktop)]
             RectangleTextureSampler { .. } =>
                 "A rectangle texture is sampled with a wrap function or a filter it doesn't have",
-            #[cfg(safegl_gl41)]
+            #[cfg(any(safegl_gl41, safegl_gles32))]
             ViewportArrayNotSupported => "Viewport arrays are not supported by the backend",
-            #[cfg(safegl_gl41)]
+            #[cfg(any(safegl_gl41, safegl_gles32))]
             ViewportArrayConflict =>
                 "Viewport arrays can't be used with a viewport, a scissor box or a depth range",
-            #[cfg(safegl_gl41)]
+            #[cfg(any(safegl_gl41, safegl_gles32))]
             ViewportIndexOutOfBounds => "There are more viewports than the backend supports",
-            #[cfg(safegl_gl41)]
+            #[cfg(any(safegl_gl41, safegl_gles32))]
             InvalidViewport => "A viewport has a negative size or a position that isn't finite",
             #[cfg(safegl_desktop)]
             PointCoordOriginNotSupported =>
@@ -2179,10 +2198,8 @@ impl fmt::Display for DrawError {
             #[cfg(any(safegl_desktop, safegl_gles31))]
             SampleMaskNotSupported =>
                 "Masking samples is not supported by the backend",
-            #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
             PerOutputStateNotSupported =>
                 "Giving outputs their own blending or color mask is not supported by the backend",
-            #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
             OutputStateIndexOutOfBounds =>
                 "There are more output states than draw buffers",
             #[cfg(any(safegl_gl46, safegl_webgl))]
@@ -2226,6 +2243,18 @@ impl fmt::Display for DrawError {
                 "The program doesn't declare the number of views of the framebuffer",
             MultiviewRestricted =>
                 "Draws to several views can't capture transform feedback nor be timed",
+            AdvancedBlendingNotSupported =>
+                "The backend doesn't support advanced blend equations",
+            AdvancedBlendingMismatch =>
+                "An advanced blend equation blends the colors and the alpha together",
+            AdvancedBlendingTooManyOutputs =>
+                "Advanced blend equations write to a framebuffer of a single color attachment",
+            AdvancedBlendingNotDeclared { .. } =>
+                "The fragment shader doesn't declare the advanced blend equation of the draw",
+            PixelLocalStorageNotEnabled =>
+                "A program with pixel local storage draws only where the storage is enabled",
+            ExternalTextureSampler { .. } =>
+                "External textures are sampled without mipmaps, clamped to the edges",
         };
         match self {
             UniformTypeMismatch {
@@ -2270,6 +2299,7 @@ impl fmt::Display for DrawError {
 
 /// Error that can happen when swapping buffers.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SwapBuffersError {
     /// The OpenGL context has been lost and needs to be recreated. The `Display` and all the
     /// objects associated to it (textures, buffers, programs, etc.) need to be recreated from
@@ -2287,6 +2317,9 @@ pub enum SwapBuffersError {
     /// This error can be returned when `set_finish()` is called multiple times, or `finish()` is
     /// called after `set_finish()`.
     AlreadySwapped,
+    /// The display lost its surface while the frame was drawn (`Display::remove_surface`): the
+    /// frame isn't shown.
+    SurfaceLost,
 }
 
 impl Error for SwapBuffersError {}
@@ -2297,6 +2330,7 @@ impl fmt::Display for SwapBuffersError {
         let desc = match *self {
             ContextLost => "the OpenGL context has been lost and needs to be recreated",
             AlreadySwapped => "the buffers have already been swapped",
+            SurfaceLost => "the display lost its surface, and the frame isn't shown",
         };
         fmt.write_str(desc)
     }
@@ -2407,9 +2441,13 @@ impl Frame {
 
 /// Error that can happen when starting a `Frame`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FrameError {
     /// Another `Frame` of the context hasn't been finished yet.
     AlreadyDrawing,
+    /// The display has no surface to draw on: its window was destroyed, and the surface removed
+    /// (`Display::remove_surface`), as Android does when the application is paused.
+    SurfaceLost,
 }
 
 impl fmt::Display for FrameError {
@@ -2418,6 +2456,7 @@ impl fmt::Display for FrameError {
             FrameError::AlreadyDrawing => {
                 fmt.write_str("Another `Frame` of the context hasn't been finished yet")
             }
+            FrameError::SurfaceLost => fmt.write_str("The display has no surface to draw on"),
         }
     }
 }

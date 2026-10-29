@@ -1,8 +1,6 @@
 //! Several ranges of vertices or indices drawn with one call, and the draw parameters that
 //! shaders read (`gl_DrawID`, `gl_BaseVertex`, `gl_BaseInstance`).
 
-#![cfg(any(safegl_desktop, safegl_webgl))]
-
 #[macro_use]
 extern crate safegl;
 
@@ -83,10 +81,6 @@ fn ranges_of_vertices() {
         &program,
     ) {
         Ok(thirds) => assert_eq!(thirds, [RED, BLACK, RED]),
-        Err(DrawError::DrawRangesNotSupported) => {
-            assert!(support::is_gles(&display));
-            return;
-        }
         Err(error) => panic!("{error}"),
     }
 
@@ -140,11 +134,9 @@ fn ranges_of_vertices() {
 
 #[test]
 fn ranges_of_indices() {
-    // OpenGL ES doesn't draw ranges, WebGL draws them with `WEBGL_multi_draw` or one by one
+    // OpenGL ES draws them with `GL_EXT_multi_draw_arrays` and WebGL with `WEBGL_multi_draw`, or
+    // one by one
     let display = support::build_display();
-    if support::is_gles(&display) && !cfg!(target_arch = "wasm32") {
-        return;
-    }
     let vertices = thirds(&display);
     let program = red_program(&display);
 
@@ -173,9 +165,17 @@ fn ranges_of_indices() {
     .unwrap();
     let ranges = [0..6, 0..6];
     let source = quad.ranges_with_base_vertices(&ranges, &[0, 8]).unwrap();
-    // browsers draw base vertices with `WEBGL_draw_instanced_base_vertex_base_instance`
-    let base_vertices = !cfg!(target_arch = "wasm32")
-        || support::extensions(&display).webgl_draw_instanced_base_vertex_base_instance;
+    // OpenGL ES draws base vertices from version 3.2 or with an extension, and browsers with
+    // `WEBGL_draw_instanced_base_vertex_base_instance`
+    let extensions = support::extensions(&display);
+    let base_vertices = if cfg!(target_arch = "wasm32") {
+        extensions.webgl_draw_instanced_base_vertex_base_instance
+    } else {
+        !support::is_gles(&display)
+            || *display.get_opengl_version() >= safegl::Version(safegl::Api::GlEs, 3, 2)
+            || extensions.gl_ext_draw_elements_base_vertex
+            || extensions.gl_oes_draw_elements_base_vertex
+    };
     match draw(&display, &vertices, source, &program) {
         Ok(pixels) => {
             assert!(base_vertices);

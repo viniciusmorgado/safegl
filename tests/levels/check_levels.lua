@@ -165,6 +165,61 @@ local cases = {
   { "gles32_has_copy_image", { "gles32" }, nil, [[
     pub use safegl::texture::copy_image;
   ]] },
+  { "gles30_has_copy_image", { "gles30" }, nil, [[
+    pub use safegl::texture::{copy_image, is_copy_image_supported, CopyImageError};
+  ]] },
+  { "gles30_has_per_output_state_and_draw_ranges", { "gles30" }, nil, [[
+    pub fn f<'a>(o: &'a [safegl::OutputState], r: &'a [std::ops::Range<usize>])
+        -> (safegl::DrawParameters<'a>, safegl::index::IndicesSource<'a>) {
+        let p = safegl::DrawParameters { outputs: o, ..Default::default() };
+        (p, safegl::index::NoIndicesRanges(safegl::index::PrimitiveType::Points, r).into())
+    }
+  ]] },
+  { "gles31_has_texture_views", { "gles31" }, nil, [[
+    pub fn f(t: &safegl::texture::Texture2dArray) -> Result<safegl::texture::Texture2d, safegl::texture::TextureViewError> {
+        safegl::texture::Texture2d::view(t, safegl::texture::UncompressedFloatFormat::U8U8U8U8, 0..1, 0..1)
+    }
+  ]] },
+  { "gles32_has_viewport_arrays", { "gles32" }, nil, [[
+    pub fn f<'a>(v: &'a [safegl::ViewportState], l: &safegl::Limits) -> (safegl::DrawParameters<'a>, Option<i32>) {
+        (safegl::DrawParameters { viewports: v, ..Default::default() }, l.max_viewports)
+    }
+  ]] },
+  { "gles30_has_debug_groups_and_labels", { "gles30" }, nil, [[
+    pub use safegl::debug::ObjectLabel;
+    pub fn f(c: &safegl::backend::Context) { let _group = c.push_debug_group(0, "group"); }
+    pub const B: fn() -> safegl::debug::DebugCallbackBehavior = || safegl::debug::DebugCallbackBehavior::Log;
+  ]] },
+  { "gles30_has_srgb_and_astc_extensions", { "gles30" }, nil, [[
+    use safegl::texture::{AstcBlockSize3d, AstcDecodePrecision, CompressedFormat, SrgbFormat};
+    pub const F: [SrgbFormat; 2] = [SrgbFormat::U8, SrgbFormat::U8U8];
+    pub const A: CompressedFormat = CompressedFormat::Astc3d(AstcBlockSize3d::B3x3x3);
+    pub fn f(t: &safegl::texture::SrgbTexture2d) -> safegl::uniforms::Sampler<'_, safegl::texture::SrgbTexture2d> {
+        let _ = t.set_srgb_override(false);
+        let _ = t.set_astc_decode_precision(AstcDecodePrecision::Float16);
+        t.sampled().srgb_decode(false)
+    }
+  ]] },
+  { "gles30_has_tile_based_features", { "gles30" }, nil, [[
+    use safegl::framebuffer::{PixelLocalStorage, SimpleFrameBuffer, TilePassError, TilePreserve, TiledRendering};
+    pub fn f<'a>(s: &mut SimpleFrameBuffer<'a>, i: safegl::texture::TextureAnyImage<'a>)
+        -> (safegl::Blend, safegl::texture::TextureAnyImage<'a>, Result<(), TilePassError>) {
+        let _ = PixelLocalStorage::new(&mut *s, 4).map(drop);
+        let tile = safegl::Rect { left: 0, bottom: 0, width: 1, height: 1 };
+        let r = TiledRendering::new(s, &tile, TilePreserve::ALL).map(drop);
+        (safegl::Blend::advanced(safegl::AdvancedBlending::Multiply), i.multisampled(4), r)
+    }
+  ]] },
+  { "webgl_has_tile_based_features", { "webgl" }, nil, [[
+    use safegl::framebuffer::{PixelLocalStorage, SimpleFrameBuffer, TilePassError, TilePreserve, TiledRendering};
+    pub fn f<'a>(s: &mut SimpleFrameBuffer<'a>, i: safegl::texture::TextureAnyImage<'a>)
+        -> (safegl::Blend, safegl::texture::TextureAnyImage<'a>, Result<(), TilePassError>) {
+        let _ = PixelLocalStorage::new(&mut *s, 4).map(drop);
+        let tile = safegl::Rect { left: 0, bottom: 0, width: 1, height: 1 };
+        let r = TiledRendering::new(s, &tile, TilePreserve::ALL).map(drop);
+        (safegl::Blend::advanced(safegl::AdvancedBlending::Multiply), i.multisampled(4), r)
+    }
+  ]], WASM },
   { "webgl_has_framebuffer_invalidation", { "webgl" }, nil, [[
     pub use safegl::framebuffer::InvalidateAttachments;
   ]], WASM },
@@ -258,18 +313,21 @@ local cases = {
   { "gl42_has_no_debug_groups", { "gl42" }, "no method named `push_debug_group`", [[
     pub fn f(c: &safegl::backend::Context) { let _group = c.push_debug_group(0, "group"); }
   ]] },
-  { "gl44_has_no_reset_status", { "gl44" }, "no method named `graphics_reset_status`", [[
-    pub fn f(c: &safegl::backend::Context) { let _ = c.graphics_reset_status(); }
+  { "gles30_has_reset_status", { "gles30" }, nil, [[
+    pub fn f(c: &safegl::backend::Context) -> Option<safegl::GraphicsResetStatus> { c.graphics_reset_status() }
   ]] },
+  { "webgl_has_reset_status", { "webgl" }, nil, [[
+    pub fn f(c: &safegl::backend::Context) -> Option<safegl::GraphicsResetStatus> { c.graphics_reset_status() }
+  ]], WASM },
   { "gl45_has_no_error_contexts", { "gl45" }, "no method named `is_no_error`", [[
     pub fn f(c: &safegl::backend::Context) -> bool { c.is_no_error() }
   ]] },
-  { "gles31_has_no_object_labels", { "gles31" }, "ObjectLabel", [[
+  { "webgl_has_no_object_labels", { "webgl" }, "ObjectLabel", [[
     pub use safegl::debug::ObjectLabel;
-  ]] },
-  { "gles31_has_no_debug_log", { "gles31" }, "no variant", [[
+  ]], WASM },
+  { "webgl_has_no_debug_log", { "webgl" }, "no variant", [[
     pub const B: fn() -> safegl::debug::DebugCallbackBehavior = || safegl::debug::DebugCallbackBehavior::Log;
-  ]] },
+  ]], WASM },
   { "gl43_has_no_query_buffer_modes", { "gl43" }, "QueryBufferMode", [[
     pub use safegl::draw_parameters::QueryBufferMode;
   ]] },
@@ -291,9 +349,6 @@ local cases = {
   ]] },
   { "gles32_has_no_primitive_restart_index", { "gles32" }, "no variant", [[
     pub const R: safegl::draw_parameters::PrimitiveRestart = safegl::draw_parameters::PrimitiveRestart::Index(7);
-  ]] },
-  { "gles32_has_no_draw_ranges", { "gles32" }, "NoIndicesRanges", [[
-    pub use safegl::index::NoIndicesRanges;
   ]] },
   { "gles32_has_no_captured_draws", { "gles32" }, "no method named `indices`", [[
     pub fn f(c: &safegl::vertex::CapturedVertices) { let _ = c.indices(safegl::index::PrimitiveType::Points); }
@@ -410,9 +465,21 @@ local cases = {
   { "gles32_has_no_rectangle_textures", { "gles32" }, "TextureRectangle", [[
     pub use safegl::texture::TextureRectangle;
   ]] },
-  { "gles31_has_no_copy_image", { "gles31" }, "copy_image", [[
+  { "webgl_has_no_copy_image", { "webgl" }, "copy_image", [[
     pub use safegl::texture::copy_image;
+  ]], WASM },
+  { "gles30_has_no_texture_views", { "gles30" }, "TextureViewError", [[
+    pub use safegl::texture::TextureViewError;
   ]] },
+  { "webgl_has_no_texture_views", { "webgl" }, "TextureViewError", [[
+    pub use safegl::texture::TextureViewError;
+  ]], WASM },
+  { "gles31_has_no_viewport_arrays", { "gles31" }, "ViewportState", [[
+    pub use safegl::ViewportState;
+  ]] },
+  { "webgl_has_no_viewport_arrays", { "webgl" }, "ViewportState", [[
+    pub use safegl::ViewportState;
+  ]], WASM },
   -- desktop OpenGL only, at any OpenGL ES level
   { "gles31_has_no_polygon_mode", { "gles31" }, "PolygonMode", [[
     pub use safegl::draw_parameters::PolygonMode;

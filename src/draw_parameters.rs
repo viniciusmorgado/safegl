@@ -91,7 +91,7 @@ use crate::ToGlEnum;
 #[cfg(safegl_gles32)]
 use std::ops::Range;
 
-pub use self::blend::{Blend, BlendingFunction, LinearBlendingFactor};
+pub use self::blend::{AdvancedBlending, Blend, BlendingFunction, LinearBlendingFactor};
 #[cfg(any(safegl_desktop, safegl_webgl))]
 pub use self::depth::DepthClamp;
 pub use self::depth::{Depth, DepthTest};
@@ -120,6 +120,7 @@ pub use self::stencil::{Stencil, StencilOperation, StencilTest};
 
 mod blend;
 mod depth;
+mod indexed;
 mod query;
 mod stencil;
 
@@ -400,11 +401,10 @@ pub struct DrawParameters<'a> {
     /// `DrawError::BlendingParameterNotSupported` is returned.
     ///
     /// More entries than `Capabilities::max_draw_buffers` return
-    /// `DrawError::OutputStateIndexOutOfBounds`. Needs OpenGL 4.0 or OpenGL ES 3.2. Elsewhere,
-    /// WebGL included, an entry that differs from `blend` and `color_mask` returns
-    /// `DrawError::PerOutputStateNotSupported`.
-    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
-    #[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))))]
+    /// `DrawError::OutputStateIndexOutOfBounds`. Needs OpenGL 4.0, OpenGL ES 3.2, or
+    /// `GL_EXT_draw_buffers_indexed` or `GL_OES_draw_buffers_indexed` on OpenGL ES 3.0 and 3.1
+    /// (`OES_draw_buffers_indexed` on WebGL). Elsewhere, an entry that differs from `blend` and
+    /// `color_mask` returns `DrawError::PerOutputStateNotSupported`.
     pub outputs: &'a [OutputState],
 
     /// A bitwise operation that replaces the color written into the color buffers
@@ -531,10 +531,11 @@ pub struct DrawParameters<'a> {
     ///
     /// With a non-empty slice, `viewport` and `scissor` must be `None` and `Depth::range` must
     /// be `(0.0, 1.0)`, or `DrawError::ViewportArrayConflict` is returned. More entries than
-    /// `Limits::max_viewports` return `DrawError::ViewportIndexOutOfBounds`. Needs OpenGL 4.1
-    /// or `GL_ARB_viewport_array`, otherwise returns `DrawError::ViewportArrayNotSupported`.
-    #[cfg(safegl_gl41)]
-    #[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+    /// `Limits::max_viewports` return `DrawError::ViewportIndexOutOfBounds`. Needs OpenGL 4.1,
+    /// `GL_ARB_viewport_array`, or `GL_OES_viewport_array` on OpenGL ES 3.2, otherwise returns
+    /// `DrawError::ViewportArrayNotSupported`.
+    #[cfg(any(safegl_gl41, safegl_gles32))]
+    #[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
     pub viewports: &'a [ViewportState],
 
     /// If `false`, the pipeline will stop after the primitives generation stage. The default
@@ -734,8 +735,6 @@ pub struct DrawParameters<'a> {
 /// };
 /// ```
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))))]
 pub struct OutputState {
     /// How the output is merged with the existing pixel. See `DrawParameters::blend`.
     pub blend: Blend,
@@ -745,7 +744,6 @@ pub struct OutputState {
     pub color_mask: (bool, bool, bool, bool),
 }
 
-#[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
 impl Default for OutputState {
     /// No blending and all components written, like the defaults of `DrawParameters`.
     fn default() -> OutputState {
@@ -1063,7 +1061,6 @@ impl<'a> Default for DrawParameters<'a> {
             stencil: Default::default(),
             blend: Default::default(),
             color_mask: (true, true, true, true),
-            #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
             outputs: &[],
             #[cfg(safegl_desktop)]
             logic_op: None,
@@ -1084,7 +1081,7 @@ impl<'a> Default for DrawParameters<'a> {
             dithering: true,
             viewport: None,
             scissor: None,
-            #[cfg(safegl_gl41)]
+            #[cfg(any(safegl_gl41, safegl_gles32))]
             viewports: &[],
             draw_primitives: true,
             samples_passed_query: None,
@@ -1148,11 +1145,9 @@ pub fn sync(
     if is_webgl() {
         validate_webgl(draw_parameters)?;
     }
-    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
     validate_outputs(ctxt, draw_parameters)?;
     depth::sync_depth(ctxt, &draw_parameters.depth)?;
     stencil::sync_stencil(ctxt, &draw_parameters.stencil, draw_parameters.front_face);
-    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
     let (blends, masks) = (
         draw_parameters.outputs.iter().map(|output| output.blend),
         draw_parameters
@@ -1160,8 +1155,6 @@ pub fn sync(
             .iter()
             .map(|output| output.color_mask),
     );
-    #[cfg(not(any(safegl_desktop, safegl_gles32, safegl_webgl)))]
-    let (blends, masks) = (std::iter::empty(), std::iter::empty());
     #[cfg(safegl_desktop)]
     sync_logic_op(ctxt, draw_parameters)?;
     blend::sync_blending(ctxt, draw_parameters.blend, blends)?;
@@ -1192,12 +1185,12 @@ pub fn sync(
     #[cfg(any(safegl_desktop, safegl_gles31))]
     sync_sample_mask(ctxt, draw_parameters.multisample.sample_mask)?;
     sync_dithering(ctxt, draw_parameters.dithering);
-    #[cfg(safegl_gl41)]
+    #[cfg(any(safegl_gl41, safegl_gles32))]
     let viewport_array = !draw_parameters.viewports.is_empty();
-    #[cfg(not(safegl_gl41))]
+    #[cfg(not(any(safegl_gl41, safegl_gles32)))]
     let viewport_array = false;
     if viewport_array {
-        #[cfg(safegl_gl41)]
+        #[cfg(any(safegl_gl41, safegl_gles32))]
         sync_viewport_array(ctxt, draw_parameters, dimensions)?;
     } else {
         sync_viewport_scissor(
@@ -1241,13 +1234,10 @@ pub(crate) fn blends(draw_parameters: &DrawParameters<'_>) -> bool {
         blend.color != BlendingFunction::AlwaysReplace
             || blend.alpha != BlendingFunction::AlwaysReplace
     };
-    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
     let outputs = draw_parameters
         .outputs
         .iter()
         .any(|output| blends(&output.blend));
-    #[cfg(not(any(safegl_desktop, safegl_gles32, safegl_webgl)))]
-    let outputs = false;
     blends(&draw_parameters.blend) || outputs
 }
 
@@ -1264,7 +1254,6 @@ fn validate_webgl(draw_parameters: &DrawParameters<'_>) -> Result<(), DrawError>
 
 /// Checks that `DrawParameters::outputs` fits in the draw buffers, and that the backend can
 /// give draw buffers their own state if an entry needs it.
-#[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
 fn validate_outputs(
     ctxt: &context::CommandContext<'_>,
     draw_parameters: &DrawParameters<'_>,
@@ -1283,12 +1272,7 @@ fn validate_outputs(
         output.color_mask != draw_parameters.color_mask
             || blend::BlendState::new(output.blend) != global_blend
     });
-    // `glColorMaski`, `glEnablei` and `glBlend*i` are core in OpenGL 4.0 and OpenGL ES 3.2, and
-    // WebGL has them in `OES_draw_buffers_indexed`
-    let supported = ctxt.version.0 == Api::Gl
-        || (ctxt.version >= &Version(Api::GlEs, 3, 2) && !crate::version::is_webgl())
-        || (crate::version::is_webgl() && ctxt.extensions.gl_oes_draw_buffers_indexed);
-    if overrides && !supported {
+    if overrides && !indexed::is_supported(ctxt) {
         return Err(DrawError::PerOutputStateNotSupported);
     }
 
@@ -1303,13 +1287,10 @@ pub(crate) fn validate_dual_source_blending(
     draw_parameters: &DrawParameters<'_>,
     draw_buffers: impl FnOnce(&mut context::CommandContext<'_>) -> usize,
 ) -> Result<(), DrawError> {
-    #[cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
     let outputs = draw_parameters
         .outputs
         .iter()
         .any(|output| output.blend.uses_second_source());
-    #[cfg(not(any(safegl_desktop, safegl_gles32, safegl_webgl)))]
-    let outputs = false;
     if !outputs && !draw_parameters.blend.uses_second_source() {
         return Ok(());
     }
@@ -1323,6 +1304,103 @@ pub(crate) fn validate_dual_source_blending(
         return Err(DrawError::DualSourceBlendingTooManyDrawBuffers);
     }
     Ok(())
+}
+
+/// The barriers that a draw needs before and after it, so that it doesn't read what the draws
+/// around it write, nor write what they read, without coherence.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct DrawBarriers {
+    /// `glBlendBarrier`: advanced blending without `GL_KHR_blend_equation_advanced_coherent`.
+    blend: bool,
+    /// `glFramebufferFetchBarrierEXT`: a fragment shader that may read the framebuffer with
+    /// `layout(noncoherent)` (`GL_EXT_shader_framebuffer_fetch_non_coherent`).
+    fetch: bool,
+}
+
+impl DrawBarriers {
+    /// Inserts the barriers.
+    pub(crate) unsafe fn insert(self, ctxt: &context::CommandContext<'_>) {
+        #[cfg(not(safegl_browser))]
+        {
+            if self.blend {
+                if ctxt.version >= &Version(Api::GlEs, 3, 2) {
+                    ctxt.extra.BlendBarrier();
+                } else {
+                    ctxt.extra.BlendBarrierKHR();
+                }
+            }
+            if self.fetch {
+                ctxt.extra.FramebufferFetchBarrierEXT();
+            }
+        }
+        #[cfg(safegl_browser)]
+        let _ = ctxt;
+    }
+}
+
+/// Returns true if the backend blends with advanced equations (`BlendingFunction::Advanced`):
+/// OpenGL ES 3.2, or `GL_KHR_blend_equation_advanced`. WebGL doesn't.
+pub fn is_advanced_blending_supported<C: ?Sized>(context: &C) -> bool
+where
+    C: crate::CapabilitiesSource,
+{
+    !is_webgl()
+        && (context.get_version() >= &Version(Api::GlEs, 3, 2)
+            || context.get_extensions().gl_khr_blend_equation_advanced)
+}
+
+/// Checks the draws that read the framebuffer, and returns the barriers that they need.
+///
+/// The advanced blend equations of the draw must be supported, the same for the colors and the
+/// alpha, and declared by the fragment shader (`features`, `Err(())` if SafeGL doesn't know it),
+/// and the framebuffer bound for drawing must have a single draw buffer (`draw_buffers` returns
+/// their number).
+pub(crate) fn validate_framebuffer_reads(
+    ctxt: &mut context::CommandContext<'_>,
+    draw_parameters: &DrawParameters<'_>,
+    features: Result<crate::program::FragmentFeatures, ()>,
+    draw_buffers: impl FnOnce(&mut context::CommandContext<'_>) -> usize,
+) -> Result<DrawBarriers, DrawError> {
+    let mut equations = smallvec::SmallVec::<[AdvancedBlending; 8]>::new();
+    let blends = draw_parameters.outputs.iter().map(|output| &output.blend);
+    for blend in std::iter::once(&draw_parameters.blend).chain(blends) {
+        equations.extend(blend.advanced_equation()?);
+    }
+
+    let mut barriers = DrawBarriers::default();
+    if !equations.is_empty() {
+        if !is_advanced_blending_supported(ctxt.context) {
+            return Err(DrawError::AdvancedBlendingNotSupported);
+        }
+        if draw_buffers(ctxt) > 1 {
+            return Err(DrawError::AdvancedBlendingTooManyOutputs);
+        }
+        if let Ok(features) = features {
+            let undeclared = equations
+                .iter()
+                .find(|equation| features.blend_support & equation.bit() == 0);
+            if let Some(&equation) = undeclared {
+                return Err(DrawError::AdvancedBlendingNotDeclared { equation });
+            }
+        }
+        barriers.blend = !ctxt.extensions.gl_khr_blend_equation_advanced_coherent;
+    }
+
+    // pixel local storage is enabled on the framebuffer bound for drawing by a
+    // `framebuffer::PixelLocalStorage`, whose pass is active once it is bound
+    if features.is_ok_and(|features| features.pixel_local_storage) {
+        let enabled = ctxt.state.framebuffer_pass.is_some_and(|pass| {
+            pass.active && pass.kind == crate::fbo::FramebufferPassKind::PixelLocalStorage
+        });
+        if !enabled {
+            return Err(DrawError::PixelLocalStorageNotEnabled);
+        }
+    }
+
+    // the programs whose source SafeGL doesn't have may read without coherence
+    barriers.fetch = ctxt.extensions.gl_ext_shader_framebuffer_fetch_non_coherent
+        && features.map_or(true, |features| features.noncoherent_fetch);
+    Ok(barriers)
 }
 
 /// Sets the logic operation, after checking that the draw doesn't blend.
@@ -1384,14 +1462,7 @@ fn sync_color_mask(
     let mut indexed = false;
     for (index, m) in outputs.enumerate() {
         if m != mask {
-            // WebGL has `glColorMaski` in `OES_draw_buffers_indexed`
-            #[cfg(safegl_browser)]
-            ctxt.webgl.color_mask_indexed(index as u32, m);
-            #[cfg(not(safegl_browser))]
-            unsafe {
-                ctxt.glow
-                    .color_mask_draw_buffer(index as u32, m.0, m.1, m.2, m.3);
-            }
+            unsafe { indexed::color_mask(ctxt, index as u32, m) };
             indexed = true;
         }
     }
@@ -1870,8 +1941,8 @@ fn sync_dithering(ctxt: &mut context::CommandContext<'_>, dithering: bool) {
 
 /// One viewport of `DrawParameters::viewports`.
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg(safegl_gl41)]
-#[cfg_attr(docsrs, doc(cfg(safegl_gl41)))]
+#[cfg(any(safegl_gl41, safegl_gles32))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl41, safegl_gles32))))]
 pub struct ViewportState {
     /// The left of the viewport, in pixels. Fractions are kept, with
     /// `Limits::viewport_subpixel_bits` bits of precision.
@@ -1891,7 +1962,7 @@ pub struct ViewportState {
     pub scissor: Option<Rect>,
 }
 
-#[cfg(safegl_gl41)]
+#[cfg(any(safegl_gl41, safegl_gles32))]
 impl From<Rect> for ViewportState {
     /// The viewport `rect`, with the `(0.0, 1.0)` depth range and no scissor box.
     fn from(rect: Rect) -> ViewportState {
@@ -1907,7 +1978,7 @@ impl From<Rect> for ViewportState {
 }
 
 /// Sets the viewports of `DrawParameters::viewports`, which isn't empty.
-#[cfg(safegl_gl41)]
+#[cfg(any(safegl_gl41, safegl_gles32))]
 fn sync_viewport_array(
     ctxt: &mut context::CommandContext<'_>,
     draw_parameters: &DrawParameters<'_>,
@@ -1973,14 +2044,32 @@ fn sync_viewport_array(
         .map(|e| e.2.unwrap_or([0, 0, 0, 0]))
         .collect::<Vec<_>>();
     unsafe {
-        ctxt.glow.viewport_f32_slice(0, max as i32, &rects);
-        ctxt.glow.depth_range_f64_slice(0, max as i32, &depth_ranges);
-        ctxt.glow.scissor_slice(0, max as i32, &scissors);
-        for (i, entry) in entries.iter().enumerate() {
-            if entry.2.is_some() {
-                ctxt.glow.enable_draw_buffer(glow::SCISSOR_TEST, i as u32);
-            } else {
-                ctxt.glow.disable_draw_buffer(glow::SCISSOR_TEST, i as u32);
+        if ctxt.version.0 == Api::Gl {
+            ctxt.glow.viewport_f32_slice(0, max as i32, &rects);
+            ctxt.glow.depth_range_f64_slice(0, max as i32, &depth_ranges);
+            ctxt.glow.scissor_slice(0, max as i32, &scissors);
+            for (i, entry) in entries.iter().enumerate() {
+                if entry.2.is_some() {
+                    ctxt.glow.enable_draw_buffer(glow::SCISSOR_TEST, i as u32);
+                } else {
+                    ctxt.glow.disable_draw_buffer(glow::SCISSOR_TEST, i as u32);
+                }
+            }
+        } else {
+            // `GL_OES_viewport_array`, whose depth ranges are floats
+            let count = max as gl::types::GLsizei;
+            let depth_ranges: Vec<[f32; 2]> =
+                depth_ranges.iter().map(|r| [r[0] as f32, r[1] as f32]).collect();
+            ctxt.extra.ViewportArrayvOES(0, count, rects.as_ptr().cast());
+            ctxt.extra
+                .DepthRangeArrayfvOES(0, count, depth_ranges.as_ptr().cast());
+            ctxt.extra.ScissorArrayvOES(0, count, scissors.as_ptr().cast());
+            for (i, entry) in entries.iter().enumerate() {
+                if entry.2.is_some() {
+                    ctxt.extra.EnableiOES(glow::SCISSOR_TEST, i as u32);
+                } else {
+                    ctxt.extra.DisableiOES(glow::SCISSOR_TEST, i as u32);
+                }
             }
         }
     }
@@ -2012,7 +2101,11 @@ fn reset_viewport_array(ctxt: &mut context::CommandContext<'_>) {
     ctxt.state.scissor = None;
     let (near, far) = ctxt.state.depth_range;
     unsafe {
-        ctxt.glow.depth_range_f64(near as f64, far as f64);
+        if ctxt.version.0 == Api::Gl {
+            ctxt.glow.depth_range_f64(near as f64, far as f64);
+        } else {
+            ctxt.glow.depth_range_f32(near, far);
+        }
         if ctxt.state.enabled_scissor_test {
             ctxt.glow.enable(glow::SCISSOR_TEST);
         } else {

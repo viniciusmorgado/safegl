@@ -1,4 +1,3 @@
-#![cfg(any(safegl_desktop, safegl_gles32, safegl_webgl))]
 
 #[macro_use]
 extern crate safegl;
@@ -149,6 +148,18 @@ fn assert_texture(texture: &Texture2d, expected: (u8, u8, u8, u8)) {
     }
 }
 
+/// Returns true if the backend gives draw buffers their own blending and color mask: OpenGL 4.0,
+/// OpenGL ES 3.2, or `GL_EXT_draw_buffers_indexed` or `GL_OES_draw_buffers_indexed` on OpenGL ES
+/// 3.0 and 3.1 (`OES_draw_buffers_indexed` on WebGL).
+fn per_output_supported(display: &Display) -> bool {
+    let extensions = support::extensions(display);
+    !support::is_gles(display)
+        || (*display.get_opengl_version() >= safegl::Version(safegl::Api::GlEs, 3, 2)
+            && !cfg!(target_arch = "wasm32"))
+        || extensions.gl_ext_draw_buffers_indexed
+        || extensions.gl_oes_draw_buffers_indexed
+}
+
 fn addition() -> Blend {
     let add = BlendingFunction::Addition {
         source: LinearBlendingFactor::One,
@@ -187,8 +198,14 @@ fn outputs_have_their_own_blending_and_mask() {
             ..Default::default()
         },
     ) {
-        Err(DrawError::PerOutputStateNotSupported) => return,
-        result => result.unwrap(),
+        Err(DrawError::PerOutputStateNotSupported) => {
+            assert!(!per_output_supported(&display));
+            return;
+        }
+        result => {
+            assert!(per_output_supported(&display));
+            result.unwrap()
+        }
     }
     drop(target);
 
@@ -220,8 +237,14 @@ fn a_draw_without_outputs_restores_every_draw_buffer() {
         ..Default::default()
     };
     match pipeline.draw(&mut target, (0.5, 0.5, 0.5, 0.5), &params) {
-        Err(DrawError::PerOutputStateNotSupported) => return,
-        result => result.unwrap(),
+        Err(DrawError::PerOutputStateNotSupported) => {
+            assert!(!per_output_supported(&display));
+            return;
+        }
+        result => {
+            assert!(per_output_supported(&display));
+            result.unwrap()
+        }
     }
 
     // The cached global state didn't change, so only the per-buffer flags tell SafeGL that
@@ -269,8 +292,14 @@ fn clearing_ignores_the_masks_of_outputs() {
             ..Default::default()
         },
     ) {
-        Err(DrawError::PerOutputStateNotSupported) => return,
-        result => result.unwrap(),
+        Err(DrawError::PerOutputStateNotSupported) => {
+            assert!(!per_output_supported(&display));
+            return;
+        }
+        result => {
+            assert!(per_output_supported(&display));
+            result.unwrap()
+        }
     }
 
     target.clear_color(0.0, 0.0, 1.0, 1.0);
@@ -371,7 +400,10 @@ fn outputs_share_one_blend_constant() {
         },
     ) {
         Err(DrawError::BlendingParameterNotSupported) => (),
-        Err(DrawError::PerOutputStateNotSupported) => return,
+        Err(DrawError::PerOutputStateNotSupported) => {
+            assert!(!per_output_supported(&display));
+            return;
+        }
         result => panic!("{result:?}"),
     }
 

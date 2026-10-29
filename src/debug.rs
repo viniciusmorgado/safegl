@@ -14,8 +14,8 @@ use glow::HasContext;
 use std::rc::Rc;
 
 pub use crate::context::DebugCallbackBehavior;
-#[cfg(any(safegl_gl43, safegl_gles32))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
 pub use crate::context::DebugGroup;
 
 /// Represents a callback that can be used for the debug output feature of OpenGL.
@@ -141,12 +141,14 @@ impl MessageType {
 }
 
 /// Error of the debug groups, object labels and debug messages.
-#[cfg(any(safegl_gl43, safegl_gles32))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum DebugError {
     /// The backend has no debug output: it needs OpenGL 4.3, OpenGL ES 3.2 or `GL_KHR_debug`.
+    /// Without them, objects have labels with `GL_EXT_debug_label`, and debug groups and inserted
+    /// messages are the markers of `GL_EXT_debug_marker`.
     NotSupported,
 
     /// The message has `Limits::max_debug_message_length` bytes or more (the limit counts a null
@@ -168,7 +170,7 @@ pub enum DebugError {
     InvalidSource,
 }
 
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 impl std::fmt::Display for DebugError {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt.write_str(match self {
@@ -186,13 +188,13 @@ impl std::fmt::Display for DebugError {
     }
 }
 
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 impl std::error::Error for DebugError {}
 
 /// A debug message, inserted with `Context::insert_debug_message` or read from the message log
 /// with `Context::debug_message_log`.
-#[cfg(any(safegl_gl43, safegl_gles32))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DebugMessage {
     /// Where the message comes from.
@@ -209,8 +211,8 @@ pub struct DebugMessage {
 
 /// The debug messages that `Context::set_debug_messages_enabled` enables or disables. A field
 /// that is `None` matches every value, and an empty `ids` every identifier.
-#[cfg(any(safegl_gl43, safegl_gles32))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct DebugMessageFilter<'a> {
     /// The source of the messages.
@@ -223,7 +225,7 @@ pub struct DebugMessageFilter<'a> {
     pub ids: &'a [u32],
 }
 
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 pub(crate) mod sealed {
     use crate::context::Context;
     use crate::gl;
@@ -250,10 +252,11 @@ pub(crate) mod sealed {
 }
 
 /// An object that can have a label, a name that the debug messages about it show (OpenGL 4.3,
-/// OpenGL ES 3.2 or `GL_KHR_debug`): buffers, textures, render buffers, programs, compute
-/// shaders, queries and sync fences.
-#[cfg(any(safegl_gl43, safegl_gles32))]
-#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles32))))]
+/// OpenGL ES 3.2 or `GL_KHR_debug`, or `GL_EXT_debug_label`, which doesn't label
+/// sync fences): buffers, textures, render buffers, programs, compute shaders, queries and sync
+/// fences.
+#[cfg(any(safegl_gl43, safegl_gles30))]
+#[cfg_attr(docsrs, doc(cfg(any(safegl_gl43, safegl_gles30))))]
 pub trait ObjectLabel: sealed::Labeled {
     /// Gives the object a label. An empty label removes it.
     fn set_label(&self, label: &str) -> Result<(), DebugError> {
@@ -268,7 +271,7 @@ pub trait ObjectLabel: sealed::Labeled {
     }
 }
 
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 impl<T: sealed::Labeled + ?Sized> ObjectLabel for T {}
 
 /// Allows you to obtain the timestamp inside the OpenGL commands queue.
@@ -416,7 +419,7 @@ impl TimestampQuery {
     }
 }
 
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 impl sealed::Labeled for TimestampQuery {
     fn labeled_object(&self) -> (&Context, sealed::LabeledObject) {
         (

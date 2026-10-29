@@ -102,12 +102,15 @@ fn panicking_debug_callback() {
     }
     {
         // with only `GL_ARB_debug_output`, the driver may keep the messages of contexts that
-        // aren't debug contexts, and nothing can turn them on
+        // aren't debug contexts, and nothing can turn them on; OpenGL ES below 3.2 has no debug
+        // messages without `GL_KHR_debug`
         let display = support::build_display();
+        let es32 =
+            *display.get_opengl_version() >= safegl::Version(safegl::Api::GlEs, 3, 2);
         if !support::gl_at_least(&display, 4, 3)
-            && !support::is_gles(&display)
+            && !es32
             && !support::extensions(&display).gl_khr_debug
-            && !display.get_capabilities().debug
+            && (support::is_gles(&display) || !display.get_capabilities().debug)
         {
             return;
         }

@@ -77,6 +77,8 @@
 //!
 pub use self::alloc::is_buffer_read_supported;
 pub(crate) use self::alloc::restore_bindings;
+#[cfg(unix)]
+pub(crate) use self::alloc::Alloc;
 pub use self::alloc::{CopyError, Mapping, ReadError, ReadMapping, WriteMapping};
 #[cfg(safegl_gl43)]
 #[cfg_attr(docsrs, doc(cfg(safegl_gl43)))]

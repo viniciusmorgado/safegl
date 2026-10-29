@@ -204,7 +204,12 @@ fn atomic_counter_high_binding_point() {
     // binding the first buffer of a new context at a point above 1 grows the cached bindings by
     // several entries at once
     let display = support::build_display();
-    if !support::glsl_supported(&display, 430, 310) {
+    // OpenGL ES 3.1 only guarantees a binding point of atomic counter buffers
+    let bindings = {
+        use safegl::CapabilitiesSource;
+        display.get_capabilities().max_indexed_atomic_counter_buffer
+    };
+    if !support::glsl_supported(&display, 430, 310) || bindings < 4 {
         return;
     }
     let shader = safegl::program::ComputeShader::from_source(&display,

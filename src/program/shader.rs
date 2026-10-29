@@ -314,10 +314,6 @@ pub struct FragmentOutput {
     pub size: u32,
 }
 
-/// Returns the outputs declared in the source of a fragment shader, in their order.
-///
-/// Only declarations at global scope count, so the `out` parameters of functions are left out.
-/// Arrays whose size isn't a number get a size of 1.
 /// The source of a shader without its comments nor its preprocessor lines.
 fn code_without_comments(source: &str) -> String {
     let mut code = String::with_capacity(source.len());
@@ -407,6 +403,45 @@ pub fn declared_views(source: &str) -> Option<u32> {
     })
 }
 
+/// What the source of a fragment shader declares that changes how SafeGL draws with it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FragmentFeatures {
+    /// The advanced blend equations that `layout(blend_support_*) out;` declares
+    /// (`GL_KHR_blend_equation_advanced`), as a mask of `AdvancedBlending::bit`.
+    pub blend_support: u32,
+    /// Whether it reads the framebuffer without coherence, with `layout(noncoherent)`
+    /// (`GL_EXT_shader_framebuffer_fetch_non_coherent`), which needs a barrier between draws.
+    pub noncoherent_fetch: bool,
+    /// Whether it declares pixel local storage (`GL_EXT_shader_pixel_local_storage`).
+    pub pixel_local_storage: bool,
+}
+
+/// Returns what the source of a fragment shader declares that changes how SafeGL draws with it.
+/// Its identifiers are looked for outside comments and preprocessor lines.
+pub fn fragment_features(source: &str) -> FragmentFeatures {
+    let code = code_without_comments(source);
+    let mut features = FragmentFeatures::default();
+    let identifiers = code.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'));
+    for identifier in identifiers {
+        match identifier {
+            "noncoherent" => features.noncoherent_fetch = true,
+            "__pixel_localEXT" | "__pixel_local_inEXT" | "__pixel_local_outEXT" => {
+                features.pixel_local_storage = true
+            }
+            _ => {
+                features.blend_support |=
+                    crate::draw_parameters::AdvancedBlending::blend_support_mask(identifier)
+                        .unwrap_or(0)
+            }
+        }
+    }
+    features
+}
+
+/// Returns the outputs declared in the source of a fragment shader, in their order.
+///
+/// Only declarations at global scope count, so the `out` parameters of functions are left out.
+/// Arrays whose size isn't a number get a size of 1.
 pub fn fragment_outputs(source: &str) -> Vec<FragmentOutput> {
     let declarations = global_declarations(&code_without_comments(source));
 
@@ -487,7 +522,7 @@ pub fn fragment_outputs(source: &str) -> Vec<FragmentOutput> {
 
 #[cfg(test)]
 mod tests {
-    use super::{declared_views, fragment_outputs, FragmentOutput};
+    use super::{declared_views, fragment_features, fragment_outputs, FragmentOutput};
 
     fn output(name: &str, location: Option<u32>, size: u32) -> FragmentOutput {
         FragmentOutput {
@@ -527,6 +562,27 @@ mod tests {
                 output("extra", None, 1),
             ]
         );
+    }
+
+    #[test]
+    fn features_of_fragment_shaders() {
+        let source = "#version 320 es\n\
+                      #extension GL_KHR_blend_equation_advanced : require\n\
+                      // layout(blend_support_screen) out;\n\
+                      layout(blend_support_multiply, blend_support_hsl_hue) out;\n\
+                      layout(location = 0, noncoherent) inout vec4 color;\n\
+                      void main() {}";
+        let features = fragment_features(source);
+        assert_eq!(features.blend_support, 1 | 1 << 11);
+        assert!(features.noncoherent_fetch);
+        assert!(!features.pixel_local_storage);
+
+        let source = "layout(blend_support_all_equations) out;\n\
+                      __pixel_localEXT Storage { layout(r32f) highp float value; };";
+        let features = fragment_features(source);
+        assert_eq!(features.blend_support, (1 << 15) - 1);
+        assert!(features.pixel_local_storage);
+        assert_eq!(fragment_features("out vec4 color;").blend_support, 0);
     }
 
     #[test]

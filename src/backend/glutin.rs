@@ -138,50 +138,113 @@ pub use self::simple_window_builder::SimpleWindowBuilder;
 #[cfg(feature = "simple_window_builder")]
 pub mod simple_window_builder;
 
+// dma-bufs and native fences are file descriptors of Linux and Android
+#[cfg(all(safegl_egl, unix))]
+pub mod egl;
+#[cfg(safegl_egl)]
+pub mod headless;
+
+/// Resizes a surface of glutin.
+type ResizeSurface<T> =
+    fn(&glutin::surface::Surface<T>, &PossiblyCurrentContext, NonZeroU32, NonZeroU32);
+
 /// Wraps a glutin context together with the corresponding Surface.
 /// This is necessary so that we can swap buffers and determine the framebuffer size within SafeGL.
-pub struct ContextSurfacePair<T: SurfaceTypeTrait + ResizeableSurface> {
+pub struct ContextSurfacePair<T: SurfaceTypeTrait> {
     context: PossiblyCurrentContext,
-    surface: glutin::surface::Surface<T>,
+    // `None` while the display has no surface (`Display::remove_surface`)
+    surface: Option<glutin::surface::Surface<T>>,
+    // resizes the surface, `None` for the surfaces of a fixed size (pbuffers)
+    resize: Option<ResizeSurface<T>>,
+    // the dimensions of the last surface, while the display has none
+    removed_dimensions: (u32, u32),
 }
 
 impl<T: SurfaceTypeTrait + ResizeableSurface> ContextSurfacePair<T> {
     fn new(context: PossiblyCurrentContext, surface: glutin::surface::Surface<T>) -> Self {
-        Self { context, surface }
+        Self {
+            context,
+            surface: Some(surface),
+            resize: Some(|surface, context, width, height| surface.resize(context, width, height)),
+            removed_dimensions: (0, 0),
+        }
+    }
+}
+
+impl<T: SurfaceTypeTrait> ContextSurfacePair<T> {
+    /// A pair whose surface keeps its size.
+    fn fixed(context: PossiblyCurrentContext, surface: glutin::surface::Surface<T>) -> Self {
+        Self {
+            context,
+            surface: Some(surface),
+            resize: None,
+            removed_dimensions: (0, 0),
+        }
     }
 
     #[inline]
-    /// Return the stored framebuffer dimensions
+    /// Return the stored framebuffer dimensions, the ones of the last surface while the display
+    /// has none.
     pub fn get_framebuffer_dimensions(&self) -> (u32, u32) {
-        (
-            self.surface.width().unwrap(),
-            self.surface.height().unwrap(),
-        )
+        match &self.surface {
+            Some(surface) => (surface.width().unwrap(), surface.height().unwrap()),
+            None => self.removed_dimensions,
+        }
     }
 
     #[inline]
-    /// Swaps the underlying back buffers when the surface is not single buffered.
+    /// Returns true while the display has a surface.
+    pub fn has_surface(&self) -> bool {
+        self.surface.is_some()
+    }
+
+    #[inline]
+    /// Swaps the underlying back buffers when the surface is not single buffered. Without a
+    /// surface, does nothing.
     pub fn swap_buffers(&self) -> Result<(), glutin::error::Error> {
-        self.surface.swap_buffers(&self.context)
+        match &self.surface {
+            Some(surface) => surface.swap_buffers(&self.context),
+            None => Ok(()),
+        }
     }
 
     #[inline]
-    /// Set swap interval for the surface.
+    /// Set swap interval for the surface. Without a surface, does nothing.
     pub fn set_swap_interval(&self, interval: SwapInterval) -> Result<(), glutin::error::Error> {
-        self.surface.set_swap_interval(&self.context, interval)
+        match &self.surface {
+            Some(surface) => surface.set_swap_interval(&self.context, interval),
+            None => Ok(()),
+        }
+    }
+
+    /// Makes the context current, with its surface if it has one.
+    fn make_current(&self) -> Result<(), glutin::error::Error> {
+        match &self.surface {
+            Some(surface) => self.context.make_current(surface),
+            #[cfg(safegl_egl)]
+            None => match &self.context {
+                PossiblyCurrentContext::Egl(context) => context.make_current_surfaceless(),
+                #[allow(unreachable_patterns)]
+                _ => unreachable!("only EGL contexts lose their surface"),
+            },
+            #[cfg(not(safegl_egl))]
+            None => unreachable!("only EGL contexts lose their surface"),
+        }
     }
 
     #[inline]
-    /// Resize the associated surface
+    /// Resize the associated surface. Surfaces of a fixed size, like pbuffers, keep their size.
     pub fn resize(&self, new_size: (u32, u32)) {
         // Make sure that no dimension is zero, which happens when minimizing on Windows for example.
         let width = NonZeroU32::new(new_size.0).unwrap_or(NonZeroU32::new(1).unwrap());
         let height = NonZeroU32::new(new_size.1).unwrap_or(NonZeroU32::new(1).unwrap());
-        self.surface.resize(&self.context, width, height);
+        if let (Some(resize), Some(surface)) = (self.resize, &self.surface) {
+            resize(surface, &self.context, width, height);
+        }
     }
 }
 
-impl<T: SurfaceTypeTrait + ResizeableSurface> Deref for ContextSurfacePair<T> {
+impl<T: SurfaceTypeTrait> Deref for ContextSurfacePair<T> {
     type Target = PossiblyCurrentContext;
     #[inline]
     fn deref(&self) -> &PossiblyCurrentContext {
@@ -194,8 +257,12 @@ impl<T: SurfaceTypeTrait + ResizeableSurface> Deref for ContextSurfacePair<T> {
 /// The `Display` uses **glutin** for the **Window** and its associated GL **Context**.
 ///
 /// These are stored alongside a SafeGL-specific context.
+///
+/// The surface is usually the one of a window (`WindowSurface`); a `Display<PbufferSurface>`
+/// draws to a pbuffer of a fixed size instead, like the displays without window of
+/// `headless`.
 #[derive(Clone)]
-pub struct Display<T: SurfaceTypeTrait + ResizeableSurface + 'static> {
+pub struct Display<T: SurfaceTypeTrait + 'static> {
     // contains everything related to the current SafeGL context and its state
     context: Rc<context::Context>,
     // The glutin Surface alongside its associated glutin Context.
@@ -204,7 +271,7 @@ pub struct Display<T: SurfaceTypeTrait + ResizeableSurface + 'static> {
 
 /// An implementation of the `Backend` trait for glutin.
 #[derive(Clone)]
-pub struct GlutinBackend<T: SurfaceTypeTrait + ResizeableSurface>(
+pub struct GlutinBackend<T: SurfaceTypeTrait>(
     Rc<RefCell<Option<ContextSurfacePair<T>>>>,
 );
 
@@ -217,7 +284,7 @@ pub enum DisplayCreationError {
     IncompatibleOpenGl(IncompatibleOpenGl),
 }
 
-impl<T: SurfaceTypeTrait + ResizeableSurface> std::fmt::Debug for Display<T> {
+impl<T: SurfaceTypeTrait> std::fmt::Debug for Display<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[safegl::backend::glutin::Display]")
     }
@@ -281,7 +348,37 @@ impl<T: SurfaceTypeTrait + ResizeableSurface> Display<T> {
         debug: debug::DebugCallbackBehavior,
         checked: bool,
     ) -> Result<Self, IncompatibleOpenGl> {
-        let context_surface_pair = ContextSurfacePair::new(context, surface);
+        Display::from_pair(ContextSurfacePair::new(context, surface), debug, checked)
+    }
+
+    /// Resize the underlying surface.
+    #[inline]
+    pub fn resize(&self, new_size: (u32, u32)) {
+        self.gl_context.borrow().as_ref().unwrap().resize(new_size)
+    }
+}
+
+impl Display<glutin::surface::PbufferSurface> {
+    /// Creates a SafeGL `Display` from a context and a pbuffer, a surface of a fixed size
+    /// without window, with the given debug callback behavior. `headless` creates both.
+    ///
+    /// Performs a compatibility check to make sure that all core elements of SafeGL are supported
+    /// by the implementation.
+    pub fn from_pbuffer(
+        context: PossiblyCurrentContext,
+        surface: Surface<glutin::surface::PbufferSurface>,
+        debug: debug::DebugCallbackBehavior,
+    ) -> Result<Self, IncompatibleOpenGl> {
+        Display::from_pair(ContextSurfacePair::fixed(context, surface), debug, true)
+    }
+}
+
+impl<T: SurfaceTypeTrait> Display<T> {
+    fn from_pair(
+        context_surface_pair: ContextSurfacePair<T>,
+        debug: debug::DebugCallbackBehavior,
+        checked: bool,
+    ) -> Result<Self, IncompatibleOpenGl> {
         let gl_window = Rc::new(RefCell::new(Some(context_surface_pair)));
         let glutin_backend = GlutinBackend(gl_window.clone());
         let context = unsafe { context::Context::new(glutin_backend, checked, debug) }?;
@@ -321,7 +418,14 @@ impl<T: SurfaceTypeTrait + ResizeableSurface> Display<T> {
         context: PossiblyCurrentContext,
         surface: Surface<T>,
     ) -> Result<(), IncompatibleOpenGl> {
-        let pair = ContextSurfacePair::new(context, surface);
+        // the new surface resizes like the current one
+        let resize = self.gl_context.borrow().as_ref().and_then(|pair| pair.resize);
+        let pair = ContextSurfacePair {
+            context,
+            surface: Some(surface),
+            resize,
+            removed_dimensions: (0, 0),
+        };
         let gl_context = &self.gl_context;
         self.context.rebuild_inner(move |_| {
             let old_pair = gl_context.borrow_mut().replace(pair);
@@ -329,12 +433,6 @@ impl<T: SurfaceTypeTrait + ResizeableSurface> Display<T> {
                 *gl_context.borrow_mut() = old_pair;
             })
         })
-    }
-
-    /// Resize the underlying surface.
-    #[inline]
-    pub fn resize(&self, new_size: (u32, u32)) {
-        self.gl_context.borrow().as_ref().unwrap().resize(new_size)
     }
 
     #[inline]
@@ -368,8 +466,66 @@ impl<T: SurfaceTypeTrait + ResizeableSurface> Display<T> {
     /// been finished.
     #[inline]
     pub fn try_draw(&self) -> Result<Frame, FrameError> {
+        if !self.gl_context.borrow().as_ref().unwrap().has_surface() {
+            return Err(FrameError::SurfaceLost);
+        }
         let dimensions = self.get_framebuffer_dimensions();
         Frame::new(self.context.clone(), dimensions)
+    }
+
+    /// Returns true while the display has a surface to draw frames on, which it doesn't between
+    /// `remove_surface` and `set_surface`.
+    #[inline]
+    pub fn has_surface(&self) -> bool {
+        self.gl_context.borrow().as_ref().unwrap().has_surface()
+    }
+
+    /// Removes the surface of the display and returns it, for the window systems that destroy
+    /// the window of an application that keeps running, like Android when the application is
+    /// paused (`Event::Suspended` of winit): the surface must be dropped before its window.
+    ///
+    /// The context and the objects of SafeGL live on, the context being current without
+    /// surface (`EGL_KHR_surfaceless_context`): textures, buffers and programs can be created,
+    /// drawn to as framebuffers and dropped, but frames can't be drawn
+    /// (`FrameError::SurfaceLost`) until `set_surface` gives a new surface, of the new window.
+    ///
+    /// Returns `SurfaceRemovalError::NotSupported` for the contexts that aren't EGL, and for the
+    /// EGL displays without `EGL_KHR_surfaceless_context`, and
+    /// `SurfaceRemovalError::NoSurface` if the surface was removed already.
+    pub fn remove_surface(&self) -> Result<Surface<T>, SurfaceRemovalError> {
+        // the frame being drawn and the commands so far go to the surface before it is removed
+        if self.has_surface() {
+            self.context.flush();
+        }
+        let mut pair = self.gl_context.borrow_mut();
+        let pair = pair.as_mut().unwrap();
+        if pair.surface.is_none() {
+            return Err(SurfaceRemovalError::NoSurface);
+        }
+        if !supports_surfaceless(&pair.context) {
+            return Err(SurfaceRemovalError::NotSupported);
+        }
+        let dimensions = pair.get_framebuffer_dimensions();
+        let surface = pair.surface.take().unwrap();
+        pair.removed_dimensions = dimensions;
+        if pair.make_current().is_err() {
+            pair.surface = Some(surface);
+            return Err(SurfaceRemovalError::NotSupported);
+        }
+        Ok(surface)
+    }
+
+    /// Gives the display a surface, after `remove_surface`, or instead of its surface, which is
+    /// returned: it must be a surface of the configuration of the context, usually of a new
+    /// window. The context is made current with it.
+    pub fn set_surface(
+        &self,
+        surface: Surface<T>,
+    ) -> Result<Option<Surface<T>>, glutin::error::Error> {
+        let mut pair = self.gl_context.borrow_mut();
+        let pair = pair.as_mut().unwrap();
+        pair.context.make_current(&surface)?;
+        Ok(pair.surface.replace(surface))
     }
 }
 
@@ -406,7 +562,7 @@ impl From<IncompatibleOpenGl> for DisplayCreationError {
     }
 }
 
-impl<T: SurfaceTypeTrait + ResizeableSurface> Deref for Display<T> {
+impl<T: SurfaceTypeTrait> Deref for Display<T> {
     type Target = Context;
     #[inline]
     fn deref(&self) -> &Context {
@@ -414,14 +570,14 @@ impl<T: SurfaceTypeTrait + ResizeableSurface> Deref for Display<T> {
     }
 }
 
-impl<T: SurfaceTypeTrait + ResizeableSurface> backend::Facade for Display<T> {
+impl<T: SurfaceTypeTrait> backend::Facade for Display<T> {
     #[inline]
     fn get_context(&self) -> &Rc<Context> {
         &self.context
     }
 }
 
-impl<T: SurfaceTypeTrait + ResizeableSurface> Deref for GlutinBackend<T> {
+impl<T: SurfaceTypeTrait> Deref for GlutinBackend<T> {
     type Target = Rc<RefCell<Option<ContextSurfacePair<T>>>>;
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -429,10 +585,15 @@ impl<T: SurfaceTypeTrait + ResizeableSurface> Deref for GlutinBackend<T> {
     }
 }
 
-unsafe impl<T: SurfaceTypeTrait + ResizeableSurface> Backend for GlutinBackend<T> {
+unsafe impl<T: SurfaceTypeTrait> Backend for GlutinBackend<T> {
     #[inline]
     fn swap_buffers(&self) -> Result<(), SwapBuffersError> {
-        match self.borrow().as_ref().unwrap().swap_buffers() {
+        let pair = self.borrow();
+        let pair = pair.as_ref().unwrap();
+        if !pair.has_surface() {
+            return Err(SwapBuffersError::SurfaceLost);
+        }
+        match pair.swap_buffers() {
             Ok(()) => Ok(()),
             _ => Err(SwapBuffersError::ContextLost),
         }
@@ -482,12 +643,7 @@ unsafe impl<T: SurfaceTypeTrait + ResizeableSurface> Backend for GlutinBackend<T
 
     #[inline]
     unsafe fn make_current(&self) {
-        let pair = self.borrow();
-        pair.as_ref()
-            .unwrap()
-            .context
-            .make_current(&pair.as_ref().unwrap().surface)
-            .unwrap();
+        self.borrow().as_ref().unwrap().make_current().unwrap();
     }
 }
 
@@ -520,3 +676,42 @@ mod tests {
         );
     }
 }
+
+/// Returns true if `context` can be made current without surface: an EGL context of a display
+/// with `EGL_KHR_surfaceless_context`.
+fn supports_surfaceless(context: &PossiblyCurrentContext) -> bool {
+    // EGL is the only API of some platforms, like Android
+    #[cfg(safegl_egl)]
+    #[allow(irrefutable_let_patterns)]
+    if let PossiblyCurrentContext::Egl(context) = context {
+        use glutin::display::GetDisplayExtensions;
+        return context
+            .display()
+            .extensions()
+            .contains("EGL_KHR_surfaceless_context");
+    }
+    let _ = context;
+    false
+}
+
+/// Error that can happen while removing the surface of a display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SurfaceRemovalError {
+    /// The context can't be current without surface: it isn't an EGL context, or its display
+    /// doesn't have `EGL_KHR_surfaceless_context`.
+    NotSupported,
+    /// The display has no surface already.
+    NoSurface,
+}
+
+impl fmt::Display for SurfaceRemovalError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.write_str(match self {
+            SurfaceRemovalError::NotSupported => "The context can't be current without surface",
+            SurfaceRemovalError::NoSurface => "The display has no surface",
+        })
+    }
+}
+
+impl Error for SurfaceRemovalError {}

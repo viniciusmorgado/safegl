@@ -240,15 +240,18 @@ impl fmt::Display for RegionOutOfBoundsError {
 #[cfg(safegl_gl43)]
 impl Error for RegionOutOfBoundsError {}
 
-/// Returns true if images can be copied with `copy_image`: OpenGL 4.3, OpenGL ES 3.2 or
-/// `GL_ARB_copy_image`.
+/// Returns true if images can be copied with `copy_image`: OpenGL 4.3, OpenGL ES 3.2,
+/// `GL_ARB_copy_image`, or `GL_EXT_copy_image` or `GL_OES_copy_image` on OpenGL ES 3.0 and 3.1.
 pub fn is_copy_image_supported<C>(context: &C) -> bool
 where
     C: ?Sized + CapabilitiesSource,
 {
+    let extensions = context.get_extensions();
     context.get_version() >= &Version(Api::Gl, 4, 3)
         || context.get_version() >= &Version(Api::GlEs, 3, 2)
-        || context.get_extensions().gl_arb_copy_image
+        || extensions.gl_arb_copy_image
+        || extensions.gl_ext_copy_image
+        || extensions.gl_oes_copy_image
 }
 
 impl<'a> TextureAnyMipmap<'a> {
@@ -587,6 +590,22 @@ struct CopyImage {
 impl CopyImage {
     unsafe fn new(ctxt: &mut CommandContext<'_>, image: CopyImageTarget<'_>) -> CopyImage {
         match image {
+            // OpenGL ES 3.0 can't query the levels of textures: the class comes from the
+            // format that SafeGL created the texture with
+            CopyImageTarget::Texture(mipmap)
+                if ctxt.version.0 == Api::GlEs && ctxt.version < &Version(Api::GlEs, 3, 1) =>
+            {
+                let texture = mipmap.get_texture();
+                CopyImage {
+                    name: texture.get_id().0.get(),
+                    target: texture.get_bind_point(),
+                    level: mipmap.get_level(),
+                    extent: image_extent(&mipmap),
+                    samples: texture.get_samples(),
+                    class: class_of_format(texture.created_format()),
+                }
+            }
+
             CopyImageTarget::Texture(mipmap) => {
                 let texture = mipmap.get_texture();
                 let level = mipmap.get_level();
@@ -691,6 +710,36 @@ fn copy_class(
     } else {
         Some(CopyClass::Uncompressed(red + green + blue + alpha + shared))
     }
+}
+
+/// The class of a sized internal format, or of an unsized one with bytes, for the contexts
+/// that can't query the formats of textures: `None` for the formats that SafeGL doesn't know,
+/// such as the one of a texture it didn't create.
+fn class_of_format(internal_format: gl::types::GLenum) -> Option<CopyClass> {
+    let bits = match internal_format {
+        gl::R8 | gl::R8_SNORM | gl::R8I | gl::R8UI | gl::RED | gl::SR8_EXT => 8,
+        gl::RG8 | gl::RG8_SNORM | gl::RG8I | gl::RG8UI | gl::R16F | gl::R16I | gl::R16UI
+        | gl::R16 | gl::R16_SNORM | gl::RGB565 | gl::RGBA4 | gl::RGB5_A1 | gl::RG
+        | gl::SRG8_EXT => 16,
+        gl::RGB8 | gl::SRGB8 | gl::RGB8_SNORM | gl::RGB8I | gl::RGB8UI | gl::RGB => 24,
+        gl::RGBA8 | gl::SRGB8_ALPHA8 | gl::RGBA8_SNORM | gl::RGBA8I | gl::RGBA8UI
+        | gl::RGB10_A2 | gl::RGB10_A2UI | gl::R11F_G11F_B10F | gl::RGB9_E5 | gl::RG16F
+        | gl::RG16I | gl::RG16UI | gl::RG16 | gl::RG16_SNORM | gl::R32F | gl::R32I
+        | gl::R32UI | gl::RGBA => 32,
+        gl::RGB16F | gl::RGB16I | gl::RGB16UI | gl::RGB16 | gl::RGB16_SNORM => 48,
+        gl::RGBA16F | gl::RGBA16I | gl::RGBA16UI | gl::RGBA16 | gl::RGBA16_SNORM | gl::RG32F
+        | gl::RG32I | gl::RG32UI => 64,
+        gl::RGB32F | gl::RGB32I | gl::RGB32UI => 96,
+        gl::RGBA32F | gl::RGBA32I | gl::RGBA32UI => 128,
+        gl::DEPTH_COMPONENT16
+        | gl::DEPTH_COMPONENT24
+        | gl::DEPTH_COMPONENT32F
+        | gl::DEPTH24_STENCIL8
+        | gl::DEPTH32F_STENCIL8
+        | gl::STENCIL_INDEX8 => return Some(CopyClass::DepthStencil(internal_format)),
+        other => return compressed_class(other),
+    };
+    Some(CopyClass::Uncompressed(bits))
 }
 
 /// Copies a box of texels from one image to another (`glCopyImageSubData`), without going
@@ -809,8 +858,36 @@ pub fn copy_image<'a, 'b>(
         }
     }
 
+    // the entry point of the version, or of the extension on OpenGL ES below 3.2: names,
+    // targets and levels, then offsets and sizes
+    type Copy = unsafe fn(
+        &gl::Extra,
+        gl::types::GLuint,
+        gl::types::GLenum,
+        gl::types::GLint,
+        gl::types::GLint,
+        gl::types::GLint,
+        gl::types::GLint,
+        gl::types::GLuint,
+        gl::types::GLenum,
+        gl::types::GLint,
+        gl::types::GLint,
+        gl::types::GLint,
+        gl::types::GLint,
+        gl::types::GLsizei,
+        gl::types::GLsizei,
+        gl::types::GLsizei,
+    );
+    let copy: Copy = if ctxt.version.0 == Api::Gl || ctxt.version >= &Version(Api::GlEs, 3, 2) {
+        gl::Extra::CopyImageSubData
+    } else if ctxt.extensions.gl_ext_copy_image {
+        gl::Extra::CopyImageSubDataEXT
+    } else {
+        gl::Extra::CopyImageSubDataOES
+    };
     unsafe {
-        ctxt.extra.CopyImageSubData(
+        copy(
+            ctxt.extra,
             src.name,
             src.target,
             src.level as gl::types::GLint,

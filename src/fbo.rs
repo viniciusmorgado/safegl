@@ -168,6 +168,79 @@ pub fn is_multiview_supported(ctxt: &CommandContext<'_>) -> bool {
     ctxt.extensions.gl_ovr_multiview2
 }
 
+/// Returns true if framebuffers render to textures with samples that the GPU resolves
+/// (`GL_EXT_multisampled_render_to_texture`), which WebGL doesn't have.
+pub fn is_multisampled_render_to_texture_supported(context: &Context) -> bool {
+    let extensions = context.get_extensions();
+    !cfg!(safegl_browser)
+        && (extensions.gl_ext_multisampled_render_to_texture
+            || extensions.gl_ext_multisampled_render_to_texture2)
+}
+
+/// Checks the attachments whose samples the GPU resolves when it writes them
+/// (`GL_EXT_multisampled_render_to_texture`): the images given samples
+/// (`TextureAnyImage::multisampled`) and the render buffers built with
+/// `new_multisample_resolved`. Each attachment comes with whether it is the first color
+/// attachment, the only one where the images given samples can be without
+/// `GL_EXT_multisampled_render_to_texture2`. The other multisampled attachments of the
+/// framebuffer can't have samples of their own.
+fn check_resolved_samples(
+    context: &Context,
+    attachments: &[(bool, &RegularAttachment<'_>)],
+) -> Result<(), ValidationError> {
+    let mut resolved = false;
+    let mut own_samples = false;
+    for &(first_color, attachment) in attachments {
+        match attachment {
+            RegularAttachment::Texture(image) => {
+                let Some(samples) = image.get_render_samples() else {
+                    own_samples |= image.get_samples().is_some();
+                    continue;
+                };
+                resolved = true;
+                let second = context.get_extensions().gl_ext_multisampled_render_to_texture2;
+                if !is_multisampled_render_to_texture_supported(context)
+                    || (!first_color && !second)
+                {
+                    return Err(ValidationError::MultisampledRenderToTextureNotSupported);
+                }
+                let texture = image.get_texture();
+                let bind_point = texture.get_bind_point();
+                if bind_point != gl::TEXTURE_2D && bind_point != gl::TEXTURE_CUBE_MAP {
+                    return Err(ValidationError::MultisampledRenderToTextureTarget);
+                }
+                let capabilities = context.get_capabilities();
+                let mut max = capabilities.limits.max_samples.max(0) as u32;
+                // the samples of a format are listed for render buffers
+                if let TextureFormatRequest::Specific(format) = texture.get_requested_format() {
+                    let format_samples = capabilities
+                        .internal_formats_renderbuffers
+                        .get(&format)
+                        .and_then(|infos| infos.multisamples.as_ref());
+                    if let Some(format_samples) = format_samples {
+                        let format_max = format_samples.iter().copied().max().unwrap_or(0);
+                        max = max.min(format_max.max(0) as u32);
+                    }
+                }
+                if samples > max {
+                    return Err(ValidationError::SamplesNotSupported);
+                }
+            }
+            RegularAttachment::RenderBuffer(buffer) => {
+                if buffer.is_multisample_resolved() {
+                    resolved = true;
+                } else {
+                    own_samples |= buffer.get_samples().is_some_and(|samples| samples > 0);
+                }
+            }
+        }
+    }
+    if resolved && own_samples {
+        return Err(ValidationError::SamplesCountMismatch);
+    }
+    Ok(())
+}
+
 /// Returns true if the backend can attach whole textures with layers to framebuffers
 /// (`glFramebufferTexture`, core in OpenGL 3.2 and OpenGL ES 3.2).
 pub fn is_layered_supported(ctxt: &CommandContext<'_>) -> bool {
@@ -505,6 +578,7 @@ impl<'a> FramebufferAttachments<'a> {
                     level: $tex.get_level(),
                     cubemap_layer: None,
                     views,
+                    render_samples: None,
                 }
             }};
         }
@@ -620,14 +694,16 @@ impl<'a> FramebufferAttachments<'a> {
 
             ($tex:ident, $dim:ident, $samples:ident) => {{
                 check_renderable(context, $tex.get_texture())?;
+                // the samples that the framebuffer renders to the image with
+                let tex_samples = $tex.get_render_samples().or($tex.get_samples()).unwrap_or(0);
                 match &mut $samples {
                     &mut Some(samples) => {
-                        if samples != $tex.get_samples().unwrap_or(0) {
+                        if samples != tex_samples {
                             return Err(ValidationError::SamplesCountMismatch);
                         }
                     }
                     s @ &mut None => {
-                        *s = Some($tex.get_samples().unwrap_or(0));
+                        *s = Some(tex_samples);
                     }
                 }
 
@@ -653,6 +729,7 @@ impl<'a> FramebufferAttachments<'a> {
                     level: $tex.get_level(),
                     cubemap_layer: $tex.get_cubemap_layer(),
                     views: None,
+                    render_samples: $tex.get_render_samples(),
                 }
             }};
         }
@@ -712,6 +789,22 @@ impl<'a> FramebufferAttachments<'a> {
                 obtained: colors.len(),
             });
         }
+
+        let mut resolved = colors
+            .iter()
+            .map(|(index, attachment)| (*index == 0, attachment))
+            .collect::<SmallVec<[_; 8]>>();
+        match depth_stencil {
+            DepthStencilAttachments::None => (),
+            DepthStencilAttachments::DepthAttachment(ref a)
+            | DepthStencilAttachments::StencilAttachment(ref a)
+            | DepthStencilAttachments::DepthStencilAttachment(ref a) => resolved.push((false, a)),
+            DepthStencilAttachments::DepthAndStencilAttachments(ref d, ref s) => {
+                resolved.push((false, d));
+                resolved.push((false, s));
+            }
+        }
+        check_resolved_samples(context, &resolved)?;
 
         let mut raw_attachments = RawAttachments {
             color: Vec::with_capacity(colors.len()),
@@ -841,6 +934,11 @@ impl<'a> ValidatedAttachments<'a> {
         for texture in &self.textures {
             texture.prepare_for_access(ctxt, crate::TextureAccess::Framebuffer);
         }
+    }
+
+    /// Returns the locations of the color attachments.
+    pub fn color_locations(&self) -> impl Iterator<Item = u32> + '_ {
+        self.color_kinds.iter().map(|&(location, _)| location)
     }
 
     /// Returns true if a color attachment has a format of 32-bit floats, which OpenGL ES and
@@ -976,6 +1074,19 @@ pub enum ValidationError {
     /// The views of a multiview framebuffer are more than the layers of an attachment, more than
     /// `GL_MAX_VIEWS_OVR`, or fewer than two: a single layer is attached on its own instead.
     ViewsOutOfRange,
+
+    /// An image is rendered to with samples (`TextureAnyImage::multisampled`), which needs
+    /// `GL_EXT_multisampled_render_to_texture`, and `GL_EXT_multisampled_render_to_texture2`
+    /// elsewhere than at the first color attachment. WebGL doesn't have them.
+    MultisampledRenderToTextureNotSupported,
+
+    /// An image rendered to with samples isn't of a texture of two dimensions or of a face of a
+    /// cube map, without samples of its own.
+    MultisampledRenderToTextureTarget,
+
+    /// An image is rendered to with more samples than `Limits::max_samples`, or than the largest
+    /// number of samples of its format.
+    SamplesNotSupported,
 }
 
 /// Returns true if `texture` has a format of 32-bit floats.
@@ -989,6 +1100,14 @@ fn is_float32(texture: &TextureAny) -> bool {
 /// Returns `FormatNotRenderable` if `texture` has a format that the backend can't render to,
 /// which would make the framebuffer incomplete.
 fn check_renderable(context: &Context, texture: &TextureAny) -> Result<(), ValidationError> {
+    // external textures are written in YUV by shaders with `layout(yuv) out`
+    if let crate::texture::Dimensions::External { .. } = texture.dimensions() {
+        return if context.get_extensions().gl_ext_yuv_target {
+            Ok(())
+        } else {
+            Err(ValidationError::FormatNotRenderable)
+        };
+    }
     match texture.get_requested_format() {
         TextureFormatRequest::Specific(format) if !format.is_renderable(context) => {
             Err(ValidationError::FormatNotRenderable)
@@ -1024,6 +1143,13 @@ impl fmt::Display for ValidationError {
                 "The attachments of multiview framebuffers must be 2D array textures"
             }
             ViewsOutOfRange => "The views are out of the range of the attachments or the backend",
+            MultisampledRenderToTextureNotSupported => {
+                "The backend can't render to this attachment with samples that it resolves"
+            }
+            MultisampledRenderToTextureTarget => {
+                "Images rendered to with samples are of 2D textures or of faces of cube maps"
+            }
+            SamplesNotSupported => "The number of samples isn't supported for this format",
         };
         match self {
             TooManyColorAttachments {
@@ -1076,6 +1202,9 @@ enum RawAttachment {
         // the first view and the number of views of a multiview attachment of a 2D array
         // texture, whose `layer` is `None`
         views: Option<(u32, u32)>,
+        // the samples that the framebuffer renders to the texture with, which the GPU resolves
+        // (`GL_EXT_multisampled_render_to_texture`)
+        render_samples: Option<u32>,
     },
 
     /// A renderbuffer with its ID.
@@ -1357,6 +1486,7 @@ impl FramebuffersContainer {
                     level: image.get_level(),
                     cubemap_layer: image.get_cubemap_layer(),
                     views: None,
+                    render_samples: None,
                 },
                 (image.get_width(), image.get_height().unwrap_or(1)),
             ),
@@ -1884,6 +2014,16 @@ impl FrameBufferObject {
 
     /// Destroys the FBO. Must be called, or things will leak.
     fn destroy(self, ctxt: &mut CommandContext<'_>) {
+        // the render pass of a tile-based GPU on the framebuffer ends with it
+        if ctxt
+            .state
+            .framebuffer_pass
+            .is_some_and(|pass| pass.framebuffer == Some(self.id))
+        {
+            unsafe { suspend_framebuffer_pass(ctxt) };
+            ctxt.state.framebuffer_pass = None;
+        }
+
         // unbinding framebuffer
         if ctxt.state.draw_framebuffer == Some(self.id) {
             ctxt.state.draw_framebuffer = None;
@@ -1977,6 +2117,93 @@ fn select_default_draw_buffer(ctxt: &mut CommandContext<'_>, buffer: gl::types::
 /// The id of the FBO must be valid.
 ///
 pub unsafe fn bind_framebuffer(
+    ctxt: &mut CommandContext<'_>,
+    fbo_id: Option<glow::Framebuffer>,
+    draw: bool,
+    read: bool,
+) {
+    // OpenGL ES binds framebuffers for reading to `GL_FRAMEBUFFER`, for drawing too
+    let draws = draw || (read && ctxt.version.0 != Api::Gl);
+    if draws && ctxt.state.draw_framebuffer != fbo_id {
+        suspend_framebuffer_pass(ctxt);
+    }
+    bind_framebuffer_without_pass(ctxt, fbo_id, draw, read);
+    resume_framebuffer_pass(ctxt);
+}
+
+/// A render pass of a tile-based GPU that a surface keeps open on a framebuffer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FramebufferPass {
+    /// The identifier of the object that opened the pass.
+    pub id: u64,
+    /// The framebuffer of the pass, `None` for the default one.
+    pub framebuffer: Option<glow::Framebuffer>,
+    /// What the pass does.
+    pub kind: FramebufferPassKind,
+    /// Whether the pass is active in OpenGL, rather than suspended while another framebuffer is
+    /// bound for drawing.
+    pub active: bool,
+}
+
+/// What a render pass of a tile-based GPU does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FramebufferPassKind {
+    /// Pixel local storage is enabled (`GL_EXT_shader_pixel_local_storage`).
+    PixelLocalStorage,
+    /// The rendering is limited to a tile, `(x, y, width, height)` (`GL_QCOM_tiled_rendering`).
+    Tiling((u32, u32, u32, u32)),
+}
+
+/// All the buffers that `glStartTilingQCOM` and `glEndTilingQCOM` can preserve.
+pub const PRESERVE_ALL_TILE_BUFFERS: gl::types::GLbitfield = 0xFFFF_FFFF;
+
+/// Ends the render pass of a tile-based GPU in OpenGL, which `resume_framebuffer_pass` starts
+/// again when its framebuffer is bound for drawing: pixel local storage is disabled, and its
+/// content is lost, and the tiled rendering ends, preserving everything.
+pub unsafe fn suspend_framebuffer_pass(ctxt: &mut CommandContext<'_>) {
+    let Some(pass) = ctxt.state.framebuffer_pass.filter(|pass| pass.active) else {
+        return;
+    };
+    #[cfg(not(safegl_browser))]
+    match pass.kind {
+        FramebufferPassKind::PixelLocalStorage => {
+            ctxt.glow.disable(gl::SHADER_PIXEL_LOCAL_STORAGE_EXT)
+        }
+        FramebufferPassKind::Tiling(_) => ctxt.extra.EndTilingQCOM(PRESERVE_ALL_TILE_BUFFERS),
+    }
+    ctxt.state.framebuffer_pass = Some(FramebufferPass {
+        active: false,
+        ..pass
+    });
+}
+
+/// Starts again the render pass of a tile-based GPU that `suspend_framebuffer_pass` ended, if
+/// its framebuffer is bound for drawing.
+unsafe fn resume_framebuffer_pass(ctxt: &mut CommandContext<'_>) {
+    let Some(pass) = ctxt.state.framebuffer_pass else {
+        return;
+    };
+    if pass.active || ctxt.state.draw_framebuffer != pass.framebuffer {
+        return;
+    }
+    #[cfg(not(safegl_browser))]
+    match pass.kind {
+        FramebufferPassKind::PixelLocalStorage => {
+            ctxt.glow.enable(gl::SHADER_PIXEL_LOCAL_STORAGE_EXT)
+        }
+        FramebufferPassKind::Tiling((x, y, width, height)) => {
+            ctxt.extra
+                .StartTilingQCOM(x, y, width, height, PRESERVE_ALL_TILE_BUFFERS)
+        }
+    }
+    ctxt.state.framebuffer_pass = Some(FramebufferPass {
+        active: true,
+        ..pass
+    });
+}
+
+/// Binds a framebuffer without suspending nor resuming the render pass of a tile-based GPU.
+unsafe fn bind_framebuffer_without_pass(
     ctxt: &mut CommandContext<'_>,
     fbo_id: Option<glow::Framebuffer>,
     draw: bool,
@@ -2105,17 +2332,52 @@ unsafe fn attach(
         RawAttachment::Texture {
             texture: tex_id,
             level,
+            bind_point,
+            cubemap_layer,
+            render_samples: Some(samples),
+            ..
+        } => {
+            // a level of a 2D texture or of a face of a cube map
+            let target = match cubemap_layer {
+                Some(face) => {
+                    gl::TEXTURE_CUBE_MAP_POSITIVE_X + face.get_layer_index() as gl::types::GLenum
+                }
+                None => bind_point,
+            };
+            bind_framebuffer(ctxt, Some(id), true, true);
+            #[cfg(not(safegl_browser))]
+            {
+                use crate::handles::RawName;
+
+                ctxt.extra.FramebufferTexture2DMultisampleEXT(
+                    gl::FRAMEBUFFER,
+                    slot,
+                    target,
+                    tex_id.raw_name(),
+                    level as gl::types::GLint,
+                    samples as gl::types::GLsizei,
+                );
+            }
+            #[cfg(safegl_browser)]
+            let _ = (slot, target, level, samples);
+        }
+
+        RawAttachment::Texture {
+            texture: tex_id,
+            level,
             layer,
             bind_point,
             cubemap_layer,
             views: None,
+            render_samples: None,
         } => {
             match bind_point {
                 // these textures can't be layered
                 gl::TEXTURE_2D
                 | gl::TEXTURE_2D_MULTISAMPLE
                 | gl::TEXTURE_1D
-                | gl::TEXTURE_RECTANGLE => {
+                | gl::TEXTURE_RECTANGLE
+                | gl::TEXTURE_EXTERNAL_OES => {
                     assert_eq!(layer, Some(0));
                     debug_assert!(cubemap_layer.is_none());
 
@@ -2138,10 +2400,12 @@ unsafe fn attach(
                         );
                     } else {
                         bind_framebuffer(ctxt, Some(id), true, true);
-                        // OpenGL ES 3.1+ also accepts multisample textures here
+                        // OpenGL ES 3.1+ also accepts multisample textures here, and
+                        // `GL_EXT_YUV_target` the external ones
                         assert!(
                             bind_point == gl::TEXTURE_2D
                                 || bind_point == gl::TEXTURE_2D_MULTISAMPLE
+                                || bind_point == gl::TEXTURE_EXTERNAL_OES
                         );
                         ctxt.glow.framebuffer_texture_2d(
                             glow::FRAMEBUFFER,

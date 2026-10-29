@@ -568,18 +568,30 @@ impl UncompressedFloatFormat {
 }
 
 /// List of uncompressed pixel formats that contain floating-point data in the sRGB color space.
+///
+/// New variants can be added without a major version, so matches need a wildcard arm.
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SrgbFormat {
     U8U8U8,
     U8U8U8U8,
+    /// One sRGB component (`GL_SR8_EXT`), with `GL_EXT_texture_sRGB_R8`. Not renderable.
+    U8,
+    /// Two sRGB components (`GL_SRG8_EXT`), with `GL_EXT_texture_sRGB_RG8`. Not renderable.
+    U8U8,
 }
 
 impl SrgbFormat {
     /// Returns a list of all the possible values of this enumeration.
     #[inline]
     pub fn get_formats_list() -> Vec<SrgbFormat> {
-        vec![SrgbFormat::U8U8U8, SrgbFormat::U8U8U8U8]
+        vec![
+            SrgbFormat::U8U8U8,
+            SrgbFormat::U8U8U8U8,
+            SrgbFormat::U8,
+            SrgbFormat::U8U8,
+        ]
     }
 
     /// Turns this format into a more generic `TextureFormat`.
@@ -589,12 +601,17 @@ impl SrgbFormat {
     }
 
     /// Returns true if this format is supported by the backend.
-    pub fn is_supported<C: ?Sized>(&self, _context: &C) -> bool
+    pub fn is_supported<C: ?Sized>(&self, context: &C) -> bool
     where
         C: CapabilitiesSource,
     {
-        // both are core in every version that SafeGL supports
-        true
+        // the three and four components are core in every version that SafeGL supports
+        let extensions = context.get_extensions();
+        match self {
+            SrgbFormat::U8U8U8 | SrgbFormat::U8U8U8U8 => true,
+            SrgbFormat::U8 => extensions.gl_ext_texture_srgb_r8,
+            SrgbFormat::U8U8 => extensions.gl_ext_texture_srgb_rg8,
+        }
     }
 
     /// Returns true if a texture or renderbuffer with this format can be used as a framebuffer
@@ -608,10 +625,12 @@ impl SrgbFormat {
             return false;
         }
 
-        // OpenGL ES can't render to `GL_SRGB8`
+        // OpenGL ES can't render to `GL_SRGB8`, and the extensions of one and two components
+        // don't render
         match self {
             SrgbFormat::U8U8U8 => context.get_version().0 == Api::Gl,
             SrgbFormat::U8U8U8U8 => true,
+            SrgbFormat::U8 | SrgbFormat::U8U8 => false,
         }
     }
 
@@ -619,6 +638,8 @@ impl SrgbFormat {
         match self {
             SrgbFormat::U8U8U8 => gl::SRGB8,
             SrgbFormat::U8U8U8U8 => gl::SRGB8_ALPHA8,
+            SrgbFormat::U8 => gl::SR8_EXT,
+            SrgbFormat::U8U8 => gl::SRG8_EXT,
         }
     }
 }
@@ -810,11 +831,25 @@ impl UncompressedUintFormat {
 // formats follow the order of `AstcBlockSize::ALL`
 const COMPRESSED_RGBA_ASTC_4X4: gl::types::GLenum = 0x93B0;
 const COMPRESSED_SRGB8_ALPHA8_ASTC_4X4: gl::types::GLenum = 0x93D0;
+// the three-dimensional ones follow the order of `AstcBlockSize3d::ALL`
+const COMPRESSED_RGBA_ASTC_3X3X3: gl::types::GLenum = 0x93C0;
+const COMPRESSED_SRGB8_ALPHA8_ASTC_3X3X3: gl::types::GLenum = 0x93E0;
 const ETC1_RGB8: gl::types::GLenum = 0x8D64;
 const COMPRESSED_RGB_PVRTC_4BPPV1: gl::types::GLenum = 0x8C00;
 const COMPRESSED_RGB_PVRTC_2BPPV1: gl::types::GLenum = 0x8C01;
 const COMPRESSED_RGBA_PVRTC_4BPPV1: gl::types::GLenum = 0x8C02;
 const COMPRESSED_RGBA_PVRTC_2BPPV1: gl::types::GLenum = 0x8C03;
+const COMPRESSED_RGBA_PVRTC_2BPPV2: gl::types::GLenum = 0x9137;
+const COMPRESSED_RGBA_PVRTC_4BPPV2: gl::types::GLenum = 0x9138;
+const COMPRESSED_SRGB_PVRTC_2BPPV1: gl::types::GLenum = 0x8A54;
+const COMPRESSED_SRGB_PVRTC_4BPPV1: gl::types::GLenum = 0x8A55;
+const COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV1: gl::types::GLenum = 0x8A56;
+const COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1: gl::types::GLenum = 0x8A57;
+const COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV2: gl::types::GLenum = 0x93F0;
+const COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV2: gl::types::GLenum = 0x93F1;
+const ATC_RGB: gl::types::GLenum = 0x8C92;
+const ATC_RGBA_EXPLICIT_ALPHA: gl::types::GLenum = 0x8C93;
+const ATC_RGBA_INTERPOLATED_ALPHA: gl::types::GLenum = 0x87EE;
 
 /// The size in texels of the blocks of an ASTC format: `B6x5` is 6 texels wide and 5 high.
 #[allow(missing_docs)]
@@ -889,6 +924,68 @@ impl AstcBlockSize {
     }
 }
 
+/// The size in texels of the three-dimensional blocks of an ASTC format, for 3D textures
+/// (`GL_OES_texture_compression_astc`): `B5x4x4` is 5 texels wide, 4 high and 4 deep.
+#[allow(missing_docs)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum AstcBlockSize3d {
+    B3x3x3,
+    B4x3x3,
+    B4x4x3,
+    B4x4x4,
+    B5x4x4,
+    B5x5x4,
+    B5x5x5,
+    B6x5x5,
+    B6x6x5,
+    B6x6x6,
+}
+
+impl AstcBlockSize3d {
+    /// Every size, from the smallest.
+    pub const ALL: [AstcBlockSize3d; 10] = [
+        AstcBlockSize3d::B3x3x3,
+        AstcBlockSize3d::B4x3x3,
+        AstcBlockSize3d::B4x4x3,
+        AstcBlockSize3d::B4x4x4,
+        AstcBlockSize3d::B5x4x4,
+        AstcBlockSize3d::B5x5x4,
+        AstcBlockSize3d::B5x5x5,
+        AstcBlockSize3d::B6x5x5,
+        AstcBlockSize3d::B6x6x5,
+        AstcBlockSize3d::B6x6x6,
+    ];
+
+    /// The width, the height and the depth of the blocks in texels.
+    pub fn dimensions(self) -> (u32, u32, u32) {
+        match self {
+            AstcBlockSize3d::B3x3x3 => (3, 3, 3),
+            AstcBlockSize3d::B4x3x3 => (4, 3, 3),
+            AstcBlockSize3d::B4x4x3 => (4, 4, 3),
+            AstcBlockSize3d::B4x4x4 => (4, 4, 4),
+            AstcBlockSize3d::B5x4x4 => (5, 4, 4),
+            AstcBlockSize3d::B5x5x4 => (5, 5, 4),
+            AstcBlockSize3d::B5x5x5 => (5, 5, 5),
+            AstcBlockSize3d::B6x5x5 => (6, 5, 5),
+            AstcBlockSize3d::B6x6x5 => (6, 6, 5),
+            AstcBlockSize3d::B6x6x6 => (6, 6, 6),
+        }
+    }
+
+    /// The position of the size in `ALL`, which orders the enums of OpenGL the same way.
+    fn index(self) -> u32 {
+        AstcBlockSize3d::ALL
+            .iter()
+            .position(|&size| size == self)
+            .unwrap() as u32
+    }
+
+    /// The size whose position in `ALL` is `index`.
+    fn from_index(index: u32) -> Option<AstcBlockSize3d> {
+        AstcBlockSize3d::ALL.get(index as usize).copied()
+    }
+}
+
 /// List of compressed texture formats.
 ///
 /// New formats can be added without a major version, so matches need a wildcard arm.
@@ -953,8 +1050,14 @@ pub enum CompressedFormat {
     EacRg11Signed,
     /// ASTC (LDR profile) with blocks of the given size, four components in linear colors
     /// (`GL_COMPRESSED_RGBA_ASTC_*_KHR`). Needs `GL_KHR_texture_compression_astc_ldr`, or
-    /// `WEBGL_compressed_texture_astc` on WebGL.
+    /// `WEBGL_compressed_texture_astc` on WebGL. 3D textures of these blocks, one slice after
+    /// the other, need `GL_KHR_texture_compression_astc_sliced_3d` or
+    /// `GL_KHR_texture_compression_astc_hdr`.
     Astc(AstcBlockSize),
+    /// ASTC with three-dimensional blocks of the given size, four components in linear colors,
+    /// for 3D textures only (`GL_COMPRESSED_RGBA_ASTC_*_OES`). Needs
+    /// `GL_OES_texture_compression_astc`.
+    Astc3d(AstcBlockSize3d),
     /// ETC1, three components (`GL_ETC1_RGB8_OES`). Needs `GL_OES_compressed_ETC1_RGB8_texture`,
     /// or `WEBGL_compressed_texture_etc1` on WebGL. Its textures are written whole: their
     /// regions can't be written. `Etc2Rgb8` decodes ETC1 data too.
@@ -970,6 +1073,21 @@ pub enum CompressedFormat {
     PvrtcRgba4,
     /// PVRTC, four components, 2 bits per texel (`GL_COMPRESSED_RGBA_PVRTC_2BPPV1_IMG`).
     PvrtcRgba2,
+    /// PVRTC version 2, four components, 4 bits per texel
+    /// (`GL_COMPRESSED_RGBA_PVRTC_4BPPV2_IMG`). Needs `GL_IMG_texture_compression_pvrtc2`. Its
+    /// textures have any size, and regions of whole blocks.
+    PvrtcRgba4V2,
+    /// PVRTC version 2, four components, 2 bits per texel
+    /// (`GL_COMPRESSED_RGBA_PVRTC_2BPPV2_IMG`). Needs `GL_IMG_texture_compression_pvrtc2`.
+    PvrtcRgba2V2,
+    /// ATC, three components (`GL_ATC_RGB_AMD`), of older Adreno GPUs. Needs
+    /// `GL_AMD_compressed_ATC_texture`. The textures of the ATC formats are written whole: their
+    /// regions can't be written.
+    AtcRgb,
+    /// ATC, four components with an explicit alpha (`GL_ATC_RGBA_EXPLICIT_ALPHA_AMD`).
+    AtcRgbaExplicitAlpha,
+    /// ATC, four components with an interpolated alpha (`GL_ATC_RGBA_INTERPOLATED_ALPHA_AMD`).
+    AtcRgbaInterpolatedAlpha,
 }
 
 impl CompressedFormat {
@@ -1004,12 +1122,18 @@ impl CompressedFormat {
             CompressedFormat::EacRg11Signed,
         ];
         formats.extend(AstcBlockSize::ALL.map(CompressedFormat::Astc));
+        formats.extend(AstcBlockSize3d::ALL.map(CompressedFormat::Astc3d));
         formats.extend([
             CompressedFormat::Etc1Rgb8,
             CompressedFormat::PvrtcRgb4,
             CompressedFormat::PvrtcRgb2,
             CompressedFormat::PvrtcRgba4,
             CompressedFormat::PvrtcRgba2,
+            CompressedFormat::PvrtcRgba4V2,
+            CompressedFormat::PvrtcRgba2V2,
+            CompressedFormat::AtcRgb,
+            CompressedFormat::AtcRgbaExplicitAlpha,
+            CompressedFormat::AtcRgbaInterpolatedAlpha,
         ]);
         formats
     }
@@ -1043,8 +1167,20 @@ impl CompressedFormat {
                 let (width, height) = size.dimensions();
                 (width, height, 16)
             }
-            CompressedFormat::PvrtcRgb4 | CompressedFormat::PvrtcRgba4 => (4, 4, 8),
-            CompressedFormat::PvrtcRgb2 | CompressedFormat::PvrtcRgba2 => (8, 4, 8),
+            CompressedFormat::Astc3d(size) => {
+                let (width, height, _) = size.dimensions();
+                (width, height, 16)
+            }
+            CompressedFormat::PvrtcRgb4
+            | CompressedFormat::PvrtcRgba4
+            | CompressedFormat::PvrtcRgba4V2 => (4, 4, 8),
+            CompressedFormat::PvrtcRgb2
+            | CompressedFormat::PvrtcRgba2
+            | CompressedFormat::PvrtcRgba2V2 => (8, 4, 8),
+            CompressedFormat::AtcRgb => (4, 4, 8),
+            CompressedFormat::AtcRgbaExplicitAlpha | CompressedFormat::AtcRgbaInterpolatedAlpha => {
+                (4, 4, 16)
+            }
         }
     }
 
@@ -1100,6 +1236,7 @@ impl CompressedFormat {
                 extensions.gl_khr_texture_compression_astc_ldr
                     || extensions.webgl_compressed_texture_astc
             }
+            CompressedFormat::Astc3d(_) => extensions.gl_oes_texture_compression_astc,
             CompressedFormat::Etc1Rgb8 => {
                 extensions.gl_oes_compressed_etc1_rgb8_texture
                     || extensions.webgl_compressed_texture_etc1
@@ -1110,6 +1247,14 @@ impl CompressedFormat {
             | CompressedFormat::PvrtcRgba2 => {
                 extensions.gl_img_texture_compression_pvrtc
                     || extensions.webgl_compressed_texture_pvrtc
+            }
+            CompressedFormat::PvrtcRgba4V2 | CompressedFormat::PvrtcRgba2V2 => {
+                extensions.gl_img_texture_compression_pvrtc2
+            }
+            CompressedFormat::AtcRgb
+            | CompressedFormat::AtcRgbaExplicitAlpha
+            | CompressedFormat::AtcRgbaInterpolatedAlpha => {
+                extensions.gl_amd_compressed_atc_texture
             }
         }
     }
@@ -1144,11 +1289,17 @@ impl CompressedFormat {
             #[cfg(any(safegl_gl43, safegl_gles30, safegl_webgl))]
             CompressedFormat::EacRg11Signed => gl::COMPRESSED_SIGNED_RG11_EAC,
             CompressedFormat::Astc(size) => COMPRESSED_RGBA_ASTC_4X4 + size.index(),
+            CompressedFormat::Astc3d(size) => COMPRESSED_RGBA_ASTC_3X3X3 + size.index(),
             CompressedFormat::Etc1Rgb8 => ETC1_RGB8,
             CompressedFormat::PvrtcRgb4 => COMPRESSED_RGB_PVRTC_4BPPV1,
             CompressedFormat::PvrtcRgb2 => COMPRESSED_RGB_PVRTC_2BPPV1,
             CompressedFormat::PvrtcRgba4 => COMPRESSED_RGBA_PVRTC_4BPPV1,
             CompressedFormat::PvrtcRgba2 => COMPRESSED_RGBA_PVRTC_2BPPV1,
+            CompressedFormat::PvrtcRgba4V2 => COMPRESSED_RGBA_PVRTC_4BPPV2,
+            CompressedFormat::PvrtcRgba2V2 => COMPRESSED_RGBA_PVRTC_2BPPV2,
+            CompressedFormat::AtcRgb => ATC_RGB,
+            CompressedFormat::AtcRgbaExplicitAlpha => ATC_RGBA_EXPLICIT_ALPHA,
+            CompressedFormat::AtcRgbaInterpolatedAlpha => ATC_RGBA_INTERPOLATED_ALPHA,
         }
     }
 }
@@ -1181,8 +1332,31 @@ pub enum CompressedSrgbFormat {
     Etc2Rgba8Eac,
     /// ASTC (LDR profile) with blocks of the given size, in sRGB with a linear alpha
     /// (`GL_COMPRESSED_SRGB8_ALPHA8_ASTC_*_KHR`). Needs `GL_KHR_texture_compression_astc_ldr`,
-    /// or `WEBGL_compressed_texture_astc` on WebGL.
+    /// or `WEBGL_compressed_texture_astc` on WebGL. See `CompressedFormat::Astc` for 3D textures.
     Astc(AstcBlockSize),
+    /// ASTC with three-dimensional blocks of the given size, in sRGB with a linear alpha, for 3D
+    /// textures only (`GL_COMPRESSED_SRGB8_ALPHA8_ASTC_*_OES`). Needs
+    /// `GL_OES_texture_compression_astc`.
+    Astc3d(AstcBlockSize3d),
+    /// PVRTC in sRGB, three components, 4 bits per texel
+    /// (`GL_COMPRESSED_SRGB_PVRTC_4BPPV1_EXT`). Needs `GL_EXT_pvrtc_sRGB`. Like
+    /// `CompressedFormat::PvrtcRgb4`, its textures are squares of power-of-two sizes, written whole.
+    PvrtcRgb4,
+    /// PVRTC in sRGB, three components, 2 bits per texel (`GL_COMPRESSED_SRGB_PVRTC_2BPPV1_EXT`).
+    PvrtcRgb2,
+    /// PVRTC in sRGB with a linear alpha, 4 bits per texel
+    /// (`GL_COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1_EXT`).
+    PvrtcRgba4,
+    /// PVRTC in sRGB with a linear alpha, 2 bits per texel
+    /// (`GL_COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV1_EXT`).
+    PvrtcRgba2,
+    /// PVRTC version 2 in sRGB with a linear alpha, 4 bits per texel
+    /// (`GL_COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV2_IMG`). Needs `GL_EXT_pvrtc_sRGB` and
+    /// `GL_IMG_texture_compression_pvrtc2`.
+    PvrtcRgba4V2,
+    /// PVRTC version 2 in sRGB with a linear alpha, 2 bits per texel
+    /// (`GL_COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV2_IMG`).
+    PvrtcRgba2V2,
 }
 
 impl CompressedSrgbFormat {
@@ -1203,6 +1377,15 @@ impl CompressedSrgbFormat {
             CompressedSrgbFormat::Etc2Rgba8Eac,
         ];
         formats.extend(AstcBlockSize::ALL.map(CompressedSrgbFormat::Astc));
+        formats.extend(AstcBlockSize3d::ALL.map(CompressedSrgbFormat::Astc3d));
+        formats.extend([
+            CompressedSrgbFormat::PvrtcRgb4,
+            CompressedSrgbFormat::PvrtcRgb2,
+            CompressedSrgbFormat::PvrtcRgba4,
+            CompressedSrgbFormat::PvrtcRgba2,
+            CompressedSrgbFormat::PvrtcRgba4V2,
+            CompressedSrgbFormat::PvrtcRgba2V2,
+        ]);
         formats
     }
 
@@ -1247,6 +1430,14 @@ impl CompressedSrgbFormat {
                 extensions.gl_khr_texture_compression_astc_ldr
                     || extensions.webgl_compressed_texture_astc
             }
+            CompressedSrgbFormat::Astc3d(_) => extensions.gl_oes_texture_compression_astc,
+            CompressedSrgbFormat::PvrtcRgb4
+            | CompressedSrgbFormat::PvrtcRgb2
+            | CompressedSrgbFormat::PvrtcRgba4
+            | CompressedSrgbFormat::PvrtcRgba2 => extensions.gl_ext_pvrtc_srgb,
+            CompressedSrgbFormat::PvrtcRgba4V2 | CompressedSrgbFormat::PvrtcRgba2V2 => {
+                extensions.gl_ext_pvrtc_srgb && extensions.gl_img_texture_compression_pvrtc2
+            }
         }
     }
 
@@ -1268,6 +1459,15 @@ impl CompressedSrgbFormat {
             CompressedSrgbFormat::Astc(size) => {
                 COMPRESSED_SRGB8_ALPHA8_ASTC_4X4 + size.index()
             }
+            CompressedSrgbFormat::Astc3d(size) => {
+                COMPRESSED_SRGB8_ALPHA8_ASTC_3X3X3 + size.index()
+            }
+            CompressedSrgbFormat::PvrtcRgb4 => COMPRESSED_SRGB_PVRTC_4BPPV1,
+            CompressedSrgbFormat::PvrtcRgb2 => COMPRESSED_SRGB_PVRTC_2BPPV1,
+            CompressedSrgbFormat::PvrtcRgba4 => COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1,
+            CompressedSrgbFormat::PvrtcRgba2 => COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV1,
+            CompressedSrgbFormat::PvrtcRgba4V2 => COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV2,
+            CompressedSrgbFormat::PvrtcRgba2V2 => COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV2,
         }
     }
 
@@ -1290,6 +1490,16 @@ impl CompressedSrgbFormat {
                 let (width, height) = size.dimensions();
                 (width, height, 16)
             }
+            CompressedSrgbFormat::Astc3d(size) => {
+                let (width, height, _) = size.dimensions();
+                (width, height, 16)
+            }
+            CompressedSrgbFormat::PvrtcRgb4
+            | CompressedSrgbFormat::PvrtcRgba4
+            | CompressedSrgbFormat::PvrtcRgba4V2 => (4, 4, 8),
+            CompressedSrgbFormat::PvrtcRgb2
+            | CompressedSrgbFormat::PvrtcRgba2
+            | CompressedSrgbFormat::PvrtcRgba2V2 => (8, 4, 8),
         }
     }
 }
@@ -1665,17 +1875,17 @@ impl ClientFormatAny {
             ClientFormatAny::CompressedSrgbFormat(format) => format.block_size(),
         };
 
-        // the compressed formats only exist for two-dimensional images and their arrays; the
-        // blocks at the right and top edges of an image whose size isn't a multiple of the
-        // blocks are partial, but take the room of a whole block, and PVRTC images have at least
-        // two blocks in each direction
+        // the compressed formats exist for two-dimensional images and their arrays, and some for
+        // 3D images too, in slices of two-dimensional blocks or in three-dimensional blocks; the
+        // blocks at the edges of an image whose size isn't a multiple of the blocks are partial,
+        // but take the room of a whole block, and PVRTC images have at least two blocks in each
+        // direction
         let height = height?;
-        if depth.is_some() {
-            return None;
-        }
+        let slices = depth.map_or(1, |depth| depth.div_ceil(self.block_depth()) as usize);
         let min_blocks = if self.is_pvrtc() { 2 } else { 1 };
         let blocks = width.div_ceil(block_width).max(min_blocks) as usize
             * height.div_ceil(block_height).max(min_blocks) as usize
+            * slices
             * array_size.unwrap_or(1) as usize;
         Some(blocks * block_bytes)
     }
@@ -1690,10 +1900,33 @@ impl ClientFormatAny {
         }
     }
 
-    /// Returns true for the compressed formats whose textures are written whole, without
-    /// texture storage: ETC1 and PVRTC.
+    /// Returns true for the compressed formats whose regions can't be written: their levels are
+    /// written whole, ETC1, the first version of PVRTC and ATC.
     pub fn is_written_whole(&self) -> bool {
-        self.is_pvrtc() || *self == ClientFormatAny::CompressedFormat(CompressedFormat::Etc1Rgb8)
+        self.is_pvrtc()
+            || matches!(
+                self,
+                ClientFormatAny::CompressedFormat(
+                    CompressedFormat::Etc1Rgb8
+                        | CompressedFormat::AtcRgb
+                        | CompressedFormat::AtcRgbaExplicitAlpha
+                        | CompressedFormat::AtcRgbaInterpolatedAlpha
+                )
+            )
+    }
+
+    /// Returns true for the compressed formats whose textures have no texture storage, which
+    /// their extensions don't give: those written whole and the second version of PVRTC.
+    pub fn has_no_storage(&self) -> bool {
+        self.is_written_whole()
+            || matches!(
+                self,
+                ClientFormatAny::CompressedFormat(
+                    CompressedFormat::PvrtcRgba4V2 | CompressedFormat::PvrtcRgba2V2
+                ) | ClientFormatAny::CompressedSrgbFormat(
+                    CompressedSrgbFormat::PvrtcRgba4V2 | CompressedSrgbFormat::PvrtcRgba2V2
+                )
+            )
     }
 
     /// Returns true for the S3TC, RGTC and BPTC formats, whose extensions of WebGL need levels 0
@@ -1726,8 +1959,33 @@ impl ClientFormatAny {
         }
     }
 
-    /// Returns true for the PVRTC formats.
-    fn is_pvrtc(&self) -> bool {
+    /// Returns true for the ASTC formats, of two- or three-dimensional blocks.
+    pub fn is_astc(&self) -> bool {
+        matches!(
+            self,
+            ClientFormatAny::CompressedFormat(
+                CompressedFormat::Astc(_) | CompressedFormat::Astc3d(_)
+            ) | ClientFormatAny::CompressedSrgbFormat(
+                    CompressedSrgbFormat::Astc(_) | CompressedSrgbFormat::Astc3d(_)
+                )
+        )
+    }
+
+    /// The depth of the blocks in texels: that of the three-dimensional ASTC blocks, 1 for the
+    /// other formats.
+    pub fn block_depth(&self) -> u32 {
+        match self {
+            ClientFormatAny::CompressedFormat(CompressedFormat::Astc3d(size))
+            | ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::Astc3d(size)) => {
+                size.dimensions().2
+            }
+            _ => 1,
+        }
+    }
+
+    /// Returns true for the formats of the first version of PVRTC, linear and sRGB, whose
+    /// textures are squares of power-of-two sizes with two blocks at least in each direction.
+    pub fn is_pvrtc(&self) -> bool {
         matches!(
             self,
             ClientFormatAny::CompressedFormat(
@@ -1735,6 +1993,11 @@ impl ClientFormatAny {
                     | CompressedFormat::PvrtcRgb2
                     | CompressedFormat::PvrtcRgba4
                     | CompressedFormat::PvrtcRgba2
+            ) | ClientFormatAny::CompressedSrgbFormat(
+                CompressedSrgbFormat::PvrtcRgb4
+                    | CompressedSrgbFormat::PvrtcRgb2
+                    | CompressedSrgbFormat::PvrtcRgba4
+                    | CompressedSrgbFormat::PvrtcRgba2
             )
         )
     }
@@ -1780,12 +2043,32 @@ impl ClientFormatAny {
             | ClientFormatAny::CompressedFormat(CompressedFormat::BptcUnorm4)
             | ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::Bptc) => 4,
             ClientFormatAny::CompressedFormat(
-                CompressedFormat::Etc1Rgb8 | CompressedFormat::PvrtcRgb4 | CompressedFormat::PvrtcRgb2,
+                CompressedFormat::Etc1Rgb8
+                | CompressedFormat::PvrtcRgb4
+                | CompressedFormat::PvrtcRgb2
+                | CompressedFormat::AtcRgb,
+            )
+            | ClientFormatAny::CompressedSrgbFormat(
+                CompressedSrgbFormat::PvrtcRgb4 | CompressedSrgbFormat::PvrtcRgb2,
             ) => 3,
             ClientFormatAny::CompressedFormat(
-                CompressedFormat::Astc(_) | CompressedFormat::PvrtcRgba4 | CompressedFormat::PvrtcRgba2,
+                CompressedFormat::Astc(_)
+                | CompressedFormat::Astc3d(_)
+                | CompressedFormat::PvrtcRgba4
+                | CompressedFormat::PvrtcRgba2
+                | CompressedFormat::PvrtcRgba4V2
+                | CompressedFormat::PvrtcRgba2V2
+                | CompressedFormat::AtcRgbaExplicitAlpha
+                | CompressedFormat::AtcRgbaInterpolatedAlpha,
             )
-            | ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::Astc(_)) => 4,
+            | ClientFormatAny::CompressedSrgbFormat(
+                CompressedSrgbFormat::Astc(_)
+                | CompressedSrgbFormat::Astc3d(_)
+                | CompressedSrgbFormat::PvrtcRgba4
+                | CompressedSrgbFormat::PvrtcRgba2
+                | CompressedSrgbFormat::PvrtcRgba4V2
+                | CompressedSrgbFormat::PvrtcRgba2V2,
+            ) => 4,
         }
     }
 
@@ -1895,15 +2178,59 @@ impl ClientFormatAny {
             COMPRESSED_RGBA_PVRTC_2BPPV1 => {
                 Some(ClientFormatAny::CompressedFormat(CompressedFormat::PvrtcRgba2))
             }
+            COMPRESSED_RGBA_PVRTC_4BPPV2 => {
+                Some(ClientFormatAny::CompressedFormat(CompressedFormat::PvrtcRgba4V2))
+            }
+            COMPRESSED_RGBA_PVRTC_2BPPV2 => {
+                Some(ClientFormatAny::CompressedFormat(CompressedFormat::PvrtcRgba2V2))
+            }
+            ATC_RGB => Some(ClientFormatAny::CompressedFormat(CompressedFormat::AtcRgb)),
+            ATC_RGBA_EXPLICIT_ALPHA => Some(ClientFormatAny::CompressedFormat(
+                CompressedFormat::AtcRgbaExplicitAlpha,
+            )),
+            ATC_RGBA_INTERPOLATED_ALPHA => Some(ClientFormatAny::CompressedFormat(
+                CompressedFormat::AtcRgbaInterpolatedAlpha,
+            )),
+            COMPRESSED_SRGB_PVRTC_4BPPV1 => {
+                Some(ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::PvrtcRgb4))
+            }
+            COMPRESSED_SRGB_PVRTC_2BPPV1 => {
+                Some(ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::PvrtcRgb2))
+            }
+            COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1 => {
+                Some(ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::PvrtcRgba4))
+            }
+            COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV1 => {
+                Some(ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::PvrtcRgba2))
+            }
+            COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV2 => {
+                Some(ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::PvrtcRgba4V2))
+            }
+            COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV2 => {
+                Some(ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::PvrtcRgba2V2))
+            }
             astc if (COMPRESSED_RGBA_ASTC_4X4..COMPRESSED_RGBA_ASTC_4X4 + 14).contains(&astc) => {
                 AstcBlockSize::from_index(astc - COMPRESSED_RGBA_ASTC_4X4)
                     .map(|size| ClientFormatAny::CompressedFormat(CompressedFormat::Astc(size)))
+            }
+            astc if (COMPRESSED_RGBA_ASTC_3X3X3..COMPRESSED_RGBA_ASTC_3X3X3 + 10)
+                .contains(&astc) =>
+            {
+                AstcBlockSize3d::from_index(astc - COMPRESSED_RGBA_ASTC_3X3X3)
+                    .map(|size| ClientFormatAny::CompressedFormat(CompressedFormat::Astc3d(size)))
             }
             astc if (COMPRESSED_SRGB8_ALPHA8_ASTC_4X4..COMPRESSED_SRGB8_ALPHA8_ASTC_4X4 + 14)
                 .contains(&astc) =>
             {
                 AstcBlockSize::from_index(astc - COMPRESSED_SRGB8_ALPHA8_ASTC_4X4).map(|size| {
                     ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::Astc(size))
+                })
+            }
+            astc if (COMPRESSED_SRGB8_ALPHA8_ASTC_3X3X3..COMPRESSED_SRGB8_ALPHA8_ASTC_3X3X3 + 10)
+                .contains(&astc) =>
+            {
+                AstcBlockSize3d::from_index(astc - COMPRESSED_SRGB8_ALPHA8_ASTC_3X3X3).map(|size| {
+                    ClientFormatAny::CompressedSrgbFormat(CompressedSrgbFormat::Astc3d(size))
                 })
             }
             _ => None,
@@ -2325,6 +2652,12 @@ pub fn default_client_format_to_glenum(
         }
         TextureFormatRequest::Specific(TextureFormat::Srgb(SrgbFormat::U8U8U8)) => {
             (gl::RGB, gl::UNSIGNED_BYTE)
+        }
+        TextureFormatRequest::Specific(TextureFormat::Srgb(SrgbFormat::U8)) => {
+            (gl::RED, gl::UNSIGNED_BYTE)
+        }
+        TextureFormatRequest::Specific(TextureFormat::Srgb(SrgbFormat::U8U8)) => {
+            (gl::RG, gl::UNSIGNED_BYTE)
         }
         TextureFormatRequest::AnyIntegral => (gl::RGBA_INTEGER, gl::INT),
         TextureFormatRequest::AnyUnsigned => (gl::RGBA_INTEGER, gl::UNSIGNED_INT),

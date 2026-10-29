@@ -95,6 +95,12 @@ pub enum Dimensions {
         dimension: u32,
         array_size: u32,
     },
+    /// The texture of an EGL image (`texture::ExternalTexture`, `GL_OES_EGL_image_external`),
+    /// sampled by `samplerExternalOES` uniforms, without mipmaps.
+    External {
+        width: u32,
+        height: u32,
+    },
 }
 
 /// A texture whose type isn't fixed at compile-time.
@@ -142,6 +148,10 @@ pub struct TextureAny {
 
     /// Whether the samples of a multisample texture are at the same positions in every texel.
     fixed_sample_locations: bool,
+
+    /// Whether the storage of the texture is an EGL image (`GL_EXT_EGL_image_storage`), which
+    /// drivers may not read with `glGetTexImage`: it is read through a framebuffer.
+    image_storage: Cell<bool>,
 }
 
 fn extract_dimensions(ty: Dimensions) -> (u32, Option<u32>, Option<u32>, Option<u32>, Option<u32>) {
@@ -178,6 +188,7 @@ fn extract_dimensions(ty: Dimensions) -> (u32, Option<u32>, Option<u32>, Option<
             dimension,
             array_size,
         } => (dimension, Some(dimension), None, Some(array_size * 6), None),
+        Dimensions::External { width, height } => (width, Some(height), None, None, None),
     }
 }
 
@@ -194,6 +205,7 @@ fn get_bind_point(ty: Dimensions) -> gl::types::GLenum {
         Dimensions::Texture3d { .. } => gl::TEXTURE_3D,
         Dimensions::Cubemap { .. } => gl::TEXTURE_CUBE_MAP,
         Dimensions::CubemapArray { .. } => gl::TEXTURE_CUBE_MAP_ARRAY,
+        Dimensions::External { .. } => gl::TEXTURE_EXTERNAL_OES,
     }
 }
 
@@ -584,17 +596,21 @@ where
     }
     check_dimensions(facade.get_context(), ty)?;
 
-    // ETC1 and PVRTC textures have no texture storage: their levels are given whole, the
-    // levels of PVRTC textures have power-of-two sizes
-    let written_whole = match format {
+    // the textures of ETC1, PVRTC and ATC have no texture storage, which their extensions don't
+    // give: their levels are given whole, and those of the first version of PVRTC have
+    // power-of-two sizes
+    let no_storage = match format {
         TextureFormatRequest::Specific(TextureFormat::CompressedFormat(format)) => {
-            Some(ClientFormatAny::CompressedFormat(format)).filter(|f| f.is_written_whole())
+            Some(ClientFormatAny::CompressedFormat(format))
+        }
+        TextureFormatRequest::Specific(TextureFormat::CompressedSrgbFormat(format)) => {
+            Some(ClientFormatAny::CompressedSrgbFormat(format))
         }
         _ => None,
-    };
+    }
+    .filter(|f| f.has_no_storage());
     let power_of_two = |size: Option<u32>| size.is_none_or(u32::is_power_of_two);
-    let etc1 = ClientFormatAny::CompressedFormat(CompressedFormat::Etc1Rgb8);
-    if written_whole.is_some_and(|f| f != etc1)
+    if no_storage.is_some_and(|f| f.is_pvrtc())
         && !(power_of_two(Some(width)) && power_of_two(height))
     {
         return Err(TextureCreationError::DimensionsNotSupported);
@@ -615,6 +631,40 @@ where
         && !(whole_blocks(Some(width)) && whole_blocks(height))
     {
         return Err(TextureCreationError::DimensionsNotSupported);
+    }
+
+    // 3D textures are compressed in slices of the two-dimensional blocks of ASTC
+    // (`GL_KHR_texture_compression_astc_sliced_3d` or `_hdr`) or in its three-dimensional blocks,
+    // which only 3D textures have, and with BPTC on desktop OpenGL
+    if let Some(compressed) = compressed {
+        let three_d = bind_point == gl::TEXTURE_3D;
+        let astc_3d_blocks = compressed.block_depth() > 1;
+        let extensions = facade.get_context().get_extensions();
+        let supported = match (three_d, compressed) {
+            (false, _) => !astc_3d_blocks,
+            (true, _) if astc_3d_blocks => true,
+            (true, astc) if astc.is_astc() => {
+                extensions.gl_khr_texture_compression_astc_sliced_3d
+                    || extensions.gl_khr_texture_compression_astc_hdr
+            }
+            (true, ClientFormatAny::CompressedFormat(f)) => {
+                facade.get_context().get_opengl_version().0 == Api::Gl
+                    && matches!(
+                        f,
+                        CompressedFormat::BptcUnorm4
+                            | CompressedFormat::BptcSignedFloat3
+                            | CompressedFormat::BptcUnsignedFloat3
+                    )
+            }
+            (true, ClientFormatAny::CompressedSrgbFormat(f)) => {
+                facade.get_context().get_opengl_version().0 == Api::Gl
+                    && f == image_format::CompressedSrgbFormat::Bptc
+            }
+            (true, ClientFormatAny::ClientFormat(_)) => true,
+        };
+        if !supported {
+            return Err(TextureCreationError::FormatNotSupported);
+        }
     }
 
     let should_generate_mipmaps = mipmaps.should_generate();
@@ -641,7 +691,7 @@ where
         image_format::RequestType::TexStorage(storage_client),
     )
     .ok()
-    .filter(|_| written_whole.is_none());
+    .filter(|_| no_storage.is_none());
 
     let (client_format, client_type) = match (&data, format) {
         (&Some((client_format, _)), f) => {
@@ -665,6 +715,29 @@ where
             }
         }
         other => other,
+    };
+
+    // OpenGL ES only uploads the data whose format matches the internal format: the other data
+    // is converted the way desktop OpenGL does
+    let mut converted = None;
+    if let (Some((ClientFormatAny::ClientFormat(client), pixels)), Api::GlEs) =
+        (&data, facade.get_context().get_opengl_version().0)
+    {
+        let internal = storage_internal_format.unwrap_or(teximg_internal_format);
+        match super::es_upload::upload(internal, *client) {
+            super::es_upload::Upload::AsIs => (),
+            super::es_upload::Upload::Convert => {
+                let bytes = super::es_upload::bytes(&pixels[..]);
+                converted = Some(super::es_upload::convert(bytes, *client, internal));
+            }
+            super::es_upload::Upload::Refused => {
+                return Err(TextureCreationError::FormatNotSupported)
+            }
+        }
+    }
+    let (client_format, client_type) = match &converted {
+        Some(converted) => (converted.format, converted.ty),
+        None => (client_format, client_type),
     };
 
     let is_multisampled = matches!(
@@ -725,7 +798,9 @@ where
         let has_mipmaps = texture_levels > 1;
         let data = data;
         // the size of `data` in bytes has been checked against `data_bufsize` above
-        let data_raw: Option<&[u8]> = if let Some((_, ref data)) = data {
+        let data_raw: Option<&[u8]> = if let Some(converted) = &converted {
+            Some(&converted.data)
+        } else if let Some((_, ref data)) = data {
             Some(slice::from_raw_parts(
                 data.as_ptr() as *const u8,
                 data_bufsize,
@@ -975,8 +1050,8 @@ where
                     data_bufsize as i32,
                     data_raw,
                 );
-            } else if let Some(format) = written_whole {
-                // an empty ETC1 or PVRTC level is made of zeroed blocks
+            } else if let Some(format) = no_storage {
+                // an empty level of these formats is made of zeroed blocks
                 let size = format.get_buffer_size(width as u32, Some(height as u32), None, None);
                 let zeroes = vec![0u8; size.unwrap_or(0)];
                 for target in image_targets(bind_point) {
@@ -1217,12 +1292,13 @@ where
         mipmap_range: Cell::new(Some((0, mipmap_max))),
         depth_stencil_mode: Cell::new(Some(gl::DEPTH_COMPONENT)),
         fixed_sample_locations,
+        image_storage: Cell::new(false),
     })
 }
 
 /// Builds a view of the levels `levels` and the layers `layers` of `source`, of the kind whose
 /// bind point is `target`, with the format `format` (`glTextureView`).
-#[cfg(safegl_gl43)]
+#[cfg(any(safegl_gl43, safegl_gles31))]
 pub fn new_texture_view(
     source: &TextureAny,
     target: gl::types::GLenum,
@@ -1236,7 +1312,11 @@ pub fn new_texture_view(
 
     let context = &source.context;
     let mut ctxt = context.make_current();
-    if !(ctxt.version >= &Version(Api::Gl, 4, 3) || ctxt.extensions.gl_arb_texture_view) {
+    let supported = ctxt.version >= &Version(Api::Gl, 4, 3)
+        || ctxt.extensions.gl_arb_texture_view
+        || ctxt.extensions.gl_oes_texture_view
+        || ctxt.extensions.gl_ext_texture_view;
+    if !supported {
         return Err(TextureViewError::NotSupported);
     }
     let source_target = source.get_bind_point();
@@ -1341,7 +1421,16 @@ pub fn new_texture_view(
     let id = unsafe {
         // `glTextureView` needs a name that was never bound
         let id = ctxt.glow.create_texture().expect("failed to create a texture");
-        ctxt.extra.TextureView(
+        // the entry point of the version, or of the extension on OpenGL ES
+        let view = if ctxt.version.0 == Api::Gl {
+            gl::Extra::TextureView
+        } else if ctxt.extensions.gl_oes_texture_view {
+            gl::Extra::TextureViewOES
+        } else {
+            gl::Extra::TextureViewEXT
+        };
+        view(
+            ctxt.extra,
             id.raw_name(),
             target,
             source.id.raw_name(),
@@ -1416,6 +1505,7 @@ pub fn new_texture_view(
         mipmap_range: Cell::new(Some((0, levels.len() as u32 - 1))),
         depth_stencil_mode: Cell::new(Some(gl::DEPTH_COMPONENT)),
         fixed_sample_locations: source.fixed_sample_locations,
+        image_storage: Cell::new(false),
     })
 }
 
@@ -1455,6 +1545,7 @@ pub unsafe fn from_id<F: Facade + ?Sized>(
         depth_stencil_mode: Cell::new(None),
         // the most common choice, which can't be queried below OpenGL ES 3.1
         fixed_sample_locations: true,
+        image_storage: Cell::new(false),
     };
 
     if should_generate_mipmaps {
@@ -1468,6 +1559,13 @@ pub unsafe fn from_id<F: Facade + ?Sized>(
 }
 
 impl TextureAny {
+    /// Marks the texture as having an EGL image as its storage, which is read through a
+    /// framebuffer.
+    #[cfg(feature = "glutin")]
+    pub(crate) fn set_image_storage(&self) {
+        self.image_storage.set(true);
+    }
+
     /// Returns the draw call that last wrote the texture through an image unit, shared with its
     /// views.
     #[cfg(safegl_desktop)]
@@ -1489,6 +1587,7 @@ impl TextureAny {
             Dimensions::Texture3d { width, .. } => width,
             Dimensions::Cubemap { dimension, .. } => dimension,
             Dimensions::CubemapArray { dimension, .. } => dimension,
+            Dimensions::External { width, .. } => width,
         }
     }
 
@@ -1506,6 +1605,7 @@ impl TextureAny {
             Dimensions::Texture3d { height, .. } => Some(height),
             Dimensions::Cubemap { dimension, .. } => Some(dimension),
             Dimensions::CubemapArray { dimension, .. } => Some(dimension),
+            Dimensions::External { height, .. } => Some(height),
         }
     }
 
@@ -1522,6 +1622,48 @@ impl TextureAny {
     /// textures that it didn't create.
     pub(crate) fn created_format(&self) -> gl::types::GLenum {
         self.created_format
+    }
+
+    /// The format, the type and the bytes of an upload of `data`, whose format is `client`, and
+    /// which OpenGL takes as `format` and `ty` otherwise: on OpenGL ES and WebGL, the data that
+    /// the internal format of the texture doesn't take is converted (`es_upload`), and
+    /// `UploadError::FormatNotSupported` returned if it can't be.
+    pub(crate) fn upload_data<'d>(
+        &self,
+        client: ClientFormatAny,
+        format: gl::types::GLenum,
+        ty: gl::types::GLenum,
+        data: &'d [u8],
+    ) -> Result<(gl::types::GLenum, gl::types::GLenum, Cow<'d, [u8]>), UploadError> {
+        let ClientFormatAny::ClientFormat(client) = client else {
+            return Ok((format, ty, Cow::Borrowed(data)));
+        };
+        if self.context.get_opengl_version().0 == Api::Gl {
+            return Ok((format, ty, Cow::Borrowed(data)));
+        }
+        match super::es_upload::upload(self.created_format, client) {
+            super::es_upload::Upload::AsIs => Ok((format, ty, Cow::Borrowed(data))),
+            super::es_upload::Upload::Convert => {
+                let converted = super::es_upload::convert(data, client, self.created_format);
+                Ok((converted.format, converted.ty, Cow::Owned(converted.data)))
+            }
+            super::es_upload::Upload::Refused => Err(UploadError::FormatNotSupported),
+        }
+    }
+
+    /// Returns `UploadError::FormatNotSupported` if an upload of `client` data from a pixel
+    /// buffer, which SafeGL can't convert, needs a conversion on OpenGL ES and WebGL.
+    pub(crate) fn check_buffer_upload(&self, client: ClientFormatAny) -> Result<(), UploadError> {
+        let ClientFormatAny::ClientFormat(client) = client else {
+            return Ok(());
+        };
+        if self.context.get_opengl_version().0 == Api::Gl {
+            return Ok(());
+        }
+        match super::es_upload::upload(self.created_format, client) {
+            super::es_upload::Upload::AsIs => Ok(()),
+            _ => Err(UploadError::FormatNotSupported),
+        }
     }
 
     /// Returns the initial requested format.
@@ -1588,6 +1730,7 @@ impl TextureAny {
             Dimensions::Texture3d { .. } => None,
             Dimensions::Cubemap { .. } => None,
             Dimensions::CubemapArray { array_size, .. } => Some(array_size),
+            Dimensions::External { .. } => None,
         }
     }
 
@@ -1833,7 +1976,7 @@ impl TextureExt for TextureAny {
     }
 }
 
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 impl crate::debug::sealed::Labeled for TextureAny {
     fn labeled_object(
         &self,
@@ -2161,6 +2304,8 @@ impl<'a> TextureAnyMipmap<'a> {
             inverted,
         )
         .map_err(|_| UploadError::FormatNotSupported)?;
+        self.texture
+            .check_buffer_upload(ClientFormatAny::ClientFormat(P::get_format()))?;
 
         let mut ctxt = self.texture.context.make_current();
 
@@ -2181,6 +2326,8 @@ impl<'a> TextureAnyMipmap<'a> {
 
             let bind_point = self.texture.bind_to_current(&mut ctxt);
             match self.texture.ty {
+                // `ExternalTexture` doesn't give its texture, whose content comes from its image
+                Dimensions::External { .. } => unreachable!("external textures aren't written"),
                 Dimensions::Texture1d { .. } => {
                     ctxt.extra.TexSubImage1D(
                         bind_point,
@@ -2320,7 +2467,16 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
         let written_whole = texture_format.is_some_and(|format| format.is_written_whole());
         let whole = (x_offset, y_offset, width, height.unwrap_or(1))
             == (0, 0, self.width, self.height.unwrap_or(1));
-        if written_whole && !whole {
+        // `GL_EXT_compressed_ETC1_RGB8_sub_texture` writes regions of ETC1 levels
+        let etc1 = Some(ClientFormatAny::CompressedFormat(CompressedFormat::Etc1Rgb8));
+        let etc1_regions = texture_format == etc1
+            && !crate::version::is_webgl()
+            && self
+                .texture
+                .context
+                .get_extensions()
+                .gl_ext_compressed_etc1_rgb8_sub_texture;
+        if written_whole && !whole && !etc1_regions {
             return Err(UploadError::NotSupported);
         }
         if let Some((block_width, block_height, _)) = block {
@@ -2366,6 +2522,10 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
 
             // the size of `data` in bytes has been checked against `data_bufsize` above
             let data = slice::from_raw_parts(data.as_ptr() as *const u8, data_bufsize);
+            let (client_format, client_type, data) =
+                self.texture
+                    .upload_data(format, client_format, client_type, data)?;
+            let data = &*data;
 
             if bind_point == gl::TEXTURE_CUBE_MAP || bind_point == gl::TEXTURE_CUBE_MAP_ARRAY {
                 panic!("the faces of a cubemap are written one by one, through its images");
@@ -2404,7 +2564,7 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
             {
                 assert!(z_offset == 0);
                 // FIXME should glTexImage be used here somewhere or glTexSubImage does it just fine?
-                if written_whole {
+                if written_whole && whole {
                     // ETC1 and PVRTC levels can only be given whole, with `glCompressedTexImage2D`
                     ctxt.glow.compressed_tex_image_2d(
                         bind_point,
@@ -2646,6 +2806,7 @@ impl<'a> TextureAnyLayerMipmap<'a> {
             cube_layer,
             width: self.width,
             height: self.height,
+            render_samples: None,
         })
     }
 }
@@ -2667,9 +2828,25 @@ pub struct TextureAnyImage<'a> {
     width: u32,
     /// Height of this image.
     height: Option<u32>,
+    /// The samples that framebuffers render to it with, resolved when they are written
+    /// (`GL_EXT_multisampled_render_to_texture`).
+    render_samples: Option<u32>,
 }
 
 impl<'a> TextureAnyImage<'a> {
+    /// The image of the first level of a texture without layers.
+    pub(crate) fn first_level(texture: &'a TextureAny) -> TextureAnyImage<'a> {
+        TextureAnyImage {
+            texture,
+            layer: 0,
+            level: 0,
+            cube_layer: None,
+            width: texture.get_width(),
+            height: texture.get_height(),
+            render_samples: None,
+        }
+    }
+
     /// Returns the texture.
     #[inline]
     pub fn get_texture(&self) -> &'a TextureAny {
@@ -2710,6 +2887,33 @@ impl<'a> TextureAnyImage<'a> {
     #[inline]
     pub fn get_samples(&self) -> Option<u32> {
         self.texture.get_samples()
+    }
+
+    /// Returns the image, which framebuffers render to with `samples` samples per pixel, that
+    /// the GPU resolves into the image when it writes them to memory, and discards afterwards
+    /// (`GL_EXT_multisampled_render_to_texture`): on tile-based GPUs, the samples stay in the
+    /// memory of the chip, so that multisampling costs neither memory nor bandwidth.
+    ///
+    /// The image is of a texture of two dimensions or of a face of a cube map, without
+    /// samples of its own. The other multisampled attachments of the framebuffer are render
+    /// buffers built with `new_multisample_resolved`, or images given samples too, with the same
+    /// number of samples. Building the framebuffer returns
+    /// `ValidationError::MultisampledRenderToTextureNotSupported` without the extension, and
+    /// for images attached elsewhere than at the first color attachment without
+    /// `GL_EXT_multisampled_render_to_texture2`.
+    #[inline]
+    pub fn multisampled(self, samples: u32) -> TextureAnyImage<'a> {
+        TextureAnyImage {
+            render_samples: Some(samples),
+            ..self
+        }
+    }
+
+    /// Returns the samples that framebuffers render to the image with
+    /// (`TextureAnyImage::multisampled`).
+    #[inline]
+    pub fn get_render_samples(&self) -> Option<u32> {
+        self.render_samples
     }
 
     /// Uploads data to a rectangle of the image. A layer of a one-dimensional texture array is
@@ -2763,6 +2967,13 @@ impl<'a> TextureAnyImage<'a> {
         }
         // the size of `data` in bytes has been checked against the size of the rect above
         let data = unsafe { slice::from_raw_parts(data.as_ptr() as *const u8, data_size) };
+        let (client_format, client_type, data) = self.texture.upload_data(
+            ClientFormatAny::ClientFormat(format),
+            client_format,
+            client_type,
+            data,
+        )?;
+        let data = &*data;
 
         let mut ctxt = self.texture.context.make_current();
 
@@ -2789,6 +3000,8 @@ impl<'a> TextureAnyImage<'a> {
             );
 
             match self.texture.ty {
+                // `ExternalTexture` doesn't give its texture, whose content comes from its image
+                Dimensions::External { .. } => unreachable!("external textures aren't written"),
                 Dimensions::Texture1d { .. } => {
                     ctxt.extra.TexSubImage1D(
                         bind_point,
@@ -3040,7 +3253,9 @@ impl<'a> TextureAnyMipmap<'a> {
     {
         let (width, height) = (self.get_width(), self.get_height().unwrap_or(1));
         #[cfg(safegl_desktop)]
-        if self.texture.context.get_opengl_version().0 == Api::Gl {
+        if self.texture.context.get_opengl_version().0 == Api::Gl
+            && !self.texture.image_storage.get()
+        {
             let data = self.read_level::<P>()?;
             return Ok(T::from_raw(Cow::Owned(data), width, height));
         }
@@ -3062,7 +3277,9 @@ impl<'a> TextureAnyMipmap<'a> {
         let texels = width as usize * height as usize;
         let buffer = PixelBuffer::new_empty(&self.texture.context, texels);
         #[cfg(safegl_desktop)]
-        if self.texture.context.get_opengl_version().0 == Api::Gl {
+        if self.texture.context.get_opengl_version().0 == Api::Gl
+            && !self.texture.image_storage.get()
+        {
             self.read_level_to_pixel_buffer(&buffer)?;
             return Ok(buffer);
         }

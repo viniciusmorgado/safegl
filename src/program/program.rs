@@ -38,7 +38,9 @@ use crate::program::reflection::{Attribute, TransformFeedbackBuffer};
 use crate::program::reflection::{OutputPrimitives, Uniform, UniformBlock};
 use crate::program::reflection::{ShaderStage, SubroutineData};
 use crate::program::raw::check_program_link_errors;
-use crate::program::shader::{check_shader, declared_views, start_shader, Shader};
+use crate::program::shader::{
+    check_shader, declared_views, fragment_features, start_shader, FragmentFeatures, Shader,
+};
 #[cfg(safegl_gl46)]
 use crate::program::shader::build_spirv_shader;
 
@@ -56,6 +58,9 @@ pub struct Program {
     // the number of views that the vertex shader declares (`GL_OVR_multiview2`), `None` for
     // the programs whose source SafeGL doesn't have
     declared_views: Option<Option<u32>>,
+    // what the fragment shader declares, `None` for the programs whose source SafeGL doesn't
+    // have
+    fragment_features: Option<FragmentFeatures>,
 }
 
 impl Program {
@@ -155,6 +160,7 @@ impl Program {
             uses_point_size,
             separable_stages: 0,
             declared_views: None,
+            fragment_features: None,
         })
     }
 
@@ -220,6 +226,7 @@ impl Program {
             (fragment_shader, ShaderType::Fragment),
         ];
         let declared_views = declared_views(vertex_shader);
+        let fragment_features = fragment_features(fragment_shader);
         let has_geometry_shader = geometry_shader.is_some();
         let has_tessellation_control_shader = tessellation_control_shader.is_some();
         let has_tessellation_evaluation_shader = tessellation_evaluation_shader.is_some();
@@ -259,6 +266,7 @@ impl Program {
                 outputs_srgb,
                 uses_point_size,
                 declared_views,
+                fragment_features,
             },
         })
     }
@@ -271,6 +279,7 @@ impl Program {
         outputs_srgb: bool,
         uses_point_size: bool,
         stages: gl::types::GLbitfield,
+        fragment_features: Option<FragmentFeatures>,
     ) -> Program {
         Program {
             raw,
@@ -278,6 +287,7 @@ impl Program {
             uses_point_size,
             separable_stages: stages,
             declared_views: None,
+            fragment_features,
         }
     }
 
@@ -293,6 +303,12 @@ impl Program {
     /// the programs of program pipelines.
     pub(crate) fn declared_views(&self) -> Result<Option<u32>, ()> {
         self.declared_views.ok_or(())
+    }
+
+    /// What the fragment shader declares, `Err(())` if SafeGL doesn't know: for binaries and
+    /// SPIR-V modules.
+    pub(crate) fn fragment_features(&self) -> Result<FragmentFeatures, ()> {
+        self.fragment_features.ok_or(())
     }
 
     /// Returns the program, which knows its uniform values.
@@ -622,7 +638,7 @@ impl fmt::Debug for Program {
     }
 }
 
-#[cfg(any(safegl_gl43, safegl_gles32))]
+#[cfg(any(safegl_gl43, safegl_gles30))]
 impl crate::debug::sealed::Labeled for Program {
     fn labeled_object(
         &self,
@@ -754,6 +770,7 @@ enum PendingState {
         outputs_srgb: bool,
         uses_point_size: bool,
         declared_views: Option<u32>,
+        fragment_features: FragmentFeatures,
     },
     /// The program was built at once.
     Built(Program),
@@ -790,6 +807,7 @@ impl PendingProgram {
                 outputs_srgb,
                 uses_point_size,
                 declared_views,
+                fragment_features,
             } => {
                 let linked = unsafe {
                     let mut ctxt = self.context.make_current();
@@ -826,6 +844,7 @@ impl PendingProgram {
                     uses_point_size,
                     separable_stages: 0,
                     declared_views: Some(declared_views),
+                    fragment_features: Some(fragment_features),
                 })
             }
         }

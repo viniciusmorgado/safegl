@@ -125,6 +125,10 @@ pub struct Alloc {
     /// written from the client: uploads, mappings (which are copies there) and copies from other
     /// index buffers. WebGL creates buffers filled with zeros.
     holds_restart_index: Cell<bool>,
+
+    /// Whether the buffer can be mapped. The storage of imported memory can't
+    /// (`glBufferStorageMemEXT`): it is read through a copy on OpenGL ES.
+    mappable: bool,
 }
 
 impl Alloc {
@@ -160,6 +164,7 @@ impl Alloc {
             latest_shader_write: Cell::new(0),
             index_size: Cell::new(0),
             holds_restart_index: Cell::new(false),
+            mappable: true,
         })
     }
 
@@ -191,6 +196,62 @@ impl Alloc {
             latest_shader_write: Cell::new(0),
             index_size: Cell::new(0),
             holds_restart_index: Cell::new(false),
+            mappable: true,
+        })
+    }
+
+    /// Builds a buffer of `size` bytes whose storage is the memory object `memory` from `offset`
+    /// (`glBufferStorageMemEXT`), written through copies like the immutable buffers.
+    ///
+    /// # Safety
+    ///
+    /// `memory` must be a memory object of the context, holding `size` bytes from `offset`.
+    #[cfg(unix)]
+    pub(crate) unsafe fn from_memory<F: ?Sized>(
+        facade: &F,
+        memory: u32,
+        offset: u64,
+        size: usize,
+        ty: BufferType,
+    ) -> Result<Alloc, BufferCreationError>
+    where
+        F: Facade,
+    {
+        let mut ctxt = facade.get_context().make_current();
+        if ctxt.objects_lost() {
+            return Err(BufferCreationError::ContextLost);
+        }
+        let id = ctxt
+            .glow
+            .create_buffer()
+            .map_err(|_| BufferCreationError::ContextLost)?;
+        let bind = bind_buffer(&mut ctxt, Some(id), ty);
+        for _ in 0..8 {
+            if ctxt.glow.get_error() == gl::NO_ERROR {
+                break;
+            }
+        }
+        #[cfg(not(safegl_browser))]
+        ctxt.extra
+            .BufferStorageMemEXT(bind, size as isize, memory, offset);
+        if ctxt.glow.get_error() != gl::NO_ERROR {
+            destroy_buffer(&mut ctxt, id);
+            return Err(BufferCreationError::OutOfMemory);
+        }
+        Ok(Alloc {
+            context: facade.get_context().clone(),
+            id,
+            ty,
+            size,
+            persistent_mapping: None,
+            immutable: true,
+            created_with_buffer_storage: true,
+            creation_mode: BufferMode::Immutable,
+            mapped: Cell::new(false),
+            latest_shader_write: Cell::new(0),
+            index_size: Cell::new(0),
+            holds_restart_index: Cell::new(false),
+            mappable: false,
         })
     }
 
@@ -1144,16 +1205,36 @@ impl Alloc {
                         std::slice::from_raw_parts_mut(output as *mut D as *mut u8, size_to_read),
                     );
                 } else if size_to_read != 0 {
-                    let mapping =
-                        map_buffer(&mut ctxt, self.id, self.ty, range.clone(), true, false)
-                            .filter(|mapping| !mapping.is_null())
-                            .ok_or(ReadError::NotSupported)?;
-                    ptr::copy_nonoverlapping(
-                        mapping as *const u8,
-                        output as *mut D as *mut u8,
-                        size_to_read,
-                    );
-                    unmap_buffer(&mut ctxt, self.id, self.ty);
+                    // a buffer that can't be mapped is copied to one that can
+                    let (id, ty, mapped_range) = if self.mappable {
+                        (self.id, self.ty, range.clone())
+                    } else {
+                        let (copy, _, _, _) = create_buffer::<()>(
+                            &mut ctxt,
+                            size_to_read,
+                            None,
+                            BufferType::CopyWriteBuffer,
+                            BufferMode::Dynamic,
+                        )
+                        .map_err(|_| ReadError::NotSupported)?;
+                        copy_buffer(&mut ctxt, self.id, range.start, copy, 0, size_to_read)
+                            .map_err(|_| ReadError::NotSupported)?;
+                        (copy, BufferType::CopyWriteBuffer, 0..size_to_read)
+                    };
+                    let mapping = map_buffer(&mut ctxt, id, ty, mapped_range, true, false)
+                        .filter(|mapping| !mapping.is_null());
+                    if let Some(mapping) = mapping {
+                        ptr::copy_nonoverlapping(
+                            mapping as *const u8,
+                            output as *mut D as *mut u8,
+                            size_to_read,
+                        );
+                        unmap_buffer(&mut ctxt, id, ty);
+                    }
+                    if id != self.id {
+                        destroy_buffer(&mut ctxt, id);
+                    }
+                    mapping.ok_or(ReadError::NotSupported)?;
                 }
 
                 Ok(())

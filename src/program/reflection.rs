@@ -1604,6 +1604,8 @@ fn glenum_to_uniform_type(ty: gl::types::GLenum) -> UniformType {
         gl::SAMPLER_CUBE_SHADOW => UniformType::SamplerCubeShadow,
         gl::SAMPLER_BUFFER => UniformType::SamplerBuffer,
         gl::SAMPLER_2D_RECT => UniformType::Sampler2dRect,
+        gl::SAMPLER_EXTERNAL_OES => UniformType::SamplerExternalOes,
+        gl::SAMPLER_EXTERNAL_2D_Y2Y_EXT => UniformType::SamplerExternal2dY2yExt,
         gl::SAMPLER_2D_RECT_SHADOW => UniformType::Sampler2dRectShadow,
         gl::INT_SAMPLER_1D => UniformType::ISampler1d,
         gl::INT_SAMPLER_2D => UniformType::ISampler2d,

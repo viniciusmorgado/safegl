@@ -370,6 +370,27 @@ Breaking changes:
   available in a later task of the browser's event loop and can't wait for them: there, `get`
   returns `NotAvailable` until `is_ready` returns true, where it returned a wrong value, and the
   query can be read again later.
+- `SamplerBehavior` has the field `srgb_decode` (`true` by default): code that builds it with
+  every field must add `srgb_decode: true`. A sampler built with `.srgb_decode(false)` reads the
+  stored values of sRGB textures, with `GL_EXT_texture_sRGB_decode`, and draws with it return
+  `SamplerNotSupportedError::SrgbDecode` without the extension.
+- `SrgbFormat` is `#[non_exhaustive]`, with the formats of one and two components `U8`
+  (`GL_SR8_EXT`) and `U8U8` (`GL_SRG8_EXT`), from `GL_EXT_texture_sRGB_R8` and
+  `GL_EXT_texture_sRGB_RG8`: matches on it need a wildcard arm.
+- `BlendingFunction` is `#[non_exhaustive]`, with the variant `Advanced(AdvancedBlending)`: the
+  advanced blend equations of `GL_KHR_blend_equation_advanced` (core in OpenGL ES 3.2), such as
+  multiply, screen or the HSL equations, which `Blend::advanced` gives for the colors and the
+  alpha. Matches on it need a wildcard arm. Draws return the new `DrawError`s
+  `AdvancedBlendingNotSupported`, `AdvancedBlendingMismatch` (the color and the alpha functions
+  differ), `AdvancedBlendingTooManyOutputs` and `AdvancedBlendingNotDeclared` (the fragment
+  shader lacks its `layout(blend_support_*) out;`), and SafeGL separates the draws with
+  `glBlendBarrier` without `GL_KHR_blend_equation_advanced_coherent`.
+- `FrameError` and `SwapBuffersError` are `#[non_exhaustive]`, with the variant `SurfaceLost`:
+  frames can't be drawn on a display whose surface was removed (`Display::remove_surface`), and
+  a frame whose surface is removed before it finishes isn't shown.
+- `UniformType` is `#[non_exhaustive]`, with the variants `SamplerExternalOes`
+  (`samplerExternalOES`) and `SamplerExternal2dY2yExt` (`__samplerExternal2DY2YEXT`), which were
+  `Unknown`.
 
 Additions:
 
@@ -732,9 +753,104 @@ Additions:
   buffers, so that render buffers with more samples than their format has return
   `RenderBufferCreationError::SamplesNotSupported`, and `Capabilities::renderer` and `vendor`
   are the real ones when the browser gives them (`WEBGL_debug_renderer_info`).
+- OpenGL ES levels below 3.2 get what OpenGL ES extensions give them:
+  - `copy_image` and `copy_to` at every OpenGL ES level, with `GL_EXT_copy_image` or
+    `GL_OES_copy_image` below 3.2. OpenGL ES 3.0 can't query the formats of texture levels, so
+    the copy classes come from the format that SafeGL created the texture with.
+  - `DrawParameters::outputs` and `OutputState` at every level, with
+    `GL_EXT_draw_buffers_indexed` or `GL_OES_draw_buffers_indexed` below OpenGL ES 3.2, and
+    `DrawError::PerOutputStateNotSupported` without them.
+  - Base vertices on OpenGL ES 3.0 and 3.1 with `GL_EXT_draw_elements_base_vertex`, next to
+    `GL_OES_draw_elements_base_vertex`.
+  - `NoIndicesRanges`, `IndexBuffer::ranges` and `ranges_with_base_vertices` at every level:
+    OpenGL ES draws them with `GL_EXT_multi_draw_arrays`, or one by one.
+  - Texture views at the `gles31` level, with `GL_OES_texture_view` or `GL_EXT_texture_view`.
+  - `DrawParameters::viewports`, `ViewportState` and the viewport limits at the `gles32` level,
+    with `GL_OES_viewport_array`.
+  - Object labels, debug groups and inserted messages at every OpenGL ES level. Without
+    `GL_KHR_debug`, objects other than sync fences get labels with `GL_EXT_debug_label`, and
+    debug groups and inserted messages are the markers of `GL_EXT_debug_marker`.
+- Regions of ETC1 textures are written after their level is given, with
+  `GL_EXT_compressed_ETC1_RGB8_sub_texture`.
+- `TextureAny::set_srgb_override` samples a texture as the sRGB variant of its format
+  (`GL_EXT_texture_format_sRGB_override`), and returns `SrgbOverrideError` without the extension
+  or for formats without an sRGB variant.
+- `CompressedTexture3d` takes ASTC data: slices of two-dimensional blocks with
+  `GL_KHR_texture_compression_astc_sliced_3d` or `_hdr`, and the three-dimensional blocks of the
+  new `CompressedFormat::Astc3d` and `CompressedSrgbFormat::Astc3d` (`AstcBlockSize3d`) with
+  `GL_OES_texture_compression_astc`, plus BPTC on desktop OpenGL. The other compressed formats
+  return `FormatNotSupported` for 3D textures instead of raising a GL error.
+- `TextureAny::set_astc_decode_precision` chooses the precision of the texels of ASTC textures
+  (`AstcDecodePrecision`), with `GL_EXT_texture_compression_astc_decode_mode` and its `rgb9e5`
+  variant, and returns `AstcDecodePrecisionError::NotSupported` without them.
+- `CompressedFormat` has the ATC formats of older Adreno GPUs (`GL_AMD_compressed_ATC_texture`)
+  and the second version of PVRTC (`GL_IMG_texture_compression_pvrtc2`), and
+  `CompressedSrgbFormat` the sRGB PVRTC formats of both versions (`GL_EXT_pvrtc_sRGB`).
+- `ExtensionsList` has the GLSL extensions of OpenGL ES: `GL_EXT_gpu_shader5` and
+  `GL_OES_gpu_shader5`, `GL_EXT_shader_io_blocks` and `GL_OES_shader_io_blocks`,
+  `GL_OES_shader_image_atomic`, `GL_EXT_shader_non_constant_global_initializers`,
+  `GL_NV_shader_noperspective_interpolation`, `GL_EXT_geometry_point_size`,
+  `GL_EXT_tessellation_point_size`, `GL_EXT_shader_group_vote`, `GL_EXT_shader_integer_mix` and
+  `GL_EXT_texture_shadow_lod`.
+- Fragment shaders read the framebuffer with `GL_EXT_shader_framebuffer_fetch`,
+  `GL_ARM_shader_framebuffer_fetch` and `GL_ARM_shader_framebuffer_fetch_depth_stencil`, which
+  `ExtensionsList` has, and with `layout(noncoherent)` of
+  `GL_EXT_shader_framebuffer_fetch_non_coherent`, for which SafeGL separates the draws with
+  `glFramebufferFetchBarrierEXT`.
+- Framebuffers render to textures with samples that the GPU resolves when it writes them, which
+  tile-based GPUs keep in the memory of the chip (`GL_EXT_multisampled_render_to_texture` and
+  `GL_EXT_multisampled_render_to_texture2`): `TextureAnyImage::multisampled` gives an image the
+  samples to render with, and `new_multisample_resolved` builds the render buffers that go with
+  it. Framebuffers return the new `ValidationError`s `MultisampledRenderToTextureNotSupported`,
+  `MultisampledRenderToTextureTarget` and `SamplesNotSupported`, and render buffers
+  `RenderBufferCreationError::ResolvedMultisampleNotSupported`.
+- `framebuffer::PixelLocalStorage` enables pixel local storage on a surface
+  (`GL_EXT_shader_pixel_local_storage`, and `GL_EXT_shader_pixel_local_storage2` for its size
+  and `clear`), for the fragment shaders that keep values for each pixel from a draw to the next,
+  which draw only there (`DrawError::PixelLocalStorageNotEnabled`).
+  `framebuffer::TiledRendering` limits the rendering of a surface to a tile
+  (`GL_QCOM_tiled_rendering`), preserving the buffers of `TilePreserve`. Both are suspended
+  while SafeGL binds another framebuffer for drawing, and return `TilePassError`.
+- Displays without window system (`backend::glutin::headless`, with the new default feature
+  `egl`): the EGL display of a device (`EGL_EXT_platform_device`), a GPU or the software renderer
+  of Mesa, draws its frames to a pbuffer of a fixed size, for servers, CI and boards without X11
+  or Wayland. `Display` takes surfaces that aren't windows (`Display::from_pbuffer`), and the
+  `headless` example uses it. The tests run on such displays with `SAFEGL_TEST_DISPLAY=headless`
+  at build time, on the EGL device of `SAFEGL_EGL_DEVICE` (`software` for Mesa's).
+- `Display::remove_surface` and `Display::set_surface` keep the context and the objects of SafeGL
+  while the window is destroyed, as Android does when the application is paused: the context
+  stays current without surface (`EGL_KHR_surfaceless_context`). The `android` example uses
+  them, and the `kiosk` example draws fullscreen with DRM/KMS page flips on a GBM surface,
+  without window system.
+- `texture::ExternalTexture` is the texture of an EGL image (`GL_OES_EGL_image_external`): camera
+  frames, decoded video and the images of other processes, which `samplerExternalOES` uniforms
+  sample in RGB, YUV included. Its samplers don't use mipmaps and clamp to the edges, unless the
+  backend has `GL_EXT_EGL_image_external_wrap_modes` (`DrawError::ExternalTextureSampler`), and
+  it is a color attachment written in YUV with `GL_EXT_YUV_target`.
+- `backend::glutin::egl` imports dma-bufs as EGL images (`EGL_EXT_image_dma_buf_import`, with
+  modifiers and YUV color spaces), makes images of textures and exports them as dma-bufs
+  (`EGL_KHR_gl_texture_2D_image`, `EGL_MESA_image_dma_buf_export`), makes 2D textures whose
+  storage is an image (`GL_EXT_EGL_image_storage`), and creates, exports and imports EGL fences
+  (`EGL_KHR_fence_sync`, `EGL_KHR_wait_sync`, `EGL_ANDROID_native_fence_sync`).
+- `interop::MemoryObject` and `interop::Semaphore` share memory and semaphores with Vulkan and
+  other APIs through file descriptors (`GL_EXT_memory_object_fd`, `GL_EXT_semaphore_fd`):
+  buffers and 2D textures in imported memory, and semaphores that OpenGL waits for or signals.
+  `interop::device_uuids` gives the UUIDs of the matching Vulkan device.
+- `Context::graphics_reset_status` and `GraphicsResetStatus` compile at every level: OpenGL ES
+  below 3.2 tells resets with `GL_EXT_robustness` or `GL_KHR_robustness`, and browsers through the
+  loss of their context.
+- Debug builds lower the limits that SafeGL checks to the minimums of OpenGL ES 3.0, 3.1 or 3.2
+  with `SAFEGL_CLAMP_LIMITS=es30`, `es31` or `es32`, so that tests run as on the devices that have
+  no more.
 
 Fixes:
 
+- On OpenGL ES and WebGL, the uploads of data whose format the internal format of the texture
+  doesn't take, like RGBA bytes into `U8` or `SrgbFormat::U8`, floats into `U8U8U8U8`, or RGB
+  into RGBA, raised `GL_INVALID_OPERATION`: SafeGL converts the data on the CPU the way desktop
+  OpenGL does, when creating textures and writing them, and returns `FormatNotSupported` for
+  the uploads that no exact conversion gives (floats into integer textures, and the uploads from
+  pixel buffers, whose data stays on the GPU).
 - `TextureHandle::new` makes the handle of the texture with the sampler given
   (`glGetTextureSamplerHandleARB`), resident as long as the `ResidentTexture`, where it ignored
   the sampler, and a `TextureHandle` can be the value of a `sampler*` uniform declared with

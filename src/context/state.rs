@@ -225,6 +225,14 @@ pub struct GlState {
     /// The latest buffer bound to `GL_DRAW_FRAMEBUFFER`.
     pub draw_framebuffer: Option<glow::Framebuffer>,
 
+    /// The render pass of a tile-based GPU that a surface keeps open, if any: pixel local
+    /// storage or tiled rendering, which `fbo::bind_framebuffer` suspends while another
+    /// framebuffer is bound for drawing.
+    pub framebuffer_pass: Option<crate::fbo::FramebufferPass>,
+
+    /// The identifier of the next render pass of a tile-based GPU.
+    pub next_framebuffer_pass: u64,
+
     /// The latest value passed to `glDrawBuffer` with the default framebuffer.
     pub default_draw_buffer: gl::types::GLenum,
 
@@ -581,6 +589,8 @@ impl Default for GlState {
             indexed_transform_feedback_buffer_bindings: small_vec_one(),
             read_framebuffer: None,
             draw_framebuffer: None,
+            framebuffer_pass: None,
+            next_framebuffer_pass: 0,
             default_draw_buffer: gl::BACK,
             default_framebuffer_read: None,
             renderbuffer: None,
