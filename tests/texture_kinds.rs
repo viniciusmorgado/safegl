@@ -304,17 +304,23 @@ fn whole_written_formats() {
             CompressedMipmapsOption::NoMipmap,
         )
         .unwrap();
-        // a region is refused, the whole level is written
+        // a region is refused, except for ETC1 with `GL_EXT_compressed_ETC1_RGB8_sub_texture`;
+        // the whole level is written
         let region = safegl::Rect {
             left: 0,
             bottom: 0,
             width: 4,
             height: 4,
         };
-        assert_eq!(
-            texture.write_compressed_data(region, &vec![0u8; size(4)], 4, 4, format),
-            Err(UploadError::NotSupported)
-        );
+        let regions = format == CompressedFormat::Etc1Rgb8
+            && !cfg!(target_arch = "wasm32")
+            && support::extensions(&display).gl_ext_compressed_etc1_rgb8_sub_texture;
+        let written = texture.write_compressed_data(region, &vec![0u8; size(4)], 4, 4, format);
+        if regions {
+            written.unwrap();
+        } else {
+            assert_eq!(written, Err(UploadError::NotSupported));
+        }
         let whole = safegl::Rect {
             width: 8,
             height: 8,

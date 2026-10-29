@@ -2333,7 +2333,16 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
         let written_whole = texture_format.is_some_and(|format| format.is_written_whole());
         let whole = (x_offset, y_offset, width, height.unwrap_or(1))
             == (0, 0, self.width, self.height.unwrap_or(1));
-        if written_whole && !whole {
+        // `GL_EXT_compressed_ETC1_RGB8_sub_texture` writes regions of ETC1 levels
+        let etc1 = Some(ClientFormatAny::CompressedFormat(CompressedFormat::Etc1Rgb8));
+        let etc1_regions = texture_format == etc1
+            && !crate::version::is_webgl()
+            && self
+                .texture
+                .context
+                .get_extensions()
+                .gl_ext_compressed_etc1_rgb8_sub_texture;
+        if written_whole && !whole && !etc1_regions {
             return Err(UploadError::NotSupported);
         }
         if let Some((block_width, block_height, _)) = block {
@@ -2417,7 +2426,7 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
             {
                 assert!(z_offset == 0);
                 // FIXME should glTexImage be used here somewhere or glTexSubImage does it just fine?
-                if written_whole {
+                if written_whole && whole {
                     // ETC1 and PVRTC levels can only be given whole, with `glCompressedTexImage2D`
                     ctxt.glow.compressed_tex_image_2d(
                         bind_point,

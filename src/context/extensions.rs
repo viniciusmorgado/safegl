@@ -147,6 +147,7 @@ extensions! {
     "GL_EXT_clear_texture" => gl_ext_clear_texture,
     "GL_EXT_clip_control" => gl_ext_clip_control,
     "GL_EXT_clip_cull_distance" => gl_ext_clip_cull_distance,
+    "GL_EXT_compressed_ETC1_RGB8_sub_texture" => gl_ext_compressed_etc1_rgb8_sub_texture,
     "GL_EXT_conservative_depth" => gl_ext_conservative_depth,
     "GL_EXT_copy_image" => gl_ext_copy_image,
     "GL_EXT_draw_buffers_indexed" => gl_ext_draw_buffers_indexed,
