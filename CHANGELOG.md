@@ -370,6 +370,13 @@ Breaking changes:
   available in a later task of the browser's event loop and can't wait for them: there, `get`
   returns `NotAvailable` until `is_ready` returns true, where it returned a wrong value, and the
   query can be read again later.
+- `SamplerBehavior` has the field `srgb_decode` (`true` by default): code that builds it with
+  every field must add `srgb_decode: true`. A sampler built with `.srgb_decode(false)` reads the
+  stored values of sRGB textures, with `GL_EXT_texture_sRGB_decode`, and draws with it return
+  `SamplerNotSupportedError::SrgbDecode` without the extension.
+- `SrgbFormat` is `#[non_exhaustive]`, with the formats of one and two components `U8`
+  (`GL_SR8_EXT`) and `U8U8` (`GL_SRG8_EXT`), from `GL_EXT_texture_sRGB_R8` and
+  `GL_EXT_texture_sRGB_RG8`: matches on it need a wildcard arm.
 
 Additions:
 
@@ -732,6 +739,45 @@ Additions:
   buffers, so that render buffers with more samples than their format has return
   `RenderBufferCreationError::SamplesNotSupported`, and `Capabilities::renderer` and `vendor`
   are the real ones when the browser gives them (`WEBGL_debug_renderer_info`).
+- OpenGL ES levels below 3.2 get what OpenGL ES extensions give them:
+  - `copy_image` and `copy_to` at every OpenGL ES level, with `GL_EXT_copy_image` or
+    `GL_OES_copy_image` below 3.2. OpenGL ES 3.0 can't query the formats of texture levels, so
+    the copy classes come from the format that SafeGL created the texture with.
+  - `DrawParameters::outputs` and `OutputState` at every level, with
+    `GL_EXT_draw_buffers_indexed` or `GL_OES_draw_buffers_indexed` below OpenGL ES 3.2, and
+    `DrawError::PerOutputStateNotSupported` without them.
+  - Base vertices on OpenGL ES 3.0 and 3.1 with `GL_EXT_draw_elements_base_vertex`, next to
+    `GL_OES_draw_elements_base_vertex`.
+  - `NoIndicesRanges`, `IndexBuffer::ranges` and `ranges_with_base_vertices` at every level:
+    OpenGL ES draws them with `GL_EXT_multi_draw_arrays`, or one by one.
+  - Texture views at the `gles31` level, with `GL_OES_texture_view` or `GL_EXT_texture_view`.
+  - `DrawParameters::viewports`, `ViewportState` and the viewport limits at the `gles32` level,
+    with `GL_OES_viewport_array`.
+  - Object labels, debug groups and inserted messages at every OpenGL ES level. Without
+    `GL_KHR_debug`, objects other than sync fences get labels with `GL_EXT_debug_label`, and
+    debug groups and inserted messages are the markers of `GL_EXT_debug_marker`.
+- Regions of ETC1 textures are written after their level is given, with
+  `GL_EXT_compressed_ETC1_RGB8_sub_texture`.
+- `TextureAny::set_srgb_override` samples a texture as the sRGB variant of its format
+  (`GL_EXT_texture_format_sRGB_override`), and returns `SrgbOverrideError` without the extension
+  or for formats without an sRGB variant.
+- `CompressedTexture3d` takes ASTC data: slices of two-dimensional blocks with
+  `GL_KHR_texture_compression_astc_sliced_3d` or `_hdr`, and the three-dimensional blocks of the
+  new `CompressedFormat::Astc3d` and `CompressedSrgbFormat::Astc3d` (`AstcBlockSize3d`) with
+  `GL_OES_texture_compression_astc`, plus BPTC on desktop OpenGL. The other compressed formats
+  return `FormatNotSupported` for 3D textures instead of raising a GL error.
+- `TextureAny::set_astc_decode_precision` chooses the precision of the texels of ASTC textures
+  (`AstcDecodePrecision`), with `GL_EXT_texture_compression_astc_decode_mode` and its `rgb9e5`
+  variant, and returns `AstcDecodePrecisionError::NotSupported` without them.
+- `CompressedFormat` has the ATC formats of older Adreno GPUs (`GL_AMD_compressed_ATC_texture`)
+  and the second version of PVRTC (`GL_IMG_texture_compression_pvrtc2`), and
+  `CompressedSrgbFormat` the sRGB PVRTC formats of both versions (`GL_EXT_pvrtc_sRGB`).
+- `ExtensionsList` has the GLSL extensions of OpenGL ES: `GL_EXT_gpu_shader5` and
+  `GL_OES_gpu_shader5`, `GL_EXT_shader_io_blocks` and `GL_OES_shader_io_blocks`,
+  `GL_OES_shader_image_atomic`, `GL_EXT_shader_non_constant_global_initializers`,
+  `GL_NV_shader_noperspective_interpolation`, `GL_EXT_geometry_point_size`,
+  `GL_EXT_tessellation_point_size`, `GL_EXT_shader_group_vote`, `GL_EXT_shader_integer_mix` and
+  `GL_EXT_texture_shadow_lod`.
 
 Fixes:
 
