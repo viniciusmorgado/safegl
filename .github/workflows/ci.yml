@@ -235,6 +235,59 @@ jobs:
           export GECKODRIVER
           xvfb-run -a cargo test --no-fail-fast --target wasm32-unknown-unknown --no-default-features --features webgl --tests
 
+  cross:
+    name: Cross builds (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # the architectures of embedded devices: 64 and 32-bit ARM boards, RISC-V boards, and
+        # Android phones
+        target:
+          - aarch64-unknown-linux-gnu
+          - armv7-unknown-linux-gnueabihf
+          - riscv64gc-unknown-linux-gnu
+          - aarch64-linux-android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: cross-${{ matrix.target }}
+
+      # compiling without linking needs no cross linker nor the libraries of the target
+      - name: Check the OpenGL ES levels
+        run: |
+          for level in gles30 gles31 gles32; do
+            cargo check --target ${{ matrix.target }} --features $level --all-targets
+          done
+
+  i686:
+    name: Tests on Mesa in 32 bits (i686)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-unknown-linux-gnu
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: i686
+
+      - name: Install the 32-bit Mesa
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib libegl1:i386 libegl-mesa0:i386 libgl1-mesa-dri:i386 libgles2:i386 lua5.4
+
+      # at each OpenGL ES level, on displays without window system of Mesa's software renderer,
+      # which need neither X11 nor a GPU; the script runs again in chunks the test programs that
+      # run out of 32-bit address space
+      - name: Run the tests
+        run: lua5.4 tests/cross/check_targets.lua test-i686
+
   windows:
     name: Windows x86_64
     runs-on: windows-latest
