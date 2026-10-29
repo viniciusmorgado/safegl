@@ -80,6 +80,15 @@ glutin-winit = "0.5.0"
 takeable-option = "0.5.0"
 gltf = { version = "1.4.1", default-features = false, features = ["utils"] }
 
+# the kiosk example draws with DRM/KMS and GBM, without window system
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+gbm = { version = "0.18.0", default-features = false, features = ["drm-support"] }
+drm = "0.14"
+
+# the Android example runs in a native activity
+[target.'cfg(target_os = "android")'.dev-dependencies]
+winit = { version = "0.30.13", default-features = false, features = ["rwh_06", "android-native-activity"] }
+
 [package.metadata.docs.rs]
 features = ["gl46", "gles32", "backtrace", "glutin_backend", "egl", "simple_window_builder", "glutin/default", "winit/rwh_06", "winit/x11", "winit/wayland", "glutin-winit/default"]
 rustdoc-args = ["--cfg", "docsrs"]
@@ -119,6 +128,15 @@ path = "examples/standalone/gpgpu.rs"
 [[example]]
 name = "headless"
 path = "examples/standalone/headless.rs"
+
+[[example]]
+name = "android"
+path = "examples/standalone/android.rs"
+crate-type = ["cdylib"]
+
+[[example]]
+name = "kiosk"
+path = "examples/standalone/kiosk.rs"
 
 [[example]]
 name = "image"

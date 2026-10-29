@@ -1,121 +1,45 @@
 /*!
 
-Renders without a window: draws a triangle into a texture and saves it to a PNG file.
+Renders without a window, and without a window system: draws a triangle on a display without
+window and saves its frame to a PNG file.
 
-`Display` needs a window surface, so a headless program implements the `Backend` trait itself, like
-the `manual-creation` example, with a context made current on a pbuffer surface that is never
-shown. The pbuffer only gives the context something to be current on: the drawing goes into a
-texture, whose size has nothing to do with it.
+The display (`backend::glutin::headless`) is the EGL display of a device, a GPU or the software
+renderer of Mesa (`EGL_EXT_platform_device`), whose frames go to a pbuffer of a fixed size. It
+works on servers, in CI and on embedded boards without X11 or Wayland.
 
 */
 
+#[cfg(safegl_egl)]
 #[macro_use]
 extern crate safegl;
 
-use glutin::config::{ConfigSurfaceTypes, ConfigTemplateBuilder};
-use glutin::context::{ContextApi, ContextAttributesBuilder, PossiblyCurrentContext, Version};
-use glutin::display::GetGlDisplay;
-use glutin::prelude::*;
-use glutin::surface::{PbufferSurface, Surface as GlutinSurface, SurfaceAttributesBuilder};
-use glutin_winit::DisplayBuilder;
-use safegl::index::{NoIndices, PrimitiveType};
-use safegl::Surface;
-use winit::event_loop::EventLoop;
-
-use std::ffi::{c_void, CString};
-use std::num::NonZeroU32;
-
-const WIDTH: u32 = 256;
-const HEIGHT: u32 = 256;
-
-/// A context that is current on an invisible pbuffer surface.
-struct Backend {
-    context: PossiblyCurrentContext,
-    surface: GlutinSurface<PbufferSurface>,
-}
-
-unsafe impl safegl::backend::Backend for Backend {
-    // there is nothing to show
-    fn swap_buffers(&self) -> Result<(), safegl::SwapBuffersError> {
-        Ok(())
-    }
-
-    unsafe fn get_proc_address(&self, symbol: &str) -> *const c_void {
-        let symbol = CString::new(symbol).unwrap();
-        self.context.display().get_proc_address(&symbol) as *const _
-    }
-
-    fn get_framebuffer_dimensions(&self) -> (u32, u32) {
-        (1, 1)
-    }
-
-    fn resize(&self, _: (u32, u32)) {}
-
-    fn is_current(&self) -> bool {
-        self.context.is_current()
-    }
-
-    unsafe fn make_current(&self) {
-        self.context.make_current(&self.surface).unwrap();
-    }
-
-    fn set_swap_interval(&self, _: safegl::backend::SwapInterval) {}
-}
-
+#[cfg(safegl_egl)]
 #[derive(Copy, Clone)]
 struct Vertex {
     position: [f32; 2],
     color: [f32; 3],
 }
+#[cfg(safegl_egl)]
 implement_vertex!(Vertex, position, color);
 
+#[cfg(safegl_egl)]
 fn main() {
-    // the event loop only gives access to the display connection: no window is created
-    let event_loop = EventLoop::builder().build().expect("event loop building");
-    let template = ConfigTemplateBuilder::new().with_surface_type(ConfigSurfaceTypes::PBUFFER);
-    let (_, gl_config) = DisplayBuilder::new()
-        .build(&event_loop, template, |mut configs| configs.next().unwrap())
-        .unwrap();
-    let display = gl_config.display();
+    use safegl::backend::glutin::headless::{devices, Headless};
+    use safegl::index::{NoIndices, PrimitiveType};
+    use safegl::Surface;
 
-    // SafeGL needs at least OpenGL 4.1 or OpenGL ES 3.0
-    let context = unsafe {
-        display
-            .create_context(
-                &gl_config,
-                &ContextAttributesBuilder::new()
-                    .with_context_api(ContextApi::OpenGl(Some(Version::new(4, 1))))
-                    .build(None),
-            )
-            .or_else(|_| {
-                display.create_context(
-                    &gl_config,
-                    &ContextAttributesBuilder::new()
-                        .with_context_api(ContextApi::Gles(Some(Version::new(3, 0))))
-                        .build(None),
-                )
-            })
-            .expect("failed to create a context")
-    };
-    let surface = unsafe {
-        display
-            .create_pbuffer_surface(
-                &gl_config,
-                &SurfaceAttributesBuilder::<PbufferSurface>::new()
-                    .build(NonZeroU32::new(1).unwrap(), NonZeroU32::new(1).unwrap()),
-            )
-            .unwrap()
-    };
-    let context = context.make_current(&surface).unwrap();
+    const WIDTH: u32 = 256;
+    const HEIGHT: u32 = 256;
 
-    let context = unsafe {
-        safegl::backend::Context::new(Backend { context, surface }, true, Default::default())
+    for device in devices().expect("the EGL devices can't be listed") {
+        println!("EGL device: {:?} {:?}", device.vendor(), device.name());
     }
-    .unwrap();
+    let headless = Headless::first().expect("no EGL device creates a context of the levels");
+    let display = headless.display(WIDTH, HEIGHT, Default::default()).unwrap();
+    println!("Drawing with {}", display.get_opengl_renderer_string());
 
-    // drawing into a texture
     let vertices = safegl::VertexBuffer::new(
-        &context,
+        &display,
         &[
             Vertex {
                 position: [-0.5, -0.5],
@@ -132,7 +56,7 @@ fn main() {
         ],
     )
     .unwrap();
-    let program = program!(&context,
+    let program = program!(&display,
         330 => {
             vertex: "
                 #version 330
@@ -177,10 +101,9 @@ fn main() {
     )
     .unwrap();
 
-    let texture = safegl::Texture2d::empty(&context, WIDTH, HEIGHT).unwrap();
-    let mut target = texture.as_surface();
-    target.clear_color(0.0, 0.0, 0.0, 1.0);
-    target
+    let mut frame = display.draw();
+    frame.clear_color(0.0, 0.0, 0.0, 1.0);
+    frame
         .draw(
             &vertices,
             NoIndices(PrimitiveType::TrianglesList),
@@ -189,13 +112,19 @@ fn main() {
             &Default::default(),
         )
         .unwrap();
+    frame.finish().unwrap();
 
-    // reading the texture back and saving it, flipped since OpenGL's rows go from the bottom
-    let image: safegl::texture::RawImage2d<'_, u8> = texture.read().unwrap();
+    // reading the frame back and saving it, flipped since OpenGL's rows go from the bottom
+    let image: safegl::texture::RawImage2d<'_, u8> = display.read_front_buffer().unwrap();
     let image =
         image::ImageBuffer::from_raw(image.width, image.height, image.data.into_owned()).unwrap();
     let image = image::DynamicImage::ImageRgba8(image).flipv();
     let path = std::env::temp_dir().join("safegl-headless.png");
     image.save(&path).unwrap();
     println!("Saved {}", path.display());
+}
+
+#[cfg(not(safegl_egl))]
+fn main() {
+    eprintln!("this example needs EGL, with the `egl` feature, on Linux, Android or Windows");
 }
