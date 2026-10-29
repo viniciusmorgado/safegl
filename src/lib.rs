@@ -2007,6 +2007,14 @@ pub enum DrawError {
     /// The fragment shader declares pixel local storage (`GL_EXT_shader_pixel_local_storage`),
     /// and draws only through a `framebuffer::PixelLocalStorage`.
     PixelLocalStorageNotEnabled,
+
+    /// The sampler of an external texture (`texture::ExternalTexture`) uses mipmaps, or wraps
+    /// the coordinates otherwise than by clamping them to the edges, which needs
+    /// `GL_EXT_EGL_image_external_wrap_modes`.
+    ExternalTextureSampler {
+        /// Name of the uniform.
+        name: String,
+    },
 }
 
 impl Error for DrawError {
@@ -2245,6 +2253,8 @@ impl fmt::Display for DrawError {
                 "The fragment shader doesn't declare the advanced blend equation of the draw",
             PixelLocalStorageNotEnabled =>
                 "A program with pixel local storage draws only where the storage is enabled",
+            ExternalTextureSampler { .. } =>
+                "External textures are sampled without mipmaps, clamped to the edges",
         };
         match self {
             UniformTypeMismatch {

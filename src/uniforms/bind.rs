@@ -199,6 +199,18 @@ impl<'a> CollectedUniforms<'a> {
                             });
                         }
                     }
+                    // external textures clamp to the edges, unless the backend wraps them
+                    // otherwise, and have no mipmaps
+                    if let (crate::texture::Dimensions::External { .. }, Some(sampler)) =
+                        (texture.dimensions(), sampler)
+                    {
+                        let wraps = ctxt.extensions.gl_ext_egl_image_external_wrap_modes;
+                        if !is_external_sampler(&sampler, wraps) {
+                            return Err(DrawError::ExternalTextureSampler {
+                                name: name.to_owned(),
+                            });
+                        }
+                    }
                     let _ = texture;
                 }
 
@@ -1010,6 +1022,20 @@ fn is_rectangle_sampler(sampler: &SamplerBehavior) -> bool {
     [s, t, r]
         .iter()
         .all(|wrap| matches!(wrap, W::Clamp | W::BorderClamp))
+        && matches!(
+            sampler.minify_filter,
+            MinifySamplerFilter::Nearest | MinifySamplerFilter::Linear
+        )
+}
+
+/// Returns true if `sampler` can sample an external texture: without mipmaps, and clamping the
+/// coordinates to the edges, unless the backend `wraps` them otherwise
+/// (`GL_EXT_EGL_image_external_wrap_modes`).
+fn is_external_sampler(sampler: &SamplerBehavior, wraps: bool) -> bool {
+    use crate::uniforms::SamplerWrapFunction as W;
+
+    let (s, t, r) = sampler.wrap_function;
+    (wraps || [s, t, r].iter().all(|wrap| matches!(wrap, W::Clamp)))
         && matches!(
             sampler.minify_filter,
             MinifySamplerFilter::Nearest | MinifySamplerFilter::Linear

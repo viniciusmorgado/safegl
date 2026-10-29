@@ -95,6 +95,12 @@ pub enum Dimensions {
         dimension: u32,
         array_size: u32,
     },
+    /// The texture of an EGL image (`texture::ExternalTexture`, `GL_OES_EGL_image_external`),
+    /// sampled by `samplerExternalOES` uniforms, without mipmaps.
+    External {
+        width: u32,
+        height: u32,
+    },
 }
 
 /// A texture whose type isn't fixed at compile-time.
@@ -142,6 +148,10 @@ pub struct TextureAny {
 
     /// Whether the samples of a multisample texture are at the same positions in every texel.
     fixed_sample_locations: bool,
+
+    /// Whether the storage of the texture is an EGL image (`GL_EXT_EGL_image_storage`), which
+    /// drivers may not read with `glGetTexImage`: it is read through a framebuffer.
+    image_storage: Cell<bool>,
 }
 
 fn extract_dimensions(ty: Dimensions) -> (u32, Option<u32>, Option<u32>, Option<u32>, Option<u32>) {
@@ -178,6 +188,7 @@ fn extract_dimensions(ty: Dimensions) -> (u32, Option<u32>, Option<u32>, Option<
             dimension,
             array_size,
         } => (dimension, Some(dimension), None, Some(array_size * 6), None),
+        Dimensions::External { width, height } => (width, Some(height), None, None, None),
     }
 }
 
@@ -194,6 +205,7 @@ fn get_bind_point(ty: Dimensions) -> gl::types::GLenum {
         Dimensions::Texture3d { .. } => gl::TEXTURE_3D,
         Dimensions::Cubemap { .. } => gl::TEXTURE_CUBE_MAP,
         Dimensions::CubemapArray { .. } => gl::TEXTURE_CUBE_MAP_ARRAY,
+        Dimensions::External { .. } => gl::TEXTURE_EXTERNAL_OES,
     }
 }
 
@@ -1255,6 +1267,7 @@ where
         mipmap_range: Cell::new(Some((0, mipmap_max))),
         depth_stencil_mode: Cell::new(Some(gl::DEPTH_COMPONENT)),
         fixed_sample_locations,
+        image_storage: Cell::new(false),
     })
 }
 
@@ -1467,6 +1480,7 @@ pub fn new_texture_view(
         mipmap_range: Cell::new(Some((0, levels.len() as u32 - 1))),
         depth_stencil_mode: Cell::new(Some(gl::DEPTH_COMPONENT)),
         fixed_sample_locations: source.fixed_sample_locations,
+        image_storage: Cell::new(false),
     })
 }
 
@@ -1506,6 +1520,7 @@ pub unsafe fn from_id<F: Facade + ?Sized>(
         depth_stencil_mode: Cell::new(None),
         // the most common choice, which can't be queried below OpenGL ES 3.1
         fixed_sample_locations: true,
+        image_storage: Cell::new(false),
     };
 
     if should_generate_mipmaps {
@@ -1519,6 +1534,13 @@ pub unsafe fn from_id<F: Facade + ?Sized>(
 }
 
 impl TextureAny {
+    /// Marks the texture as having an EGL image as its storage, which is read through a
+    /// framebuffer.
+    #[cfg(feature = "glutin")]
+    pub(crate) fn set_image_storage(&self) {
+        self.image_storage.set(true);
+    }
+
     /// Returns the draw call that last wrote the texture through an image unit, shared with its
     /// views.
     #[cfg(safegl_desktop)]
@@ -1540,6 +1562,7 @@ impl TextureAny {
             Dimensions::Texture3d { width, .. } => width,
             Dimensions::Cubemap { dimension, .. } => dimension,
             Dimensions::CubemapArray { dimension, .. } => dimension,
+            Dimensions::External { width, .. } => width,
         }
     }
 
@@ -1557,6 +1580,7 @@ impl TextureAny {
             Dimensions::Texture3d { height, .. } => Some(height),
             Dimensions::Cubemap { dimension, .. } => Some(dimension),
             Dimensions::CubemapArray { dimension, .. } => Some(dimension),
+            Dimensions::External { height, .. } => Some(height),
         }
     }
 
@@ -1639,6 +1663,7 @@ impl TextureAny {
             Dimensions::Texture3d { .. } => None,
             Dimensions::Cubemap { .. } => None,
             Dimensions::CubemapArray { array_size, .. } => Some(array_size),
+            Dimensions::External { .. } => None,
         }
     }
 
@@ -2232,6 +2257,8 @@ impl<'a> TextureAnyMipmap<'a> {
 
             let bind_point = self.texture.bind_to_current(&mut ctxt);
             match self.texture.ty {
+                // `ExternalTexture` doesn't give its texture, whose content comes from its image
+                Dimensions::External { .. } => unreachable!("external textures aren't written"),
                 Dimensions::Texture1d { .. } => {
                     ctxt.extra.TexSubImage1D(
                         bind_point,
@@ -2734,6 +2761,19 @@ pub struct TextureAnyImage<'a> {
 }
 
 impl<'a> TextureAnyImage<'a> {
+    /// The image of the first level of a texture without layers.
+    pub(crate) fn first_level(texture: &'a TextureAny) -> TextureAnyImage<'a> {
+        TextureAnyImage {
+            texture,
+            layer: 0,
+            level: 0,
+            cube_layer: None,
+            width: texture.get_width(),
+            height: texture.get_height(),
+            render_samples: None,
+        }
+    }
+
     /// Returns the texture.
     #[inline]
     pub fn get_texture(&self) -> &'a TextureAny {
@@ -2880,6 +2920,8 @@ impl<'a> TextureAnyImage<'a> {
             );
 
             match self.texture.ty {
+                // `ExternalTexture` doesn't give its texture, whose content comes from its image
+                Dimensions::External { .. } => unreachable!("external textures aren't written"),
                 Dimensions::Texture1d { .. } => {
                     ctxt.extra.TexSubImage1D(
                         bind_point,
@@ -3131,7 +3173,9 @@ impl<'a> TextureAnyMipmap<'a> {
     {
         let (width, height) = (self.get_width(), self.get_height().unwrap_or(1));
         #[cfg(safegl_desktop)]
-        if self.texture.context.get_opengl_version().0 == Api::Gl {
+        if self.texture.context.get_opengl_version().0 == Api::Gl
+            && !self.texture.image_storage.get()
+        {
             let data = self.read_level::<P>()?;
             return Ok(T::from_raw(Cow::Owned(data), width, height));
         }
@@ -3153,7 +3197,9 @@ impl<'a> TextureAnyMipmap<'a> {
         let texels = width as usize * height as usize;
         let buffer = PixelBuffer::new_empty(&self.texture.context, texels);
         #[cfg(safegl_desktop)]
-        if self.texture.context.get_opengl_version().0 == Api::Gl {
+        if self.texture.context.get_opengl_version().0 == Api::Gl
+            && !self.texture.image_storage.get()
+        {
             self.read_level_to_pixel_buffer(&buffer)?;
             return Ok(buffer);
         }

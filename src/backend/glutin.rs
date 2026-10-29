@@ -139,6 +139,8 @@ pub use self::simple_window_builder::SimpleWindowBuilder;
 pub mod simple_window_builder;
 
 #[cfg(safegl_egl)]
+pub mod egl;
+#[cfg(safegl_egl)]
 pub mod headless;
 
 /// Resizes a surface of glutin.

@@ -73,6 +73,10 @@ pub const SR8_EXT: GLenum = 0x8FBD;
 pub const SRG8_EXT: GLenum = 0x8FBE;
 // GL_OVR_multiview
 pub const MAX_VIEWS_OVR: GLenum = 0x9631;
+// GL_OES_EGL_image_external and GL_EXT_YUV_target
+pub const TEXTURE_EXTERNAL_OES: GLenum = 0x8D65;
+pub const SAMPLER_EXTERNAL_OES: GLenum = 0x8D66;
+pub const SAMPLER_EXTERNAL_2D_Y2Y_EXT: GLenum = 0x8BE7;
 // GL_KHR_blend_equation_advanced_coherent
 pub const BLEND_ADVANCED_COHERENT_KHR: GLenum = 0x9285;
 // GL_EXT_multisampled_render_to_texture
@@ -202,6 +206,8 @@ extra_functions! {
     fn GetObjectLabelEXT(type_: GLenum, object: GLuint, bufSize: GLsizei, length: *mut GLsizei, label: *mut GLchar) -> ();
     fn PushGroupMarkerEXT(length: GLsizei, marker: *const GLchar) -> ();
     fn PopGroupMarkerEXT() -> ();
+    fn EGLImageTargetTexture2DOES(target: GLenum, image: *const c_void) -> ();
+    fn EGLImageTargetTexStorageEXT(target: GLenum, image: *const c_void, attrib_list: *const GLint) -> ();
     fn BlendBarrier() -> ();
     fn BlendBarrierKHR() -> ();
     fn BlendEquationiEXT(buf: GLuint, mode: GLenum) -> ();

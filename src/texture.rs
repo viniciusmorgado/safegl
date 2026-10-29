@@ -138,6 +138,7 @@ use crate::image_format::FormatNotSupportedError;
 #[cfg(safegl_desktop)]
 pub(crate) use self::any::prepare_for_access;
 pub use self::any::{Dimensions, TextureAnyImage};
+pub use self::external::{is_external_texture_supported, ExternalTexture};
 pub use self::any::{TextureAny, TextureAnyLayer, TextureAnyLayerMipmap, TextureAnyMipmap};
 #[cfg(safegl_desktop)]
 #[cfg_attr(docsrs, doc(cfg(safegl_desktop)))]
@@ -197,6 +198,7 @@ pub mod buffer_texture;
 pub mod pixel_buffer;
 
 mod any;
+mod external;
 mod get_format;
 #[cfg(any(safegl_gl43, safegl_gles30))]
 mod ops;

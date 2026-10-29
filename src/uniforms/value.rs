@@ -16,6 +16,7 @@ use crate::uniforms::ImageUnitBehavior;
 /// Type of a uniform in a program.
 #[allow(missing_docs)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum UniformType {
     Float,
     FloatVec2,
@@ -137,6 +138,11 @@ pub enum UniformType {
     IImage2dMultisampleArray,
     UImage2dMultisampleArray,
     AtomicCounterUint,
+    /// `samplerExternalOES`, which samples an `ExternalTexture` (`GL_OES_EGL_image_external`).
+    SamplerExternalOes,
+    /// `__samplerExternal2DY2YEXT`, which samples the YUV values of an `ExternalTexture`
+    /// without converting them (`GL_EXT_YUV_target`).
+    SamplerExternal2dY2yExt,
     /// A type that SafeGL doesn't know, with the value OpenGL gives it. No value can be bound to
     /// a uniform of this type.
     Unknown(u32),
@@ -592,6 +598,8 @@ pub(crate) fn sampler_types(texture: &texture::TextureAny) -> &'static [UniformT
         kind => kind,
     };
     match (kind, texture.dimensions()) {
+        // the images of external textures are sampled as floats, or as raw YUV values
+        (_, D::External { .. }) => &[SamplerExternalOes, SamplerExternal2dY2yExt],
         (K::Float, D::Texture1d { .. }) => &[Sampler1d],
         (K::Float, D::Texture1dArray { .. }) => &[Sampler1dArray],
         (K::Float, D::Texture2d { .. }) => &[Sampler2d],
@@ -729,6 +737,8 @@ fn image_types(texture: &texture::TextureAny) -> &'static [UniformType] {
     use UniformType::*;
 
     match (texture.kind(), texture.dimensions()) {
+        // external textures aren't images
+        (_, D::External { .. }) => &[],
         (K::Float, D::Texture1d { .. }) => &[Image1d],
         (K::Float, D::Texture1dArray { .. }) => &[Image1dArray],
         (K::Float, D::Texture2d { .. }) => &[Image2d],

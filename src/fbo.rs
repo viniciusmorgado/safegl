@@ -1100,6 +1100,14 @@ fn is_float32(texture: &TextureAny) -> bool {
 /// Returns `FormatNotRenderable` if `texture` has a format that the backend can't render to,
 /// which would make the framebuffer incomplete.
 fn check_renderable(context: &Context, texture: &TextureAny) -> Result<(), ValidationError> {
+    // external textures are written in YUV by shaders with `layout(yuv) out`
+    if let crate::texture::Dimensions::External { .. } = texture.dimensions() {
+        return if context.get_extensions().gl_ext_yuv_target {
+            Ok(())
+        } else {
+            Err(ValidationError::FormatNotRenderable)
+        };
+    }
     match texture.get_requested_format() {
         TextureFormatRequest::Specific(format) if !format.is_renderable(context) => {
             Err(ValidationError::FormatNotRenderable)
@@ -2368,7 +2376,8 @@ unsafe fn attach(
                 gl::TEXTURE_2D
                 | gl::TEXTURE_2D_MULTISAMPLE
                 | gl::TEXTURE_1D
-                | gl::TEXTURE_RECTANGLE => {
+                | gl::TEXTURE_RECTANGLE
+                | gl::TEXTURE_EXTERNAL_OES => {
                     assert_eq!(layer, Some(0));
                     debug_assert!(cubemap_layer.is_none());
 
@@ -2391,10 +2400,12 @@ unsafe fn attach(
                         );
                     } else {
                         bind_framebuffer(ctxt, Some(id), true, true);
-                        // OpenGL ES 3.1+ also accepts multisample textures here
+                        // OpenGL ES 3.1+ also accepts multisample textures here, and
+                        // `GL_EXT_YUV_target` the external ones
                         assert!(
                             bind_point == gl::TEXTURE_2D
                                 || bind_point == gl::TEXTURE_2D_MULTISAMPLE
+                                || bind_point == gl::TEXTURE_EXTERNAL_OES
                         );
                         ctxt.glow.framebuffer_texture_2d(
                             glow::FRAMEBUFFER,

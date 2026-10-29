@@ -164,6 +164,9 @@ impl<'t, T: 't + core::ops::Deref<Target = crate::texture::TextureAny>> ImageUni
     pub fn set_layer(mut self, layer: Option<u32>) -> Result<Self, ImageUnitError> {
         if let Some(layer) = layer {
             match self.0.dimensions() {
+                texture::Dimensions::External { .. } => {
+                    Err(ImageUnitError::LayeringNotSupported(self.0.dimensions()))
+                }
                 texture::Dimensions::Texture1d { width } => {
                     Err(ImageUnitError::LayeringNotSupported(self.0.dimensions()))
                 }
