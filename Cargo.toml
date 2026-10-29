@@ -80,10 +80,10 @@ glutin-winit = "0.5.0"
 takeable-option = "0.5.0"
 gltf = { version = "1.4.1", default-features = false, features = ["utils"] }
 
-# the kiosk example draws with DRM/KMS and GBM, without window system
+# the kiosk example draws with DRM/KMS and GBM, without window system, loading libgbm
 [target.'cfg(target_os = "linux")'.dev-dependencies]
-gbm = { version = "0.18.0", default-features = false, features = ["drm-support"] }
 drm = "0.14"
+libloading = "0.8"
 # the tests of memory objects share memory and semaphores with Vulkan
 ash = "0.38"
 
